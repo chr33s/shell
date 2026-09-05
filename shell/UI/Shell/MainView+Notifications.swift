@@ -90,6 +90,10 @@ extension MainView {
     /// drive the binding-based `SidePanelOverlay` directly, so there is no gate
     /// and no deferred flip — the toggle is instant, like the tab sidebar.
     func requestSettingsPresentation(destination: SettingsDestination? = nil) {
+        #if targetEnvironment(macCatalyst)
+        // Settings is its own window on the Mac, not an in-window overlay.
+        MacSettingsWindow.show(destination: destination)
+        #else
         if showConnectionSidebar {
             showConnectionSidebar = false
         }
@@ -100,6 +104,7 @@ extension MainView {
         }
 
         showSettings = true
+        #endif
     }
 
     func setupNotificationObservers() {
@@ -348,6 +353,11 @@ extension MainView {
 
         observerBag.observeOnMainActor(.sshURLReceived) { [self] notification in
             guard let payload = notification.userInfo?[SSHURLPayload.key] as? SSHURLPayload else { return }
+            // Catalyst addresses the open to one window; without this every open
+            // window would connect to the same host. An untargeted post (iOS,
+            // single window) is still handled here.
+            if let target = notification.userInfo?[GhosttyCommandRouting.windowSceneSessionIDKey] as? String,
+               target != self.windowSceneSessionID { return }
             if self.showSettings { self.showSettings = false }
             self.handleSSHURL(payload.components)
         }
@@ -366,6 +376,25 @@ extension MainView {
             if self.showSettings { self.showSettings = false }
             self.connectionSidebarInitialTab = .profiles
             self.showConnectionSidebar = true
+        }
+
+        observerBag.observeOnMainActor(.moveTabToNewWindow) { [self] notification in
+            guard self.shouldHandleNotification(notification) else { return }
+            guard let tab = self.tabsModel.selectedTab else { return }
+            self.moveTabToNewWindow(tab)
+        }
+
+        observerBag.observeOnMainActor(.mergeAllWindows) { [self] notification in
+            guard self.shouldHandleNotification(notification) else { return }
+            self.mergeAllWindows()
+        }
+
+        observerBag.observeOnMainActor(.openRecentProfile) { [self] notification in
+            guard self.shouldHandleNotification(notification) else { return }
+            guard let rawID = notification.userInfo?["profileID"] as? String,
+                  let id = UUID(uuidString: rawID),
+                  let profile = ConnectionProfileManager.shared.profile(for: id) else { return }
+            self.connectToProfile(profile, splitOption: .newTab)
         }
 
         observerBag.observeOnMainActor(.ghosttySearchStateChanged) { [self] notification in
@@ -501,7 +530,15 @@ extension MainView {
 
             // On iPad/iPhone (single-window), accept notifications without explicit targeting
             // This handles the case when all tabs are closed and menu/keyboard shortcuts are used
+            #if targetEnvironment(macCatalyst)
+            // Count only scenes that host a MainView: the Settings window is a
+            // UIWindowScene too, and counting it would make the sole terminal
+            // window start refusing untargeted commands as soon as it opens.
+            let connectedScenes = UIApplication.shared.connectedScenes
+                .filter { CatalystSceneDelegate.isTerminalScene($0) }
+            #else
             let connectedScenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            #endif
             if connectedScenes.count <= 1 {
                 return true
             }

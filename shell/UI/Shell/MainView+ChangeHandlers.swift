@@ -202,6 +202,7 @@ extension MainView {
             .modifier(NotificationHandlersModifier(
                 tabBarHidden: $tabBarHidden,
                 restorationVersion: $restorationVersion,
+                windowId: windowId,
                 tabsModel: tabsModel,
                 shouldHandleNotification: shouldHandleNotification
             ))

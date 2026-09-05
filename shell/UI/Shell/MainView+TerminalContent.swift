@@ -959,7 +959,7 @@ private struct TmuxReconnectSwipeFallbackView: UIViewRepresentable {
 
         private func perform(_ action: Action) {
             guard case .tabNavigation(let handler) = action else { return }
-            #if !os(visionOS)
+            #if !os(visionOS) && !targetEnvironment(macCatalyst)
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
             #endif
             handler()

@@ -1354,7 +1354,9 @@ extension Ghostty {
             self.surfaceController = TerminalSurfaceController(host: self)
             self.sessionController = TerminalSessionController(host: self)
             self.inputController = TerminalInputController()
+            #if !targetEnvironment(macCatalyst)
             self.keyboardAccessoryController = TerminalKeyboardAccessoryController(host: self)
+            #endif
             self.connectionProgress = ConnectionProgressPresenter(host: self)
 
             // A pipe-writer overflow dropped oldest output (reader stalled or
@@ -1502,7 +1504,7 @@ extension Ghostty {
             outputPipeline.cancel()
             scrollIndicatorHideWorkItem?.cancel()
             scrollIndicatorHideWorkItem = nil
-            keyboardAccessoryController.tearDown()
+            keyboardAccessoryController?.tearDown()
             #if !targetEnvironment(macCatalyst)
             pendingDoubleTapActionTask?.cancel()
             pendingDoubleTapActionTask = nil
@@ -2059,7 +2061,7 @@ extension Ghostty {
         }
 
         private func setupCollapsedKeyboardToolbarButton() {
-            keyboardAccessoryController.setupCollapsedKeyboardToolbarButton()
+            keyboardAccessoryController?.setupCollapsedKeyboardToolbarButton()
         }
 
         private func collapseKeyboardToolbar() {
@@ -2076,25 +2078,25 @@ extension Ghostty {
         }
 
         private func updateCollapsedKeyboardToolbarButtonVisibility() {
-            keyboardAccessoryController.setAIAgentOverlayActive(aiAgentOverlayActive)
+            keyboardAccessoryController?.setAIAgentOverlayActive(aiAgentOverlayActive)
         }
 
         private func updateCollapsedKeyboardToolbarButtonLayout() {
-            keyboardAccessoryController.updateCollapsedKeyboardToolbarButtonLayout()
+            keyboardAccessoryController?.updateCollapsedKeyboardToolbarButtonLayout()
         }
 
         func hitTestCollapsedKeyboardToolbarButton(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-            keyboardAccessoryController.hitTestCollapsedKeyboardToolbarButton(point, with: event)
+            keyboardAccessoryController?.hitTestCollapsedKeyboardToolbarButton(point, with: event)
         }
 
         /// Restore the full keyboard from toolbar-only mode, clearing the
         /// window's hide intent (and pinned state) so other tabs follow.
         func exitToolbarOnlyMode() {
-            keyboardAccessoryController.exitToolbarOnlyMode()
+            keyboardAccessoryController?.exitToolbarOnlyMode()
         }
 
         private func setupKeyboard() {
-            keyboardAccessoryController.setupKeyboard(delegate: self)
+            keyboardAccessoryController?.setupKeyboard(delegate: self)
             setupInputModeObserver()
             setupModTapInterceptorCallbacks()
         }
@@ -3531,11 +3533,11 @@ extension Ghostty {
 
 #if !os(visionOS)
         override var inputAccessoryView: UIView? {
-            return keyboardAccessoryController.inputAccessoryView
+            return keyboardAccessoryController?.inputAccessoryView
         }
 
         override var inputView: UIView? {
-            return keyboardAccessoryController.inputView
+            return keyboardAccessoryController?.inputView
         }
 
         /// Set when a `reloadInputViews()` was deferred because the keyboard was
@@ -4410,7 +4412,7 @@ extension Ghostty.TerminalView: TerminalKeyboardAccessoryHost {
         #if !os(visionOS) && !targetEnvironment(macCatalyst)
         // Reconcile the stable input-mode reservation after any keyboard state
         // changes delivered during the animation.
-        keyboardAccessoryController.refreshBottomSafeAreaStrip()
+        keyboardAccessoryController?.refreshBottomSafeAreaStrip()
         #endif
         #if !os(visionOS)
         // Flush any input-view reload we deferred while the keyboard animated.

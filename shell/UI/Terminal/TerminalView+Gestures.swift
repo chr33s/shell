@@ -1459,7 +1459,7 @@ extension Ghostty.TerminalView {
     }
 
     func triggerHapticFeedback() {
-#if !os(visionOS)
+#if !os(visionOS) && !targetEnvironment(macCatalyst)
         let generator = UIImpactFeedbackGenerator(style: .medium)
         generator.impactOccurred()
 #endif
@@ -2140,6 +2140,12 @@ extension Ghostty.TerminalView: UIContextMenuInteractionDelegate {
         } else {
             disarm()
         }
+    }
+    #endif
+
+    #if targetEnvironment(macCatalyst)
+    func nativeContextMenu(at point: CGPoint) -> [any MacMenuEntry] {
+        CatalystMenuEntry.entries(buildContextMenu(linkURL: probeForLink(at: point)), responder: self)
     }
     #endif
 
@@ -3585,31 +3591,15 @@ extension Ghostty.TerminalView {
     private func detectCatalystScaleFactor() {
         guard let window = self.window else { return }
 
-        // Try to get NSWindow via runtime to compare frame sizes
-        // The ratio of NSWindow frame to UIWindow bounds gives us the scale
-        if let nsAppClass = NSClassFromString("NSApplication") as? NSObject.Type,
-           let sharedApp = nsAppClass.value(forKey: "sharedApplication") as? NSObject,
-           let windows = sharedApp.value(forKey: "windows") as? [NSObject],
-           let nsWindow = windows.first {
-
-            // Get NSWindow frame (in screen points)
-            if let frameValue = nsWindow.value(forKey: "frame") as? NSValue {
-                let nsFrame = frameValue.cgRectValue
-
-                // Compare to UIWindow bounds
-                let uiFrame = window.bounds
-
-                // The scale is the ratio of NSWindow size to UIWindow size
-                if uiFrame.width > 0 && nsFrame.width > 0 {
-                    let detectedScale = nsFrame.width / uiFrame.width
-                    // Sanity check - Catalyst scale is typically 0.7-0.9
-                    if detectedScale > 0.5 && detectedScale < 1.5 {
-                        Self.catalystScaleFactor = detectedScale
-                    }
-                }
-            }
-        }
+        guard let sceneID = window.windowScene?.session.persistentIdentifier,
+              let bridge = MacSupport.bridge,
+              let nsWindow = MacSupport.window(for: sceneID) else { return }
+        let nativeWidth = bridge.frame(of: nsWindow).width
+        guard window.bounds.width > 0, nativeWidth > 0 else { return }
+        let scale = nativeWidth / window.bounds.width
+        if scale > 0.5 && scale < 1.5 { Self.catalystScaleFactor = scale }
     }
+
     #endif
 }
 

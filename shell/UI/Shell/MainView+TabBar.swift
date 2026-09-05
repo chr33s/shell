@@ -219,6 +219,25 @@ extension MainView {
         #endif
     }
 
+    /// Window menu "Merge All Windows": pull every other window's tabs into this
+    /// one, in the order the transfer targets are listed. Each source window
+    /// empties and closes itself through the existing tab-transfer path, so this
+    /// is the same operation as dragging every tab across by hand.
+    func mergeAllWindows() {
+        guard TabTransferCoordinator.canOfferWindowTransfers else { return }
+        for target in TerminalWindowRegistry.targets(excluding: windowId) {
+            guard let sourceModel = TerminalWindowRegistry.tabsModel(for: target.id) else { continue }
+            let tabIDs = sourceModel.tabs.map(\.id)
+            guard !tabIDs.isEmpty else { continue }
+            TabTransferCoordinator.shared.moveTabs(
+                tabIDs,
+                from: target.id,
+                to: windowId,
+                isDestinationWindowFocused: isWindowFocused
+            )
+        }
+    }
+
     /// Create a new tmux window for either tab kind: gateway tabs route
     /// through the gateway surface, window tabs through their focused pane.
     func requestTmuxNewWindow(for tab: TabModel) {

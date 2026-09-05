@@ -149,6 +149,14 @@ extension UIApplication {
         ghostty_postNotification(.browseProfiles)
     }
 
+    /// Open one saved SSH profile in the focused window. `sender` carries the
+    /// profile's id, since a plain selector cannot: the recent-profile menu
+    /// items and the Dock menu all funnel through here.
+    @objc func menuOpenRecentProfile(_ sender: Any?) {
+        guard let id = sender as? UUID else { return }
+        ghostty_postNotification(.openRecentProfile, userInfo: ["profileID": id.uuidString])
+    }
+
     @objc func menuToggleAIAgent(_ sender: Any?) {
         ghostty_postNotification(.toggleAIAgent)
     }
@@ -159,6 +167,14 @@ extension UIApplication {
 
     @objc func menuToggleTabBar(_ sender: Any?) {
         ghostty_postNotification(.toggleTabBar)
+    }
+
+    @objc func menuMoveTabToNewWindow(_ sender: Any?) {
+        ghostty_postNotification(.moveTabToNewWindow)
+    }
+
+    @objc func menuMergeAllWindows(_ sender: Any?) {
+        ghostty_postNotification(.mergeAllWindows)
     }
 
     @objc func menuToggleGroupMode(_ sender: Any?) {

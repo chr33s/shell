@@ -338,6 +338,7 @@ class KeyboardTracker {
             object: nil
         )
 
+        #if !targetEnvironment(macCatalyst)
         // Keyboard frame notifications (for tracking keyboard frame, secondary detection)
         NotificationCenter.default.addObserver(
             self,
@@ -380,6 +381,7 @@ class KeyboardTracker {
             name: UIResponder.keyboardDidHideNotification,
             object: nil
         )
+        #endif
     }
 
     @MainActor

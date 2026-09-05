@@ -60,6 +60,10 @@ struct ShellApp: App {
                         try? await CloudKitSyncManager.shared.syncNow()
                     }
                 }
+                // Catalyst routes ssh:// through CatalystSceneDelegate instead, so
+                // the open is addressed to the scene it arrived on. Posting here
+                // as well would open the same host a second time in that window.
+                #if !targetEnvironment(macCatalyst)
                 .onOpenURL { url in
                     guard let components = SSHURLParser.parse(url) else { return }
                     NotificationCenter.default.post(
@@ -68,6 +72,7 @@ struct ShellApp: App {
                         userInfo: [SSHURLPayload.key: SSHURLPayload(components: components)]
                     )
                 }
+                #endif
                 #if !targetEnvironment(macCatalyst)
                 // iOS: use UIKit activation notifications for app activation sync.
                 // Keeping this out of SwiftUI scenePhase avoids subscribing the

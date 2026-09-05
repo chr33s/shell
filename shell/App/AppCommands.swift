@@ -93,11 +93,13 @@ struct AppCommands: Commands {
     @ObservedObject var shortcutState = MenuShortcutState.shared
 
     var body: some Commands {
-        // All of these are 26+ only. Before that CatalystAppDelegate.buildMenu(with:)
-        // builds every menu via UIMenuBuilder, and running both sources put duplicate
-        // commands in File/Edit/View — UIKit then refuses to display a menu that
-        // repeats an action, so the legacy insertions were silently dropped.
+        // These are the only menu rail: the UIMenuBuilder path is gone, and the
+        // Mac build's deployment target is 26. On iPad below 26 there is no menu
+        // bar at all, so the ⌘-hold HUD remains the surface for these shortcuts.
         if #available(macCatalyst 26.0, iOS 26.0, *) {
+            #if targetEnvironment(macCatalyst)
+            MacApplicationCommands()
+            #endif
             FileCommands(shortcutState: shortcutState)
             EditCommands(shortcutState: shortcutState)
             AppViewCommands(shortcutState: shortcutState)
@@ -154,7 +156,43 @@ struct FileCommands: Commands {
                 )
             }
             .modifier(DynamicShortcut(action: .duplicate_ssh_tab, shortcuts: shortcutState.shortcuts))
+
+            Divider()
+            OpenRecentProfilesMenu()
         }
+    }
+}
+
+/// File > Open Recent, listing saved SSH profiles most-recently-used first.
+///
+/// macOS's own Open Recent is document-based and shell is not a document app,
+/// so this is the equivalent for the thing users actually reopen. It is a View
+/// rather than bare `Commands` content so `@Observable` tracking rebuilds the
+/// menu as profiles are used. There is deliberately no "Clear Menu" item: the
+/// order comes from each profile's stored usage stats, which the user manages
+/// in Settings, and clearing them here would silently discard that data.
+struct OpenRecentProfilesMenu: View {
+    private static let maxItems = 10
+
+    @State private var profileManager = ConnectionProfileManager.shared
+
+    private var recents: [SSHProfile] {
+        profileManager.profiles
+            .compactMap { profile in profile.lastUsedAt.map { (profile, $0) } }
+            .sorted { $0.1 > $1.1 }
+            .prefix(Self.maxItems)
+            .map(\.0)
+    }
+
+    var body: some View {
+        Menu("Open Recent") {
+            ForEach(recents) { profile in
+                Button(profile.name) {
+                    UIApplication.shared.menuOpenRecentProfile(profile.id)
+                }
+            }
+        }
+        .disabled(recents.isEmpty)
     }
 }
 
@@ -524,9 +562,13 @@ struct ShellCommands: Commands {
         // The system provides "Settings..." automatically, we just need to handle the action
         CommandGroup(replacing: .appSettings) {
             Button("Settings...") {
+                #if targetEnvironment(macCatalyst)
+                MacSettingsWindow.show()
+                #else
                 UIApplication.shared.menuOpenSettings(
                     VNCReservedKeyboardShortcut.openSettings.notificationSender
                 )
+                #endif
             }
             .modifier(DynamicShortcut(action: .open_settings, shortcuts: shortcutState.shortcuts))
         }

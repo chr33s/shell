@@ -60,6 +60,7 @@ final class KeyboardGeometryMonitor {
     private static let dockTolerance: CGFloat = 50
 
     private init() {
+        #if !targetEnvironment(macCatalyst)
         setupKeyboardObserver()
 
         // Reset the tracked height when a hardware keyboard attaches/detaches.
@@ -81,6 +82,7 @@ final class KeyboardGeometryMonitor {
                 self.keyboardStateVersion += 1
             }
         }
+        #endif
     }
 
     // MARK: - Change notifications

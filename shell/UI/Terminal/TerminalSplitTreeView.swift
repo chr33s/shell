@@ -1076,6 +1076,8 @@ extension Notification.Name {
     static let createLocalShell = Notification.Name("dev.chr33s.shell.createLocalShell")
     static let browseHosts = Notification.Name("dev.chr33s.shell.browseHosts")
     static let browseProfiles = Notification.Name("dev.chr33s.shell.browseProfiles")
+    /// Open a saved SSH profile chosen from the File > Open Recent menu or the Dock menu.
+    static let openRecentProfile = Notification.Name("dev.chr33s.shell.openRecentProfile")
     static let ghosttyDidUpdateScrollbar = Notification.Name("dev.chr33s.shell.didUpdateScrollbar")
     static let ghosttySelectionScrollIndicatorActivity = Notification.Name("dev.chr33s.shell.selectionScrollIndicatorActivity")
     static let ghosttyDidReceiveInput = Notification.Name("dev.chr33s.shell.didReceiveInput")
@@ -1088,6 +1090,10 @@ extension Notification.Name {
     static let toggleAIAgent = Notification.Name("dev.chr33s.shell.toggleAIAgent")
     static let toggleVoiceAgent = Notification.Name("dev.chr33s.shell.toggleVoiceAgent")
     static let toggleTabBar = Notification.Name("dev.chr33s.shell.toggleTabBar")
+    /// Window menu: pull the selected tab out into its own window.
+    static let moveTabToNewWindow = Notification.Name("dev.chr33s.shell.moveTabToNewWindow")
+    /// Window menu: collect every other window's tabs into the focused window.
+    static let mergeAllWindows = Notification.Name("dev.chr33s.shell.mergeAllWindows")
     static let toggleGroupMode = Notification.Name("dev.chr33s.shell.toggleGroupMode")
     static let toggleTransparency = Notification.Name("dev.chr33s.shell.toggleTransparency")
     static let toggleTitleBar = Notification.Name("dev.chr33s.shell.toggleTitleBar")

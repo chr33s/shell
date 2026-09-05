@@ -38,7 +38,7 @@ enum SettingsSection: String, Hashable, Identifiable, CaseIterable {
 }
 
 /// A deep link into a specific settings screen.
-enum SettingsDestination: Hashable {
+enum SettingsDestination: String, Hashable {
     case sshIdentities
     case sshProfiles
     case knownHosts

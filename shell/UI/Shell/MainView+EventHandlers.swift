@@ -171,14 +171,6 @@ extension MainView {
                 // Catalyst may materialize a shell before the underlying
                 // NSWindow has been converted into the visor panel.
             } else {
-            // Catalyst terminal I/O needs the helper. If it has already been
-            // confirmed running (every window after the first) AND there's no
-            // saved state to restore, create the local shell synchronously so
-            // content isn't serialized behind a MainActor-congested await —
-            // the open-latency trace showed that await costing 0.5–2s. The
-            // first window, and any restore, take the safe async path that
-            // awaits ensureHelperRunning() first.
-            //
             // NOTE: getPendingState() has a side effect — it marks the window
             // as restored — so it must be read exactly once and the value
             // reused (a second call returns nil and would skip restore).
@@ -190,42 +182,11 @@ extension MainView {
             // Covers both restore (savedFrame from state) and a new Cmd-N window
             // (nil → nudge-only if another window is open).
             stashPendingGeometryRestore(savedFrame: pendingState.flatMap { Self.savedFrame(from: $0) })
-            let newWindowRequest = pendingState == nil
-                ? AppIntentCoordinator.shared.claimNewWindowRequest() : nil
-            if let newWindowRequest {
-                // AppleScript `create window`: the staged request is this
-                // window's content, so skip the default local shell.
-                dispatchClaimedIntentRequests([newWindowRequest])
-            } else if pendingState == nil, adoptPendingIntentRequestsAsFirstContent() {
-                // A folder/URL open that landed before this window appeared is
-                // this window's content.
-            } else if pendingState == nil, HelperConnection.shared.isKnownRunning {
-                // createLocalShellTab() runs synchronously now: performLocalShellAction()
-                // takes its fast path when the helper is already confirmed up.
-                createLocalShellTab()
-                markPlaceholderShell()
+            if let savedState = pendingState {
+                RestorationHealthTracker.shared.markRestorationStarted()
+                restoreWindowState(savedState)
             } else {
-                restorationInFlight = pendingState != nil
-                Task { @MainActor in
-                    _ = await HelperConnection.shared.ensureHelperRunning()
-
-                    if let savedState = pendingState {
-                        // Mark restoration in-progress for crash detection
-                        RestorationHealthTracker.shared.markRestorationStarted()
-                        Ghostty.logger.info("Restoring window state: \(savedState.tabs.count) tabs")
-                        self.restoreWindowState(savedState)
-                        self.restorationInFlight = false
-                        // A folder open that arrived during the restore was
-                        // held back; it follows the restored tabs.
-                        self.adoptPendingIntentRequestsAsFirstContent()
-                    } else if self.adoptPendingIntentRequestsAsFirstContent() {
-                        // On cold launch the URL often lands during the helper
-                        // await above, after the synchronous claim missed it.
-                    } else {
-                        // Normal fresh start - helper is already running from above
-                        self.checkHelperAndCreateInitialTab()
-                    }
-                }
+                createInitialTab()
             }
             }
 #else
@@ -248,6 +209,12 @@ extension MainView {
         }
         // Setup notification observers
         setupNotificationObservers()
+
+#if targetEnvironment(macCatalyst)
+        // A Dock menu click with no window open parks its action; the observers
+        // it needs exist as of the line above.
+        MacDockMenu.drainPendingAction()
+#endif
         
         // Notify session tracker of initial state
         notifySessionCountChanged()

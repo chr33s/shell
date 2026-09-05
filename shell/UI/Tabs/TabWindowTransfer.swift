@@ -74,6 +74,13 @@ enum TerminalWindowRegistry {
         models[windowId]?.sceneSessionId
     }
 
+    /// Reverse of `sceneSessionId(for:)`. Used by the Catalyst scene delegate to
+    /// stamp a window's id into the scene's state-restoration activity, so the
+    /// same scene session claims the same saved window on the next launch.
+    static func windowId(forSceneSessionId sceneSessionId: String) -> String? {
+        models.first { $0.value.sceneSessionId == sceneSessionId }?.key
+    }
+
     static func refreshSelectionAfterMutation(in windowId: String, allowFocus: Bool) {
         models[windowId]?.refreshSelectionAfterMutation?(allowFocus)
     }

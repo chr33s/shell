@@ -24,7 +24,7 @@ import os
 ///    `DragStripEventShield`) — suppresses for the whole press, no timeouts.
 /// 2. NSWindowWillMove/DidMove notifications (delivery on Catalyst is not
 ///    guaranteed on all versions).
-/// 3. A display link that polls the actual NSWindow frames via reflection
+/// 3. A display link that polls the actual NSWindow frames through the typed bridge
 ///    while either signal above is live — the ground truth for "still
 ///    moving", and the only end-of-move signal AppKit gives us at all.
 @MainActor
@@ -47,6 +47,16 @@ final class WindowDragObserver {
     private var cancellables = Set<AnyCancellable>()
 
     private init() {
+        for (name, action) in [
+            ("ShellMacDragStripHover", { [weak self] in self?.noteDragStripHover() }),
+            ("ShellMacDragStripBegan", { [weak self] in self?.dragStripTouchBegan() }),
+            ("ShellMacDragStripEnded", { [weak self] in self?.dragStripTouchEnded() })
+        ] {
+            NotificationCenter.default.publisher(for: Notification.Name(name))
+                .receive(on: DispatchQueue.main)
+                .sink { _ in action() }
+                .store(in: &cancellables)
+        }
         for name in ["NSWindowWillMoveNotification", "NSWindowDidMoveNotification"] {
             NotificationCenter.default.publisher(for: Notification.Name(name))
                 .receive(on: DispatchQueue.main)
@@ -124,16 +134,12 @@ final class WindowDragObserver {
         }
     }
 
-    /// All NSWindow frames, read via reflection (same channel WindowAccessor
-    /// uses). Only called while a drag signal is live, so the per-frame cost
+    /// All NSWindow frames, read through the macOS support bundle.
+    /// Only called while a drag signal is live, so the per-frame cost
     /// is limited to actual drags.
     private static func currentWindowFrames() -> [CGRect] {
-        guard let nsAppClass = NSClassFromString("NSApplication") as? NSObject.Type,
-              let sharedApp = nsAppClass.value(forKey: "sharedApplication") as? NSObject,
-              let windows = sharedApp.value(forKey: "windows") as? [NSObject] else {
-            return []
-        }
-        return windows.compactMap { ($0.value(forKey: "frame") as? NSValue)?.rectValue }
+        guard let bridge = MacSupport.bridge else { return [] }
+        return bridge.windows.map { bridge.frame(of: $0) }
     }
 }
 #endif

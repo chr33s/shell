@@ -2,8 +2,8 @@
 //  CatalystLocalShellSession.swift
 //  shell
 //
-//  Bridge between ghostty-helper and Catalyst app
-//  Creates PTYs via helper and bridges to IOSExternal
+//  Native PTY session for the Catalyst app
+//  Creates PTYs through ShellMacSupport
 //  Only available on Mac Catalyst
 //
 
@@ -12,7 +12,7 @@ import os
 
 #if targetEnvironment(macCatalyst)
 
-/// Shell session for Catalyst using helper
+/// Shell session for Catalyst using a native child process
 /// This replaces LocalShellSession when running on Mac Catalyst
 @MainActor
 public class CatalystLocalShellSession: TerminalSession {
@@ -51,132 +51,42 @@ public class CatalystLocalShellSession: TerminalSession {
     private let writeQueue = DispatchQueue(label: "dev.chr33s.shell.catalyst.write", qos: .userInitiated)
     private var closeScheduled = false
 
-    // Coalesced resize state (to avoid hammering the helper during live resizing)
+    // Coalesced resize state (to avoid hammering the PTY during live resizing)
     private var lastSentGridSize: (rows: UInt16, cols: UInt16)?
     private var pendingGridSize: (rows: UInt16, cols: UInt16)?
     private var resizeTask: Task<Void, Never>?
 
     // MARK: - Initialization
 
-    /// Creates a new session by requesting a shell from the helper
-    public static func create(
-        rows: UInt16,
-        cols: UInt16,
-        workingDirectory: String? = nil,
-        shell: String? = nil,
-        enableShellIntegration: Bool = true,
-        paneToken: String? = nil,
-        completion: @escaping (Result<CatalystLocalShellSession, Error>) -> Void
-    ) {
-        Ghostty.logger.info("Creating Catalyst shell session: \(rows)x\(cols), cwd=\(workingDirectory ?? "nil")")
-        attemptCreate(
-            rows: rows,
-            cols: cols,
-            workingDirectory: workingDirectory,
-            shell: shell,
-            enableShellIntegration: enableShellIntegration,
-            paneToken: paneToken,
-            retriesRemaining: 1,
-            completion: completion
-        )
-    }
-
-    private static func attemptCreate(
-        rows: UInt16,
-        cols: UInt16,
-        workingDirectory: String?,
-        shell: String?,
-        enableShellIntegration: Bool,
-        paneToken: String?,
-        retriesRemaining: Int,
-        completion: @escaping (Result<CatalystLocalShellSession, Error>) -> Void
-    ) {
-        let size = TerminalPTY.TerminalSize(rows: rows, cols: cols)
-
-        // Request shell from helper
-        HelperConnection.shared.createShell(
-            rows: rows,
-            cols: cols,
-            workingDirectory: workingDirectory,
-            shell: shell,
-            enableShellIntegration: enableShellIntegration,
-            paneToken: paneToken
-        ) { result in
-            switch result {
-            case .success(let createResult):
-                Ghostty.logger.info("Helper created session \(createResult.sessionID), socket=\(createResult.socketPath)")
-
-                // Receive PTY master FD on a background thread to avoid blocking main thread
-                // The FDReceiver uses select() + accept() which can take time
-                DispatchQueue.global(qos: .userInitiated).async {
-                    guard let masterFD = FDReceiver.receiveFileDescriptor(from: createResult.socketPath) else {
-                        DispatchQueue.main.async {
-                            // Reap the half-created helper session, then retry the
-                            // whole createShell once so a transient stall doesn't
-                            // leave a live-but-typing-dead tab.
-                            HelperConnection.shared.killShell(sessionID: createResult.sessionID) { _ in }
-                            if retriesRemaining > 0 {
-                                Ghostty.logger.warning("FD handoff failed for session \(createResult.sessionID), retrying createShell")
-                                attemptCreate(
-                                    rows: rows,
-                                    cols: cols,
-                                    workingDirectory: workingDirectory,
-                                    shell: shell,
-                                    enableShellIntegration: enableShellIntegration,
-                                    paneToken: paneToken,
-                                    retriesRemaining: retriesRemaining - 1,
-                                    completion: completion
-                                )
-                            } else {
-                                Ghostty.logger.error("Failed to receive master FD from socket after retry")
-                                completion(.failure(NSError(
-                                    domain: "CatalystLocalShellSession",
-                                    code: 1,
-                                    userInfo: [NSLocalizedDescriptionKey: "Failed to receive master FD"]
-                                )))
-                            }
-                        }
-                        return
-                    }
-
-                    Ghostty.logger.info("Received master FD \(masterFD) for session \(createResult.sessionID)")
-
-                    // Create session and call completion on main thread
-                    DispatchQueue.main.async {
-                        let session = CatalystLocalShellSession(
-                            sessionID: createResult.sessionID,
-                            masterFD: masterFD,
-                            size: size
-                        )
-
-                        // Output monitoring is started by the caller after callbacks are configured
-                        completion(.success(session))
-                    }
-                }
-
-            case .failure(let error):
-                Ghostty.logger.error("Failed to create shell via helper: \(error.localizedDescription)")
-                completion(.failure(error))
+    /// Creates a native PTY. Output monitoring starts after the caller installs callbacks.
+    public static func create(rows: UInt16, cols: UInt16, workingDirectory: String? = nil,
+                              shell: String? = nil, enableShellIntegration: Bool = true,
+                              paneToken: String? = nil,
+                              completion: @escaping (Result<CatalystLocalShellSession, Error>) -> Void) {
+        do {
+            let process = try MacLocalShellManager.create(rows: rows, columns: cols,
+                directory: workingDirectory, shell: shell, integration: enableShellIntegration, paneToken: paneToken)
+            do {
+                let fd = process.duplicateMaster()
+                guard fd >= 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }
+                completion(.success(CatalystLocalShellSession(process: process, masterFD: fd,
+                    size: TerminalPTY.TerminalSize(rows: rows, cols: cols))))
+            } catch {
+                process.terminate(signal: SIGHUP)
+                throw error
             }
-        }
+        } catch { completion(.failure(error)) }
     }
 
-    private init(sessionID: UUID, masterFD: Int32, size: TerminalPTY.TerminalSize) {
-        self.sessionID = sessionID
+    private let process: any MacShellProcess
+    private init(process: any MacShellProcess, masterFD: Int32, size: TerminalPTY.TerminalSize) {
+        self.process = process
+        self.sessionID = UUID()
         self.masterFD = masterFD
-
-        // Create a TerminalPTY wrapper around the external FD
-        // This PTY uses the master FD provided by the helper (which already created the PTY)
         let pty = TerminalPTY()
         pty.useExternalFd(masterFD)
         pty.windowSize = size
         self.pty = pty
-    }
-
-    nonisolated deinit {
-        // Note: Can't call MainActor-isolated cleanup() from deinit
-        // Cleanup will happen via handleExit() or explicit stop() call
-        // The helper will also clean up sessions automatically
     }
 
     // MARK: - I/O Operations
@@ -415,19 +325,12 @@ public class CatalystLocalShellSession: TerminalSession {
                             let cols = pending.cols
                             Ghostty.logger.debug("Resizing session \(sessionID) to \(rows)x\(cols)")
                         }
-                        let success = await HelperConnection.shared.resizeShell(
-                            sessionID: self.sessionID,
-                            rows: pending.rows,
-                            cols: pending.cols
-                        )
-                        if success {
-                            // Re-apply ioctl(TIOCSWINSZ) with pixel dimensions after the
-                            // helper's resize. The helper only receives rows/cols, so its
-                            // ioctl zeros out ws_xpixel/ws_ypixel. Re-setting from
-                            // pty.windowSize restores the pixel values needed by kitty icat,
-                            // imgcat, and other image-capable tools.
-                            try? self.pty.setWindowSize(self.pty.windowSize)
-                        } else {
+                        do {
+                            var size = self.pty.windowSize
+                            size.rows = pending.rows
+                            size.cols = pending.cols
+                            try self.pty.setWindowSize(size)
+                        } catch {
                             self.lastSentGridSize = nil
                         }
                     }
@@ -446,11 +349,7 @@ public class CatalystLocalShellSession: TerminalSession {
 
         Ghostty.logger.info("Terminating session \(self.sessionID) with signal \(signal)")
 
-        HelperConnection.shared.killShell(sessionID: sessionID, signal: signal) { success in
-            if !success {
-                Ghostty.logger.error("Failed to kill session \(self.sessionID)")
-            }
-        }
+        process.terminate(signal: signal)
 
         cleanup()
     }
@@ -461,16 +360,8 @@ public class CatalystLocalShellSession: TerminalSession {
 
         Ghostty.logger.info("Session \(self.sessionID) exited, querying status")
 
-        // Query exit status from helper
-        HelperConnection.shared.getSessionInfo(sessionID: sessionID) { [weak self] info in
-            guard let self = self else { return }
-
-            let exitStatus = info?.exitStatus ?? -1
-            Ghostty.logger.info("Session \(self.sessionID) exited with status \(exitStatus)")
-
-            self.onSessionEnd?()
-            self.cleanup()
-        }
+        onSessionEnd?()
+        cleanup()
     }
 
     private func cleanup() {

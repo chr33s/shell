@@ -494,25 +494,25 @@ extension MainView {
 
     #if targetEnvironment(macCatalyst)
     /// Materialize any saved regular windows that Catalyst did not recreate
-    /// itself. Delayed slightly so OS-restored scenes get a chance to claim
-    /// their exact saved IDs before we ask for fresh fallback scenes — kept short
-    /// (the actual wrong-window safety is `getPendingState`'s fallback ID-matching,
-    /// not this timer) so secondary windows appear quickly.
+    /// itself. Delayed slightly so system-restored scenes get a chance to bind
+    /// their own saved windows first — kept short (each requested scene carries
+    /// its window id, so the delay is not what keeps windows apart) so secondary
+    /// windows appear quickly.
     static func schedulePendingRegularWindowRestoration(after delay: Duration = .milliseconds(100)) {
         Task { @MainActor in
             try? await Task.sleep(for: delay)
-            let count = WindowStateManager.shared.claimPendingRegularWindowActivationCount()
-            guard count > 0 else { return }
+            let windowIds = WindowStateManager.shared.claimWindowIdsNeedingScenes()
+            guard !windowIds.isEmpty else { return }
 
-            Ghostty.logger.info("Requesting \(count) additional window(s) for state restoration")
-            for _ in 0..<count {
+            Ghostty.logger.info("Requesting \(windowIds.count) additional window(s) for state restoration")
+            for windowId in windowIds {
                 UIApplication.shared.requestSceneSessionActivation(
                     nil,
-                    userActivity: nil,
+                    userActivity: CatalystSceneDelegate.windowRestorationActivity(for: windowId),
                     options: nil,
                     errorHandler: { error in
                         Task { @MainActor in
-                            if WindowStateManager.shared.releasePendingRegularWindowActivationReservationAfterFailure() {
+                            if WindowStateManager.shared.releaseSceneRequest(forWindowId: windowId) {
                                 Self.schedulePendingRegularWindowRestoration(after: .seconds(1))
                             }
                         }

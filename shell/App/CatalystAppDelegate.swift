@@ -382,51 +382,7 @@ extension UIApplication {
     // These are needed because CatalystAppDelegate isn't reachable in responder chain on older macOS
     // We implement the logic directly here rather than delegating, as the delegate cast can fail
 
-    @objc func ghostty_showAbout(_ sender: Any?) {
-        // Build credits as an attributed string
-        let credits = NSMutableAttributedString()
-
-        let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.alignment = .center
-        paragraphStyle.paragraphSpacing = 8
-
-        // Use NSColor for AppKit About panel (UIColor doesn't translate correctly)
-        guard let nsColorClass = NSClassFromString("NSColor") as? NSObject.Type,
-              let secondaryLabelColor = nsColorClass.value(forKey: "secondaryLabelColor") else {
-            return
-        }
-
-        let normalAttributes: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 11),
-            .foregroundColor: secondaryLabelColor,
-            .paragraphStyle: paragraphStyle
-        ]
-
-        let linkAttributes: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 11),
-            .link: URL(string: "https://github.com/chr33s/shell")!,
-            .paragraphStyle: paragraphStyle
-        ]
-
-        credits.append(NSAttributedString(string: "github.com/chr33s/shell\n\n", attributes: linkAttributes))
-        credits.append(NSAttributedString(string: "Terminal emulator based on libghostty\nby Mitchell Hashimoto", attributes: normalAttributes))
-
-        // Use dynamic Objective-C runtime to access NSApplication (not directly available in Catalyst)
-        guard let nsAppClass = NSClassFromString("NSApplication") as? NSObject.Type else { return }
-        guard let nsApp = nsAppClass.value(forKey: "sharedApplication") as? NSObject else { return }
-
-        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Unknown"
-        var options: [String: Any] = [
-            "Credits": credits,
-            "ApplicationName": "Shell",
-            "ApplicationVersion": "\(version) (\(BuildInfo.date))"
-        ]
-        if let applicationIcon = AppIconManager.shared.makeMacCatalystAboutPanelIcon() {
-            options["ApplicationIcon"] = applicationIcon
-        }
-
-        nsApp.perform(NSSelectorFromString("orderFrontStandardAboutPanelWithOptions:"), with: options)
-    }
+    @objc func ghostty_showAbout(_ sender: Any?) { MacSupport.bridge?.showAbout() }
 
     @objc func ghostty_close(_ sender: Any?) {
         logger.info("ghostty_close called")
@@ -496,7 +452,7 @@ extension UIApplication {
         logger.info("Performing quit")
 
         // Stop helper process first
-        HelperConnection.shared.stopHelper()
+        MacLocalShellManager.stopAll()
 
         // Request destruction of all scene sessions first
         for session in connectedScenes.compactMap({ $0 as? UIWindowScene }).map({ $0.session }) {
@@ -539,6 +495,12 @@ class CatalystAppDelegate: AppDelegate {
     override func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         // Call super to register for remote notifications (CloudKit push)
         _ = super.application(application, didFinishLaunchingWithOptions: launchOptions)
+        _ = MacSupport.bridge
+        MacTerminalEvents.install()
+        // The UIKit shim installs the NSApplication delegate as part of launch;
+        // one runloop turn later it is reliably in place to take the Dock menu.
+        DispatchQueue.main.async { MacDockMenu.install() }
+        _ = WindowDragObserver.shared
 
         #if STANDALONE
         // Force Sparkle scheduler to start at launch (UpdateManager.shared is lazy)
@@ -785,7 +747,6 @@ class CatalystAppDelegate: AppDelegate {
 
         // Ahead of the debounce: pushes the extension decrypted while the app
         // was not running must reach the arbitration ledger on every activation.
-        Task { @MainActor in PushNotificationRouter.syncDelivered() }
 
         // Debounce: only sync once every 3 minutes on activation
         if let lastSync = lastActivationSyncDate,
@@ -831,7 +792,7 @@ class CatalystAppDelegate: AppDelegate {
 
         // Stop the helper process on app termination
         // Child processes on macOS don't auto-terminate when parent exits - they become orphans
-        HelperConnection.shared.stopHelper()
+        MacLocalShellManager.stopAll()
     }
 
     private func persistCatalystStateAndWindowGeometry(reason: String) {
@@ -867,691 +828,39 @@ class CatalystAppDelegate: AppDelegate {
         return Self.routeAutomationURL(url, source: "appDelegate.open")
     }
 
-    /// Shared by the app-, scene- and AppleScript-level entry points. Handles
-    /// ssh://, mosh://, and file URLs (`odoc` from Finder/BBEdit → local shell
-    /// at that folder, or at a file's parent). Returns false for anything else;
-    /// true also covers a delivery the coordinator suppressed as a duplicate.
+    /// Shared by the app- and scene-level entry points. Handles ssh:// and
+    /// returns false for anything else, which lets the caller fall through to
+    /// its own handling.
+    ///
+    /// The notification is addressed to one window: it is delivered to every
+    /// `MainView`, and without a target each open window would connect. The
+    /// scene the URL arrived on is that window; an app-level open that names no
+    /// scene goes to the focused one.
     @discardableResult
     static func routeAutomationURL(_ url: URL, source: String, deliveredTo scene: UIWindowScene? = nil) -> Bool {
-        if let components = SSHURLParser.parse(url) {
-            logger.info("[urlopen] route source=\(source, privacy: .public) kind=ssh")
-            AppIntentCoordinator.shared.depositURLRequest(.openSSH(components), source: source, deliveredTo: scene)
-            return true
+        guard let components = SSHURLParser.parse(url) else { return false }
+        logger.info("[urlopen] route source=\(source, privacy: .public) kind=ssh")
+        var userInfo: [AnyHashable: Any] = [SSHURLPayload.key: SSHURLPayload(components: components)]
+        if let target = scene ?? CatalystSceneDelegate.preferredRegularScene() {
+            userInfo[GhosttyCommandRouting.windowSceneSessionIDKey] = target.session.persistentIdentifier
         }
-
-        if let components = MoshURLParser.parse(url) {
-            logger.info("[urlopen] route source=\(source, privacy: .public) kind=mosh")
-            AppIntentCoordinator.shared.depositURLRequest(.openMosh(components), source: source, deliveredTo: scene)
-            return true
-        }
-
-        if let directory = shellDirectory(for: url) {
-            logger.info("[urlopen] route source=\(source, privacy: .public) kind=folder path=\(directory, privacy: .private)")
-            AppIntentCoordinator.shared.depositURLRequest(
-                .openLocalShell(directory: directory, command: nil),
-                source: source,
-                deliveredTo: scene
-            )
-            return true
-        }
-
-        logger.info("[urlopen] route source=\(source, privacy: .public) kind=unhandled scheme=\(url.scheme ?? "-", privacy: .public)")
-        return false
-    }
-
-    /// A folder opens a shell at itself, a file at its parent. `hasDirectoryPath`
-    /// is lexical, so a LaunchServices folder URL still classifies when the
-    /// sandbox refuses the stat. Returns nil for anything we won't open, which
-    /// lets the caller fall back to its own handling.
-    private static func shellDirectory(for url: URL) -> String? {
-        guard url.isFileURL else { return nil }
-        let scoped = url.startAccessingSecurityScopedResource()
-        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-
-        if url.isExistingDirectory || url.hasDirectoryPath { return url.path }
-        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
-
-        // Only the standalone build embeds the shell helper, so elsewhere a
-        // file can't become a local shell — leave it to the file-open path.
-        #if STANDALONE
-        return url.deletingLastPathComponent().path
-        #else
-        return nil
-        #endif
+        NotificationCenter.default.post(name: .sshURLReceived, object: nil, userInfo: userInfo)
+        return true
     }
 
     // MARK: - Scene Configuration
 
     func application(_ application: UIApplication, configurationForConnecting connectingSceneSession: UISceneSession, options: UIScene.ConnectionOptions) -> UISceneConfiguration {
+        if options.userActivities.contains(where: { $0.activityType == MacSettingsWindow.activityType }) ||
+            connectingSceneSession.configuration.name == MacSettingsWindow.configurationName {
+            let config = UISceneConfiguration(name: MacSettingsWindow.configurationName, sessionRole: connectingSceneSession.role)
+            config.delegateClass = MacSettingsSceneDelegate.self
+            return config
+        }
         let config = UISceneConfiguration(name: "Default Configuration", sessionRole: connectingSceneSession.role)
         config.delegateClass = CatalystSceneDelegate.self
         return config
     }
-
-    // MARK: - Menu Customization
-    // On macOS 26+ (macCatalyst 26.0): SwiftUI Commands handle most menu items (see AppCommands.swift)
-    // On macOS 15 and earlier: We build all menus manually using UIMenuBuilder
-    //
-    // This delegate always handles items that need UIKit integration:
-    // - About dialog with NSAttributedString credits
-    // - Quit confirmation with UIAlertController
-    // - Font menu removal to prevent Cmd-T conflict
-
-    override func buildMenu(with builder: UIMenuBuilder) {
-        super.buildMenu(with: builder)
-
-        guard builder.system == .main else { return }
-
-        // CRITICAL: Remove Font menu to prevent Cmd-T "Show Fonts" conflict
-        // This is required even with SwiftUI Commands because the system Font menu
-        // takes priority on older macOS versions
-        builder.remove(menu: .font)
-
-        // Determine which selectors to use based on macOS version
-        // On macOS 26+: CatalystAppDelegate methods work (proper responder chain)
-        // On older macOS: Use UIApplication extension methods (always in responder chain)
-        let aboutSelector: Selector
-        let closeSelector: Selector
-        let quitSelector: Selector
-
-        if #available(macCatalyst 26.0, *) {
-            aboutSelector = #selector(showAbout(_:))
-            closeSelector = #selector(handleClose(_:))
-#if CMD_Q_INTERCEPT
-            quitSelector = #selector(handleQuit(_:))
-            #endif
-        } else {
-            aboutSelector = #selector(UIApplication.ghostty_showAbout(_:))
-            closeSelector = #selector(UIApplication.ghostty_close(_:))
-#if CMD_Q_INTERCEPT
-            quitSelector = #selector(UIApplication.ghostty_quit(_:))
-            #endif
-        }
-
-        // Replace About menu item with custom About dialog
-        builder.replaceChildren(ofMenu: .about) { _ in
-            let aboutCommand = UICommand(
-                title: "About Shell",
-                action: aboutSelector
-            )
-            return [aboutCommand]
-        }
-
-        // Add "Check for Updates..." menu item (Standalone builds only)
-        #if STANDALONE
-        let checkForUpdatesMenu = UIMenu(
-            title: "",
-            options: .displayInline,
-            children: [
-                UICommand(
-                    title: "Check for Updates...",
-                    action: #selector(UIApplication.ghostty_checkForUpdates(_:))
-                )
-            ]
-        )
-        builder.insertSibling(checkForUpdatesMenu, afterMenu: .about)
-        #endif
-
-        // CRITICAL: Replace Close command (Cmd-W) to close tabs instead of windows
-        // System default closes the entire window - we want to close tabs/splits first
-        builder.replaceChildren(ofMenu: .close) { _ in
-            let closeCommand = UIKeyCommand(
-                title: String(localized: "Close Tab"),
-                action: closeSelector,
-                input: "w",
-                modifierFlags: [.command]
-            )
-            return [closeCommand]
-        }
-
-        // Shell is not document-based. The default Catalyst Document menu
-        // contains Duplicate/Move/Rename/Export, and Duplicate owns Cmd+Shift+S,
-        // which hides the tmux Sessions shortcut from our Tabs menu.
-        builder.remove(menu: .document)
-
-        // Replace Quit command (Cmd-Q) to show confirmation when tabs are open
-        #if CMD_Q_INTERCEPT
-        builder.replaceChildren(ofMenu: .quit) { _ in
-            let quitCommand = UIKeyCommand(
-                title: String(localized: "Quit Shell"),
-                action: quitSelector,
-                input: "q",
-                modifierFlags: [.command]
-            )
-            return [quitCommand]
-        }
-        #endif
-
-        // On macOS 26+ (macCatalyst 26.0): SwiftUI Commands handle the rest
-        if #available(macCatalyst 26.0, *) {
-            return
-        }
-
-        // Legacy (macOS 15 and earlier): Build all menus manually.
-        //
-        // CRITICAL: UIKit silently refuses to insert a menu holding a key
-        // equivalent a system menu already owns, dropping the whole menu. Format >
-        // Text owns ⌘{ / ⌘} (Align Left/Right), which killed the entire Tabs menu,
-        // and Find owns ⇧⌘G (Find Previous), which killed the View toggles. Neither
-        // menu is meaningful in a terminal.
-        builder.remove(menu: .format)
-        builder.remove(menu: .find)
-
-        buildFileMenu(builder)
-        buildEditMenu(builder)
-        buildViewMenuItems(builder)
-        // Each custom menu anchors to `.view`, a system menu, rather than to the
-        // previously inserted custom one, so one failed lookup cannot silently
-        // drop every menu after it. Reverse order gives View, Terminal, Shell, Tabs.
-        buildTabsMenu(builder)
-        buildShellMenu(builder)
-        buildTerminalMenu(builder)
-    }
-
-    // MARK: - Legacy Menu Builders (pre-macOS 26)
-    // NOTE: Menu shortcuts shown here are defaults. Actual keyboard input is handled
-    // by KeybindCommandGenerator which respects user customizations from KeybindManager.
-    // The menu display shows default shortcuts even when customized, but the actual
-    // behavior follows KeybindManager settings.
-
-    private func buildFileMenu(_ builder: UIMenuBuilder) {
-        let newLocalShell = UIKeyCommand(
-            title: String(localized: "New Local Shell"),
-            action: #selector(UIApplication.ghostty_newLocalShell(_:)),
-            input: "t",
-            modifierFlags: [.command]
-        )
-
-        let newTab = UIKeyCommand(
-            title: String(localized: "New Tab"),
-            action: #selector(UIApplication.ghostty_newTab(_:)),
-            input: "s",
-            modifierFlags: [.command]
-        )
-
-        let newWindow = UIKeyCommand(
-            title: String(localized: "New Window"),
-            action: #selector(UIApplication.ghostty_newWindow(_:)),
-            input: "n",
-            modifierFlags: [.command]
-        )
-
-        let duplicateSshTab = UIKeyCommand(
-            title: String(localized: "Duplicate SSH Tab"),
-            action: #selector(UIApplication.ghostty_duplicateSshTab(_:)),
-            input: "R",
-            modifierFlags: [.command, .shift]
-        )
-
-        builder.replaceChildren(ofMenu: .newScene) { _ in
-            [newLocalShell, newTab, newWindow, duplicateSshTab]
-        }
-    }
-
-    private func buildEditMenu(_ builder: UIMenuBuilder) {
-        let clearScreen = UIKeyCommand(
-            title: String(localized: "Clear Screen"),
-            action: #selector(UIApplication.ghostty_clearScreen(_:)),
-            input: "k",
-            modifierFlags: [.command]
-        )
-
-        let find = UIKeyCommand(
-            title: String(localized: "Find"),
-            action: #selector(UIApplication.ghostty_find(_:)),
-            input: "f",
-            modifierFlags: [.command]
-        )
-
-        let clipboardManager = UIKeyCommand(
-            title: String(localized: "Clipboard Manager"),
-            action: #selector(UIApplication.ghostty_toggleClipboardManager(_:)),
-            input: "c",
-            modifierFlags: [.command, .shift]
-        )
-
-        let editMenu = UIMenu(title: "", options: .displayInline, children: [clearScreen, find, clipboardManager])
-        builder.insertChild(editMenu, atEndOfMenu: .edit)
-    }
-
-    private func buildViewMenuItems(_ builder: UIMenuBuilder) {
-        // Font size commands — injected into system View menu
-        let increaseFont = UIKeyCommand(
-            title: String(localized: "Increase Font Size"),
-            action: #selector(UIApplication.ghostty_increaseFontSize(_:)),
-            input: "+",
-            modifierFlags: [.command]
-        )
-
-        let decreaseFont = UIKeyCommand(
-            title: String(localized: "Decrease Font Size"),
-            action: #selector(UIApplication.ghostty_decreaseFontSize(_:)),
-            input: "-",
-            modifierFlags: [.command]
-        )
-
-        let resetFont = UIKeyCommand(
-            title: String(localized: "Reset Font Size"),
-            action: #selector(UIApplication.ghostty_resetFontSize(_:)),
-            input: "0",
-            modifierFlags: [.command]
-        )
-
-        let fontGroup = UIMenu(title: "", options: .displayInline, children: [
-            increaseFont, decreaseFont, resetFont
-        ])
-
-        // View toggles
-        let toggleTabBar = UIKeyCommand(
-            title: String(localized: "Toggle Top Tab Bar"),
-            action: #selector(UIApplication.ghostty_toggleTabBar(_:)),
-            input: "B",
-            modifierFlags: [.command, .shift]
-        )
-
-        let toggleGroupMode = UIKeyCommand(
-            title: String(localized: "Toggle Group Mode"),
-            action: #selector(UIApplication.ghostty_toggleGroupMode(_:)),
-            input: "g",
-            modifierFlags: [.command, .shift]
-        )
-
-        let toggleBackgroundEffect = UIKeyCommand(
-            title: String(localized: "Toggle Background Effect"),
-            action: #selector(UIApplication.ghostty_toggleBackgroundEffect(_:)),
-            input: "U",
-            modifierFlags: [.command, .shift]
-        )
-
-        let toggleThemePicker = UIKeyCommand(
-            title: String(localized: "Toggle Theme Picker"),
-            action: #selector(UIApplication.ghostty_toggleThemePicker(_:)),
-            input: "t",
-            modifierFlags: [.command, .shift]
-        )
-
-        let toggleTransparency = UIKeyCommand(
-            title: String(localized: "Toggle Transparency"),
-            action: #selector(UIApplication.ghostty_toggleTransparency(_:)),
-            input: "u",
-            modifierFlags: [.command]
-        )
-
-        let toggleTitleBar = UIKeyCommand(
-            title: String(localized: "Toggle Title Bar"),
-            action: #selector(UIApplication.ghostty_toggleTitleBar(_:)),
-            input: "h",
-            modifierFlags: [.command, .shift]
-        )
-
-        let toggleGroup = UIMenu(title: "", options: .displayInline, children: [
-            toggleTabBar, toggleGroupMode, toggleTitleBar
-        ])
-
-        builder.insertChild(fontGroup, atEndOfMenu: .view)
-        builder.insertChild(toggleGroup, atEndOfMenu: .view)
-    }
-
-    private func buildTerminalMenu(_ builder: UIMenuBuilder) {
-        // Split creation commands
-        let splitRight = UIKeyCommand(
-            title: String(localized: "Split Right"),
-            action: #selector(UIApplication.ghostty_splitRight(_:)),
-            input: "d",
-            modifierFlags: [.command]
-        )
-
-        let splitDown = UIKeyCommand(
-            title: String(localized: "Split Down"),
-            action: #selector(UIApplication.ghostty_splitDown(_:)),
-            input: "D",
-            modifierFlags: [.command, .shift]
-        )
-
-        let splitCreateGroup = UIMenu(title: "", options: .displayInline, children: [
-            splitRight, splitDown
-        ])
-
-        // Focus Split submenu (real submenu, not inline)
-        let focusLeft = UIKeyCommand(
-            title: String(localized: "Left"),
-            action: #selector(UIApplication.ghostty_focusSplitLeft(_:)),
-            input: UIKeyCommand.inputLeftArrow,
-            modifierFlags: [.command, .alternate]
-        )
-
-        let focusRight = UIKeyCommand(
-            title: String(localized: "Right"),
-            action: #selector(UIApplication.ghostty_focusSplitRight(_:)),
-            input: UIKeyCommand.inputRightArrow,
-            modifierFlags: [.command, .alternate]
-        )
-
-        let focusUp = UIKeyCommand(
-            title: String(localized: "Up"),
-            action: #selector(UIApplication.ghostty_focusSplitUp(_:)),
-            input: UIKeyCommand.inputUpArrow,
-            modifierFlags: [.command, .alternate]
-        )
-
-        let focusDown = UIKeyCommand(
-            title: String(localized: "Down"),
-            action: #selector(UIApplication.ghostty_focusSplitDown(_:)),
-            input: UIKeyCommand.inputDownArrow,
-            modifierFlags: [.command, .alternate]
-        )
-
-        let focusSplitSubmenu = UIMenu(
-            title: String(localized: "Focus Split"),
-            children: [focusLeft, focusRight, focusUp, focusDown]
-        )
-
-        let focusSplitGroup = UIMenu(title: "", options: .displayInline, children: [
-            focusSplitSubmenu
-        ])
-
-        // Split management commands
-        let toggleZoom = UIKeyCommand(
-            title: String(localized: "Toggle Split Zoom"),
-            action: #selector(UIApplication.ghostty_toggleSplitZoom(_:)),
-            input: "Z",
-            modifierFlags: [.command, .shift]
-        )
-
-        let equalize = UIKeyCommand(
-            title: String(localized: "Equalize Splits"),
-            action: #selector(UIApplication.ghostty_equalizeSplits(_:)),
-            input: "E",
-            modifierFlags: [.command, .shift]
-        )
-
-        let splitManageGroup = UIMenu(title: "", options: .displayInline, children: [
-            toggleZoom, equalize
-        ])
-
-        // Scroll commands
-        let scrollPageUp = UIKeyCommand(
-            title: String(localized: "Scroll Page Up"),
-            action: #selector(UIApplication.ghostty_scrollPageUp(_:)),
-            input: UIKeyCommand.inputPageUp,
-            modifierFlags: [.shift]
-        )
-
-        let scrollPageDown = UIKeyCommand(
-            title: String(localized: "Scroll Page Down"),
-            action: #selector(UIApplication.ghostty_scrollPageDown(_:)),
-            input: UIKeyCommand.inputPageDown,
-            modifierFlags: [.shift]
-        )
-
-        let scrollToTop = UIKeyCommand(
-            title: String(localized: "Scroll to Top"),
-            action: #selector(UIApplication.ghostty_scrollToTop(_:)),
-            input: UIKeyCommand.inputHome,
-            modifierFlags: [.shift]
-        )
-
-        let scrollToBottom = UIKeyCommand(
-            title: String(localized: "Scroll to Bottom"),
-            action: #selector(UIApplication.ghostty_scrollToBottom(_:)),
-            input: UIKeyCommand.inputEnd,
-            modifierFlags: [.shift]
-        )
-
-        let scrollGroup = UIMenu(title: "", options: .displayInline, children: [
-            scrollPageUp, scrollPageDown, scrollToTop, scrollToBottom
-        ])
-
-        // Toggle Compose
-        // ⇧⌘K, matching the toggle_compose default. This read ⇧⌘C, which both
-        // misreported the shortcut and collided with the Edit menu's Clipboard
-        // Manager, silently dropping the whole Terminal menu.
-        let toggleCompose = UIKeyCommand(
-            title: String(localized: "Toggle Compose"),
-            action: #selector(UIApplication.ghostty_toggleCompose(_:)),
-            input: "k",
-            modifierFlags: [.command, .shift]
-        )
-
-        // Toggle Mouse Capture
-        let toggleMouseCapture = UIKeyCommand(
-            title: String(localized: "Toggle Mouse Capture"),
-            action: #selector(UIApplication.ghostty_toggleMouseCapture(_:)),
-            input: "M",
-            modifierFlags: [.command, .shift]
-        )
-
-        let composeGroup = UIMenu(title: "", options: .displayInline, children: [
-            toggleCompose, toggleMouseCapture
-        ])
-
-        // Cmd+Period never reaches responder UIKeyCommands or press events on
-        // Catalyst — a menu key equivalent (like Xcode's ⌘. Stop item) is the
-        // one rail that receives AND consumes the reserved chord. The handler
-        // dispatches a cmd+period keybind first and falls back to sending
-        // Escape.
-        let sendEscape = UIKeyCommand(
-            title: String(localized: "Send Escape"),
-            action: #selector(UIApplication.ghostty_systemCancel(_:)),
-            input: ".",
-            modifierFlags: [.command]
-        )
-
-        let systemCancelGroup = UIMenu(title: "", options: .displayInline, children: [
-            sendEscape
-        ])
-
-        let terminalMenu = UIMenu(
-            title: String(localized: "Terminal"),
-            identifier: UIMenu.Identifier("dev.chr33s.shell.terminal"),
-            children: [splitCreateGroup, focusSplitGroup, splitManageGroup, scrollGroup, composeGroup, systemCancelGroup]
-        )
-
-        builder.insertSibling(terminalMenu, afterMenu: .view)
-    }
-
-    private func buildShellMenu(_ builder: UIMenuBuilder) {
-        let browseHosts = UIKeyCommand(
-            title: String(localized: "Browse Hosts"),
-            action: #selector(UIApplication.ghostty_browseHosts(_:)),
-            input: "b",
-            modifierFlags: [.command]
-        )
-
-        let browseProfiles = UIKeyCommand(
-            title: String(localized: "Browse Profiles"),
-            action: #selector(UIApplication.ghostty_browseProfiles(_:)),
-            input: "p",
-            modifierFlags: [.command, .shift]
-        )
-
-        #if !CHINA_BUILD
-        let aiAgent = UIKeyCommand(
-            title: String(localized: "AI Agent"),
-            action: #selector(UIApplication.ghostty_toggleAIAgent(_:)),
-            input: "i",
-            modifierFlags: .command
-        )
-
-        let voiceAgent = UIKeyCommand(
-            title: String(localized: "Voice Agent"),
-            action: #selector(UIApplication.ghostty_toggleVoiceAgent(_:)),
-            input: "v",
-            modifierFlags: [.command, .shift]
-        )
-        #endif
-
-        let settings = UIKeyCommand(
-            title: String(localized: "Settings..."),
-            action: #selector(UIApplication.ghostty_openSettings(_:)),
-            input: ",",
-            modifierFlags: [.command]
-        )
-
-        #if !CHINA_BUILD
-        let shellMenu = UIMenu(
-            title: String(localized: "Shell"),
-            identifier: UIMenu.Identifier("dev.chr33s.shell.shell"),
-            children: [browseHosts, browseProfiles, aiAgent, voiceAgent, settings]
-        )
-        #else
-        let shellMenu = UIMenu(
-            title: String(localized: "Shell"),
-            identifier: UIMenu.Identifier("dev.chr33s.shell.shell"),
-            children: [browseHosts, browseProfiles, settings]
-        )
-        #endif
-
-        builder.insertSibling(shellMenu, afterMenu: .view)
-    }
-
-    private func buildTabsMenu(_ builder: UIMenuBuilder) {
-        let toggleTabSwitcher = UIKeyCommand(
-            title: String(localized: "Toggle Vertical Tab Bar"),
-            action: #selector(UIApplication.ghostty_toggleTabSwitcher(_:)),
-            input: "\\",
-            modifierFlags: [.command, .shift]
-        )
-
-        let previousTab = UIKeyCommand(
-            title: String(localized: "Previous Tab"),
-            action: #selector(UIApplication.ghostty_previousTab(_:)),
-            input: "{",
-            modifierFlags: [.command]
-        )
-
-        let nextTab = UIKeyCommand(
-            title: String(localized: "Next Tab"),
-            action: #selector(UIApplication.ghostty_nextTab(_:)),
-            input: "}",
-            modifierFlags: [.command]
-        )
-
-        let tmuxSessions = UIKeyCommand(
-            title: String(localized: "tmux Sessions"),
-            action: #selector(UIApplication.ghostty_showTmuxSessions(_:)),
-            input: "s",
-            modifierFlags: [.command, .shift]
-        )
-
-        let detachOtherClients = UIKeyCommand(
-            title: String(localized: "Detach Other Clients"),
-            action: #selector(UIApplication.ghostty_detachOtherClients(_:)),
-            input: "x",
-            modifierFlags: [.command, .shift]
-        )
-
-        let toggleTabExpose = UIKeyCommand(
-            title: String(localized: "Tab Exposé"),
-            action: #selector(UIApplication.ghostty_toggleTabExpose(_:)),
-            input: "a",
-            modifierFlags: [.command, .shift]
-        )
-
-        let previousGroup = UIKeyCommand(
-            title: String(localized: "Previous Group"),
-            action: #selector(UIApplication.ghostty_previousGroup(_:)),
-            input: "[",
-            modifierFlags: [.command, .alternate]
-        )
-
-        let nextGroup = UIKeyCommand(
-            title: String(localized: "Next Group"),
-            action: #selector(UIApplication.ghostty_nextGroup(_:)),
-            input: "]",
-            modifierFlags: [.command, .alternate]
-        )
-
-        let navGroup = UIMenu(title: "", options: .displayInline, children: [
-            toggleTabSwitcher, toggleTabExpose, previousTab, nextTab, previousGroup, nextGroup, tmuxSessions, detachOtherClients
-        ])
-
-        // Tab selection (1-9), each with its own action (see ghostty_selectTabN).
-        let tabSelectors: [Selector] = [
-            #selector(UIApplication.ghostty_selectTab1(_:)),
-            #selector(UIApplication.ghostty_selectTab2(_:)),
-            #selector(UIApplication.ghostty_selectTab3(_:)),
-            #selector(UIApplication.ghostty_selectTab4(_:)),
-            #selector(UIApplication.ghostty_selectTab5(_:)),
-            #selector(UIApplication.ghostty_selectTab6(_:)),
-            #selector(UIApplication.ghostty_selectTab7(_:)),
-            #selector(UIApplication.ghostty_selectTab8(_:)),
-            #selector(UIApplication.ghostty_selectTab9(_:)),
-        ]
-        let tabCommands: [UIKeyCommand] = (1...9).map { index in
-            UIKeyCommand(
-                title: String(localized: "Tab \(index)"),
-                action: tabSelectors[index - 1],
-                input: String(index),
-                modifierFlags: [.command]
-            )
-        }
-
-        let tabSelectGroup = UIMenu(title: "", options: .displayInline, children: tabCommands)
-
-        let tabsMenu = UIMenu(
-            title: String(localized: "Tabs"),
-            identifier: UIMenu.Identifier("dev.chr33s.shell.tabs"),
-            children: [navGroup, tabSelectGroup]
-        )
-
-        builder.insertSibling(tabsMenu, afterMenu: .view)
-        // insertSibling reports nothing, and UIKit drops a whole menu whose key
-        // equivalent a system menu owns. Without this the loss is invisible.
-        if builder.menu(for: UIMenu.Identifier("dev.chr33s.shell.tabs")) == nil {
-            logger.error("Tabs menu was rejected; check for a system key-equivalent conflict")
-        }
-    }
-
-    // MARK: - About Dialog
-
-    @objc private func showAbout(_ sender: Any?) {
-        // Build credits as an attributed string
-        let credits = NSMutableAttributedString()
-
-        let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.alignment = .center
-        paragraphStyle.paragraphSpacing = 8
-
-        // Use NSColor for AppKit About panel (UIColor doesn't translate correctly)
-        guard let nsColorClass = NSClassFromString("NSColor") as? NSObject.Type,
-              let secondaryLabelColor = nsColorClass.value(forKey: "secondaryLabelColor") else {
-            return
-        }
-
-        let normalAttributes: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 11),
-            .foregroundColor: secondaryLabelColor,
-            .paragraphStyle: paragraphStyle
-        ]
-
-        let linkAttributes: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 11),
-            .link: URL(string: "https://github.com/chr33s/shell")!,
-            .paragraphStyle: paragraphStyle
-        ]
-
-        credits.append(NSAttributedString(string: "github.com/chr33s/shell\n\n", attributes: linkAttributes))
-        credits.append(NSAttributedString(string: "Terminal emulator based on libghostty\nby Mitchell Hashimoto", attributes: normalAttributes))
-
-        // Use dynamic Objective-C runtime to access NSApplication (not directly available in Catalyst)
-        guard let nsAppClass = NSClassFromString("NSApplication") as? NSObject.Type else { return }
-        guard let nsApp = nsAppClass.value(forKey: "sharedApplication") as? NSObject else { return }
-
-        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Unknown"
-        var options: [String: Any] = [
-            "Credits": credits,
-            "ApplicationName": "Shell",
-            "ApplicationVersion": "\(version) (\(BuildInfo.date))"
-        ]
-        if let applicationIcon = AppIconManager.shared.makeMacCatalystAboutPanelIcon() {
-            options["ApplicationIcon"] = applicationIcon
-        }
-
-        nsApp.perform(NSSelectorFromString("orderFrontStandardAboutPanelWithOptions:"), with: options)
-    }
-
-    // MARK: - Close and Quit Handling
 
     @objc private func handleClose(_ sender: Any?) {
         logger.info("CatalystAppDelegate.handleClose called")
@@ -1622,7 +931,7 @@ class CatalystAppDelegate: AppDelegate {
         logger.info("Performing quit")
 
         // Stop helper process first
-        HelperConnection.shared.stopHelper()
+        MacLocalShellManager.stopAll()
 
         // Request destruction of all scene sessions first
         for session in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).map({ $0.session }) {
@@ -1666,20 +975,27 @@ class CatalystSceneDelegate: UIResponder, UIWindowSceneDelegate {
     /// that happens with no regular scene connected, open a main window —
     /// the same nil-session activation Cmd-N uses.
     static func openMainWindowIfNoneConnected() {
-        let hasRegularScene = UIApplication.shared.connectedScenes.contains {
-            $0 is UIWindowScene && !isVisorScene($0)
-        }
+        let hasRegularScene = UIApplication.shared.connectedScenes.contains { isTerminalScene($0) }
         guard !hasRegularScene else { return }
-        logger.info("[urlopen] no regular scene; requesting main window \(AppIntentCoordinator.sceneSnapshot(), privacy: .public)")
+        logger.info("No regular scene; requesting main window")
         UIApplication.shared.requestSceneSessionActivation(nil, userActivity: nil, options: nil, errorHandler: nil)
     }
 
-    /// The regular (non-visor) scene an external request should land in:
+    /// A scene that hosts a `MainView`: not the visor, and not the Settings
+    /// window, which is a `UIWindowScene` with no terminal in it. Anything
+    /// looking for "a window to act on" has to exclude both, or a Dock-menu
+    /// action or an ssh:// open lands in a window that observes nothing.
+    static func isTerminalScene(_ scene: UIScene) -> Bool {
+        scene is UIWindowScene && !isVisorScene(scene) &&
+            scene.session.configuration.name != MacSettingsWindow.configurationName
+    }
+
+    /// The terminal scene an external request should land in:
     /// key window first, then the active one, then any.
     static func preferredRegularScene() -> UIWindowScene? {
         let regularScenes = UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
-            .filter { !isVisorScene($0) }
+            .filter { isTerminalScene($0) }
         return regularScenes.first(where: { $0.keyWindow != nil })
             ?? regularScenes.first(where: { $0.activationState == .foregroundActive })
             ?? regularScenes.first
@@ -1723,18 +1039,58 @@ class CatalystSceneDelegate: UIResponder, UIWindowSceneDelegate {
         // requestSceneSessionActivation alone can leave an AppKit window
         // miniaturized or hidden under Catalyst. Unhide the app and order the
         // NSWindow associated with this scene to the front as a backstop.
-        guard let nsApplicationClass = NSClassFromString("NSApplication") as? NSObject.Type,
-              let application = nsApplicationClass.value(forKey: "sharedApplication") as? NSObject,
-              let windows = application.value(forKey: "windows") as? [NSObject],
-              let window = windows.first(where: {
-                  WindowAccessor.sceneSessionId(for: $0) == scene.session.persistentIdentifier
-              }) else { return }
+        guard let bridge = MacSupport.bridge,
+              let window = MacSupport.window(for: scene.session.persistentIdentifier) else { return }
+        bridge.activate(window)
+    }
 
-        _ = application.perform(NSSelectorFromString("unhide:"), with: nil)
-        if (window.value(forKey: "miniaturized") as? Bool) == true {
-            _ = window.perform(NSSelectorFromString("deminiaturize:"), with: nil)
-        }
-        _ = window.perform(NSSelectorFromString("makeKeyAndOrderFront:"), with: nil)
+    // MARK: - Per-window state restoration
+
+    /// Activity type carrying a window's id across launches. Returning a non-nil
+    /// activity from `stateRestorationActivity(for:)` is also what makes UIKit
+    /// persist the scene's `@SceneStorage` at all, so `MainView.sceneWindowId`
+    /// comes back with the session rather than being regenerated.
+    nonisolated static let windowRestorationActivityType = "dev.chr33s.shell.window"
+
+    /// Window ids recovered at connect time, kept so a scene that quits before
+    /// `WindowSceneReporter` links it still re-emits the id it was restored with.
+    private static var adoptedRestorationWindowIds: [String: String] = [:]
+
+    static func restorationWindowId(for session: UISceneSession) -> String? {
+        session.stateRestorationActivity.flatMap(windowId(in:))
+    }
+
+    static func restorationWindowId(in activities: Set<NSUserActivity>) -> String? {
+        activities.lazy.compactMap(windowId(in:)).first
+    }
+
+    /// Builds the activity that carries `windowId` to a scene, whether it is
+    /// persisted with the session or passed to `requestSceneSessionActivation`.
+    static func windowRestorationActivity(for windowId: String) -> NSUserActivity {
+        let activity = NSUserActivity(activityType: windowRestorationActivityType)
+        activity.userInfo = ["windowId": windowId]
+        return activity
+    }
+
+    /// Pure decode of the activity payload — nonisolated so the two accessors
+    /// above can stay synchronous without hopping to the main actor.
+    private nonisolated static func windowId(in activity: NSUserActivity) -> String? {
+        guard activity.activityType == windowRestorationActivityType,
+              let windowId = activity.userInfo?["windowId"] as? String,
+              !windowId.isEmpty else { return nil }
+        return windowId
+    }
+
+    func sceneDidDisconnect(_ scene: UIScene) {
+        Self.adoptedRestorationWindowIds.removeValue(forKey: scene.session.persistentIdentifier)
+    }
+
+    func stateRestorationActivity(for scene: UIScene) -> NSUserActivity? {
+        guard !Self.isVisorScene(scene) else { return nil }
+        let sessionId = scene.session.persistentIdentifier
+        guard let windowId = TerminalWindowRegistry.windowId(forSceneSessionId: sessionId)
+                ?? Self.adoptedRestorationWindowIds[sessionId] else { return nil }
+        return Self.windowRestorationActivity(for: windowId)
     }
 
     func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
@@ -1807,22 +1163,33 @@ class CatalystSceneDelegate: UIResponder, UIWindowSceneDelegate {
             // summoned (never on App Store builds), so `hasPendingRestoration` stays
             // true for the whole session and would make every runtime new window
             // skip the last-focused cascade sizing below.
+            //
+            // Per-window restoration. A scene session that has run before carries
+            // its window id in the state-restoration activity we returned last
+            // time; a scene the app requested for restoration carries it in the
+            // activity passed to `requestSceneSessionActivation`. Either way the
+            // scene is bound to exactly one saved window here, so it claims that
+            // window's tabs and is pre-sized to that window's own saved frame —
+            // instead of the two independent file-order guesses this replaced.
             let restoring = WindowStateManager.shared.hasPendingRegularWindowRestoration
             if restoring {
-                // Pre-size the restored window to its saved frame NOW, before it
-                // is first displayed, so it is BORN at the right size instead of
-                // appearing at a default and then visibly resizing. Frames are
-                // consumed in saved-file order; MainView re-confirms per-window
-                // once its scene links (and does the blank-window nudge),
-                // correcting the rare connect-order≠appear-order case. The single
-                // global last-focused frame is NOT applied here (it would make
-                // every restored window the same size).
-                if let frame = WindowStateManager.shared.nextPendingRestoreFrame() {
-                    let prefs = UIWindowScene.GeometryPreferences.Mac(systemFrame: frame)
-                    windowScene.requestGeometryUpdate(prefs) { error in
-                        logger.warning("Pre-size of restored window failed: \(error.localizedDescription)")
+                let preferred = Self.restorationWindowId(for: session)
+                    ?? Self.restorationWindowId(in: connectionOptions.userActivities)
+                // Pre-size the restored window NOW, before it is first displayed,
+                // so it is BORN at the right size instead of appearing at a
+                // default and then visibly resizing. MainView re-confirms once its
+                // scene links (and does the blank-window nudge). The single global
+                // last-focused frame is NOT applied here (it would make every
+                // restored window the same size).
+                if let bound = WindowStateManager.shared.bindConnectingScene(preferredWindowId: preferred) {
+                    Self.adoptedRestorationWindowIds[session.persistentIdentifier] = bound.windowId
+                    if let frame = bound.frame {
+                        let prefs = UIWindowScene.GeometryPreferences.Mac(systemFrame: frame)
+                        windowScene.requestGeometryUpdate(prefs) { error in
+                            logger.warning("Pre-size of restored window failed: \(error.localizedDescription)")
+                        }
+                        logger.info("Pre-sized restored window: \(Int(frame.width))x\(Int(frame.height))")
                     }
-                    logger.info("Pre-sized restored window: \(Int(frame.width))x\(Int(frame.height))")
                 }
             } else {
                 applyNewWindowCascadeGeometry(to: windowScene)
@@ -1876,12 +1243,10 @@ class CatalystSceneDelegate: UIResponder, UIWindowSceneDelegate {
     /// the window isn't claimable yet this is a no-op and the deferred
     /// destruction still fires within one runloop.
     private static func suppressConnectingVisorWindow(for windowScene: UIWindowScene) {
-        guard let nsAppClass = NSClassFromString("NSApplication") as? NSObject.Type,
-              let app = nsAppClass.value(forKey: "sharedApplication") as? NSObject,
-              let windows = app.value(forKey: "windows") as? [NSObject] else { return }
+        guard let bridge = MacSupport.bridge else { return }
         let sessionId = windowScene.session.persistentIdentifier
-        for window in windows where WindowAccessor.sceneSessionId(for: window) == sessionId {
-            window.setValue(NSNumber(value: 0.0), forKey: "alphaValue")
+        for window in bridge.windows where WindowAccessor.sceneSessionId(for: window) == sessionId {
+            bridge.setAlpha(0, for: window)
         }
     }
     #endif

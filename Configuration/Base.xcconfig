@@ -11,6 +11,8 @@ SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES
 
 // Deployment Targets
 IPHONEOS_DEPLOYMENT_TARGET = 18.0
+// The Catalyst menu bar is owned by SwiftUI Commands on macOS 26+.
+IPHONEOS_DEPLOYMENT_TARGET[sdk=macosx*] = 26.0
 XROS_DEPLOYMENT_TARGET = 26.0
 
 // Supported Platforms (includes Catalyst)

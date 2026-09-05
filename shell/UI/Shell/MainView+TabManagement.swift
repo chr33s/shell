@@ -22,25 +22,20 @@ extension MainView {
         guard terminals.isEmpty else { return true }
         guard await waitForGhosttyAppReadyForVisor() else { return false }
 
-        let isAvailable = await HelperConnection.shared.ensureHelperRunning()
-        guard terminals.isEmpty else { return true }
-
-        if let savedState = WindowStateManager.shared.getPendingStateExactly(forWindowId: "visor") {
+        if let savedState = WindowStateManager.shared.getPendingState(forWindowId: "visor") {
             RestorationHealthTracker.shared.markRestorationStarted()
             Ghostty.logger.info("Restoring visor window state: \(savedState.tabs.count) tabs")
             restoreWindowState(savedState)
             return !terminals.isEmpty
         }
 
-        if isAvailable {
-            Ghostty.logger.info("Helper is running, creating visor local shell")
-            createLocalShellTabInternal()
-            return !terminals.isEmpty
-        } else {
-            Ghostty.logger.info("Helper not available, showing visor connection sheet")
+        guard MacLocalShellManager.isAvailable else {
+            Ghostty.logger.info("No macOS support bundle, showing visor connection sheet")
             addNewTab()
             return false
         }
+        createLocalShellTabInternal()
+        return !terminals.isEmpty
     }
 
     @MainActor
@@ -75,29 +70,16 @@ extension MainView {
     }
     #endif
 
-    /// Check if the local shell helper is running and create appropriate initial tab
-    /// - If helper is active (or can be launched): create local shell tab directly
-    /// - If helper is not available: show connection sheet as fallback
-    func checkHelperAndCreateInitialTab() {
-        Task {
-            // Use ensureHelperRunning to auto-launch helper if non-sandboxed
-            let isAvailable = await HelperConnection.shared.ensureHelperRunning()
-
-            await MainActor.run {
-                guard self.terminals.isEmpty else { return }
-
-                if isAvailable {
-                    // Helper is active - create local shell directly
-                    Ghostty.logger.info("Helper is running, creating local shell on launch")
-                    self.createLocalShellTab()
-                    self.markPlaceholderShell()
-                } else {
-                    // Helper not available - show connection sheet
-                    Ghostty.logger.info("Helper not available, showing connection sheet on launch")
-                    self.addNewTab()
-                }
-            }
+    /// Open the initial tab of a window that has no saved state: a local shell,
+    /// or the connection sheet when the macOS support bundle is missing and no
+    /// local PTY can be created.
+    func createInitialTab() {
+        guard MacLocalShellManager.isAvailable else {
+            Ghostty.logger.info("No macOS support bundle, showing connection sheet on launch")
+            addNewTab()
+            return
         }
+        createLocalShellTab()
     }
     #endif
 
@@ -308,45 +290,9 @@ extension MainView {
         openTerminalTab(config: .ssh(config), title: config.displayName, sourceProfileID: sourceProfileID)
     }
 
-    /// Ensures ghostty-helper is available before running a local shell action on Catalyst
-    /// Will auto-launch helper if running in non-sandboxed mode
+    /// The session reports native spawn failures through its existing error UI.
     func performLocalShellAction(description: String, action: @escaping () -> Void) {
-#if targetEnvironment(macCatalyst)
-        // Fast path: when the helper has already been confirmed running, run
-        // the action synchronously instead of awaiting ensureHelperRunning()
-        // on the (often congested) MainActor — the open-latency trace showed
-        // that await costing 0.5–2s at window/tab open. Re-verify in the
-        // background so a helper that has since died gets relaunched for the
-        // session's own connect path.
-        if HelperConnection.shared.isKnownRunning {
-            action()
-            // Re-verify the helper, but OFF the critical open path: this pings
-            // the helper on the same MainActor/socket queue that the session's
-            // createShell needs, so running it now would compete during shell
-            // startup. A few seconds later is plenty to catch a died helper.
-            Task(priority: .utility) {
-                try? await Task.sleep(for: .seconds(3))
-                if !(await HelperConnection.shared.ensureHelperRunning()) {
-                    Ghostty.logger.warning("Local shell action (\(description)): helper re-verify failed")
-                }
-            }
-            return
-        }
-
-        Task {
-            let isAvailable = await HelperConnection.shared.ensureHelperRunning()
-            await MainActor.run {
-                if isAvailable {
-                    action()
-                } else {
-                    Ghostty.logger.warning("Cannot \(description): ghostty-helper is not available")
-                    alerts.showHelperMissingAlert = true
-                }
-            }
-        }
-#else
         action()
-#endif
     }
 
     /// ⌘T / "New Local Shell" entry point. Outside tmux this always opens a

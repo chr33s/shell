@@ -153,37 +153,20 @@ class AppearanceManager: ObservableObject {
 
     /// Catalyst: also pin NSApplication.appearance so the titlebar and the
     /// AppKit-side material passes (including inactive-window rendering)
-    /// resolve to the forced mode. Uses the same ObjC-runtime bridge pattern
-    /// as WindowAccessor.
+    /// resolve to the forced mode. Applied through the macOS support bundle.
     private func applyAppKitAppearance() {
         #if targetEnvironment(macCatalyst)
-        guard let nsAppClass = NSClassFromString("NSApplication") as? NSObject.Type,
-              let sharedApp = nsAppClass.value(forKey: "sharedApplication") as? NSObject else {
-            Self.logger.warning("Failed to resolve NSApplication for appearance override")
+        let mode: Int
+        switch currentAppearanceMode {
+        case .automatic: mode = 0
+        case .light: mode = 1
+        case .dark: mode = 2
+        }
+        guard let bridge = MacSupport.bridge else {
+            Self.logger.warning("Cannot override NSApplication appearance: support bundle unavailable")
             return
         }
-
-        let appearanceName: String?
-        switch currentAppearanceMode {
-        case .automatic: appearanceName = nil
-        case .light: appearanceName = "NSAppearanceNameAqua"
-        case .dark: appearanceName = "NSAppearanceNameDarkAqua"
-        }
-
-        var appearance: NSObject?
-        if let appearanceName {
-            guard let appearanceClass = NSClassFromString("NSAppearance") as? NSObject.Type,
-                  let resolved = appearanceClass.perform(
-                      NSSelectorFromString("appearanceNamed:"),
-                      with: appearanceName
-                  )?.takeUnretainedValue() as? NSObject else {
-                Self.logger.warning("Failed to resolve NSAppearance \(appearanceName)")
-                return
-            }
-            appearance = resolved
-        }
-
-        sharedApp.setValue(appearance, forKey: "appearance")
+        bridge.setApplicationAppearance(mode)
         #endif
     }
 }

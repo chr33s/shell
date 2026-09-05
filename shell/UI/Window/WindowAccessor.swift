@@ -16,7 +16,6 @@ import UIKit
 
 // Associated object key for storing scene session ID on NSWindow
 private var sceneSessionIdKey: UInt8 = 0
-private var titlebarCursorMonitorKey: UInt8 = 0
 
 extension Notification.Name {
     /// Posted by CatalystSceneDelegate.sceneDidBecomeActive so per-window
@@ -31,17 +30,9 @@ extension WindowAccessor {
     @MainActor
     static func keyState(forSceneSessionId sceneSessionId: String) -> Bool? {
         guard !sceneSessionId.isEmpty else { return nil }
-        guard let nsAppClass = NSClassFromString("NSApplication") as? NSObject.Type,
-              let sharedApp = nsAppClass.value(forKey: "sharedApplication") as? NSObject,
-              let windows = sharedApp.value(forKey: "windows") as? [NSObject] else {
-            return nil
-        }
-
-        guard let nsWindow = windows.first(where: { WindowAccessor.sceneSessionId(for: $0) == sceneSessionId }) else {
-            return nil
-        }
-
-        return (nsWindow.value(forKey: "isKeyWindow") as? Bool) == true
+        guard let bridge = MacSupport.bridge,
+              let window = MacSupport.window(for: sceneSessionId) else { return nil }
+        return bridge.isKeyWindow(window)
     }
 
     static func sceneSessionId(for nsWindow: NSObject) -> String? {
@@ -59,13 +50,13 @@ extension WindowAccessor {
 }
 
 /// Snapshot of every input that affects the Catalyst NSWindow + titlebar
-/// configuration. Lets `TransparentWindowView` skip the expensive Obj-C
-/// reflection / forced `display()` reconfigure when none of these changed.
+/// configuration. Lets `TransparentWindowView` skip the expensive AppKit
+/// configuration / forced `display()` reconfigure when none of these changed.
 ///
 /// The six reconfigure triggers (surface count, tab count, transparency,
 /// theme, tab-bar toggle, and the *very* chatty global
 /// `UserDefaults.didChangeNotification`) otherwise re-run the whole AppKit
-/// reflection pass many times during a single window open — a major source of
+/// configuration pass many times during a single window open — a major source of
 /// the open-time flashing.
 private struct WindowConfigSignature: Equatable {
     var shouldApplyTransparency: Bool
@@ -123,7 +114,7 @@ private class TransparentWindowView: UIView {
     /// Last configuration that was fully applied to the NSWindow. `configureWindow()`
     /// short-circuits when the live signature matches this, so the burst of
     /// reconfigure triggers fired during a window open no longer each re-run the
-    /// AppKit reflection + `display()`.
+    /// AppKit configuration + `display()`.
     private var lastAppliedConfig: WindowConfigSignature?
 
     /// True while a `makeNSWindowTransparent()` pass is already queued for the
@@ -317,26 +308,15 @@ private class TransparentWindowView: UIView {
         let sceneSessionId = uiWindow.windowScene?.session.persistentIdentifier ?? ""
         guard !sceneSessionId.isEmpty else { return }
 
-        guard let nsAppClass = NSClassFromString("NSApplication") as? NSObject.Type,
-              let sharedApp = nsAppClass.value(forKey: "sharedApplication") as? NSObject,
-              let windows = sharedApp.value(forKey: "windows") as? [NSObject] else {
-            return
-        }
-
-        guard let nsWindow = windows.first(where: {
-            WindowAccessor.sceneSessionId(for: $0) == sceneSessionId
-        }) else {
-            return
-        }
-
-        nsWindow.setValue(title, forKey: "title")
+        guard let bridge = MacSupport.bridge,
+              let nsWindow = MacSupport.window(for: sceneSessionId) else { return }
+        bridge.setTitle(title, for: nsWindow)
         lastAppliedTitle = title
 
         // Setting the title can resurrect native title UI (macOS 15+); keep
         // the hidden-titlebar style asserted.
         if SettingsStore.shared.get(Settings.Window.hideTitleBar) {
-            setStandardWindowButtonsHidden(true, for: nsWindow)
-            setTitlebarChromeHidden(true, for: nsWindow)
+            configureTitleBar(for: nsWindow, transparent: true, tabCount: SessionTracker.shared.tabCount(forSceneSessionId: sceneSessionId))
         }
     }
     #endif
@@ -348,7 +328,7 @@ private class TransparentWindowView: UIView {
         // titlebar has changed. Most of the reconfigure triggers — especially
         // the global UserDefaults.didChangeNotification observer — fire
         // repeatedly during a single window open; without this guard each one
-        // re-runs the AppKit reflection pass plus a forced `display()`, which
+        // re-runs the AppKit configuration pass plus a forced `display()`, which
         // is a major contributor to the open-time flashing.
         let signature = currentWindowConfigSignature()
         if let signature, signature == lastAppliedConfig {
@@ -365,7 +345,7 @@ private class TransparentWindowView: UIView {
 
         applyUIWindowAppearance(shouldApplyTransparency: shouldApplyTransparency)
 
-        // Coalesce the AppKit (NSWindow) reflection onto the next runloop turn
+        // Coalesce the AppKit window configuration onto the next runloop turn
         // so a burst of triggers collapses into a single reconfiguration pass.
         scheduleNSWindowConfiguration()
     }
@@ -401,7 +381,7 @@ private class TransparentWindowView: UIView {
     }
 
     /// True when the NSWindow the last full pass configured is still alive,
-    /// on screen, and carrying the opacity that pass applied. Cheap (two KVC
+    /// on screen, and carrying the opacity that pass applied. Cheap (typed property
     /// reads, no window-list scan), so the dedup guard can run it on every
     /// reconfigure trigger to catch a replaced or externally reset NSWindow.
     private func claimedWindowStateMatches(_ signature: WindowConfigSignature) -> Bool {
@@ -410,16 +390,16 @@ private class TransparentWindowView: UIView {
         // miniaturized window reports isVisible == false and must not be
         // treated as stale by every background trigger.
         if window?.windowScene?.activationState == .foregroundActive,
-           (nsWindow.value(forKey: "isVisible") as? Bool) != true {
+           MacSupport.bridge?.isVisible(nsWindow) != true {
             return false
         }
-        guard let opaque = nsWindow.value(forKey: "opaque") as? Bool else { return false }
+        guard let opaque = MacSupport.bridge?.isOpaque(nsWindow) else { return false }
         guard opaque == !signature.shouldApplyTransparency else { return false }
         // Blur asserted before the window had a window device did nothing;
         // report a mismatch once the window is on screen so the full pass
         // re-runs with a valid windowNumber.
         if !blurAssertedWhileVisible,
-           (nsWindow.value(forKey: "isVisible") as? Bool) == true {
+           MacSupport.bridge?.isVisible(nsWindow) == true {
             return false
         }
         // UIKit side: SwiftUI's scene bring-up re-asserts an opaque window
@@ -441,7 +421,7 @@ private class TransparentWindowView: UIView {
     }
 
     /// Computes the current window configuration signature, or nil if the view
-    /// isn't in a window yet. Reads only cheap state (no AppKit reflection), so
+    /// isn't in a window yet. Reads only cheap state (no AppKit calls), so
     /// it is safe to evaluate on every reconfigure trigger.
     private func currentWindowConfigSignature() -> WindowConfigSignature? {
         guard let uiWindow = self.window else { return nil }
@@ -512,22 +492,8 @@ private class TransparentWindowView: UIView {
         // Otherwise, use a solid background color
         let shouldApplyTransparency = hasActiveSurfaces && opacity < 1.0
 
-        // Get NSApplication.sharedApplication
-        guard let nsAppClass = NSClassFromString("NSApplication") as? NSObject.Type else {
-            Self.logger.warning("Failed to get NSApplication class")
-            return
-        }
-
-        guard let sharedApp = nsAppClass.value(forKey: "sharedApplication") as? NSObject else {
-            Self.logger.warning("Failed to get shared application")
-            return
-        }
-
-        // Get all windows
-        guard let windows = sharedApp.value(forKey: "windows") as? [NSObject] else {
-            Self.logger.warning("Failed to get windows array")
-            return
-        }
+        guard let bridge = MacSupport.bridge else { return }
+        let windows = bridge.windows
 
         // Get our scene session ID for matching. A view whose scene already
         // detached (window teardown) must not claim anything: a dying view
@@ -553,7 +519,7 @@ private class TransparentWindowView: UIView {
             return storedId == sceneSessionId
         })
         if let candidate = claimedWindow,
-           (candidate.value(forKey: "isVisible") as? Bool) != true {
+           bridge.isVisible(candidate) != true {
             objc_setAssociatedObject(candidate, &sceneSessionIdKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
             claimedWindow = nil
         }
@@ -586,7 +552,7 @@ private class TransparentWindowView: UIView {
                 if VisorWindowClaims.isVisorWindow(window) { return false }
                 #endif
                 let storedId = objc_getAssociatedObject(window, &sceneSessionIdKey) as? String
-                let isKey = (window.value(forKey: "isKeyWindow") as? Bool) == true
+                let isKey = bridge.isKeyWindow(window) == true
                 return isKey && storedId == nil
             }) ?? windows.first(where: { window in
                 // Fallback: reclaim a key window only when its existing
@@ -597,7 +563,7 @@ private class TransparentWindowView: UIView {
                 #if STANDALONE && targetEnvironment(macCatalyst)
                 if VisorWindowClaims.isVisorWindow(window) { return false }
                 #endif
-                guard (window.value(forKey: "isKeyWindow") as? Bool) == true else { return false }
+                guard bridge.isKeyWindow(window) == true else { return false }
                 if let storedId = objc_getAssociatedObject(window, &sceneSessionIdKey) as? String,
                    storedId != sceneSessionId,
                    Self.isLiveSceneSession(storedId) {
@@ -631,7 +597,7 @@ private class TransparentWindowView: UIView {
         // The only thing that still needs polling is the titlebar leading inset,
         // which only becomes measurable once the traffic-light buttons exist —
         // this is what the inset retry loop is for, and keeping it lightweight
-        // avoids 8 full reflection passes per window open.
+        // avoids 8 full configuration passes per window open.
         if let last = lastAppliedConfig, currentWindowConfigSignature() == last {
             if last.hideTitleBar {
                 // Buttons are hidden — nothing to measure; cancel any retries.
@@ -646,60 +612,9 @@ private class TransparentWindowView: UIView {
             return
         }
 
-        // Get NSColor class to create background color
-        guard let nsColorClass = NSClassFromString("NSColor") as? NSObject.Type else {
-            Self.logger.warning("Failed to get NSColor class")
-            return
-        }
-
-        // Create the appropriate background color based on whether we have active surfaces
-        let backgroundColor: NSObject
-        if shouldApplyTransparency {
-            // Create white color with very low alpha (0.001) for transparency
-            // This matches macOS Ghostty and creates proper visual appearance with background blur
-            // Signature: +[NSColor colorWithWhite:alpha:]
-            let whiteColorSelector = NSSelectorFromString("colorWithWhite:alpha:")
-            guard nsColorClass.responds(to: whiteColorSelector) else {
-                Self.logger.warning("NSColor doesn't respond to colorWithWhite:alpha:")
-                return
-            }
-
-            let colorMethod = nsColorClass.method(for: whiteColorSelector)
-            typealias ColorFunction = @convention(c) (AnyClass, Selector, CGFloat, CGFloat) -> NSObject
-            let colorFunc = unsafeBitCast(colorMethod, to: ColorFunction.self)
-            backgroundColor = colorFunc(nsColorClass, whiteColorSelector, 1.0, 0.001)
-        } else {
-            // No active surfaces - use system window background color (adapts to light/dark mode)
-            // Signature: +[NSColor windowBackgroundColor]
-            guard let windowBackgroundColor = nsColorClass.value(forKey: "windowBackgroundColor") as? NSObject else {
-                Self.logger.warning("Failed to get NSColor.windowBackgroundColor")
-                return
-            }
-            backgroundColor = windowBackgroundColor
-        }
-
-        // Get per-window tab count using scene session ID (already captured above)
         let tabCount = SessionTracker.shared.tabCount(forSceneSessionId: sceneSessionId)
-
-        // Configure only our window
         let window = nsWindow
-
-        // Ensure mouseMoved events are delivered for tracking areas (titlebar drag handle)
-        let setAcceptsSelector = NSSelectorFromString("setAcceptsMouseMovedEvents:")
-        if window.responds(to: setAcceptsSelector) {
-            let method = window.method(for: setAcceptsSelector)
-            typealias SetAcceptsFunc = @convention(c) (AnyObject, Selector, Bool) -> Void
-            let setAcceptsFunc = unsafeBitCast(method, to: SetAcceptsFunc.self)
-            setAcceptsFunc(window, setAcceptsSelector, true)
-        } else {
-            window.setValue(true, forKey: "acceptsMouseMovedEvents")
-        }
-
-        // Set window opacity based on whether we're applying transparency
-        window.setValue(!shouldApplyTransparency, forKey: "opaque")
-
-        // Set the background color
-        window.setValue(backgroundColor, forKey: "backgroundColor")
+        bridge.configureBackground(shouldApplyTransparency, for: window)
 
         // Configure title bar for integrated tab appearance
         configureTitleBar(for: window, transparent: shouldApplyTransparency, tabCount: tabCount)
@@ -720,14 +635,7 @@ private class TransparentWindowView: UIView {
             )
         }
 
-        // Force the window to update its display
-        if window.responds(to: NSSelectorFromString("invalidateShadow")) {
-            window.perform(NSSelectorFromString("invalidateShadow"))
-        }
-
-        if window.responds(to: NSSelectorFromString("display")) {
-            window.perform(NSSelectorFromString("display"))
-        }
+        bridge.refresh(window)
 
         // Record what we just applied so unchanged reconfigure triggers (and the
         // titlebar inset retries) take the fast path above.
@@ -742,7 +650,7 @@ private class TransparentWindowView: UIView {
         // reopened window (#279).
         applyUIWindowAppearance(shouldApplyTransparency: shouldApplyTransparency)
 
-        blurAssertedWhileVisible = (window.value(forKey: "isVisible") as? Bool) == true
+        blurAssertedWhileVisible = bridge.isVisible(window) == true
     }
 
     private func scheduleTitlebarInsetRetryIfNeeded(hasInset: Bool, hasWindows: Bool) {
@@ -765,864 +673,23 @@ private class TransparentWindowView: UIView {
     }
 
     private func titlebarLeadingInset(for window: NSObject) -> CGFloat? {
-        let selector = NSSelectorFromString("standardWindowButton:")
-        guard window.responds(to: selector) else { return nil }
-
-        let method = window.method(for: selector)
-        typealias StandardButtonFunc = @convention(c) (AnyObject, Selector, Int) -> Unmanaged<AnyObject>?
-        let buttonFunc = unsafeBitCast(method, to: StandardButtonFunc.self)
-
-        let buttonTypes = [0, 1, 2] // close, miniaturize, zoom
-        var maxX: CGFloat = 0
-
-        for buttonType in buttonTypes {
-            guard let button = buttonFunc(window, selector, buttonType)?.takeUnretainedValue() as? NSObject,
-                  let buttonMaxX = resolvedMaxX(for: button) else {
-                continue
-            }
-            maxX = max(maxX, buttonMaxX)
-        }
-
-        guard maxX > 0 else { return nil }
-        return maxX + 8
+        guard let inset = MacSupport.bridge?.titlebarLeadingInset(window), inset > 0 else { return nil }
+        return inset
     }
 
-    private func resolvedMaxX(for view: NSObject) -> CGFloat? {
-        let frameSelector = NSSelectorFromString("frame")
-        guard view.responds(to: frameSelector),
-              let frameValue = view.value(forKey: "frame") as? NSValue else {
-            return nil
-        }
-
-        let frameRect = frameValue.rectValue
-
-        if let convertedMaxX = convertedMaxX(for: view, fallbackRect: frameRect) {
-            return convertedMaxX
-        }
-
-        var rect = frameRect
-        var current: NSObject? = view
-        let superviewSelector = NSSelectorFromString("superview")
-
-        while let currentView = current,
-              currentView.responds(to: superviewSelector),
-              let superview = currentView.value(forKey: "superview") as? NSObject,
-              superview.responds(to: frameSelector),
-              let superFrameValue = superview.value(forKey: "frame") as? NSValue {
-            let superFrame = superFrameValue.rectValue
-            rect.origin.x += superFrame.origin.x
-            rect.origin.y += superFrame.origin.y
-            current = superview
-        }
-
-        return rect.maxX
-    }
-
-    private func convertedMaxX(for view: NSObject, fallbackRect: CGRect) -> CGFloat? {
-        let convertSelector = NSSelectorFromString("convertRect:toView:")
-        guard view.responds(to: convertSelector) else { return nil }
-
-        let boundsSelector = NSSelectorFromString("bounds")
-        let boundsRect: CGRect
-        if view.responds(to: boundsSelector),
-           let boundsValue = view.value(forKey: "bounds") as? NSValue {
-            boundsRect = boundsValue.rectValue
-        } else {
-            boundsRect = fallbackRect
-        }
-
-        let method = view.method(for: convertSelector)
-        typealias ConvertFunc = @convention(c) (AnyObject, Selector, CGRect, AnyObject?) -> CGRect
-        let convertFunc = unsafeBitCast(method, to: ConvertFunc.self)
-        let rectInWindow = convertFunc(view, convertSelector, boundsRect, nil)
-        return rectInWindow.maxX
-    }
-
-    // MARK: - Titlebar Drag Control
-
-    /// Tag used to identify the drag blocker view
-    private static let dragBlockerTag = 0x44524147  // "DRAG" in hex
-
-    /// Creates a dynamic NSView subclass that blocks window dragging
-    /// by returning false for mouseDownCanMoveWindow, but passes through
-    /// mouse events by sending them to the window
-    private static var dragBlockerClass: AnyClass? = {
-        let className = "TitlebarDragBlocker"
-
-        if let existingClass = NSClassFromString(className) {
-            return existingClass
-        }
-
-        guard let nsViewClass = NSClassFromString("NSView") else {
-            return nil
-        }
-
-        guard let newClass = objc_allocateClassPair(nsViewClass, className, 0) else {
-            return nil
-        }
-
-        // Return false to prevent window dragging
-        let mouseDownCanMoveSelector = NSSelectorFromString("mouseDownCanMoveWindow")
-        let mouseDownCanMoveImpl: @convention(block) (AnyObject) -> Bool = { _ in
-            return false
-        }
-        class_addMethod(newClass, mouseDownCanMoveSelector, imp_implementationWithBlock(mouseDownCanMoveImpl), "B@:")
-
-        // Smart hitTest: return nil to let events through to content below.
-        // Only return self for empty titlebar areas to block window dragging.
-        let hitTestSelector = NSSelectorFromString("hitTest:")
-        let hitTestImpl: @convention(block) (AnyObject, CGPoint) -> AnyObject? = { selfObj, point in
-            guard let view = selfObj as? NSObject else { return nil }
-
-            // Check bounds first
-            let boundsSelector = NSSelectorFromString("bounds")
-            guard view.responds(to: boundsSelector),
-                  let boundsValue = view.value(forKey: "bounds") as? NSValue else {
-                return nil
-            }
-            let bounds = boundsValue.rectValue
-            guard bounds.contains(point) else { return nil }
-
-            // Check if there's an active drag session - if so, always pass through
-            // to allow drop targets to receive events
-            if let nsAppClass = NSClassFromString("NSApplication"),
-               let sharedApp = (nsAppClass as? NSObject.Type)?.value(forKey: "sharedApplication") as? NSObject {
-                let currentEventSelector = NSSelectorFromString("currentEvent")
-                if sharedApp.responds(to: currentEventSelector),
-                   let currentEvent = sharedApp.perform(currentEventSelector)?.takeUnretainedValue() as? NSObject {
-                    let eventTypeSelector = NSSelectorFromString("type")
-                    if currentEvent.responds(to: eventTypeSelector) {
-                        let typeMethod = currentEvent.method(for: eventTypeSelector)
-                        typealias TypeFunc = @convention(c) (AnyObject, Selector) -> Int
-                        let typeFunc = unsafeBitCast(typeMethod, to: TypeFunc.self)
-                        let eventType = typeFunc(currentEvent, eventTypeSelector)
-                        // NSEventType: leftMouseDragged = 6, rightMouseDragged = 7, otherMouseDragged = 27
-                        if eventType == 6 || eventType == 7 || eventType == 27 {
-                            return nil  // During drag, always pass through
-                        }
-                    }
-                }
-            }
-
-            // Get window and content view to check for interactive elements
-            guard let window = view.value(forKey: "window") as? NSObject,
-                  let contentView = window.value(forKey: "contentView") as? NSObject else {
-                return selfObj  // Block window drag if we can't check content
-            }
-
-            // Convert point from our coordinates to window coordinates
-            let convertToWindowSelector = NSSelectorFromString("convertPoint:toView:")
-            guard view.responds(to: convertToWindowSelector) else {
-                return selfObj
-            }
-            let convertMethod = view.method(for: convertToWindowSelector)
-            typealias ConvertFunc = @convention(c) (AnyObject, Selector, CGPoint, AnyObject?) -> CGPoint
-            let convertFunc = unsafeBitCast(convertMethod, to: ConvertFunc.self)
-            let pointInWindow = convertFunc(view, convertToWindowSelector, point, nil)
-
-            // Convert from window to content view coordinates
-            let convertFromWindowSelector = NSSelectorFromString("convertPoint:fromView:")
-            guard contentView.responds(to: convertFromWindowSelector) else {
-                return selfObj
-            }
-            let convertFromMethod = contentView.method(for: convertFromWindowSelector)
-            let convertFromFunc = unsafeBitCast(convertFromMethod, to: ConvertFunc.self)
-            let pointInContent = convertFromFunc(contentView, convertFromWindowSelector, pointInWindow, nil)
-
-            // Hit test on content view
-            let contentHitTestSelector = NSSelectorFromString("hitTest:")
-            guard contentView.responds(to: contentHitTestSelector) else {
-                return selfObj
-            }
-            let hitMethod = contentView.method(for: contentHitTestSelector)
-            typealias HitFunc = @convention(c) (AnyObject, Selector, CGPoint) -> AnyObject?
-            let hitFunc = unsafeBitCast(hitMethod, to: HitFunc.self)
-
-            if let hitView = hitFunc(contentView, contentHitTestSelector, pointInContent) as? NSObject {
-                // If hit view is different from content view itself, there's something interactive
-                if hitView !== contentView {
-                    return nil  // Let the click through to the interactive element
-                }
-            }
-
-            // No interactive element found, block window drag
-            return selfObj
-        }
-        class_addMethod(newClass, hitTestSelector, imp_implementationWithBlock(hitTestImpl), "@@:{CGPoint=dd}")
-
-        // For mouseDown - consume it but record the event for later
-        let mouseDownSelector = NSSelectorFromString("mouseDown:")
-        let mouseDownImpl: @convention(block) (AnyObject, AnyObject) -> Void = { _, event in
-            // Store the mouseDown event - we'll use it to simulate a click on mouseUp
-            objc_setAssociatedObject(event, "mouseDownEvent", event, .OBJC_ASSOCIATION_RETAIN)
-        }
-        class_addMethod(newClass, mouseDownSelector, imp_implementationWithBlock(mouseDownImpl), "v@:@")
-
-        // For mouseUp - send event to the window to let it route to the right view
-        let mouseUpSelector = NSSelectorFromString("mouseUp:")
-        let mouseUpImpl: @convention(block) (AnyObject, AnyObject) -> Void = { selfObj, event in
-            guard let view = selfObj as? NSObject,
-                  let window = view.value(forKey: "window") as? NSObject,
-                  let eventObj = event as? NSObject else { return }
-
-            // Send the mouseUp event through the window's normal event handling
-            let sendEventSelector = NSSelectorFromString("sendEvent:")
-            if window.responds(to: sendEventSelector) {
-                // Temporarily remove ourselves from the view hierarchy so we don't intercept again
-                let superviewSelector = NSSelectorFromString("superview")
-                let removeSelector = NSSelectorFromString("removeFromSuperview")
-                let addSubviewSelector = NSSelectorFromString("addSubview:")
-
-                if let superview = view.perform(superviewSelector)?.takeUnretainedValue() as? NSObject {
-                    view.perform(removeSelector)
-                    window.perform(sendEventSelector, with: eventObj)
-                    superview.perform(addSubviewSelector, with: view)
-                }
-            }
-        }
-        class_addMethod(newClass, mouseUpSelector, imp_implementationWithBlock(mouseUpImpl), "v@:@")
-
-        // For mouseDragged - ignore it (don't move window)
-        let mouseDraggedSelector = NSSelectorFromString("mouseDragged:")
-        let mouseDraggedImpl: @convention(block) (AnyObject, AnyObject) -> Void = { _, _ in
-            // Consume drag events - don't let them move the window
-        }
-        class_addMethod(newClass, mouseDraggedSelector, imp_implementationWithBlock(mouseDraggedImpl), "v@:@")
-
-        objc_registerClassPair(newClass)
-        return newClass
-    }()
-
-    /// Tag used to identify the drag handle view
-    private static let dragHandleTag = 0x48414E44  // "HAND" in hex
-
-    /// Cursor token for titlebar drag handle (shared across all instances since cursor is global)
-    private static let titlebarCursorToken = UUID()
-
-    private static func eventPointIsInside(_ event: AnyObject, view: NSObject) -> Bool {
-        let locationSelector = NSSelectorFromString("locationInWindow")
-        guard event.responds(to: locationSelector) else { return false }
-
-        let locationMethod = event.method(for: locationSelector)
-        typealias LocationFunc = @convention(c) (AnyObject, Selector) -> CGPoint
-        let locationFunc = unsafeBitCast(locationMethod, to: LocationFunc.self)
-        return windowPointIsInside(locationFunc(event, locationSelector), view: view)
-    }
-
-    private static func currentMouseIsInside(_ view: NSObject) -> Bool {
-        let windowSelector = NSSelectorFromString("window")
-        guard view.responds(to: windowSelector),
-              let window = view.perform(windowSelector)?.takeUnretainedValue() as? NSObject else {
-            return false
-        }
-
-        let locationSelector = NSSelectorFromString("mouseLocationOutsideOfEventStream")
-        guard window.responds(to: locationSelector) else { return false }
-
-        let locationMethod = window.method(for: locationSelector)
-        typealias LocationFunc = @convention(c) (AnyObject, Selector) -> CGPoint
-        let locationFunc = unsafeBitCast(locationMethod, to: LocationFunc.self)
-        return windowPointIsInside(locationFunc(window, locationSelector), view: view)
-    }
-
-    private static func windowPointIsInside(_ pointInWindow: CGPoint, view: NSObject) -> Bool {
-        let convertSelector = NSSelectorFromString("convertPoint:fromView:")
-        let boundsSelector = NSSelectorFromString("bounds")
-        guard view.responds(to: convertSelector),
-              view.responds(to: boundsSelector),
-              let boundsValue = view.value(forKey: "bounds") as? NSValue else {
-            return false
-        }
-
-        let convertMethod = view.method(for: convertSelector)
-        typealias ConvertFunc = @convention(c) (AnyObject, Selector, CGPoint, AnyObject?) -> CGPoint
-        let convertFunc = unsafeBitCast(convertMethod, to: ConvertFunc.self)
-        let pointInView = convertFunc(view, convertSelector, pointInWindow, nil)
-        return boundsValue.rectValue.contains(pointInView)
-    }
-
-    private static func startTitlebarCursorMonitor(_ token: UUID, view: NSObject) {
-        if (objc_getAssociatedObject(view, &titlebarCursorMonitorKey) as? Bool) == true {
-            return
-        }
-
-        objc_setAssociatedObject(view, &titlebarCursorMonitorKey, true, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        monitorTitlebarCursor(token, view: view)
-    }
-
-    private static func stopTitlebarCursorMonitor(_ token: UUID, view: NSObject? = nil) {
-        if let view {
-            objc_setAssociatedObject(view, &titlebarCursorMonitorKey, false, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        }
-        CatalystCursorCoordinator.shared.unregister(token)
-    }
-
-    private static func monitorTitlebarCursor(_ token: UUID, view: NSObject) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak view] in
-            guard let view else {
-                CatalystCursorCoordinator.shared.unregister(token)
-                return
-            }
-
-            guard (objc_getAssociatedObject(view, &titlebarCursorMonitorKey) as? Bool) == true else {
-                return
-            }
-
-            guard currentMouseIsInside(view) else {
-                stopTitlebarCursorMonitor(token, view: view)
-                return
-            }
-
-            monitorTitlebarCursor(token, view: view)
-        }
-    }
-
-    /// Creates a dynamic NSView subclass for the draggable titlebar strip
-    /// Shows open hand cursor when hovered to indicate drag affordance
-    private static var dragHandleClass: AnyClass? = {
-        let className = "TitlebarDragHandle"
-
-        if let existingClass = NSClassFromString(className) {
-            return existingClass
-        }
-
-        guard let nsViewClass = NSClassFromString("NSView") else {
-            return nil
-        }
-
-        guard let newClass = objc_allocateClassPair(nsViewClass, className, 0) else {
-            return nil
-        }
-
-        // Return true to allow window dragging from this view
-        let mouseDownCanMoveSelector = NSSelectorFromString("mouseDownCanMoveWindow")
-        let mouseDownCanMoveImpl: @convention(block) (AnyObject) -> Bool = { _ in
-            return true
-        }
-        class_addMethod(newClass, mouseDownCanMoveSelector, imp_implementationWithBlock(mouseDownCanMoveImpl), "B@:")
-
-        let hitTestSelector = NSSelectorFromString("hitTest:")
-        let hitTestImpl: @convention(block) (AnyObject, CGPoint) -> AnyObject? = { selfObj, point in
-            guard let view = selfObj as? NSObject else { return nil }
-
-            let boundsSelector = NSSelectorFromString("bounds")
-            guard view.responds(to: boundsSelector),
-                  let boundsValue = view.value(forKey: "bounds") as? NSValue else {
-                return nil
-            }
-
-            return boundsValue.rectValue.contains(point) ? selfObj : nil
-        }
-        class_addMethod(newClass, hitTestSelector, imp_implementationWithBlock(hitTestImpl), "@@:{CGPoint=dd}")
-
-        // Set up tracking area when view is added to window
-        let updateTrackingAreasSelector = NSSelectorFromString("updateTrackingAreas")
-        let updateTrackingAreasImpl: @convention(block) (AnyObject) -> Void = { selfObj in
-            guard let view = selfObj as? NSObject else { return }
-
-            // Call super.updateTrackingAreas()
-            let superSelector = NSSelectorFromString("updateTrackingAreas")
-            if let superClass = class_getSuperclass(object_getClass(view)),
-               let superMethod = class_getInstanceMethod(superClass, superSelector) {
-                let superImp = method_getImplementation(superMethod)
-                typealias SuperFunc = @convention(c) (AnyObject, Selector) -> Void
-                let superFunc = unsafeBitCast(superImp, to: SuperFunc.self)
-                superFunc(view, superSelector)
-            }
-
-            // Remove existing tracking areas
-            let trackingAreasSelector = NSSelectorFromString("trackingAreas")
-            let removeTrackingSelector = NSSelectorFromString("removeTrackingArea:")
-            if view.responds(to: trackingAreasSelector),
-               let areas = view.value(forKey: "trackingAreas") as? [AnyObject] {
-                for area in areas {
-                    view.perform(removeTrackingSelector, with: area)
-                }
-            }
-
-            // Create new tracking area covering entire view bounds
-            guard let trackingAreaClass = NSClassFromString("NSTrackingArea") as? NSObject.Type else {
-                return
-            }
-
-            // Get view bounds
-            let boundsSelector = NSSelectorFromString("bounds")
-            guard view.responds(to: boundsSelector),
-                  let boundsValue = view.value(forKey: "bounds") as? NSValue else {
-                return
-            }
-            let bounds = boundsValue.rectValue
-
-            // NSTrackingAreaOptions (raw values): entered/exited=0x01, moved=0x02,
-            // cursorUpdate=0x04, activeAlways=0x80, inVisibleRect=0x200
-            let options: UInt = 0x01 | 0x02 | 0x04 | 0x80 | 0x200
-
-            // Allocate and init tracking area
-            let allocSelector = NSSelectorFromString("alloc")
-            let initSelector = NSSelectorFromString("initWithRect:options:owner:userInfo:")
-
-            guard let allocated = trackingAreaClass.perform(allocSelector)?.takeUnretainedValue() as? NSObject else {
-                return
-            }
-
-            let initMethod = allocated.method(for: initSelector)
-            typealias InitFunc = @convention(c) (AnyObject, Selector, CGRect, UInt, AnyObject?, AnyObject?) -> AnyObject
-            let initFunc = unsafeBitCast(initMethod, to: InitFunc.self)
-            let trackingArea = initFunc(allocated, initSelector, bounds, options, view, nil)
-
-            // Add tracking area to view
-            let addTrackingSelector = NSSelectorFromString("addTrackingArea:")
-            view.perform(addTrackingSelector, with: trackingArea)
-        }
-        class_addMethod(newClass, updateTrackingAreasSelector, imp_implementationWithBlock(updateTrackingAreasImpl), "v@:")
-
-        // Mouse entered - register open hand cursor with coordinator
-        let mouseEnteredSelector = NSSelectorFromString("mouseEntered:")
-        let cursorToken = titlebarCursorToken
-        let mouseEnteredImpl: @convention(block) (AnyObject, AnyObject) -> Void = { selfObj, event in
-            DispatchQueue.main.async {
-                guard let view = selfObj as? NSObject,
-                      eventPointIsInside(event, view: view) else {
-                    stopTitlebarCursorMonitor(cursorToken, view: selfObj as? NSObject)
-                    return
-                }
-
-                // Arm the window-move frame poll: a drag that starts on this
-                // strip must suppress terminal scrolling from its first frame.
-                WindowDragObserver.shared.noteDragStripHover()
-
-                CatalystCursorCoordinator.shared.resetAll()
-                if let nsCursorClass = NSClassFromString("NSCursor") as? NSObject.Type,
-                   let openHandCursor = nsCursorClass.value(forKey: "openHandCursor") as? NSCursor {
-                    CatalystCursorCoordinator.shared.register(cursorToken, cursor: openHandCursor, priority: .titlebar)
-                    startTitlebarCursorMonitor(cursorToken, view: view)
-                }
-            }
-        }
-        class_addMethod(newClass, mouseEnteredSelector, imp_implementationWithBlock(mouseEnteredImpl), "v@:@")
-
-        // Mouse moved - re-assert open hand cursor while tracking
-        let mouseMovedSelector = NSSelectorFromString("mouseMoved:")
-        let mouseMovedImpl: @convention(block) (AnyObject, AnyObject) -> Void = { selfObj, event in
-            DispatchQueue.main.async {
-                guard let view = selfObj as? NSObject,
-                      eventPointIsInside(event, view: view) else {
-                    stopTitlebarCursorMonitor(cursorToken, view: selfObj as? NSObject)
-                    return
-                }
-
-                WindowDragObserver.shared.noteDragStripHover()
-
-                if let nsCursorClass = NSClassFromString("NSCursor") as? NSObject.Type,
-                   let openHandCursor = nsCursorClass.value(forKey: "openHandCursor") as? NSCursor {
-                    CatalystCursorCoordinator.shared.ensure(cursorToken, cursor: openHandCursor, priority: .titlebar)
-                    startTitlebarCursorMonitor(cursorToken, view: view)
-                }
-            }
-        }
-        class_addMethod(newClass, mouseMovedSelector, imp_implementationWithBlock(mouseMovedImpl), "v@:@")
-
-        // Cursor update - AppKit may ask for this before mouseEntered/mouseMoved
-        // when the pointer enters the thin strip from outside the window.
-        let cursorUpdateSelector = NSSelectorFromString("cursorUpdate:")
-        let cursorUpdateImpl: @convention(block) (AnyObject, AnyObject) -> Void = { selfObj, event in
-            guard let view = selfObj as? NSObject,
-                  eventPointIsInside(event, view: view) else {
-                DispatchQueue.main.async {
-                    stopTitlebarCursorMonitor(cursorToken, view: selfObj as? NSObject)
-                }
-                return
-            }
-
-            if let nsCursorClass = NSClassFromString("NSCursor") as? NSObject.Type,
-               let openHandCursor = nsCursorClass.value(forKey: "openHandCursor") as? NSCursor {
-                openHandCursor.set()
-                DispatchQueue.main.async {
-                    CatalystCursorCoordinator.shared.ensure(cursorToken, cursor: openHandCursor, priority: .titlebar)
-                    startTitlebarCursorMonitor(cursorToken, view: view)
-                }
-            }
-        }
-        class_addMethod(newClass, cursorUpdateSelector, imp_implementationWithBlock(cursorUpdateImpl), "v@:@")
-
-        // Mouse exited - unregister cursor (coordinator resets to arrow or next registered cursor)
-        let mouseExitedSelector = NSSelectorFromString("mouseExited:")
-        let mouseExitedImpl: @convention(block) (AnyObject, AnyObject) -> Void = { selfObj, _ in
-            DispatchQueue.main.async {
-                stopTitlebarCursorMonitor(cursorToken, view: selfObj as? NSObject)
-            }
-        }
-        class_addMethod(newClass, mouseExitedSelector, imp_implementationWithBlock(mouseExitedImpl), "v@:@")
-
-        // Reset cursor rect to ensure cursor changes when entering view
-        let resetCursorRectsSelector = NSSelectorFromString("resetCursorRects")
-        let resetCursorRectsImpl: @convention(block) (AnyObject) -> Void = { selfObj in
-            guard let view = selfObj as? NSObject else { return }
-
-            let boundsSelector = NSSelectorFromString("bounds")
-            guard view.responds(to: boundsSelector),
-                  let boundsValue = view.value(forKey: "bounds") as? NSValue else {
-                return
-            }
-            let bounds = boundsValue.rectValue
-
-            if let nsCursorClass = NSClassFromString("NSCursor") as? NSObject.Type,
-               let openHandCursor = nsCursorClass.value(forKey: "openHandCursor") as? NSObject {
-                let addCursorRectSelector = NSSelectorFromString("addCursorRect:cursor:")
-                if view.responds(to: addCursorRectSelector) {
-                    let method = view.method(for: addCursorRectSelector)
-                    typealias AddCursorFunc = @convention(c) (AnyObject, Selector, CGRect, AnyObject) -> Void
-                    let addCursorFunc = unsafeBitCast(method, to: AddCursorFunc.self)
-                    addCursorFunc(view, addCursorRectSelector, bounds, openHandCursor)
-                }
-            }
-        }
-        class_addMethod(newClass, resetCursorRectsSelector, imp_implementationWithBlock(resetCursorRectsImpl), "v@:")
-
-        objc_registerClassPair(newClass)
-        return newClass
-    }()
-
-    /// Hides or shows the traffic-light buttons. Always called with the
-    /// currently desired state so toggling the hidden-titlebar option off
-    /// restores through the same path.
-    private func setStandardWindowButtonsHidden(_ hidden: Bool, for window: NSObject) {
-        let selector = NSSelectorFromString("standardWindowButton:")
-        guard window.responds(to: selector) else { return }
-
-        let method = window.method(for: selector)
-        typealias StandardButtonFunc = @convention(c) (AnyObject, Selector, Int) -> Unmanaged<AnyObject>?
-        let buttonFunc = unsafeBitCast(method, to: StandardButtonFunc.self)
-
-        for buttonType in [0, 1, 2] {  // close, miniaturize, zoom
-            guard let button = buttonFunc(window, selector, buttonType)?.takeUnretainedValue() as? NSObject else {
-                continue
-            }
-            button.setValue(hidden, forKey: "hidden")
-        }
-    }
-
-    /// Marks chrome views we hid ourselves, so restoring never reveals views
-    /// AppKit keeps hidden on its own.
-    private nonisolated(unsafe) static var titlebarChromeHiddenKey: UInt8 = 0
-
-    /// Hides or shows the native titlebar chrome. Hidden AppKit views don't
-    /// hit-test, so the former titlebar strip passes events to our content.
-    ///
-    /// Sweeps every direct theme-frame subview rather than just
-    /// NSTitlebarContainerView: macOS 27 hosts the titlebar's glass material
-    /// in a sibling of the container, which otherwise survives as a blurry
-    /// strip once our own top fill collapses.
-    private func setTitlebarChromeHidden(_ hidden: Bool, for window: NSObject) {
-        guard let contentView = window.value(forKey: "contentView") as? NSObject,
-              let themeFrame = contentView.value(forKey: "superview") as? NSObject,
-              let subviews = themeFrame.value(forKey: "subviews") as? [NSObject] else {
-            return
-        }
-
-        for subview in subviews {
-            if subview === contentView { continue }
-            let className = String(describing: type(of: subview))
-            if className == "TitlebarDragBlocker" || className == "TitlebarDragHandle" { continue }
-
-            if hidden {
-                if (subview.value(forKey: "hidden") as? Bool) == true { continue }
-                subview.setValue(true, forKey: "hidden")
-                objc_setAssociatedObject(
-                    subview, &Self.titlebarChromeHiddenKey, true, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-            } else if objc_getAssociatedObject(subview, &Self.titlebarChromeHiddenKey) != nil {
-                subview.setValue(false, forKey: "hidden")
-                objc_setAssociatedObject(
-                    subview, &Self.titlebarChromeHiddenKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-            }
-        }
-    }
-
-    /// Configure the NSWindow title bar for integrated appearance
     private func configureTitleBar(for window: NSObject, transparent: Bool, tabCount: Int) {
-        // Always make titlebar transparent so our theme color shows through
-        window.setValue(true, forKey: "titlebarAppearsTransparent")
-
-        // Hide the title text (we show it in our tab bar instead)
-        window.setValue(true, forKey: "titleVisibility")  // 1 = NSWindowTitleHidden
-
-        // Add fullSizeContentView to extend content into titlebar area
-        if let currentStyleMask = window.value(forKey: "styleMask") as? UInt {
-            let fullSizeContentViewMask: UInt = 1 << 15
-            let newStyleMask = currentStyleMask | fullSizeContentViewMask
-            window.setValue(newStyleMask, forKey: "styleMask")
-        }
-
-        // Hidden-titlebar mode: hide the traffic lights and the titlebar
-        // chrome entirely. The .titled styleMask bit is left alone —
-        // toggling it forces AppKit to rebuild the frame view (see the
-        // VisorWindowAccessor warning).
         let store = SettingsStore.shared
-        let hideTitleBar = store.get(Settings.Window.hideTitleBar)
-        setStandardWindowButtonsHidden(hideTitleBar, for: window)
-        setTitlebarChromeHidden(hideTitleBar, for: window)
-
-        // Configure window dragging behavior
         let tabsInTitlebar = store.get(Settings.Window.tabsInTitlebar)
         let tabBarHidden = store.get(Settings.Tabs.barHidden)
-        let topTabStyle = store.get(Settings.Tabs.topTabStyle)
-        configureTitlebarSeparator(
-            for: window,
-            hidden: topTabStyle.usesStripLayout && tabsInTitlebar && !tabBarHidden
-        )
-        configureWindowDragging(
-            for: window,
+        MacSupport.bridge?.configureTitlebar(
+            window,
+            hidden: store.get(Settings.Window.hideTitleBar),
+            separatorHidden: store.get(Settings.Tabs.topTabStyle).usesStripLayout && tabsInTitlebar && !tabBarHidden,
             tabsInTitlebar: tabsInTitlebar,
-            tabCount: tabCount,
             tabBarHidden: tabBarHidden,
-            hideTitleBar: hideTitleBar
+            tabCount: tabCount
         )
-
-        // Get the theme background color for the title bar
-        if let titlebarColor = Ghostty.App.themeBackgroundNSColor(
-            alpha: TransparencyManager.shared.backgroundOpacity
-        ), window.responds(to: NSSelectorFromString("setTitlebarColor:")) {
-            // Works on some macOS versions only
-            window.perform(NSSelectorFromString("setTitlebarColor:"), with: titlebarColor)
-        }
     }
-
-    /// AppKit draws its titlebar separator above Catalyst's SwiftUI content,
-    /// so an active tab cannot visually bridge across it. Integrated titlebar
-    /// tabs own that boundary and suppress the native rule; all other layouts
-    /// restore AppKit's automatic behavior.
-    private func configureTitlebarSeparator(for window: NSObject, hidden: Bool) {
-        let selector = NSSelectorFromString("setTitlebarSeparatorStyle:")
-        guard window.responds(to: selector) else { return }
-
-        let method = window.method(for: selector)
-        typealias SetSeparatorStyle = @convention(c) (AnyObject, Selector, Int) -> Void
-        let setSeparatorStyle = unsafeBitCast(method, to: SetSeparatorStyle.self)
-        // NSTitlebarSeparatorStyleAutomatic = 0, None = 1.
-        setSeparatorStyle(window, selector, hidden ? 1 : 0)
-    }
-
-    /// Configures window dragging behavior for titlebar tabs mode
-    /// Adds an invisible overlay to the titlebar container to block window dragging
-    /// Only blocks dragging when there are multiple tabs to reorder and tab bar is visible
-    /// Always adds drag handle for hand cursor affordance when tabs are in titlebar
-    private func configureWindowDragging(
-        for window: NSObject,
-        tabsInTitlebar: Bool,
-        tabCount: Int,
-        tabBarHidden: Bool,
-        hideTitleBar: Bool
-    ) {
-        // Get the content view and its superview (theme frame)
-        guard let contentView = window.value(forKey: "contentView") as? NSObject,
-              let themeFrame = contentView.value(forKey: "superview") as? NSObject else {
-            return
-        }
-
-        // Find and remove existing drag blockers from theme frame and its subviews
-        removeExistingBlockers(from: themeFrame)
-
-        // Drag views exist when tabs live in the titlebar row, and always in
-        // hidden-titlebar mode — with no titlebar the 12pt top strip is the
-        // only way left to move the window, so keep it even when the tab bar
-        // is hidden too.
-        guard (tabsInTitlebar && !tabBarHidden) || hideTitleBar else {
-            Self.logger.debug("Drag views removed (tabsInTitlebar=\(tabsInTitlebar), tabBarHidden=\(tabBarHidden))")
-            return
-        }
-
-        // Find the titlebar container view. In hidden mode fall back to a
-        // synthesized band at the top of the theme frame so the drag strip
-        // survives an OS that renames the container class.
-        let titlebarContainer = findTitlebarContainer(in: themeFrame)
-        let titlebarFrame: CGRect
-        if let containerFrame = (titlebarContainer?.value(forKey: "frame") as? NSValue)?.rectValue {
-            titlebarFrame = containerFrame
-        } else if hideTitleBar,
-                  let themeBounds = (themeFrame.value(forKey: "bounds") as? NSValue)?.rectValue {
-            titlebarFrame = CGRect(
-                x: themeBounds.minX,
-                y: themeBounds.maxY - 28,
-                width: themeBounds.width,
-                height: 28
-            )
-        } else {
-            Self.logger.warning("Could not find titlebar container")
-            return
-        }
-
-        let allocSelector = NSSelectorFromString("alloc")
-        let initFrameSelector = NSSelectorFromString("initWithFrame:")
-        let setAutoresizingSelector = NSSelectorFromString("setAutoresizingMask:")
-        let setTagSelector = NSSelectorFromString("setTag:")
-        let addPositionedSelector = NSSelectorFromString("addSubview:positioned:relativeTo:")
-
-        let topInset: CGFloat = 12
-
-        // Only add drag blocker when there are multiple tabs (to prevent accidental window drag while reordering).
-        // Skipped in hidden-titlebar mode: the blocker lives inside the hidden
-        // titlebar container, which no longer hit-tests.
-        if tabCount > 1 && !hideTitleBar, let titlebarContainer {
-            guard let dragBlockerClass = Self.dragBlockerClass else {
-                Self.logger.warning("Failed to create drag blocker class")
-                return
-            }
-
-            // Create blocker covering the titlebar (after window buttons at x=100)
-            // Leave a 12pt top strip for window dragging, matching macOS Ghostty.
-            let blockerFrame = CGRect(
-                x: 100,
-                y: 0,
-                width: titlebarFrame.width - 100,
-                height: titlebarFrame.height - topInset
-            )
-
-            guard let classObj = dragBlockerClass as? NSObject.Type,
-                  let allocated = classObj.perform(allocSelector)?.takeUnretainedValue() as? NSObject else {
-                return
-            }
-
-            let initMethod = allocated.method(for: initFrameSelector)
-            typealias InitFunc = @convention(c) (AnyObject, Selector, CGRect) -> AnyObject
-            let initFunc = unsafeBitCast(initMethod, to: InitFunc.self)
-            let blocker = initFunc(allocated, initFrameSelector, blockerFrame)
-
-            // Set autoresizing: width flexible
-            if blocker.responds(to: setAutoresizingSelector) {
-                let method = blocker.method(for: setAutoresizingSelector)
-                typealias SetMaskFunc = @convention(c) (AnyObject, Selector, UInt) -> Void
-                let setMaskFunc = unsafeBitCast(method, to: SetMaskFunc.self)
-                setMaskFunc(blocker, setAutoresizingSelector, 2)  // NSViewWidthSizable
-            }
-
-            // Set tag for identification
-            if blocker.responds(to: setTagSelector) {
-                let method = blocker.method(for: setTagSelector)
-                typealias SetTagFunc = @convention(c) (AnyObject, Selector, Int) -> Void
-                let setTagFunc = unsafeBitCast(method, to: SetTagFunc.self)
-                setTagFunc(blocker, setTagSelector, Self.dragBlockerTag)
-            }
-
-            // Add to titlebar container at the front
-            if titlebarContainer.responds(to: addPositionedSelector) {
-                let method = titlebarContainer.method(for: addPositionedSelector)
-                typealias AddFunc = @convention(c) (AnyObject, Selector, AnyObject, Int, AnyObject?) -> Void
-                let addFunc = unsafeBitCast(method, to: AddFunc.self)
-                addFunc(titlebarContainer, addPositionedSelector, blocker, 1, nil)  // 1 = NSWindowAbove
-            } else {
-                titlebarContainer.perform(NSSelectorFromString("addSubview:"), with: blocker)
-            }
-        }
-
-        // Always add drag handle view for the top strip (shows hand cursor when hovered)
-        // This provides visual affordance for window dragging regardless of tab count
-        guard let dragHandleClass = Self.dragHandleClass else {
-            Self.logger.warning("Failed to create drag handle class")
-            return
-        }
-
-        // Add the handle to the theme frame, above the full-size content view.
-        // When hosted only inside the titlebar container, Catalyst can still
-        // route the mouse down into the SwiftUI tab underneath while the
-        // tracking area shows the hand cursor.
-        // With the titlebar hidden there are no traffic lights, so the strip
-        // extends to the left edge.
-        let handleLeadingClearance: CGFloat = hideTitleBar ? 0 : 100
-        let handleFrame = CGRect(
-            x: titlebarFrame.minX + handleLeadingClearance,
-            y: titlebarFrame.minY + titlebarFrame.height - topInset,
-            width: titlebarFrame.width - handleLeadingClearance,
-            height: topInset
-        )
-
-        guard let handleClassObj = dragHandleClass as? NSObject.Type,
-              let handleAllocated = handleClassObj.perform(allocSelector)?.takeUnretainedValue() as? NSObject else {
-            return
-        }
-
-        let initMethod = handleAllocated.method(for: initFrameSelector)
-        typealias InitFunc = @convention(c) (AnyObject, Selector, CGRect) -> AnyObject
-        let initFunc = unsafeBitCast(initMethod, to: InitFunc.self)
-        let handle = initFunc(handleAllocated, initFrameSelector, handleFrame)
-
-        // Set autoresizing: width flexible, top margin flexible
-        if handle.responds(to: setAutoresizingSelector) {
-            let method = handle.method(for: setAutoresizingSelector)
-            typealias SetMaskFunc = @convention(c) (AnyObject, Selector, UInt) -> Void
-            let setMaskFunc = unsafeBitCast(method, to: SetMaskFunc.self)
-            // NSViewWidthSizable (2) | NSViewMinYMargin (8) = 10
-            setMaskFunc(handle, setAutoresizingSelector, 10)
-        }
-
-        // Set tag for identification
-        if handle.responds(to: setTagSelector) {
-            let method = handle.method(for: setTagSelector)
-            typealias SetTagFunc = @convention(c) (AnyObject, Selector, Int) -> Void
-            let setTagFunc = unsafeBitCast(method, to: SetTagFunc.self)
-            setTagFunc(handle, setTagSelector, Self.dragHandleTag)
-        }
-
-        // Add drag handle above the content view.
-        if themeFrame.responds(to: addPositionedSelector) {
-            let method = themeFrame.method(for: addPositionedSelector)
-            typealias AddFunc = @convention(c) (AnyObject, Selector, AnyObject, Int, AnyObject?) -> Void
-            let addFunc = unsafeBitCast(method, to: AddFunc.self)
-            addFunc(themeFrame, addPositionedSelector, handle, 1, nil)  // 1 = NSWindowAbove
-        } else {
-            themeFrame.perform(NSSelectorFromString("addSubview:"), with: handle)
-        }
-
-        let updateTrackingSelector = NSSelectorFromString("updateTrackingAreas")
-        if handle.responds(to: updateTrackingSelector) {
-            _ = handle.perform(updateTrackingSelector)
-        }
-
-        let invalidateCursorRectsSelector = NSSelectorFromString("invalidateCursorRectsForView:")
-        if window.responds(to: invalidateCursorRectsSelector) {
-            window.perform(invalidateCursorRectsSelector, with: handle)
-        }
-
-    }
-
-    /// Finds the titlebar container view in the theme frame's subviews
-    private func findTitlebarContainer(in themeFrame: NSObject) -> NSObject? {
-        let subviewsSelector = NSSelectorFromString("subviews")
-        guard themeFrame.responds(to: subviewsSelector),
-              let subviews = themeFrame.value(forKey: "subviews") as? [NSObject] else {
-            return nil
-        }
-
-        for subview in subviews {
-            let className = String(describing: type(of: subview))
-            if className.contains("Titlebar") {
-                return subview
-            }
-        }
-        return nil
-    }
-
-    /// Removes existing drag blockers and drag handles from a view and its subviews
-    private func removeExistingBlockers(from view: NSObject) {
-        let subviewsSelector = NSSelectorFromString("subviews")
-
-        guard view.responds(to: subviewsSelector),
-              let subviews = view.value(forKey: "subviews") as? [NSObject] else {
-            return
-        }
-
-        for subview in subviews {
-            // Check if this is our blocker or handle by class name
-            let className = String(describing: type(of: subview))
-            if className == "TitlebarDragBlocker" || className == "TitlebarDragHandle" {
-                subview.perform(NSSelectorFromString("removeFromSuperview"))
-                continue
-            }
-            // Recursively check subviews
-            removeExistingBlockers(from: subview)
-        }
-    }
-
     #endif
 }
-
 #endif

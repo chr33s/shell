@@ -31,6 +31,7 @@ struct NotificationHandlersModifier: ViewModifier {
 
     @Binding var tabBarHidden: Bool
     @Binding var restorationVersion: Int
+    let windowId: String
     let tabsModel: TabsModel
     #if !targetEnvironment(macCatalyst) && !os(visionOS)
     @Setting(Settings.Window.fullScreenMode) private var fullScreenModeEnabled
@@ -82,13 +83,10 @@ struct NotificationHandlersModifier: ViewModifier {
             .onReceive(Self.toggleFullScreenPublisher) { notification in
                 guard shouldHandleNotification(notification) else { return }
                 #if targetEnvironment(macCatalyst)
-                // Trigger native macOS full screen (same as green traffic light
-                // button). AppKit's selector isn't visible to Catalyst Swift,
-                // so it has to be built by name rather than with #selector.
-                UIApplication.shared.sendAction(
-                    NSSelectorFromString("toggleFullScreen:"),
-                    to: nil, from: nil, for: nil
-                )
+                if let sceneID = TerminalWindowRegistry.sceneSessionId(for: windowId),
+                   let window = MacSupport.window(for: sceneID) {
+                    MacSupport.bridge?.toggleFullScreen(window)
+                }
                 // Native macOS fullscreen animation takes ~0.7s
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                     NotificationCenter.default.post(name: .terminalLayoutInvalidation, object: nil)

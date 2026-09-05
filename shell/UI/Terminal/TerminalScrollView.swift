@@ -735,10 +735,14 @@ extension Ghostty {
     }
 
     private var shouldUseRubberBandScrollback: Bool {
+        #if targetEnvironment(macCatalyst)
+        return false
+        #else
         return useRubberBandScrollback &&
             !useLineScrollback &&
             !terminalView.isMouseCaptured &&
             !terminalView.multiplexerScrollActive
+        #endif
     }
 
     private func updateRubberBandScrollBehavior() {

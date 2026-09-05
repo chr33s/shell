@@ -18,6 +18,19 @@
 		AB00000000000000000028 /* GhosttyKitAppStore in Frameworks */ = {isa = PBXBuildFile; productRef = AB00000000000000000053 /* GhosttyKitAppStore */; };
 		AB00000000000000000029 /* Citadel in Frameworks */ = {isa = PBXBuildFile; productRef = AB00000000000000000054 /* Citadel */; };
 		AB0000000000000000002A /* ios_system in Frameworks */ = {isa = PBXBuildFile; platformFilters = (ios, xros, ); productRef = AB00000000000000000055 /* ios_system */; };
+
+        AC00000000000000000001 = {isa = PBXBuildFile; fileRef = AC00000000000000000011; };
+        AC00000000000000000002 = {isa = PBXBuildFile; fileRef = AC00000000000000000011; };
+        AC00000000000000000003 = {isa = PBXBuildFile; fileRef = AC00000000000000000012; };
+        AC00000000000000000004 = {isa = PBXBuildFile; fileRef = AC00000000000000000013; };
+        AC00000000000000000005 = {isa = PBXBuildFile; fileRef = AC00000000000000000014; platformFilters = (maccatalyst, ); settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+
+        AC00000000000000000062 = {isa = PBXBuildFile; fileRef = AC00000000000000000060; };
+        AC00000000000000000063 = {isa = PBXBuildFile; fileRef = AC00000000000000000061; };
+        AC00000000000000000065 = {isa = PBXBuildFile; fileRef = AC00000000000000000064; };
+        AC00000000000000000067 = {isa = PBXBuildFile; fileRef = AC00000000000000000066; };
+        AC00000000000000000069 = {isa = PBXBuildFile; fileRef = AC00000000000000000068; };
+        AC0000000000000000006B = {isa = PBXBuildFile; fileRef = AC0000000000000000006A; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -34,6 +47,9 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+
+        AC00000000000000000020 = {isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstPath = ""; dstSubfolderSpec = 13; files = (AC00000000000000000005, ); name = "Embed Mac Support"; runOnlyForDeploymentPostprocessing = 0; };
+
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
@@ -49,6 +65,18 @@
 		AB00000000000000000018 /* shell-integration */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "shell-integration"; path = "Resources/shell-integration"; sourceTree = "<group>"; };
 		AB00000000000000000019 /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
 		AB0000000000000000001A /* libc++.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = "libc++.tbd"; path = "usr/lib/libc++.tbd"; sourceTree = SDKROOT; };
+
+        AC00000000000000000011 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shared/MacBridge.swift; sourceTree = SOURCE_ROOT; };
+        AC00000000000000000012 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellMacSupport/ShellMacSupport.swift; sourceTree = SOURCE_ROOT; };
+        AC00000000000000000013 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellMacSupport/TitlebarDragViews.swift; sourceTree = SOURCE_ROOT; };
+        AC00000000000000000014 = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = ShellMacSupport.bundle; sourceTree = BUILT_PRODUCTS_DIR; };
+
+        AC00000000000000000060 = {isa = PBXFileReference; path = ShellMacSupport/NativeShellProcess.swift; sourceTree = SOURCE_ROOT; lastKnownFileType = sourcecode.swift; };
+        AC00000000000000000061 = {isa = PBXFileReference; path = ShellMacSupport/PTYSpawn.c; sourceTree = SOURCE_ROOT; lastKnownFileType = sourcecode.c.c; };
+        AC00000000000000000064 = {isa = PBXFileReference; path = ShellMacSupport/NativeKeyboard.swift; sourceTree = SOURCE_ROOT; lastKnownFileType = sourcecode.swift; };
+        AC00000000000000000066 = {isa = PBXFileReference; path = ShellMacSupport/NativeTerminalEvents.swift; sourceTree = SOURCE_ROOT; lastKnownFileType = sourcecode.swift; };
+        AC00000000000000000068 = {isa = PBXFileReference; path = ShellMacSupport/NativeWindowMaterial.swift; sourceTree = SOURCE_ROOT; lastKnownFileType = sourcecode.swift; };
+        AC0000000000000000006A = {isa = PBXFileReference; path = ShellMacSupport/NativeDockMenu.swift; sourceTree = SOURCE_ROOT; lastKnownFileType = sourcecode.swift; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -91,7 +119,16 @@
 		AB00000000000000000006 = {
 			isa = PBXGroup;
 			children = (
-				AB00000000000000000004 /* shell */,
+				AC00000000000000000011,
+                AC00000000000000000012,
+                AC00000000000000000060,
+                AC00000000000000000061,
+                AC00000000000000000064,
+                AC00000000000000000066,
+                AC00000000000000000068,
+                AC0000000000000000006A,
+                AC00000000000000000013,
+                AB00000000000000000004 /* shell */,
 				AB00000000000000000009 /* Configuration */,
 				AB0000000000000000000A /* Resources */,
 				AB00000000000000000014 /* AppIcon.icon */,
@@ -105,6 +142,7 @@
 			isa = PBXGroup;
 			children = (
 				AB00000000000000000003 /* Shell.app */,
+                AC00000000000000000014,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -150,10 +188,12 @@
 				AB00000000000000000031 /* Frameworks */,
 				AB00000000000000000032 /* Resources */,
 				AB00000000000000000033 /* CopyFiles */,
+                AC00000000000000000020,
 			);
 			buildRules = (
 			);
 			dependencies = (
+                AC00000000000000000031,
 			);
 			fileSystemSynchronizedGroups = (
 				AB00000000000000000004 /* shell */,
@@ -168,7 +208,24 @@
 			productReference = AB00000000000000000003 /* Shell.app */;
 			productType = "com.apple.product-type.application";
 		};
+
+        AC00000000000000000030 = {
+            isa = PBXNativeTarget;
+            buildConfigurationList = AC00000000000000000040;
+            buildPhases = (AC00000000000000000021, );
+            buildRules = ();
+            dependencies = ();
+            name = ShellMacSupport;
+            productName = ShellMacSupport;
+            productReference = AC00000000000000000014;
+            productType = "com.apple.product-type.bundle";
+        };
+
 /* End PBXNativeTarget section */
+
+/* Begin PBXTargetDependency section */
+        AC00000000000000000031 = {isa = PBXTargetDependency; target = AC00000000000000000030; platformFilters = (maccatalyst, ); };
+/* End PBXTargetDependency section */
 
 /* Begin PBXProject section */
 		AB00000000000000000001 /* Project object */ = {
@@ -202,6 +259,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
+                AC00000000000000000030,
 				AB00000000000000000002 /* shell */,
 			);
 		};
@@ -220,10 +278,12 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+        AC00000000000000000021 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (AC00000000000000000002, AC00000000000000000003, AC00000000000000000062, AC00000000000000000063, AC00000000000000000065, AC00000000000000000067, AC00000000000000000069, AC0000000000000000006B, AC00000000000000000004, ); runOnlyForDeploymentPostprocessing = 0; };
 		AB00000000000000000030 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+                AC00000000000000000001,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -276,6 +336,38 @@
 			};
 			name = Release;
 		};
+        AC00000000000000000041 = {isa = XCBuildConfiguration; buildSettings = {
+                SDKROOT = macosx;
+                SUPPORTED_PLATFORMS = macosx;
+                SUPPORTS_MACCATALYST = NO;
+                TARGETED_DEVICE_FAMILY = "";
+                MACOSX_DEPLOYMENT_TARGET = 26.0;
+                PRODUCT_NAME = ShellMacSupport;
+                PRODUCT_BUNDLE_IDENTIFIER = dev.chr33s.shell.mac-support;
+                INFOPLIST_FILE = ShellMacSupport/Info.plist;
+                GENERATE_INFOPLIST_FILE = NO;
+                SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/ShellMacSupport/PTYSpawn.h";
+                CODE_SIGN_ENTITLEMENTS = "";
+                OTHER_LDFLAGS = "";
+                SKIP_INSTALL = YES;
+                LD_RUNPATH_SEARCH_PATHS = "$(inherited) @loader_path/../../Frameworks";
+}; name = Debug; };
+        AC00000000000000000042 = {isa = XCBuildConfiguration; buildSettings = {
+                SDKROOT = macosx;
+                SUPPORTED_PLATFORMS = macosx;
+                SUPPORTS_MACCATALYST = NO;
+                TARGETED_DEVICE_FAMILY = "";
+                MACOSX_DEPLOYMENT_TARGET = 26.0;
+                PRODUCT_NAME = ShellMacSupport;
+                PRODUCT_BUNDLE_IDENTIFIER = dev.chr33s.shell.mac-support;
+                INFOPLIST_FILE = ShellMacSupport/Info.plist;
+                GENERATE_INFOPLIST_FILE = NO;
+                SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/ShellMacSupport/PTYSpawn.h";
+                CODE_SIGN_ENTITLEMENTS = "";
+                OTHER_LDFLAGS = "";
+                SKIP_INSTALL = YES;
+                LD_RUNPATH_SEARCH_PATHS = "$(inherited) @loader_path/../../Frameworks";
+}; name = Release; };
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -297,6 +389,9 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+
+        AC00000000000000000040 = {isa = XCConfigurationList; buildConfigurations = (AC00000000000000000041, AC00000000000000000042, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */

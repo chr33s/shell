@@ -61,38 +61,15 @@ struct CatalystWindowDragRegion: UIViewRepresentable {
 private final class CatalystWindowDragView: UIView {
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let sceneID = window?.windowScene?.session.persistentIdentifier,
-              let nsApplicationClass = NSClassFromString("NSApplication") as? NSObject.Type,
-              let nsApplication = nsApplicationClass.value(forKey: "sharedApplication") as? NSObject,
-              let nsWindows = nsApplication.value(forKey: "windows") as? [NSObject],
-              let nsWindow = nsWindows.first(where: {
-                  WindowAccessor.sceneSessionId(for: $0) == sceneID
-              }),
-              !isFullScreen(nsWindow),
-              let mouseEvent = nsApplication.value(forKey: "currentEvent") as? NSObject else {
+              let bridge = MacSupport.bridge,
+              let nsWindow = MacSupport.window(for: sceneID) else {
             super.touchesBegan(touches, with: event)
             return
         }
-
-        let performWindowDragSelector = NSSelectorFromString("performWindowDragWithEvent:")
-        guard nsWindow.responds(to: performWindowDragSelector) else {
-            super.touchesBegan(touches, with: event)
-            return
-        }
-
         WindowDragObserver.shared.dragStripTouchBegan()
-        nsWindow.perform(performWindowDragSelector, with: mouseEvent)
+        let handled = bridge.beginWindowDrag(nsWindow)
         WindowDragObserver.shared.dragStripTouchEnded()
-    }
-
-    private func isFullScreen(_ nsWindow: NSObject) -> Bool {
-        guard let styleMask = nsWindow.value(forKey: "styleMask") as? UInt else {
-            return false
-        }
-        // NSWindowStyleMaskFullScreen. Referenced by raw value because
-        // NSWindow/NSApplication APIs are unavailable at compile time to
-        // Mac Catalyst even though the backing AppKit objects exist.
-        let fullScreenStyleMask: UInt = 1 << 14
-        return styleMask & fullScreenStyleMask != 0
+        if !handled { super.touchesBegan(touches, with: event) }
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {

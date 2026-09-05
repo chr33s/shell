@@ -482,9 +482,9 @@ extension MainView {
         // gatherState() returned nil. Two cases:
         //   - User has closed every window/tab and is backgrounding — we want
         //     the file cleared so next launch is fresh.
-        //   - Restoration hasn't populated `terminals` yet (Catalyst's async
-        //     helper-warmup Task fired between launch and this BG tick) —
-        //     wiping the file here was the launch-then-quit data-loss bug.
+        //   - Restoration hasn't populated `terminals` yet (a BG tick landed
+        //     between launch and the restore) — wiping the file here was the
+        //     launch-then-quit data-loss bug.
         // `hasObservedNonEmptyStateThisLaunch` distinguishes the two: it
         // flips true the first time WindowStateManager has produced a
         // populated state this launch, so a subsequent empty result is
