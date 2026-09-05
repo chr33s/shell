@@ -1,1 +1,0 @@
-{"session_id":"abc123","transcript_path":"/nonexistent/transcript.jsonl","cwd":"/home/kit/projects/rootshell","hook_event_name":"Stop","stop_hook_active":false,"last_assistant_message":"I refactored the parser and **all tests pass**. See [the PR](https://github.com/x/y/pull/1) for details.\n\n```go\nfunc main() {}\n```\n\nNext I would suggest reviewing `parser.go`."}

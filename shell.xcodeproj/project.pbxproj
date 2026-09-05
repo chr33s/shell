@@ -1,0 +1,348 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		AB00000000000000000020 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = AB00000000000000000013 /* Localizable.xcstrings */; };
+		AB00000000000000000021 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = AB00000000000000000014 /* AppIcon.icon */; };
+		AB00000000000000000022 /* fonts in CopyFiles */ = {isa = PBXBuildFile; fileRef = AB00000000000000000015 /* fonts */; };
+		AB00000000000000000023 /* themes in CopyFiles */ = {isa = PBXBuildFile; fileRef = AB00000000000000000016 /* themes */; };
+		AB00000000000000000024 /* terminfo in CopyFiles */ = {isa = PBXBuildFile; fileRef = AB00000000000000000017 /* terminfo */; };
+		AB00000000000000000025 /* shell-integration in CopyFiles */ = {isa = PBXBuildFile; fileRef = AB00000000000000000018 /* shell-integration */; };
+		AB00000000000000000026 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AB00000000000000000019 /* Metal.framework */; };
+		AB00000000000000000027 /* libc++.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = AB0000000000000000001A /* libc++.tbd */; };
+		AB00000000000000000028 /* GhosttyKitAppStore in Frameworks */ = {isa = PBXBuildFile; productRef = AB00000000000000000053 /* GhosttyKitAppStore */; };
+		AB00000000000000000029 /* Citadel in Frameworks */ = {isa = PBXBuildFile; productRef = AB00000000000000000054 /* Citadel */; };
+		AB0000000000000000002A /* ios_system in Frameworks */ = {isa = PBXBuildFile; platformFilters = (ios, xros, ); productRef = AB00000000000000000055 /* ios_system */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		AB00000000000000000033 /* CopyFiles */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 7;
+			files = (
+				AB00000000000000000022 /* fonts in CopyFiles */,
+				AB00000000000000000023 /* themes in CopyFiles */,
+				AB00000000000000000024 /* terminfo in CopyFiles */,
+				AB00000000000000000025 /* shell-integration in CopyFiles */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		AB00000000000000000003 /* Shell.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Shell.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AB00000000000000000010 /* Base.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Base.xcconfig; sourceTree = "<group>"; };
+		AB00000000000000000011 /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
+		AB00000000000000000012 /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
+		AB00000000000000000013 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		AB00000000000000000014 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = AppIcon.icon; sourceTree = "<group>"; };
+		AB00000000000000000015 /* fonts */ = {isa = PBXFileReference; lastKnownFileType = folder; name = fonts; path = Resources/fonts; sourceTree = "<group>"; };
+		AB00000000000000000016 /* themes */ = {isa = PBXFileReference; lastKnownFileType = folder; name = themes; path = Resources/themes; sourceTree = "<group>"; };
+		AB00000000000000000017 /* terminfo */ = {isa = PBXFileReference; lastKnownFileType = folder; name = terminfo; path = Resources/terminfo; sourceTree = "<group>"; };
+		AB00000000000000000018 /* shell-integration */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "shell-integration"; path = "Resources/shell-integration"; sourceTree = "<group>"; };
+		AB00000000000000000019 /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
+		AB0000000000000000001A /* libc++.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = "libc++.tbd"; path = "usr/lib/libc++.tbd"; sourceTree = SDKROOT; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		AB00000000000000000005 /* Exceptions for "shell" folder in "shell" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = AB00000000000000000002 /* shell */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		AB00000000000000000004 /* shell */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				AB00000000000000000005 /* Exceptions for "shell" folder in "shell" target */,
+			);
+			path = shell;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		AB00000000000000000031 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AB00000000000000000028 /* GhosttyKitAppStore in Frameworks */,
+				AB00000000000000000029 /* Citadel in Frameworks */,
+				AB0000000000000000002A /* ios_system in Frameworks */,
+				AB00000000000000000026 /* Metal.framework in Frameworks */,
+				AB00000000000000000027 /* libc++.tbd in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		AB00000000000000000006 = {
+			isa = PBXGroup;
+			children = (
+				AB00000000000000000004 /* shell */,
+				AB00000000000000000009 /* Configuration */,
+				AB0000000000000000000A /* Resources */,
+				AB00000000000000000014 /* AppIcon.icon */,
+				AB00000000000000000013 /* Localizable.xcstrings */,
+				AB00000000000000000008 /* Frameworks */,
+				AB00000000000000000007 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		AB00000000000000000007 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				AB00000000000000000003 /* Shell.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		AB00000000000000000008 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				AB00000000000000000019 /* Metal.framework */,
+				AB0000000000000000001A /* libc++.tbd */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		AB00000000000000000009 /* Configuration */ = {
+			isa = PBXGroup;
+			children = (
+				AB00000000000000000010 /* Base.xcconfig */,
+				AB00000000000000000011 /* Debug.xcconfig */,
+				AB00000000000000000012 /* Release.xcconfig */,
+			);
+			path = Configuration;
+			sourceTree = "<group>";
+		};
+		AB0000000000000000000A /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				AB00000000000000000015 /* fonts */,
+				AB00000000000000000016 /* themes */,
+				AB00000000000000000017 /* terminfo */,
+				AB00000000000000000018 /* shell-integration */,
+			);
+			name = Resources;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		AB00000000000000000002 /* shell */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AB00000000000000000045 /* Build configuration list for PBXNativeTarget "shell" */;
+			buildPhases = (
+				AB00000000000000000030 /* Sources */,
+				AB00000000000000000031 /* Frameworks */,
+				AB00000000000000000032 /* Resources */,
+				AB00000000000000000033 /* CopyFiles */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				AB00000000000000000004 /* shell */,
+			);
+			name = shell;
+			packageProductDependencies = (
+				AB00000000000000000053 /* GhosttyKitAppStore */,
+				AB00000000000000000054 /* Citadel */,
+				AB00000000000000000055 /* ios_system */,
+			);
+			productName = shell;
+			productReference = AB00000000000000000003 /* Shell.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		AB00000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2660;
+				LastUpgradeCheck = 2660;
+				TargetAttributes = {
+					AB00000000000000000002 = {
+						CreatedOnToolsVersion = 26.0;
+					};
+				};
+			};
+			buildConfigurationList = AB00000000000000000044 /* Build configuration list for PBXProject "shell" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = AB00000000000000000006;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				AB00000000000000000050 /* XCRemoteSwiftPackageReference "ghosttykit-rootshell" */,
+				AB00000000000000000051 /* XCRemoteSwiftPackageReference "Citadel-rootshell" */,
+				AB00000000000000000052 /* XCRemoteSwiftPackageReference "ios_system-rootshell" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = AB00000000000000000007 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				AB00000000000000000002 /* shell */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		AB00000000000000000032 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AB00000000000000000021 /* AppIcon.icon in Resources */,
+				AB00000000000000000020 /* Localizable.xcstrings in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		AB00000000000000000030 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		AB00000000000000000040 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = AB00000000000000000011 /* Debug.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_NO_COMMON_BLOCKS = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+			};
+			name = Debug;
+		};
+		AB00000000000000000041 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = AB00000000000000000012 /* Release.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_NO_COMMON_BLOCKS = YES;
+				SDKROOT = iphoneos;
+			};
+			name = Release;
+		};
+		AB00000000000000000042 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = AB00000000000000000011 /* Debug.xcconfig */;
+			buildSettings = {
+				DEVELOPMENT_TEAM = 72KB9YQR7B;
+			};
+			name = Debug;
+		};
+		AB00000000000000000043 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = AB00000000000000000012 /* Release.xcconfig */;
+			buildSettings = {
+				DEVELOPMENT_TEAM = 72KB9YQR7B;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		AB00000000000000000044 /* Build configuration list for PBXProject "shell" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AB00000000000000000040 /* Debug */,
+				AB00000000000000000041 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AB00000000000000000045 /* Build configuration list for PBXNativeTarget "shell" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AB00000000000000000042 /* Debug */,
+				AB00000000000000000043 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		AB00000000000000000050 /* XCRemoteSwiftPackageReference "ghosttykit-rootshell" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/kitknox/ghosttykit-rootshell.git";
+			requirement = {
+				kind = exactVersion;
+				version = 0.2.8;
+			};
+		};
+		AB00000000000000000051 /* XCRemoteSwiftPackageReference "Citadel-rootshell" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/kitknox/Citadel-rootshell.git";
+			requirement = {
+				kind = exactVersion;
+				version = 0.12.3;
+			};
+		};
+		AB00000000000000000052 /* XCRemoteSwiftPackageReference "ios_system-rootshell" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/kitknox/ios_system-rootshell.git";
+			requirement = {
+				kind = exactVersion;
+				version = 0.1.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		AB00000000000000000053 /* GhosttyKitAppStore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AB00000000000000000050 /* XCRemoteSwiftPackageReference "ghosttykit-rootshell" */;
+			productName = GhosttyKitAppStore;
+		};
+		AB00000000000000000054 /* Citadel */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AB00000000000000000051 /* XCRemoteSwiftPackageReference "Citadel-rootshell" */;
+			productName = Citadel;
+		};
+		AB00000000000000000055 /* ios_system */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AB00000000000000000052 /* XCRemoteSwiftPackageReference "ios_system-rootshell" */;
+			productName = ios_system;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = AB00000000000000000001 /* Project object */;
+}

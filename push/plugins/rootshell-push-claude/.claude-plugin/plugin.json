@@ -1,9 +1,0 @@
-{
-  "name": "rootshell-push",
-  "description": "Encrypted push notifications to rootshell when Claude Code finishes or needs you",
-  "version": "0.1.0",
-  "author": {
-    "name": "Rootshell LLC"
-  },
-  "homepage": "https://github.com/kitknox/rootshell/tree/main/push"
-}

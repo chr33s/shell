@@ -1,12 +1,11 @@
 // Debug.xcconfig - Debug build settings
 #include "Base.xcconfig"
 
-// Optimization
 GCC_OPTIMIZATION_LEVEL = 0
 SWIFT_OPTIMIZATION_LEVEL = -Onone
 ENABLE_TESTABILITY = YES
 DEBUG_INFORMATION_FORMAT = dwarf
 COPY_PHASE_STRIP = NO
 
-// Preprocessor Definitions
 GCC_PREPROCESSOR_DEFINITIONS = DEBUG=1 $(inherited)
+SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG $(inherited)

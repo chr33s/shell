@@ -1,3 +1,0 @@
-// Release-China.xcconfig - Release build for China App Store variant
-#include "Release.xcconfig"
-#include "China.xcconfig"

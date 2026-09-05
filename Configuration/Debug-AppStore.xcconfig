@@ -1,3 +1,0 @@
-// Debug-AppStore.xcconfig - Debug build for App Store variant
-#include "Debug.xcconfig"
-#include "AppStore.xcconfig"

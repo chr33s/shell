@@ -1,1 +1,0 @@
-{"session_id":"abc123","transcript_path":"/nonexistent/t.jsonl","cwd":"/home/kit/projects/rootshell","hook_event_name":"Notification","notification_type":"permission_prompt","message":"Claude needs your permission to use Bash","title":"Permission needed"}

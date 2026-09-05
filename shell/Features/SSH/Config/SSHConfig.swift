@@ -1,0 +1,576 @@
+import Foundation
+
+/// Which flavor of tmux to launch when auto-start is enabled.
+/// Only meaningful when `SSHConfig.tmuxAutoEnable` is true.
+nonisolated enum TmuxAutoMode: String, Codable, CaseIterable, Hashable, Sendable {
+    /// Plain interactive session: `tmux new-session -A`.
+    case regular
+
+    /// Control mode gateway: `tmux -CC new-session -A`. Requires a raw byte
+    /// transport.
+    case control
+}
+
+extension TmuxAutoMode {
+    static let discoveryAttachStorageKey = "tmuxDiscoveryAttachMode"
+
+    /// Mode used when attaching to a tmux server discovered on the remote host.
+    static var persistedDiscoveryAttachMode: TmuxAutoMode {
+        get {
+            SettingsStore.shared.value(Settings.Tmux.discoveryAttachMode)
+        }
+        set {
+            // Nonisolated setter; the store's local-change observer picks the write up.
+            UserDefaults.standard.set(newValue.rawValue, forKey: discoveryAttachStorageKey)
+        }
+    }
+}
+
+/// The spec's three-state tmux selection for a profile: off, plain tmux, or
+/// native control mode. Stored on `SSHConfig` as the pair
+/// (`tmuxAutoEnable`, `tmuxAutoMode`); this is the UI-facing view of it.
+nonisolated enum TmuxMode: String, Codable, CaseIterable, Hashable, Sendable {
+    case off
+    case regular
+    case control
+
+    init(tmuxEnabled: Bool, mode: TmuxAutoMode) {
+        self = tmuxEnabled ? (mode == .control ? .control : .regular) : .off
+    }
+
+    /// Whether tmux auto-start is on.
+    var tmuxEnabled: Bool { self != .off }
+
+    /// The persisted tmux launch mode (`regular` when tmux is off, which is
+    /// irrelevant then).
+    var autoMode: TmuxAutoMode { self == .control ? .control : .regular }
+
+    var displayName: String {
+        switch self {
+        case .off: return String(localized: "Off", comment: "tmux mode: off")
+        case .regular: return String(localized: "tmux", comment: "tmux mode: plain tmux")
+        case .control: return String(localized: "tmux Control Mode", comment: "tmux mode: control mode")
+        }
+    }
+}
+
+/// Configuration for an SSH connection.
+///
+/// This is the reduced fork model described by the extraction spec: host,
+/// port, username, auth, optional jump host, `TERM`, and the tmux selection.
+/// Nothing about agent forwarding, port forwarding, cloud labels, or other
+/// transports survives here.
+struct SSHConfig: Codable, Hashable {
+    /// Hostname or IP address to connect to
+    var host: String
+
+    /// TCP port (default: 22)
+    var port: Int = 22
+
+    /// Username to authenticate as
+    var username: String
+
+    /// How to authenticate to the target host
+    var authMethod: AuthMethod = .password("")
+
+    /// Optional jump host (ProxyJump / bastion)
+    var jumpHost: JumpHostConfig? = nil
+
+    /// Whether to auto-start tmux on connect
+    var tmuxAutoEnable: Bool = false
+
+    /// Which tmux flavor to start when `tmuxAutoEnable` is true
+    var tmuxAutoMode: TmuxAutoMode = .regular
+
+    /// Per-profile tmux session name override (nil = use the global default)
+    var tmuxSessionName: String? = nil
+
+    /// Per-profile `TERM` override (nil = use the global default)
+    var terminalType: String? = nil
+
+    /// Additional identities to try if the primary one fails
+    var fallbackKeyIDs: [UUID]? = nil
+
+    /// Resolution hints for cross-device key matching (keyed by UUID string)
+    var keyResolutionHints: [String: KeyResolutionHint]? = nil
+
+    /// Set during `resolvedConfig()` when the password came from the Keychain.
+    var usedSavedPassword: Bool = false
+
+    /// Set during `resolvedConfig()` when the jump password came from the Keychain.
+    var usedSavedJumpPassword: Bool = false
+
+    /// The three-state tmux selection for this connection.
+    var tmuxMode: TmuxMode {
+        get { TmuxMode(tmuxEnabled: tmuxAutoEnable, mode: tmuxAutoMode) }
+        set {
+            tmuxAutoEnable = newValue.tmuxEnabled
+            tmuxAutoMode = newValue.autoMode
+        }
+    }
+
+    /// Tool locations for non-interactive SSH exec requests, searched ahead of
+    /// the system directories without depending on shell startup files.
+    nonisolated static let remoteExecToolPathEntries = [
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+        "$HOME/go/bin",
+        "/usr/local/go/bin"
+    ]
+
+    /// Linux-only tool locations, searched after the ones above. Never even
+    /// stat'd on Darwin: /home is an autofs trigger there, so each lookup costs
+    /// an automountd/opendirectoryd round trip.
+    nonisolated static let remoteExecLinuxPathEntries = [
+        "/home/linuxbrew/.linuxbrew/bin",
+        "/snap/bin"
+    ]
+
+    nonisolated static let remoteExecSystemPathEntries = [
+        "/usr/bin",
+        "/bin",
+        "/usr/sbin",
+        "/sbin"
+    ]
+
+    /// Shell snippet that prepends the entries above that exist on the target,
+    /// in order, preserving its existing PATH. Existence is checked once here
+    /// so nonexistent directories never reach a child's PATH search.
+    nonisolated static let remoteExecPathPrefix: String = {
+        func words(_ entries: [String]) -> String {
+            entries.map { $0.contains("$") ? "\"\($0)\"" : $0 }.joined(separator: " ")
+        }
+        let linux = remoteExecLinuxPathEntries.joined(separator: " ")
+        let list = "\(words(remoteExecToolPathEntries)) $_rsl \(words(remoteExecSystemPathEntries))"
+        // Absolute path: the incoming PATH is exactly what this snippet fixes.
+        return "_rsl=; [ \"$(uname -s)\" = Linux ] && _rsl='\(linux)'; "
+            + "_p=; for _d in \(list); do [ -d \"$_d\" ] && _p=\"$_p:$_d\"; done; "
+            + "PATH=\"${_p#:}${PATH:+:$PATH}\"; export PATH; unset _d _p _rsl; "
+    }()
+
+    // MARK: - Authentication
+
+    /// Authentication method for SSH.
+    ///
+    /// Spec vocabulary: `SSHAuth`.
+    enum AuthMethod: Codable, Hashable {
+        case password(String)      // Password authentication (password provided inline)
+        case savedPassword         // Password stored in Keychain (lookup by connection key)
+        case key(UUID)             // SSH identity authentication (identity ID)
+        case keyboardInteractive   // Keyboard-interactive (RFC 4256): server-driven prompts (OTP/2FA/PAM)
+        /// An auth method written by a newer app version that this build does not
+        /// recognise. Preserved verbatim so a synced profile is neither dropped nor
+        /// lossily rewritten. Not connectable on this version.
+        case unknown(rawType: String)
+
+        private enum CodingKeys: String, CodingKey {
+            case type
+            case keyID
+        }
+
+        private enum MethodType: String, Codable {
+            case password
+            case savedPassword
+            case key
+            case keyboardInteractive
+        }
+
+        var isPassword: Bool {
+            if case .password = self { return true }
+            return false
+        }
+
+        var isSavedPassword: Bool {
+            if case .savedPassword = self { return true }
+            return false
+        }
+
+        var isKey: Bool {
+            if case .key = self { return true }
+            return false
+        }
+
+        var isKeyboardInteractive: Bool {
+            if case .keyboardInteractive = self { return true }
+            return false
+        }
+
+        /// True for an auth method written by a newer app version that this build
+        /// cannot use. Such connections should not be attempted.
+        var isUnknown: Bool {
+            if case .unknown = self { return true }
+            return false
+        }
+
+        /// Returns true if this auth method uses a password (either inline or saved)
+        var usesPassword: Bool {
+            switch self {
+            case .password, .savedPassword:
+                return true
+            default:
+                return false
+            }
+        }
+
+        var keyID: UUID? {
+            if case .key(let id) = self { return id }
+            return nil
+        }
+
+        var password: String? {
+            if case .password(let pwd) = self { return pwd }
+            return nil
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            // Decode the discriminator as a raw string (not MethodType) so an
+            // auth type written by a newer app version maps to `.unknown`
+            // instead of throwing — which would otherwise drop the whole
+            // synced profile on this (older) build.
+            let typeString = try container.decode(String.self, forKey: .type)
+            guard let method = MethodType(rawValue: typeString) else {
+                self = .unknown(rawType: typeString)
+                return
+            }
+            switch method {
+            case .password:
+                self = .password("")
+            case .savedPassword:
+                self = .savedPassword
+            case .key:
+                let keyID = try container.decode(UUID.self, forKey: .keyID)
+                self = .key(keyID)
+            case .keyboardInteractive:
+                self = .keyboardInteractive
+            }
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            switch self {
+            case .password:
+                // Password values are never persisted to JSON.
+                try container.encode(MethodType.password, forKey: .type)
+            case .savedPassword:
+                try container.encode(MethodType.savedPassword, forKey: .type)
+            case .key(let keyID):
+                try container.encode(MethodType.key, forKey: .type)
+                try container.encode(keyID, forKey: .keyID)
+            case .keyboardInteractive:
+                try container.encode(MethodType.keyboardInteractive, forKey: .type)
+            case .unknown(let rawType):
+                // Re-emit the original discriminator verbatim so round-tripping
+                // through this version does not corrupt the synced value.
+                try container.encode(rawType, forKey: .type)
+            }
+        }
+    }
+
+    /// Configuration for an SSH jump host (bastion/proxy).
+    ///
+    /// Spec vocabulary: `SSHJumpHost`.
+    struct JumpHostConfig: Codable, Hashable {
+        /// The hostname or IP address of the jump host
+        var host: String
+
+        /// The port to connect to (default: 22)
+        var port: Int = 22
+
+        /// The username for authentication on the jump host
+        var username: String
+
+        /// The authentication method for the jump host
+        var authMethod: AuthMethod
+
+        /// Additional identities to try if the primary one fails
+        var fallbackKeyIDs: [UUID]? = nil
+
+        /// Resolution hints for cross-device key matching (keyed by UUID string)
+        var keyResolutionHints: [String: KeyResolutionHint]? = nil
+
+        private enum CodingKeys: String, CodingKey {
+            case host, port, username, authMethod, fallbackKeyIDs, keyResolutionHints
+        }
+
+        init(host: String, port: Int = 22, username: String, authMethod: AuthMethod, fallbackKeyIDs: [UUID]? = nil, keyResolutionHints: [String: KeyResolutionHint]? = nil) {
+            self.host = host
+            self.port = port
+            self.username = username
+            self.authMethod = authMethod
+            self.fallbackKeyIDs = fallbackKeyIDs
+            self.keyResolutionHints = keyResolutionHints
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            host = try container.decode(String.self, forKey: .host)
+            port = try container.decodeIfPresent(Int.self, forKey: .port) ?? 22
+            username = try container.decode(String.self, forKey: .username)
+            authMethod = try container.decode(AuthMethod.self, forKey: .authMethod)
+            fallbackKeyIDs = try container.decodeIfPresent([UUID].self, forKey: .fallbackKeyIDs)
+            keyResolutionHints = try container.decodeIfPresent([String: KeyResolutionHint].self, forKey: .keyResolutionHints)
+        }
+
+        /// Display name for the jump host
+        var displayName: String {
+            port == 22 ? "\(username)@\(host)" : "\(username)@\(host):\(port)"
+        }
+
+        /// Validate the jump host configuration
+        var isValid: Bool {
+            let basicValid = !host.isEmpty && !username.isEmpty && port > 0 && port <= 65535
+
+            switch authMethod {
+            case .password(let pwd):
+                return basicValid && !pwd.isEmpty
+            case .savedPassword:
+                return basicValid && SSHPasswordManager.shared.hasPassword(host: host, port: port, username: username)
+            case .key(let keyID):
+                let hint = keyResolutionHints?[keyID.uuidString]
+                return basicValid && SSHKeyManager.shared.resolveKey(id: keyID, hint: hint) != nil
+            case .keyboardInteractive:
+                return basicValid  // Server drives the prompts; no stored credential required
+            case .unknown:
+                return false       // Auth method from a newer app version; not usable here
+            }
+        }
+    }
+
+    // MARK: - Derived values
+
+    /// Whether this connection uses a jump host
+    var usesJumpHost: Bool {
+        jumpHost != nil
+    }
+
+    /// Whether this config uses a saved password (looks up from Keychain)
+    var usesSavedPassword: Bool {
+        authMethod.isSavedPassword
+    }
+
+    /// Connection key for password lookup (format: "host:port:username")
+    var connectionKey: String {
+        SSHSavedPassword.makeConnectionKey(host: host, port: port, username: username)
+    }
+
+    /// Resolves the auth method by loading a saved password if needed.
+    /// - Returns: A copy of this config with the password resolved from the Keychain.
+    /// - Throws: If the saved password cannot be loaded. Never falls back to
+    ///   another auth method — the spec forbids silently downgrading to password auth.
+    @MainActor
+    func resolvedConfig() async throws -> SSHConfig {
+        var resolved = self
+
+        if case .savedPassword = authMethod {
+            let password = try await SSHPasswordManager.shared.loadPassword(
+                host: host,
+                port: port,
+                username: username
+            )
+            resolved.authMethod = .password(password)
+            resolved.usedSavedPassword = true
+        }
+
+        if var jumpConfig = resolved.jumpHost, case .savedPassword = jumpConfig.authMethod {
+            let jumpPassword = try await SSHPasswordManager.shared.loadPassword(
+                host: jumpConfig.host,
+                port: jumpConfig.port,
+                username: jumpConfig.username
+            )
+            jumpConfig.authMethod = .password(jumpPassword)
+            resolved.jumpHost = jumpConfig
+            resolved.usedSavedJumpPassword = true
+        }
+
+        return resolved
+    }
+
+    /// Display name for the connection (derived from host and username)
+    var displayName: String {
+        if let jump = jumpHost {
+            return "\(username)@\(host) via \(jump.displayName)"
+        }
+        return "\(username)@\(host)"
+    }
+
+    /// Validate the configuration
+    var isValid: Bool {
+        let basicValid = !host.isEmpty && !username.isEmpty && port > 0 && port <= 65535
+
+        let targetAuthValid: Bool
+        switch authMethod {
+        case .password(let pwd):
+            targetAuthValid = basicValid && !pwd.isEmpty
+        case .savedPassword:
+            targetAuthValid = basicValid && SSHPasswordManager.shared.hasPassword(host: host, port: port, username: username)
+        case .key(let keyID):
+            let hint = keyResolutionHints?[keyID.uuidString]
+            targetAuthValid = basicValid && SSHKeyManager.shared.resolveKey(id: keyID, hint: hint) != nil
+        case .keyboardInteractive:
+            targetAuthValid = basicValid  // Server drives the prompts; no stored credential required
+        case .unknown:
+            targetAuthValid = false       // Auth method from a newer app version; not usable here
+        }
+
+        if let jumpConfig = jumpHost {
+            return targetAuthValid && jumpConfig.isValid
+        }
+
+        return targetAuthValid
+    }
+
+    // MARK: - Codable
+
+    private enum CodingKeys: String, CodingKey {
+        case host, port, username, authMethod, jumpHost
+        case tmuxAutoEnable, tmuxAutoMode, tmuxSessionName
+        case fallbackKeyIDs, keyResolutionHints, terminalType
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        host = try container.decode(String.self, forKey: .host)
+        port = try container.decodeIfPresent(Int.self, forKey: .port) ?? 22
+        username = try container.decode(String.self, forKey: .username)
+        authMethod = try container.decodeIfPresent(AuthMethod.self, forKey: .authMethod) ?? .password("")
+        jumpHost = try container.decodeIfPresent(JumpHostConfig.self, forKey: .jumpHost)
+        tmuxAutoEnable = try container.decodeIfPresent(Bool.self, forKey: .tmuxAutoEnable) ?? false
+        tmuxAutoMode = try container.decodeIfPresent(TmuxAutoMode.self, forKey: .tmuxAutoMode) ?? .regular
+        tmuxSessionName = try container.decodeIfPresent(String.self, forKey: .tmuxSessionName)
+        fallbackKeyIDs = try container.decodeIfPresent([UUID].self, forKey: .fallbackKeyIDs)
+        keyResolutionHints = try container.decodeIfPresent([String: KeyResolutionHint].self, forKey: .keyResolutionHints)
+        terminalType = try container.decodeIfPresent(String.self, forKey: .terminalType)
+    }
+
+    /// Creates a new SSH configuration with password authentication
+    init(host: String,
+         port: Int = 22,
+         username: String,
+         password: String = "",
+         jumpHost: JumpHostConfig? = nil,
+         tmuxAutoEnable: Bool = false,
+         tmuxAutoMode: TmuxAutoMode = .regular) {
+        self.host = host
+        self.port = port
+        self.username = username
+        self.authMethod = .password(password)
+        self.jumpHost = jumpHost
+        self.tmuxAutoEnable = tmuxAutoEnable
+        self.tmuxAutoMode = tmuxAutoMode
+    }
+
+    /// Creates a new SSH configuration with identity (key or certificate) authentication
+    /// - Parameter fallbackKeyIDs: Additional identities to try if the primary one fails
+    init(host: String,
+         port: Int = 22,
+         username: String,
+         keyID: UUID,
+         fallbackKeyIDs: [UUID]? = nil,
+         jumpHost: JumpHostConfig? = nil,
+         tmuxAutoEnable: Bool = false,
+         tmuxAutoMode: TmuxAutoMode = .regular) {
+        self.host = host
+        self.port = port
+        self.username = username
+        self.authMethod = .key(keyID)
+        self.fallbackKeyIDs = fallbackKeyIDs
+        self.jumpHost = jumpHost
+        self.tmuxAutoEnable = tmuxAutoEnable
+        self.tmuxAutoMode = tmuxAutoMode
+    }
+
+    /// Creates a new SSH configuration with an explicit auth method
+    init(host: String,
+         port: Int = 22,
+         username: String,
+         authMethod: AuthMethod,
+         jumpHost: JumpHostConfig? = nil,
+         tmuxAutoEnable: Bool = false,
+         tmuxAutoMode: TmuxAutoMode = .regular) {
+        self.host = host
+        self.port = port
+        self.username = username
+        self.authMethod = authMethod
+        self.jumpHost = jumpHost
+        self.tmuxAutoEnable = tmuxAutoEnable
+        self.tmuxAutoMode = tmuxAutoMode
+    }
+
+    // MARK: - tmux launch
+
+    /// Globally-configured default tmux session name ("main" when unset).
+    static var tmuxGlobalSessionName: String {
+        let name = SettingsStore.shared.value(Settings.Tmux.defaultSessionName)
+        if !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return name
+        }
+        return "main"
+    }
+
+    /// Builds the `sh -c '...'` line that attaches to (or creates) a tmux
+    /// session, optionally in control mode (`-CC`), falling back to `$SHELL`
+    /// when tmux is missing. The session name must already be validated as
+    /// embeddable in the single-quoted command (see TmuxGatewaySessionStore).
+    static func tmuxExecCommandLine(sessionName: String, controlMode: Bool) -> String {
+        let cc = controlMode ? "-CC " : ""
+        return "sh -c '\(remoteExecPathPrefix)command -v tmux >/dev/null && exec tmux \(cc)new-session -A -s \(sessionName) || exec $SHELL'"
+    }
+
+    /// Shared tmux exec command used when no per-connection config applies.
+    static var tmuxExecCommand: String {
+        tmuxExecCommandLine(sessionName: tmuxGlobalSessionName, controlMode: false)
+    }
+
+    /// The profile's session-name override, trimmed, or nil when unset.
+    var tmuxSessionNameOverride: String? {
+        guard let name = tmuxSessionName?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !name.isEmpty else { return nil }
+        return name
+    }
+
+    /// Session name to attach to for this connection. The profile's explicit
+    /// override wins, since declared intent outranks the inferred last-attached
+    /// memory; then the session the user was last attached to ON THIS
+    /// CONNECTION; then the global default.
+    var tmuxSessionNameForConnection: String {
+        if let override = tmuxSessionNameOverride,
+           TmuxControlModeParser.isEmbeddableSessionName(override) {
+            return override
+        }
+        let key = TmuxGatewaySessionStore.connectionKey(host: host, port: port, username: username)
+        if let name = TmuxGatewaySessionStore.lastSessionName(forConnection: key),
+           TmuxControlModeParser.isEmbeddableSessionName(name) {
+            return name
+        }
+        return Self.tmuxGlobalSessionName
+    }
+
+    /// `TERM` to advertise for this connection: the profile's override when set,
+    /// otherwise the global remote default from Settings.
+    var effectiveTerminalType: String {
+        TerminalTypeSettings.resolveRemote(terminalType)
+    }
+
+    /// Per-connection tmux launch line: uses the per-connection session name
+    /// and the connection's `tmuxAutoMode` (regular vs `-CC` control mode).
+    var tmuxExecCommandForConnection: String {
+        Self.tmuxExecCommandLine(sessionName: tmuxSessionNameForConnection,
+                                 controlMode: tmuxAutoMode == .control)
+    }
+
+    static func shellSingleQuote(_ string: String) -> String {
+        "'\(string.replacingOccurrences(of: "'", with: "'\\''"))'"
+    }
+
+    /// Whether the channel replaced the interactive shell with a command.
+    var hasExecTakeoverCommand: Bool {
+        tmuxAutoEnable
+    }
+
+    /// The exec command to run in place of the interactive shell, if any.
+    var effectiveExecCommand: String? {
+        tmuxAutoEnable ? tmuxExecCommandForConnection : nil
+    }
+}

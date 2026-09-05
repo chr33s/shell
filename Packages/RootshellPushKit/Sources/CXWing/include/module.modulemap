@@ -1,4 +1,0 @@
-module CXWing {
-    header "cxwing.h"
-    export *
-}

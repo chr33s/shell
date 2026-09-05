@@ -1,15 +1,4 @@
-// Base.xcconfig - Shared settings for all builds
-
-// Optional bundled service credentials. Keep Secrets.xcconfig untracked.
-// Public builds use these empty defaults, expose PAT authentication only,
-// and fall back to DNS for IP geolocation.
-ROOTSHELL_LINODE_OAUTH_CLIENT_ID =
-ROOTSHELL_LINODE_OAUTH_CLIENT_SECRET =
-ROOTSHELL_DIGITALOCEAN_OAUTH_CLIENT_ID =
-ROOTSHELL_DIGITALOCEAN_OAUTH_CLIENT_SECRET =
-ROOTSHELL_IPINFO_TOKEN_XOR =
-ROOTSHELL_IPINFO_TOKEN_KEY =
-#include? "Secrets.xcconfig"
+// Base.xcconfig - Shared settings for all Shell builds
 
 // Development Team
 DEVELOPMENT_TEAM = D97ZME3ET2
@@ -18,6 +7,7 @@ DEVELOPMENT_TEAM = D97ZME3ET2
 SWIFT_VERSION = 5.0
 SWIFT_APPROACHABLE_CONCURRENCY = YES
 SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor
+SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES
 
 // Deployment Targets
 IPHONEOS_DEPLOYMENT_TARGET = 18.0
@@ -26,42 +16,74 @@ XROS_DEPLOYMENT_TARGET = 26.0
 // Supported Platforms (includes Catalyst)
 SUPPORTED_PLATFORMS = iphoneos iphonesimulator xros xrsimulator
 SUPPORTS_MACCATALYST = YES
+SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO
 
 // Device Families (1=iPhone, 2=iPad, 7=Apple Vision)
 TARGETED_DEVICE_FAMILY = 1,2,7
 
-// Framework Search Paths
-FRAMEWORK_SEARCH_PATHS = $(inherited) $(PROJECT_DIR)/Frameworks
-
 // App Identity
-PRODUCT_BUNDLE_IDENTIFIER = com.kk2.rootshell
-INFOPLIST_FILE = rootshell/Info.plist
+PRODUCT_NAME = Shell
+PRODUCT_BUNDLE_IDENTIFIER = dev.chr33s.shell
+INFOPLIST_FILE = shell/Info.plist
 
-// Shared with the notification service extension (push decryption).
-ROOTSHELL_APP_GROUP = group.com.kk2.ghostty
-ROOTSHELL_KEYCHAIN_ACCESS_GROUP = D97ZME3ET2.com.kk2.ghostty-ios
-ROOTSHELL_PUSH_SERVER = https:/$()/push.rootshell.com
+// Fork-specific Apple configuration (see spec section 8).
+SHELL_KEYCHAIN_ACCESS_GROUP = $(AppIdentifierPrefix)dev.chr33s.shell
+SHELL_CLOUDKIT_CONTAINER = iCloud.dev.chr33s.shell
+
+// Entitlements
+CODE_SIGN_ENTITLEMENTS = shell/Entitlements/Shell.entitlements
+CODE_SIGN_STYLE = Automatic
 
 // Swift Bridging Header
-SWIFT_OBJC_BRIDGING_HEADER = $(SRCROOT)/rootshell/rootshell-Bridging-Header.h
+SWIFT_OBJC_BRIDGING_HEADER = $(SRCROOT)/shell/shell-Bridging-Header.h
 
-// Header Search Paths (for local C bridge headers)
-HEADER_SEARCH_PATHS = $(inherited) $(SRCROOT)/rootshell/Features/Git
-
-// Security Settings (common)
+// Security Settings
+ENABLE_APP_SANDBOX = YES
+ENABLE_HARDENED_RUNTIME = YES
+ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES
 RUNTIME_EXCEPTION_ALLOW_UNSIGNED_EXECUTABLE_MEMORY = NO
 RUNTIME_EXCEPTION_DISABLE_LIBRARY_VALIDATION = NO
 
-// Code Signing (automatic by default, overridden per variant)
-CODE_SIGN_STYLE = Automatic
+// Asset catalog
+ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon
+ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor
+ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES
 
-// Link libresolv for DNS TXT queries (mtr AS number lookup).
+// Info.plist generation
+GENERATE_INFOPLIST_FILE = YES
+INFOPLIST_KEY_CFBundleDisplayName = Shell
+INFOPLIST_KEY_LSApplicationCategoryType = public.app-category.developer-tools
+INFOPLIST_KEY_NSFaceIDUsageDescription = Authenticate to use SSH keys protected by the Secure Enclave or Keychain.
+INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES
+INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES
+INFOPLIST_KEY_UILaunchScreen_Generation = YES
+INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
+INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
+
+// Versioning
+CURRENT_PROJECT_VERSION = 1
+MARKETING_VERSION = 0.1.0
+
+// Localization
+SWIFT_EMIT_LOC_STRINGS = YES
+STRING_CATALOG_GENERATE_SYMBOLS = YES
+
+// Misc
+CLANG_ENABLE_MODULES = YES
+ENABLE_PREVIEWS = YES
+ENABLE_USER_SCRIPT_SANDBOXING = NO
+LD_RUNPATH_SEARCH_PATHS = $(inherited) @executable_path/Frameworks
+
+// Link libresolv for DNS lookups used by the networking helpers.
 //
-// GhosttyKit statically links its own oniguruma, and so do jq_ios and bat_ios.
-// GhosttyKit is linked ahead of them so Ghostty resolves its own copy, and the
-// app's copy is kept unexported so nothing built with -undefined dynamic_lookup
-// can flat-lookup into it and end up mixing the two builds.
+// GhosttyKit statically links its own oniguruma; keep it unexported so nothing
+// built with -undefined dynamic_lookup can flat-lookup into it.
 OTHER_LDFLAGS = $(inherited) -lresolv -Wl,-unexported_symbol,_onig* -Wl,-unexported_symbol,_Onig*
 
-// Exclude ios_system resource plists from Mac Catalyst (not needed)
+// ios_system resource plists are not needed on Mac Catalyst.
 EXCLUDED_SOURCE_FILE_NAMES[sdk=macosx*] = $(inherited) commandDictionary.plist extraCommandsDictionary.plist
+
+// GhosttyKit and the ios_system frameworks ship arm64-only simulator slices,
+// so an x86_64 simulator build has nothing to link against.
+EXCLUDED_ARCHS[sdk=iphonesimulator*] = $(inherited) x86_64
+EXCLUDED_ARCHS[sdk=xrsimulator*] = $(inherited) x86_64

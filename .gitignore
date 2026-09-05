@@ -2,13 +2,8 @@ xcuserdata/
 .build/
 .local-packages/
 Frameworks/
-Configuration/Secrets.xcconfig
 releases
 /build/
 /tools/
 .derivedData/
-# Bundled macOS VPN host (regenerable via scripts/deploy-vpn-host.sh)
-rootshell/Resources/rootshellvpn.app/
-# Developer ID provisioning profiles (account-specific, place locally)
-scripts/*.provisionprofile
 .DS_Store

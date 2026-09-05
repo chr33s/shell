@@ -1,0 +1,178 @@
+//
+//  KeyboardToolbarOrnament.swift
+//  shell
+//
+//  visionOS window ornament wrapping KeyboardToolbarView for on-screen key input.
+//
+
+#if os(visionOS)
+import SwiftUI
+import UIKit
+
+// MARK: - Notification
+
+extension Notification.Name {
+    static let toggleKeyboardToolbar = Notification.Name("dev.chr33s.shell.toggleKeyboardToolbar")
+}
+
+// MARK: - Ornament View
+
+struct KeyboardToolbarOrnament: View {
+    let focusedTerminal: Ghostty.TerminalView?
+    @Binding var isVisible: Bool
+    @State private var toolbarHeight: CGFloat = KeyboardSizes.iPad.toolbar.height
+
+    var body: some View {
+        KeyboardToolbarRepresentable(
+            focusedTerminal: focusedTerminal,
+            onDismiss: { isVisible = false },
+            onHeightChanged: { newHeight in
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    toolbarHeight = newHeight
+                }
+            }
+        )
+        .frame(width: 720, height: toolbarHeight)
+        .glassBackgroundEffect()
+    }
+}
+
+// MARK: - UIViewRepresentable
+
+struct KeyboardToolbarRepresentable: UIViewRepresentable {
+    let focusedTerminal: Ghostty.TerminalView?
+    let onDismiss: () -> Void
+    let onHeightChanged: (CGFloat) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeUIView(context: Context) -> KeyboardToolbarView {
+        let toolbar = KeyboardToolbarView(sizes: .current())
+        let coordinator = context.coordinator
+        toolbar.delegate = coordinator
+
+        // Disable the toolbar's built-in blur — the ornament's glassBackgroundEffect handles it
+        toolbar.backgroundColor = .clear
+        toolbar.layer.cornerRadius = 0
+        toolbar.clipsToBounds = false
+
+        // Wire action callbacks via notifications (same pattern as TerminalView.setupKeyboard)
+        toolbar.onDismissRequested = { [onDismiss] in
+            onDismiss()
+        }
+
+        toolbar.onTabSwitcherRequested = { [weak toolbar] in
+            NotificationCenter.default.post(name: .showTabSwitcher, object: toolbar)
+        }
+
+        toolbar.onToolbarSettingsRequested = { [weak toolbar] in
+            NotificationCenter.default.post(name: .showToolbarSettings, object: toolbar)
+        }
+
+        toolbar.onPasteRequested = { [weak coordinator] in
+            coordinator?.focusedTerminal?.paste(nil)
+        }
+
+        toolbar.onToggleFullScreenRequested = { [weak toolbar] in
+            NotificationCenter.default.post(name: .toggleFullScreen, object: toolbar)
+        }
+
+        toolbar.onToggleTabBarRequested = { [weak toolbar] in
+            NotificationCenter.default.post(name: .toggleTabBar, object: toolbar)
+        }
+
+        toolbar.onNewConnectionRequested = { [weak toolbar] in
+            NotificationCenter.default.post(name: .newTab, object: toolbar)
+        }
+
+        toolbar.onAppSettingsRequested = { [weak toolbar] in
+            NotificationCenter.default.post(name: .openSettings, object: toolbar)
+        }
+
+        toolbar.onComposeRequested = { [weak coordinator] in
+            guard let terminal = coordinator?.focusedTerminal else { return }
+            if terminal.showComposeOverlay {
+                terminal.becomeFirstResponder()
+            }
+            terminal.showComposeOverlay.toggle()
+            NotificationCenter.default.post(name: .ghosttyComposeStateChanged, object: terminal)
+        }
+
+        toolbar.onToggleMouseCaptureRequested = { [weak coordinator] in
+            coordinator?.focusedTerminal?.toggleMouseReporting()
+        }
+
+        toolbar.onModifiersChanged = { [weak coordinator] modifiers in
+            coordinator?.focusedTerminal?.activeKeyboardModifiers = modifiers
+        }
+
+        toolbar.onDrawerStateChanged = { [weak toolbar, onHeightChanged] in
+            guard let toolbar else { return }
+            let newHeight = toolbar.intrinsicContentSize.height
+            DispatchQueue.main.async {
+                onHeightChanged(newHeight)
+            }
+        }
+
+        // Store toolbar reference in coordinator and start observing layout changes
+        coordinator.toolbar = toolbar
+        coordinator.onHeightChanged = onHeightChanged
+        coordinator.observeLayoutChanges()
+
+        return toolbar
+    }
+
+    func updateUIView(_ toolbar: KeyboardToolbarView, context: Context) {
+        let coordinator = context.coordinator
+        let terminal = focusedTerminal
+
+        // Update delegate target when focused terminal changes
+        coordinator.focusedTerminal = terminal
+
+        // Give the terminal a back-reference for clearOneShotModifiers
+        terminal?.externalToolbar = toolbar
+    }
+
+    // MARK: - Coordinator
+
+    class Coordinator: KeyboardButtonDelegate {
+        weak var focusedTerminal: Ghostty.TerminalView?
+        weak var toolbar: KeyboardToolbarView?
+        var onHeightChanged: ((CGFloat) -> Void)?
+        private var layoutChangeObserver: NSObjectProtocol?
+
+        func observeLayoutChanges() {
+            layoutChangeObserver = NotificationCenter.default.addObserver(
+                forName: KeyboardToolbarManager.layoutDidChangeNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                guard let self, let toolbar = self.toolbar else { return }
+                toolbar.rebuildForCurrentWidth()
+                let newHeight = toolbar.intrinsicContentSize.height
+                self.onHeightChanged?(newHeight)
+            }
+        }
+
+        deinit {
+            if let observer = layoutChangeObserver {
+                NotificationCenter.default.removeObserver(observer)
+            }
+        }
+
+        func keyPressed(_ key: String, modifiers: KeyModifiers) {
+            focusedTerminal?.keyPressed(key, modifiers: modifiers)
+        }
+
+        func cancelScrollTouches() {
+            focusedTerminal?.cancelScrollTouches()
+        }
+
+        func sendRawData(_ data: Data) {
+            focusedTerminal?.sendRawData(data)
+        }
+    }
+}
+#endif

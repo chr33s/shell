@@ -1,5 +1,0 @@
-// Release-AppStore.xcconfig - Release build for App Store distribution
-#include "Release.xcconfig"
-#include "AppStore.xcconfig"
-
-// Use automatic signing - Xcode will select the correct identity for distribution

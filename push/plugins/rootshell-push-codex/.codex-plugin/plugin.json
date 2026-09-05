@@ -1,4 +1,0 @@
-{
-  "name": "rootshell-push",
-  "hooks": "./hooks/hooks.json"
-}

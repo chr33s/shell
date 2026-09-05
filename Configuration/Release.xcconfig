@@ -1,18 +1,8 @@
 // Release.xcconfig - Release build settings
 #include "Base.xcconfig"
 
-// Optimization
+SWIFT_OPTIMIZATION_LEVEL = -O
 SWIFT_COMPILATION_MODE = wholemodule
 DEBUG_INFORMATION_FORMAT = dwarf-with-dsym
+COPY_PHASE_STRIP = NO
 VALIDATE_PRODUCT = YES
-
-// Strip symbols from release binary
-COPY_PHASE_STRIP = YES
-STRIP_INSTALLED_PRODUCT = YES
-STRIP_SWIFT_SYMBOLS = YES
-
-// Remove unreachable code at link time
-DEAD_CODE_STRIPPING = YES
-
-// Cross-module dead code elimination (thin = reasonable build times)
-LLVM_LTO = YES_THIN

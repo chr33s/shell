@@ -1,3 +1,0 @@
-// Debug-Standalone.xcconfig - Debug build for Standalone variant
-#include "Debug.xcconfig"
-#include "Standalone.xcconfig"

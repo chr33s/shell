@@ -1,5 +1,0 @@
-// Release-Standalone.xcconfig - Release build for direct distribution
-#include "Release.xcconfig"
-#include "Standalone.xcconfig"
-
-// Use automatic signing - Xcode will select the correct identity for distribution
