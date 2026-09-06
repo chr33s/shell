@@ -12,14 +12,14 @@ import SwiftUI
 
 struct SettingsSyncSection: View {
     @State private var syncManager = CloudKitSyncManager.shared
-    @Setting(Settings.System.cloudKitSyncProfiles) private var syncProfiles: Bool
-    @Setting(Settings.System.cloudKitSyncKnownHosts) private var syncKnownHosts: Bool
-    @Setting(Settings.System.cloudKitSyncAppSettings) private var syncSettings: Bool
-    @Setting(Settings.System.cloudKitSyncIdentityMetadata) private var syncIdentityMetadata: Bool
+    // The CloudKit toggles read and write the manager, not the store: the
+    // manager owns the in-memory flags the sync engine gates on, and its
+    // `saveSettings()` is the writer of record for the underlying keys.
     @Setting(Settings.System.syncSoftwareKeys) private var syncSoftwareKeys: Bool
 
     @State private var isBusy = false
     @State private var errorMessage: String?
+    @State private var pendingMerge: SettingsMergePreview?
 
     var body: some View {
         List {
@@ -36,14 +36,27 @@ struct SettingsSyncSection: View {
 
             if syncManager.isSyncEnabled {
                 Section {
-                    Toggle("Sync Profiles", isOn: $syncProfiles)
-                        .themedRow()
-                    Toggle("Sync Known Hosts", isOn: $syncKnownHosts)
-                        .themedRow()
-                    Toggle("Sync Settings", isOn: $syncSettings)
-                        .themedRow()
-                    Toggle("Sync Identity Metadata", isOn: $syncIdentityMetadata)
-                        .themedRow()
+                    Toggle("Sync Profiles", isOn: Binding(
+                        get: { syncManager.isProfilesSyncEnabled },
+                        set: { syncManager.setProfilesSyncEnabled($0) }
+                    ))
+                    .themedRow()
+                    Toggle("Sync Known Hosts", isOn: Binding(
+                        get: { syncManager.isKnownHostsSyncEnabled },
+                        set: { syncManager.setKnownHostsSyncEnabled($0) }
+                    ))
+                    .themedRow()
+                    Toggle("Sync Settings", isOn: Binding(
+                        get: { syncManager.isAppSettingsSyncEnabled },
+                        set: { setAppSettingsSync($0) }
+                    ))
+                    .disabled(isBusy)
+                    .themedRow()
+                    Toggle("Sync Identity Metadata", isOn: Binding(
+                        get: { syncManager.isIdentityMetadataSyncEnabled },
+                        set: { syncManager.setIdentityMetadataSyncEnabled($0) }
+                    ))
+                    .themedRow()
                 } header: {
                     Text("CloudKit")
                 } footer: {
@@ -85,6 +98,27 @@ struct SettingsSyncSection: View {
         .themedList()
         .navigationTitle("Sync")
         .navigationBarTitleDisplayMode(.inline)
+        .confirmationDialog(
+            "Merge Settings with iCloud",
+            isPresented: Binding(
+                get: { pendingMerge != nil },
+                set: { if !$0 { cancelMerge() } }
+            ),
+            titleVisibility: .visible,
+            presenting: pendingMerge
+        ) { preview in
+            Button("Use iCloud Settings") {
+                pendingMerge = nil
+                resolveMerge(preview, .useCloud)
+            }
+            Button("Keep This Device's Settings") {
+                pendingMerge = nil
+                resolveMerge(preview, .uploadLocal)
+            }
+            Button("Cancel", role: .cancel) { cancelMerge() }
+        } message: { preview in
+            Text("iCloud has \(preview.cloudCount) settings from \(preview.cloudDeviceIDs.count) other device(s); this device has \(preview.localCount), \(preview.overlapping) in common. \(preview.resetCount) local values were reset on another device.")
+        }
     }
 
     private func setSyncEnabled(_ enabled: Bool) {
@@ -94,6 +128,56 @@ struct SettingsSyncSection: View {
             defer { isBusy = false }
             do {
                 try await syncManager.setEnabled(enabled)
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func setAppSettingsSync(_ enabled: Bool) {
+        isBusy = true
+        errorMessage = nil
+        Task { @MainActor in
+            defer { isBusy = false }
+            do {
+                switch try await syncManager.setAppSettingsSyncEnabled(enabled) {
+                case .enabled:
+                    break
+                case .needsMergeChoice(let preview):
+                    pendingMerge = preview
+                }
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    /// Dismissed without a choice — the Cancel button, or a tap outside the
+    /// popover on iPad. The toggle snaps back on its own (the manager's flag
+    /// was never set), but the record cache the preview fetch filled has to go
+    /// with it: `completeAppSettingsSyncEnable` prefers that cache over
+    /// `preview.cloud`, so a record deleted server-side between this attempt
+    /// and a later confirm would otherwise linger there and be merged back in.
+    ///
+    /// Guarded on `pendingMerge` still being set, because SwiftUI drives the
+    /// `isPresented` binding to false on EVERY dismissal, including the one
+    /// that follows a chosen merge. Both choice buttons clear `pendingMerge`
+    /// before starting `resolveMerge`, so the dismissal that trails them finds
+    /// nil here and leaves the cache alone for the in-flight completion to read.
+    @MainActor
+    private func cancelMerge() {
+        guard pendingMerge != nil else { return }
+        pendingMerge = nil
+        syncManager.cancelAppSettingsSyncEnable()
+    }
+
+    private func resolveMerge(_ preview: SettingsMergePreview, _ choice: SettingsMergeChoice) {
+        isBusy = true
+        errorMessage = nil
+        Task { @MainActor in
+            defer { isBusy = false }
+            do {
+                try await syncManager.completeAppSettingsSyncEnable(preview: preview, choice: choice)
             } catch {
                 errorMessage = error.localizedDescription
             }

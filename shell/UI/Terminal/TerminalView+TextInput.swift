@@ -121,11 +121,9 @@ extension Ghostty.TerminalView {
         if textInputMode?.primaryLanguage == "dictation" {
             return true
         }
-        if #available(iOS 16.4, visionOS 1.0, *) {
-            if let context = UITextInputContext.current(),
-               context.isDictationInputExpected {
-                return true
-            }
+        if let context = UITextInputContext.current(),
+           context.isDictationInputExpected {
+            return true
         }
         return false
     }

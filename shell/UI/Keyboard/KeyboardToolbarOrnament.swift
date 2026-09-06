@@ -63,10 +63,6 @@ struct KeyboardToolbarRepresentable: UIViewRepresentable {
             onDismiss()
         }
 
-        toolbar.onTabSwitcherRequested = { [weak toolbar] in
-            NotificationCenter.default.post(name: .showTabSwitcher, object: toolbar)
-        }
-
         toolbar.onToolbarSettingsRequested = { [weak toolbar] in
             NotificationCenter.default.post(name: .showToolbarSettings, object: toolbar)
         }

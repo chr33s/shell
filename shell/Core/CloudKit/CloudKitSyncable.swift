@@ -184,6 +184,13 @@ extension SSHProfile: CloudKitSyncable {
 /// `secureEnclaveDeviceBound` marks identities whose private key is held in
 /// this device's Secure Enclave. Those keys can never move; on another device
 /// the identity shows as unavailable rather than silently failing to sign.
+///
+/// `ownerDeviceID` records which device published the record, so that a device
+/// only ever tombstones identities it published itself. Records pulled from
+/// another device sit in the same local store, and a Secure Enclave identity
+/// that lives elsewhere is *expected* to be missing from this device's key
+/// list — without an owner it would look indistinguishable from a locally
+/// deleted key.
 struct SSHIdentityMetadata: Codable, Identifiable, Hashable, SyncableRecord, Sendable {
     let id: UUID
     var name: String
@@ -195,6 +202,11 @@ struct SSHIdentityMetadata: Codable, Identifiable, Hashable, SyncableRecord, Sen
     /// OpenSSH user certificate blob, if one is attached (public data).
     var certificate: Data?
     var secureEnclaveDeviceBound: Bool
+    /// Stable ID (`CloudKitSyncSettings.deviceID`) of the device that published
+    /// this record. `nil` means "owner unknown": a record written before this
+    /// field existed, or published by a device running an older build. An
+    /// unknown owner is never swept — only an explicit deletion removes it.
+    var ownerDeviceID: String?
 
     var modifiedAt: Date
     var isDeleted: Bool
@@ -208,6 +220,7 @@ struct SSHIdentityMetadata: Codable, Identifiable, Hashable, SyncableRecord, Sen
         publicKey: Data?,
         certificate: Data?,
         secureEnclaveDeviceBound: Bool,
+        ownerDeviceID: String? = nil,
         modifiedAt: Date = Date(),
         isDeleted: Bool = false
     ) {
@@ -219,6 +232,7 @@ struct SSHIdentityMetadata: Codable, Identifiable, Hashable, SyncableRecord, Sen
         self.publicKey = publicKey
         self.certificate = certificate
         self.secureEnclaveDeviceBound = secureEnclaveDeviceBound
+        self.ownerDeviceID = ownerDeviceID
         self.modifiedAt = modifiedAt
         self.isDeleted = isDeleted
     }
@@ -234,6 +248,9 @@ struct SSHIdentityMetadata: Codable, Identifiable, Hashable, SyncableRecord, Sen
             publicKey: identity.publicKeyBlob,
             certificate: identity.userCertificate?.certificateBlob,
             secureEnclaveDeviceBound: identity.secureEnclaveInfo != nil,
+            // Ownership is stamped by `SSHIdentityMetadataStore`, which knows
+            // whether a stable device ID is readable at this moment.
+            ownerDeviceID: nil,
             modifiedAt: identity.securityModifiedDate ?? identity.createdDate,
             isDeleted: false
         )
@@ -242,7 +259,9 @@ struct SSHIdentityMetadata: Codable, Identifiable, Hashable, SyncableRecord, Sen
 
 extension SSHIdentityMetadata: CloudKitSyncable {
     static var recordType: String { "ShellSSHIdentityMetadata" }
-    static var schemaVersion: Int { 1 }
+    /// 2 adds `ownerDeviceID`. Additive and optional in both directions: an
+    /// older build ignores the field, and a missing field decodes to `nil`.
+    static var schemaVersion: Int { 2 }
 
     static func recordName(for record: SSHIdentityMetadata) -> String {
         CloudKitRecordName.make(recordType: recordType, identity: record.id.uuidString)
@@ -257,6 +276,11 @@ extension SSHIdentityMetadata: CloudKitSyncable {
         record["publicKey"] = publicKey
         record["certificate"] = certificate
         record["secureEnclaveDeviceBound"] = secureEnclaveDeviceBound ? 1 : 0
+        // Publishing device — travels with the record and survives being
+        // re-pushed by a *different* device (`pushAllLocalRecords` re-uploads
+        // records pulled from elsewhere), unlike `deviceID` below, which is
+        // stamped with whoever wrote to CloudKit last.
+        record["ownerDeviceID"] = ownerDeviceID
         record["modifiedAt"] = modifiedAt
         record["deleted"] = isDeleted ? 1 : 0
         record["schemaVersion"] = Int64(Self.schemaVersion)
@@ -282,6 +306,8 @@ extension SSHIdentityMetadata: CloudKitSyncable {
             publicKey: record["publicKey"] as? Data,
             certificate: record["certificate"] as? Data,
             secureEnclaveDeviceBound: (record["secureEnclaveDeviceBound"] as? Int64 ?? 0) == 1,
+            // Missing on records written before schema version 2: unknown owner.
+            ownerDeviceID: record["ownerDeviceID"] as? String,
             modifiedAt: record.modificationDate ?? fieldModifiedAt,
             isDeleted: (record["deleted"] as? Int64 ?? 0) == 1
         )

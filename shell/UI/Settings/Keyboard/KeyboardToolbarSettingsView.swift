@@ -35,6 +35,7 @@ struct KeyboardToolbarSettingsView: View {
         List {
             toolbarLayoutSection
             customKeysSection
+            visibilitySection
             drawerBehaviorSection
             hiddenKeysSection
             resetSection
@@ -143,6 +144,29 @@ struct KeyboardToolbarSettingsView: View {
             Text("Custom Keys")
         } footer: {
             Text("Create buttons that send key sequences.")
+        }
+    }
+
+    // MARK: - Visibility Section
+
+    // `showWithHardwareKeyboard` is `.localByDefault`: it starts pinned to this
+    // device (toolbar behavior is device-shaped), so the write path is the plain
+    // store write plus the pin tag and context menu `SettingToggle` already
+    // attaches — that menu is the only way to opt the key into iCloud. The write
+    // lands with a `.local` origin, which still reaches SettingsRefreshHub's
+    // live-apply fan-out (that runs ahead of the non-local guard), so every open
+    // terminal re-evaluates its toolbar visibility immediately.
+    private var visibilitySection: some View {
+        Section {
+            SettingToggle(
+                Settings.KeyboardToolbar.showWithHardwareKeyboard,
+                title: "Show Toolbar with Hardware Keyboard"
+            )
+            .themedRow()
+        } header: {
+            Text("Visibility")
+        } footer: {
+            Text("Keeps the key toolbar on screen while a hardware keyboard is attached and the software keyboard is hidden.")
         }
     }
 

@@ -3,7 +3,6 @@ import Darwin
 
 final class NativeShellProcess: NSObject, MacShellProcess {
     let processID: Int32
-    private(set) var exitStatus: Int32 = -1
     private let master: Int32
     private var exitSource: DispatchSourceProcess?
     private var exited = false
@@ -32,11 +31,10 @@ final class NativeShellProcess: NSObject, MacShellProcess {
         exitSource = source
         source.setEventHandler { [weak self] in
             guard let self else { return }
-            var status: Int32 = 0
+            // The status is not read: nothing in the bridge reports an exit code.
             var result: pid_t
-            repeat { result = waitpid(self.processID, &status, 0) } while result < 0 && errno == EINTR
+            repeat { result = waitpid(self.processID, nil, 0) } while result < 0 && errno == EINTR
             self.exited = true
-            self.exitStatus = result > 0 ? (status & 0x7f == 0 ? (status >> 8) & 0xff : 128 + (status & 0x7f)) : -1
             self.exitSource?.cancel()
             self.exitSource = nil
             completion(self.processID)

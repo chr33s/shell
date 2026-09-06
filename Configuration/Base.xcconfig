@@ -10,9 +10,11 @@ SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor
 SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES
 
 // Deployment Targets
-IPHONEOS_DEPLOYMENT_TARGET = 18.0
-// The Catalyst menu bar is owned by SwiftUI Commands on macOS 26+.
-IPHONEOS_DEPLOYMENT_TARGET[sdk=macosx*] = 26.0
+// 26.0 on every platform, including Catalyst (which derives its macOS version
+// from IPHONEOS_DEPLOYMENT_TARGET): the Catalyst menu bar is owned by SwiftUI
+// Commands on macOS 26+, and the sources call 26-only API un-gated now that the
+// pre-26 `#available` rail is gone. Lowering this floor will not compile.
+IPHONEOS_DEPLOYMENT_TARGET = 26.0
 XROS_DEPLOYMENT_TARGET = 26.0
 
 // Supported Platforms (includes Catalyst)

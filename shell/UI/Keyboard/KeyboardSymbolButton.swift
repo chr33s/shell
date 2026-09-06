@@ -58,7 +58,7 @@ class KeyboardSymbolButton: KeyboardButton {
 
         setupDisplay()
 
-        // Register for trait changes (iOS 17+ replacement for traitCollectionDidChange)
+        // Register for trait changes
         registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitDisplayScale.self]) { (self: KeyboardSymbolButton, _: UITraitCollection) in
             if case .dualText = self.displayType {
                 let scale = self.traitCollection.displayScale

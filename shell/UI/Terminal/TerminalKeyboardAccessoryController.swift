@@ -13,9 +13,6 @@ import os
 protocol TerminalKeyboardAccessoryHost: AnyObject {
     var keyboardHostView: UIView { get }
     var keyboardIsFirstResponder: Bool { get }
-    var keyboardAIAgentOverlayActive: Bool { get }
-    var keyboardToolbarOnlyMode: Bool { get }
-    var keyboardAccessoryHasBottomSafeAreaSpacer: Bool { get }
     /// Window whose `SoftwareKeyboardHideIntentStore` entry governs this host.
     /// nil opts out: the chevron falls back to resigning first responder.
     var keyboardHideIntentWindow: UIWindow? { get }
@@ -35,7 +32,6 @@ protocol TerminalKeyboardAccessoryHost: AnyObject {
 }
 
 extension TerminalKeyboardAccessoryHost {
-    var keyboardAccessoryHasBottomSafeAreaSpacer: Bool { false }
     var keyboardHideIntentWindow: UIWindow? { nil }
 }
 
@@ -50,7 +46,6 @@ final class TerminalKeyboardAccessoryController: NSObject {
 
     var shouldShowKeyboardToolbar = false
     var activeKeyboardModifiers: KeyModifiers = []
-    var onActiveKeyboardModifiersChanged: ((KeyModifiers) -> Void)?
     /// Window-scoped hide intent; hosts without a window (VNC) keep it local.
     var hideIntent: SoftwareKeyboardHideIntent {
         guard let window = host?.keyboardHideIntentWindow else { return localHideIntent }
@@ -142,7 +137,6 @@ final class TerminalKeyboardAccessoryController: NSObject {
         #else
         guard let host else { return false }
         return host.keyboardIsFirstResponder
-            && !host.keyboardAIAgentOverlayActive
             && !keyboardToolbarCollapsed
             && !(toolbarOnlyMode && toolbarOnlyHidesToolbar)
             && (shouldShowKeyboardToolbar || toolbarOnlyMode)
@@ -168,14 +162,35 @@ final class TerminalKeyboardAccessoryController: NSObject {
         let hostFrame: CGRect
         if let window = host?.keyboardHostView.window {
             hostFrame = window.convert(window.bounds, to: nil)
+        } else if let screen = contextScreen {
+            hostFrame = screen.bounds
         } else {
-            hostFrame = UIScreen.main.bounds
+            // Nothing on screen to measure the frame against.
+            return nil
         }
         let intersection = hostFrame.intersection(keyboardFrame)
         guard !intersection.isNull, !intersection.isEmpty else { return nil }
         return keyboardFrame
         #endif
     }
+
+    #if !os(visionOS) && !targetEnvironment(macCatalyst)
+    /// The screen this accessory is being displayed on, resolved from whatever
+    /// context is attached. `UIScreen.main` is deprecated and, on a
+    /// multi-display Mac or an external-display iPad, is not necessarily the
+    /// screen this window is on.
+    private var contextScreen: UIScreen? {
+        if let screen = host?.keyboardHostView.window?.windowScene?.screen {
+            return screen
+        }
+        if let screen = keyboardAccessory?.window?.windowScene?.screen {
+            return screen
+        }
+        let scenes = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+        return (scenes.first { $0.activationState == .foregroundActive } ?? scenes.first)?.screen
+    }
+    #endif
 
     /// True when a connected hardware keyboard's reported keyboard region is
     /// fully accounted for by this accessory. Drawer rows can make that region
@@ -205,7 +220,7 @@ final class TerminalKeyboardAccessoryController: NSObject {
         #if os(visionOS) || targetEnvironment(macCatalyst)
         return 0
         #else
-        guard let host, !host.keyboardAccessoryHasBottomSafeAreaSpacer else { return 0 }
+        guard let host else { return 0 }
         guard !PaddingManager.shared.extendUnderHomeIndicator else { return 0 }
         let safeBottom = host.keyboardHostView.window?.safeAreaInsets.bottom ?? 0
         guard safeBottom > 0 else { return 0 }
@@ -307,10 +322,9 @@ final class TerminalKeyboardAccessoryController: NSObject {
     }
 
     var inputAccessoryView: UIView? {
-        guard let host else { return nil }
+        guard host != nil else { return nil }
         applyBottomSafeAreaStrip()
         let isVisible = shouldShowKeyboardToolbar
-            && !host.keyboardAIAgentOverlayActive
             && !keyboardToolbarCollapsed
             && !(toolbarOnlyMode && toolbarOnlyHidesToolbar)
         updateBottomEdgeHomeGestureProtection(accessoryIsVisible: isVisible)
@@ -338,14 +352,13 @@ final class TerminalKeyboardAccessoryController: NSObject {
         applyBottomSafeAreaStrip()
         guard toolbarOnlyMode else { return nil }
         guard toolbarOnlyUsesPrimaryInputView else { return emptyInputView }
-        guard let host,
+        guard host != nil,
               let accessory = keyboardAccessory,
               shouldShowKeyboardToolbar,
               !toolbarOnlyHidesToolbar,
-              !host.keyboardAIAgentOverlayActive,
               !keyboardToolbarCollapsed else {
-            // Toolbar hidden (collapsed to the floating button, or an overlay
-            // owns the screen) — keep suppressing the system keyboard.
+            // Toolbar hidden (collapsed to the floating button) — keep
+            // suppressing the system keyboard.
             return emptyInputView
         }
         return accessory
@@ -369,7 +382,6 @@ final class TerminalKeyboardAccessoryController: NSObject {
 
         keyboardAccessory?.onModifiersChanged = { [weak self] modifiers in
             self?.activeKeyboardModifiers = modifiers
-            self?.onActiveKeyboardModifiersChanged?(modifiers)
             Ghostty.logger.debug("TerminalView: Toolbar modifiers changed to rawValue: \(modifiers.rawValue)")
         }
 
@@ -399,11 +411,6 @@ final class TerminalKeyboardAccessoryController: NSObject {
                 self.setHideIntent(.hidden(pinned: true))
                 self.enterToolbarOnlyMode(pinned: true)
             }
-        }
-
-        keyboardAccessory?.onTabSwitcherRequested = { [weak host] in
-            guard let host else { return }
-            NotificationCenter.default.post(name: .showTabSwitcher, object: host)
         }
 
         keyboardAccessory?.onToolbarSettingsRequested = { [weak host] in
@@ -447,6 +454,9 @@ final class TerminalKeyboardAccessoryController: NSObject {
             self?.refreshKeyboardLayoutAfterAccessoryChange()
         }
 
+        // Re-evaluate toolbar visibility live when "Show Toolbar with Hardware
+        // Keyboard" is toggled; otherwise the value read at setup below is the
+        // only one this controller ever sees.
         let hwToolbarObserver = NotificationCenter.default.addObserver(
             forName: .keyboardToolbarHardwareSettingChanged,
             object: nil,
@@ -576,12 +586,6 @@ final class TerminalKeyboardAccessoryController: NSObject {
         keyboardAnimationTask?.cancel()
         keyboardAnimationTask = nil
         cancellables.removeAll()
-    }
-
-    func setAIAgentOverlayActive(_ active: Bool) {
-        updateCollapsedKeyboardToolbarButtonVisibility()
-        KeyboardGeometryMonitor.shared.notifyKeyboardToolbarLayoutChanged()
-        host?.keyboardReloadInputViews()
     }
 
     func enterToolbarOnlyMode(pinned: Bool = false) {
@@ -719,7 +723,6 @@ final class TerminalKeyboardAccessoryController: NSObject {
         guard let button = collapsedKeyboardToolbarButton else { return }
         let shouldShowButton = keyboardToolbarCollapsed
             && host?.keyboardIsFirstResponder == true
-            && host?.keyboardAIAgentOverlayActive != true
 
         if shouldShowButton {
             if collapsedKeyboardToolbarButtonCenter == nil {
@@ -860,7 +863,6 @@ final class TerminalKeyboardAccessoryController: NSObject {
         let idiom = UIDevice.current.userInterfaceIdiom
         let isVisible = accessoryIsVisible ?? (
             shouldShowKeyboardToolbar
-                && host?.keyboardAIAgentOverlayActive != true
                 && !keyboardToolbarCollapsed
                 && !(toolbarOnlyMode && toolbarOnlyHidesToolbar)
         )
@@ -878,7 +880,6 @@ final class TerminalKeyboardAccessoryController: NSObject {
         }
         let enabled = (idiom == .phone || idiom == .pad)
             && isVisible
-            && host?.keyboardAccessoryHasBottomSafeAreaSpacer != true
             && !reservesBottomSafeAreaStrip
             && toolbarIsAtScreenEdge
         bottomEdgeHomeGestureProtectionEnabled = enabled

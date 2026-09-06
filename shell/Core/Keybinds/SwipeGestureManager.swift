@@ -28,7 +28,8 @@ final class SwipeGestureManager {
 
     // MARK: - Observable Properties
 
-    /// When true, didSet skips `save()` so a batch update can save once at the end.
+    /// When true, didSet skips `save()` so an externally-driven reload doesn't
+    /// write straight back the values it just read.
     private var isBatching = false
 
     private(set) var leftBinding: SwipeGestureBinding {
@@ -37,10 +38,6 @@ final class SwipeGestureManager {
 
     private(set) var rightBinding: SwipeGestureBinding {
         didSet { if !isBatching { save() } }
-    }
-
-    var isCustomized: Bool {
-        leftBinding != Self.defaultLeftBinding || rightBinding != Self.defaultRightBinding
     }
 
     // MARK: - Init
@@ -88,34 +85,6 @@ final class SwipeGestureManager {
         case .left: return leftBinding
         case .right: return rightBinding
         }
-    }
-
-    func setBinding(_ binding: SwipeGestureBinding, for direction: SwipeDirection) {
-        switch direction {
-        case .left: leftBinding = binding
-        case .right: rightBinding = binding
-        }
-    }
-
-    /// Set both bindings in one operation. Saves and posts the change
-    /// notification once instead of twice — important so the gesture
-    /// recognizer doesn't rebuild itself in the middle of the update.
-    func setBindings(left: SwipeGestureBinding, right: SwipeGestureBinding) {
-        guard left != leftBinding || right != rightBinding else { return }
-        isBatching = true
-        leftBinding = left
-        rightBinding = right
-        isBatching = false
-        save()
-    }
-
-    /// Swap the left and right bindings.
-    func swapBindings() {
-        setBindings(left: rightBinding, right: leftBinding)
-    }
-
-    func resetToDefaults() {
-        setBindings(left: Self.defaultLeftBinding, right: Self.defaultRightBinding)
     }
 
     // MARK: - Persistence

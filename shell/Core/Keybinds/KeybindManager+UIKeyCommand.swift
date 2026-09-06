@@ -3,8 +3,8 @@
 //  shell
 //
 //  Build UIKeyCommands from the user's live bindings so auxiliary responders
-//  (empty-state screen, AI agent window) honor KeybindManager remaps instead of
-//  hardcoding the default chord.
+//  (the empty-state screen) honor KeybindManager remaps instead of hardcoding
+//  the default chord.
 //
 
 import UIKit

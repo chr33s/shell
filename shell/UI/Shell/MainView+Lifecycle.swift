@@ -106,21 +106,12 @@ extension MainView {
         }.count
     }
 
-    private func countPanesWantingBackgroundKeepaliveGrace() -> Int { 0 }
-
     #if !targetEnvironment(macCatalyst) && !os(visionOS)
-    private func beginShortRemoteSessionBackgroundTaskIfNeeded(
-        sessionCount: Int,
-        locationEnabled: Bool,
-        liveActivityActive: Bool
-    ) {
+    private func beginShortRemoteSessionBackgroundTaskIfNeeded(sessionCount: Int) {
         guard UserPreferences.backgroundSessionKeepaliveEnabled else {
             return
         }
         guard sessionCount > 0 else {
-            return
-        }
-        guard !locationEnabled && !liveActivityActive else {
             return
         }
         guard shortRemoteSessionBackgroundTaskID == .invalid else {
@@ -407,15 +398,9 @@ extension MainView {
 
     func handleAppBackgrounded() {
         let shortBackgroundKeepaliveSessionCount = countActiveShortBackgroundKeepaliveSessions()
-        let locationEnabled = false
-        let liveActivityActive = false
 
         #if !targetEnvironment(macCatalyst) && !os(visionOS)
-        beginShortRemoteSessionBackgroundTaskIfNeeded(
-            sessionCount: shortBackgroundKeepaliveSessionCount,
-            locationEnabled: locationEnabled,
-            liveActivityActive: liveActivityActive
-        )
+        beginShortRemoteSessionBackgroundTaskIfNeeded(sessionCount: shortBackgroundKeepaliveSessionCount)
         #endif
 
         // SYNCHRONOUS prelude — these atomic flags are the canonical

@@ -2,7 +2,7 @@
 //  MainView+SSHValidation.swift
 //  shell
 //
-//  SSH host key validation and agent approval handling for MainView.
+//  SSH host key validation and keyboard-interactive prompts for MainView.
 //  Extracted for build parallelization.
 //
 
@@ -48,18 +48,7 @@ extension MainView {
     }
 }
 
-// MARK: - SSH Agent Approval
-
-extension MainView {
-
-}
-
-// MARK: - GPG Agent Approval
-//
-// Parallels the SSH-agent flow above. Each forwarded GPG `PKSIGN`
-// request from a remote session routes to the per-window
-// MainAlertController, which queues it and surfaces the next one as an
-// alert. The buttons and message text live in MainViewAlerts.swift.
+// MARK: - Keyboard-Interactive Callback Wiring
 
 extension MainView {
 
@@ -79,8 +68,8 @@ extension MainView {
 // A keyboard-interactive challenge is async: the auth delegate awaits one
 // response array per round (`[String]?`, nil = cancel). We model each pending
 // challenge with its continuation in a queue (multiple sessions can challenge
-// concurrently) and present the first via a sheet. Unlike the agent/GPG alerts,
-// this needs free-form text entry, so it uses a sheet rather than an alert.
+// concurrently) and present the first via a sheet: the responses are free-form
+// text, so a plain alert won't do.
 
 /// A queued keyboard-interactive challenge awaiting the user's responses.
 struct PendingKeyboardInteractiveChallenge: Identifiable {
@@ -91,7 +80,6 @@ struct PendingKeyboardInteractiveChallenge: Identifiable {
     /// that session tears down before the user responds.
     let terminalID: ObjectIdentifier
     let continuation: CheckedContinuation<[String]?, Never>
-    /// Factory for the session's live auth-banner state stream, shown
 }
 
 extension MainView {

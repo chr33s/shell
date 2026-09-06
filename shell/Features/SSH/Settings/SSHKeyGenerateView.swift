@@ -43,8 +43,17 @@ struct SSHKeyGenerateView: View {
 
     // Security options
     @State private var showSecurityOptions = false
-    @State private var storageLevel: KeyStorageLevel = .backupOnly
+    /// The user's explicit pick in the Key Storage picker, or nil while the
+    /// picker is still showing the default. Kept separate from the effective
+    /// `storageLevel` so an explicit pick always outranks the default.
+    @State private var storageLevelChoice: KeyStorageLevel?
     @State private var authRequirement: KeyAuthRequirement = .none
+
+    /// Settings > Sync > "Sync Software Keys". Decides only the *default*
+    /// storage level of a newly generated SOFTWARE key. Secure Enclave keys
+    /// are device-bound by construction and are never affected, and no
+    /// existing key is ever re-filed by this switch.
+    @Setting(Settings.System.syncSoftwareKeys) private var syncSoftwareKeys: Bool
 
     // Result sheet shown after a Secure Enclave key is created (its public
     // key / authorized_keys line is the only exportable artifact).
@@ -135,7 +144,7 @@ struct SSHKeyGenerateView: View {
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             } else {
-                                Picker("Key Storage", selection: $storageLevel) {
+                                Picker("Key Storage", selection: storageLevelBinding) {
                                     ForEach(KeyStorageLevel.allCases, id: \.self) { level in
                                         Label(level.displayName, systemImage: level.iconName)
                                             .tag(level)
@@ -146,6 +155,12 @@ struct SSHKeyGenerateView: View {
                                 Text(storageLevel.description)
                                     .font(.caption)
                                     .foregroundColor(.secondary)
+
+                                if usesSyncedStorageDefault {
+                                    Text("Default from Settings → Sync → Sync Software Keys. Pick another level to override it for this key.")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
                             }
                         }
                         .padding(.vertical, 4)
@@ -256,14 +271,16 @@ struct SSHKeyGenerateView: View {
                 generationTask?.cancel()
             }
             .onChange(of: selection) { _, newValue in
-                // Secure Enclave keys are device-only; pick the agreed
-                // "Once Per Session" default. Switching back to software
-                // restores the software defaults.
+                // Secure Enclave keys are device-only (`storageLevel` reports
+                // that without any stored state); pick the agreed "Once Per
+                // Session" default. Switching back to software restores the
+                // software defaults.
                 if newValue.isSecureEnclave {
-                    storageLevel = .deviceOnly
                     authRequirement = .perSession
                 } else {
-                    storageLevel = .backupOnly
+                    // Drop any explicit pick so the storage default is
+                    // recomputed from Settings > Sync > "Sync Software Keys".
+                    storageLevelChoice = nil
                     authRequirement = .none
                 }
             }
@@ -300,6 +317,39 @@ struct SSHKeyGenerateView: View {
         case .secureEnclave:
             return String(localized: "P-256 key generated inside the Secure Enclave. The private key never leaves this device and cannot be exported, backed up, or synced.", comment: "SSH key generation: Secure Enclave footer")
         }
+    }
+
+    // MARK: - Storage Level
+
+    /// Default storage level for a newly generated SOFTWARE key.
+    ///
+    /// Settings > Sync > "Sync Software Keys" is the one switch that says
+    /// whether new software private keys are marked for iCloud Keychain
+    /// synchronization. With it off this stays `.backupOnly` — byte-for-byte
+    /// the behaviour before the switch was read by anything.
+    private var defaultSoftwareStorageLevel: KeyStorageLevel {
+        syncSoftwareKeys ? .iCloudSync : .backupOnly
+    }
+
+    /// The storage level this generation will actually use. Secure Enclave
+    /// keys are device-bound by construction; a software key uses the user's
+    /// explicit pick when there is one, otherwise the default above.
+    private var storageLevel: KeyStorageLevel {
+        if selection.isSecureEnclave { return .deviceOnly }
+        return storageLevelChoice ?? defaultSoftwareStorageLevel
+    }
+
+    /// True while the picker is still showing an iCloud default that came
+    /// from the sync setting rather than from the user.
+    private var usesSyncedStorageDefault: Bool {
+        !selection.isSecureEnclave && storageLevelChoice == nil && syncSoftwareKeys
+    }
+
+    private var storageLevelBinding: Binding<KeyStorageLevel> {
+        Binding(
+            get: { storageLevel },
+            set: { storageLevelChoice = $0 }
+        )
     }
 
     // MARK: - Actions

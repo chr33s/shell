@@ -18,8 +18,16 @@ struct SSHKeyImportView: View {
 
     // Security options
     @State private var showSecurityOptions = false
-    @State private var storageLevel: KeyStorageLevel = .backupOnly
+    /// The user's explicit pick in the Key Storage picker, or nil while the
+    /// picker is still showing the default. Kept separate from the effective
+    /// `storageLevel` so an explicit pick always outranks the default.
+    @State private var storageLevelChoice: KeyStorageLevel?
     @State private var authRequirement: KeyAuthRequirement = .none
+
+    /// Settings > Sync > "Sync Software Keys". Every key that arrives through
+    /// this screen is a software key, so this decides its *default* storage
+    /// level. It never re-files a key that was imported earlier.
+    @Setting(Settings.System.syncSoftwareKeys) private var syncSoftwareKeys: Bool
 
     enum ImportMethod: String, CaseIterable {
         case paste = "Paste"
@@ -127,7 +135,7 @@ struct SSHKeyImportView: View {
                             Text("Key Storage")
                                 .font(.subheadline.bold())
 
-                            Picker("Key Storage", selection: $storageLevel) {
+                            Picker("Key Storage", selection: storageLevelBinding) {
                                 ForEach(KeyStorageLevel.allCases, id: \.self) { level in
                                     Label(level.displayName, systemImage: level.iconName)
                                         .tag(level)
@@ -138,6 +146,12 @@ struct SSHKeyImportView: View {
                             Text(storageLevel.description)
                                 .font(.caption)
                                 .foregroundColor(.secondary)
+
+                            if usesSyncedStorageDefault {
+                                Text("Default from Settings → Sync → Sync Software Keys. Pick another level to override it for this key.")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
                         }
                         .padding(.vertical, 4)
 
@@ -271,10 +285,47 @@ struct SSHKeyImportView: View {
         SSHKeyParser.isEncrypted(keyString: pastedKeyText)
     }
 
+    // MARK: - Storage Level
+
+    /// Default storage level for a newly imported (always software) key.
+    ///
+    /// Settings > Sync > "Sync Software Keys" is the one switch that says
+    /// whether new software private keys are marked for iCloud Keychain
+    /// synchronization. With it off this stays `.backupOnly` — byte-for-byte
+    /// the behaviour before the switch was read by anything.
+    private var defaultSoftwareStorageLevel: KeyStorageLevel {
+        syncSoftwareKeys ? .iCloudSync : .backupOnly
+    }
+
+    /// The storage level this import will actually use: the user's explicit
+    /// pick when there is one, otherwise the default above.
+    private var storageLevel: KeyStorageLevel {
+        storageLevelChoice ?? defaultSoftwareStorageLevel
+    }
+
+    /// True while the picker is still showing an iCloud default that came
+    /// from the sync setting rather than from the user.
+    private var usesSyncedStorageDefault: Bool {
+        storageLevelChoice == nil && syncSoftwareKeys
+    }
+
+    private var storageLevelBinding: Binding<KeyStorageLevel> {
+        Binding(
+            get: { storageLevel },
+            set: { storageLevelChoice = $0 }
+        )
+    }
+
     // MARK: - Actions
 
     private func importKey() {
         isImporting = true
+
+        // Snapshot the security options up front so the Keychain write and
+        // the log line below can never disagree about where the private key
+        // was filed.
+        let storageLevel = self.storageLevel
+        let authRequirement = self.authRequirement
 
         Task {
             do {

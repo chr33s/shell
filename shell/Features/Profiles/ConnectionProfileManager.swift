@@ -327,6 +327,15 @@ final class ConnectionProfileManager {
             sanitized.jumpHost = jumpHost
         }
 
+        // Stamp cross-device key-resolution hints (fingerprint, name, algorithm)
+        // for the identities this device holds. Merge rather than replace: a
+        // hint that arrived from another device names an identity we may not
+        // have, and a wholesale overwrite here would destroy it on the first
+        // local re-save — which is exactly the case the hints exist for.
+        var hints = sanitized.keyResolutionHints ?? [:]
+        hints.merge(KeyResolutionHint.hints(for: sanitized) ?? [:]) { _, local in local }
+        sanitized.keyResolutionHints = hints.isEmpty ? nil : hints
+
         return sanitized
     }
 

@@ -3,7 +3,7 @@
 //  shell
 //
 //  Tracks keyboard state to detect hardware vs software keyboard
-//  Uses GCKeyboard API (iOS 14+) for reliable hardware keyboard detection
+//  Uses the GCKeyboard API for reliable hardware keyboard detection
 //
 
 import UIKit
@@ -19,12 +19,7 @@ class KeyboardTracker {
 
     /// True if running as iPad app on macOS (always has hardware keyboard)
     @MainActor
-    private(set) var isMacOSCompatibilityMode: Bool = {
-        if #available(iOS 14.0, *) {
-            return ProcessInfo.processInfo.isiOSAppOnMac
-        }
-        return false
-    }()
+    private(set) var isMacOSCompatibilityMode: Bool = ProcessInfo.processInfo.isiOSAppOnMac
 
     /// True if a hardware keyboard is attached, false if using on-screen keyboard
     @MainActor
@@ -1380,7 +1375,11 @@ class KeyboardTracker {
         #if os(visionOS)
         return keyboardFrame.height
         #else
-        let screenBounds = UIScreen.main.bounds
+        // `UIScreen.main` is deprecated and on a multi-display Mac or an
+        // external-display iPad need not be the screen this app is on. Measure
+        // against the screen the app's own key window sits on; with no scene
+        // connected, measuring the keyboard against itself matches visionOS.
+        let screenBounds = activeScreenBounds() ?? keyboardFrame
         let intersection = screenBounds.intersection(keyboardFrame)
         if intersection.isNull || intersection.isEmpty {
             return 0
@@ -1388,6 +1387,22 @@ class KeyboardTracker {
         return intersection.height
         #endif
     }
+
+    #if !os(visionOS)
+    /// Bounds of the screen this app's key window (else its foreground scene)
+    /// is displayed on. Nil when no window scene is connected.
+    @MainActor
+    private func activeScreenBounds() -> CGRect? {
+        let scenes = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+        let scene = scenes.first(where: { windowScene in
+            windowScene.windows.contains(where: { $0.isKeyWindow })
+        })
+            ?? scenes.first(where: { $0.activationState == .foregroundActive })
+            ?? scenes.first
+        return scene?.screen.bounds
+    }
+    #endif
 }
 
 extension Notification.Name {

@@ -32,28 +32,10 @@ final class NetworkReachabilityMonitor: ObservableObject {
     /// The type of network connection (wifi, cellular, wired, etc.)
     @Published private(set) var connectionType: ConnectionType = .unknown
 
-    /// Whether the connection is considered "expensive" (cellular data)
-    @Published private(set) var isExpensive: Bool = false
-
-    /// Whether the connection is constrained (Low Data Mode)
-    @Published private(set) var isConstrained: Bool = false
-
-    /// Whether the current network path supports IPv4
-    @Published private(set) var supportsIPv4: Bool = true
-
-    /// Whether the current network path supports IPv6
-    @Published private(set) var supportsIPv6: Bool = true
-
     // MARK: - Publishers
 
     /// Publisher that emits when connectivity is restored after being lost
     let connectivityRestored = PassthroughSubject<Void, Never>()
-
-    /// Publisher that emits when connectivity is lost
-    let connectivityLost = PassthroughSubject<Void, Never>()
-
-    /// Publisher that emits when connection type changes (e.g., wifi to cellular)
-    let connectionTypeChanged = PassthroughSubject<ConnectionType, Never>()
 
     /// Publisher that emits when the network path changes while staying connected
     /// on the same interface type (e.g., VPN connect/disconnect, route changes)
@@ -134,7 +116,7 @@ final class NetworkReachabilityMonitor: ObservableObject {
     /// dropped along with the stale path. Without this coupling, the
     /// monitor-wide flag could ride along with a later `.unsatisfied`
     /// path and emit a false recovery signal immediately after a
-    /// `connectivityLost`.
+    /// connectivity loss.
     private var deferredPathSynthesizesConnectivityRestored = false
 
     /// Thread-safe storage for disconnect timestamp (accessed from both monitorQueue and MainActor)
@@ -285,10 +267,9 @@ final class NetworkReachabilityMonitor: ObservableObject {
     /// period and the final path is satisfied, set
     /// `pendingSyntheticConnectivityRestored` so the recovery signal is
     /// emitted at the end of `handlePathUpdate`'s non-deferred path —
-    /// after connectionType / IPv4 / IPv6 / expensive / constrained /
-    /// interface state are applied, and after the resume quiet window
-    /// expires (the deferral path eventually re-enters this same handler
-    /// post-window).
+    /// after connectionType and interface state are applied, and after
+    /// the resume quiet window expires (the deferral path eventually
+    /// re-enters this same handler post-window).
     func replayBackgroundPathIfAny() {
         backgroundPathLock.lock()
         let path = _pendingBackgroundPath
@@ -419,9 +400,9 @@ final class NetworkReachabilityMonitor: ObservableObject {
 
     private func handlePathUpdate(_ path: NWPath, synthesizeConnectivityRestored: Bool = false) {
         // During the foreground resume quiet window, path-change @Published
-        // mutations (`isConnected`, `connectionType`, `isExpensive`, …) +
-        // PassthroughSubject sends are exactly the kind of cascade that
-        // FrontBoard's scene-update watchdog kills the app over. Coalesce:
+        // mutations (`isConnected`, `connectionType`) + PassthroughSubject
+        // sends are exactly the kind of cascade that FrontBoard's
+        // scene-update watchdog kills the app over. Coalesce:
         // store the latest path and schedule a single replay 0.15s later
         // (matching the existing quiet-window length). Any new path that
         // arrives in the meantime overwrites `deferredPath` so we still
@@ -451,9 +432,9 @@ final class NetworkReachabilityMonitor: ObservableObject {
         // between successive paths. Unguarded `=` on a @Published property
         // fires `objectWillChange` regardless of value, which invalidates
         // every SwiftUI body that observes this singleton (MainView reads
-        // it transitively via theme/connection-status subviews). Six
-        // mutations × tens of bursts per minute compounds into the
-        // SwiftUI invalidation storms we see across the 52 crash IPS files
+        // it transitively via theme/connection-status subviews). These
+        // mutations × tens of bursts per minute compound into the SwiftUI
+        // invalidation storms we see across the 52 crash IPS files
         // (`AG::Graph::propagate_dirty`, `AG::Graph::UpdateStack::update`,
         // `MainView.body` re-entry through `effectiveThemeColors`,
         // `LayoutEngineBox.sizeThatFits`, `_pureEffectiveUserInterfaceStyle`
@@ -467,17 +448,10 @@ final class NetworkReachabilityMonitor: ObservableObject {
         let newType = determineConnectionType(from: path)
         if connectionType != newType { connectionType = newType }
 
-        if isExpensive != path.isExpensive { isExpensive = path.isExpensive }
-        if isConstrained != path.isConstrained { isConstrained = path.isConstrained }
-        if supportsIPv4 != path.supportsIPv4 { supportsIPv4 = path.supportsIPv4 }
-        if supportsIPv6 != path.supportsIPv6 { supportsIPv6 = path.supportsIPv6 }
-
         Self.logger.debug("""
             Network status update: \
             connected=\(nowConnected), \
-            type=\(self.connectionType.description), \
-            expensive=\(path.isExpensive), \
-            constrained=\(path.isConstrained)
+            type=\(self.connectionType.description)
             """)
 
         // Emit connectivity events
@@ -487,13 +461,11 @@ final class NetworkReachabilityMonitor: ObservableObject {
             connectivityRestored.send()
         } else if wasConnected && !nowConnected {
             Self.logger.info("Network connectivity lost")
-            connectivityLost.send()
         }
 
         // Emit connection type change (e.g., wifi -> cellular handoff)
         if previousType != connectionType && nowConnected {
             Self.logger.info("Connection type changed: \(previousType.description) -> \(self.connectionType.description)")
-            connectionTypeChanged.send(connectionType)
         }
 
         // Catch path changes that don't change connection type while staying connected
@@ -516,13 +488,12 @@ final class NetworkReachabilityMonitor: ObservableObject {
         // observed a flap during the backgrounded period AND the path being
         // handled here is the one it asked for synthesis on. Done at the
         // very end so subscribers see all the path-derived @Published state
-        // (connectionType, supportsIPv4/IPv6, isExpensive, isConstrained,
-        // networkPathUpdated) updated FIRST. Honors the resume quiet window:
-        // when the replay arrived during the window, `handlePathUpdate`
-        // stashed both the path and the synthesis flag together, and the
-        // post-window asyncAfter re-enters this function with both
-        // preserved. `nowConnected` is a belt-and-suspenders gate against
-        // `replayBackgroundPathIfAny` ever passing the flag for a path that
+        // (connectionType, networkPathUpdated) updated FIRST. Honors the
+        // resume quiet window: when the replay arrived during the window,
+        // `handlePathUpdate` stashed both the path and the synthesis flag
+        // together, and the post-window asyncAfter re-enters this function
+        // with both preserved. `nowConnected` is a belt-and-suspenders gate
+        // against `replayBackgroundPathIfAny` ever passing the flag for a path that
         // ended up unsatisfied by the time we got here (shouldn't happen
         // since the replay only sets the flag for `.satisfied`, but cheap
         // to assert).

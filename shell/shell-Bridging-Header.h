@@ -33,10 +33,6 @@ static inline void ios_set_thread_stderr(FILE* f) { thread_stderr = f; }
 extern "C" {
 #endif
 
-/// Get the PTY master file descriptor for iOS external backend.
-/// Returns -1 if not using iOS external backend or if FD is unavailable.
-int ghostty_surface_pty_master_fd(void* surface);
-
 /// Get the response pipe read FD for iOS external backend.
 /// Swift should read from this FD to get terminal responses (e.g., cursor position).
 /// Returns -1 if not using iOS external backend or if FD is unavailable.
@@ -47,8 +43,6 @@ int ghostty_surface_response_read_fd(void* surface);
 /// When false, arrow keys should send CSI sequences (\x1b[A, etc.)
 bool ghostty_surface_cursor_key_mode(void* surface);
 
-/// Returns whether focus event reporting (DEC mode 1004) is active.
-bool ghostty_surface_focus_event_mode(void* surface);
 
 /// Returns the total number of rows in the primary screen (including scrollback).
 uintptr_t ghostty_surface_total_rows(void* surface);

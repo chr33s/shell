@@ -161,16 +161,11 @@ extension Ghostty {
             selectedEffect = UIBlurEffect(style: .systemChromeMaterial)
             selectedSystemGlass = false
             #else
-            if #available(iOS 26.0, *) {
-                let glass = UIGlassEffect(style: .clear)
-                glass.isInteractive = false
-                glass.tintColor = UIColor.systemBackground.withAlphaComponent(0.06)
-                selectedEffect = glass
-                selectedSystemGlass = true
-            } else {
-                selectedEffect = UIBlurEffect(style: .systemChromeMaterial)
-                selectedSystemGlass = false
-            }
+            let glass = UIGlassEffect(style: .clear)
+            glass.isInteractive = false
+            glass.tintColor = UIColor.systemBackground.withAlphaComponent(0.06)
+            selectedEffect = glass
+            selectedSystemGlass = true
             #endif
 
             materialEffect = selectedEffect
@@ -187,7 +182,7 @@ extension Ghostty {
             effectView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             effectView.layer.cornerRadius = Self.cornerRadius
             effectView.layer.cornerCurve = .continuous
-            if #available(iOS 26.0, *), usesSystemGlass {
+            if usesSystemGlass {
                 effectView.cornerConfiguration = .uniformCorners(radius: .fixed(Double(Self.cornerRadius)))
                 // Let Liquid Glass draw its native elevation outside the lens.
                 effectView.clipsToBounds = false

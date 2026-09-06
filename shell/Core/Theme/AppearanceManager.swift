@@ -62,7 +62,6 @@ class AppearanceManager: ObservableObject {
             applyWindowOverrides()
             guard ProtectedDataGuard.isAvailable else { return }
             saveAppearanceMode()
-            appearanceModeDidChange.send(currentAppearanceMode)
         }
     }
 
@@ -73,9 +72,6 @@ class AppearanceManager: ObservableObject {
             SettingsStore.shared.set(Settings.Theme.themedUI, themedUIEnabled)
         }
     }
-
-    /// Publisher that emits when appearance mode changes
-    let appearanceModeDidChange = PassthroughSubject<AppearanceMode, Never>()
 
     /// Computed property for SwiftUI's preferredColorScheme modifier
     var colorScheme: ColorScheme? {
@@ -96,7 +92,7 @@ class AppearanceManager: ObservableObject {
 
         #if canImport(UIKit)
         // Stamp the override onto every window as it appears (covers windows
-        // created after a mode change, restored scenes, visor, AI agent).
+        // created after a mode change, and restored scenes).
         windowObserver = NotificationCenter.default.addObserver(
             forName: UIWindow.didBecomeVisibleNotification,
             object: nil,

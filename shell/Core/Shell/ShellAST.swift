@@ -84,16 +84,29 @@ nonisolated struct SimpleCommand: Sendable {
     /// Whether the here-document delimiter was quoted (no expansion if true).
     var heredocQuoted: Bool?
 
+    /// 1-based line, within the source unit this command was parsed from,
+    /// where the command's first token begins. 0 means unknown.
+    ///
+    /// Published to the environment as `$LINENO` when the command starts
+    /// executing. Only simple commands carry a position, so `$LINENO` used
+    /// somewhere that is not a simple command's own words — a `[[ … ]]`
+    /// operand, a `case` word, a `for` word list — reports the most recently
+    /// started simple command's line instead. Fixing those means giving
+    /// `doubleBracket`, `CaseClause` and `ForClause` positions too.
+    var line: Int = 0
+
     init(assignments: [(String, String)] = [],
          words: [ShellWord] = [],
          redirections: [Redirection] = [],
          heredocContent: String? = nil,
-         heredocQuoted: Bool? = nil) {
+         heredocQuoted: Bool? = nil,
+         line: Int = 0) {
         self.assignments = assignments
         self.words = words
         self.redirections = redirections
         self.heredocContent = heredocContent
         self.heredocQuoted = heredocQuoted
+        self.line = line
     }
 }
 

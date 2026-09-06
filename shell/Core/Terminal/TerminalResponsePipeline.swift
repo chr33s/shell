@@ -6,7 +6,6 @@ import os
 protocol TerminalResponsePipelineHost: AnyObject {
     var terminalResponseFd: Int32 { get }
     var terminalResponseReadQueue: DispatchQueue { get }
-    var terminalResponseTmuxGatewayOwnerKey: Int { get }
     var terminalResponseHasTmuxController: Bool { get }
 
     func terminalResponseShouldFilterSizeReports(for session: TerminalSession) -> Bool

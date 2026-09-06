@@ -406,8 +406,20 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
 
     // MARK: - Simple Command Execution
 
+    /// Publish `cmd`'s source line as `$LINENO` before its words are expanded.
+    ///
+    /// Skipped while an ERR trap is running so `trap 'echo err $LINENO' ERR`
+    /// reports the line of the command that FAILED (bash's semantics) rather
+    /// than line 1 of the trap string, which is parsed as its own source unit.
+    /// Commands parsed without a recorded position leave `$LINENO` alone.
+    private func publishLineNumber(_ cmd: SimpleCommand) {
+        guard !inErrTrap, cmd.line > 0 else { return }
+        environment.setCurrentLineNumber(cmd.line)
+    }
+
     private func executeSimple(_ cmd: SimpleCommand) throws -> Int32 {
         try checkCancelled()
+        publishLineNumber(cmd)
 
         // If no words, just process assignments
         if cmd.words.isEmpty {
@@ -1101,6 +1113,10 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
         _ cmd: SimpleCommand,
         inheritedEnvironment: [String: String] = [:]
     ) throws -> String {
+        // Pipeline stages and background jobs are rendered here instead of
+        // going through executeSimple, so publish their line too — otherwise
+        // `echo $LINENO | cat` would report the previous command's line.
+        publishLineNumber(cmd)
         let expandedWords = try expandCommandWords(cmd.words)
         var parts: [String] = []
 

@@ -154,6 +154,29 @@ extension MainView {
         applyTabSwitch(toTabID: visible[target].id)
     }
 
+    // Group navigation steps through `TabsModel.orderedGroups` — the same
+    // ordering, and the same per-group landing tab, that the top bar's scope
+    // menu uses (`TabBar.activeScopeMenu`). Selecting the tab is the whole
+    // operation: `selectedTabID.didSet` re-points `activeGroupID`, which
+    // re-scopes `navigationTabs`. Writing `activeGroupID` here instead would
+    // hand tab choice to `normalizeGroupingSelection()`, which ignores the
+    // per-group selection memory.
+
+    func previousGroup() {
+        selectNeighborGroup(offset: -1)
+    }
+
+    func nextGroup() {
+        selectNeighborGroup(offset: 1)
+    }
+
+    /// No-op outside grouped mode and with fewer than two navigable groups —
+    /// `neighborScope(offset:)` returns nil in both cases.
+    private func selectNeighborGroup(offset: Int) {
+        guard let targetID = tabsModel.firstTabIDInNeighborScope(offset: offset) else { return }
+        applyTabSwitch(toTabID: targetID)
+    }
+
     func triggerWiggle(forTabId id: UUID) {
         // Add tab to wiggling set (triggers animation)
         withAnimation(.spring(response: 0.1, dampingFraction: 0.3)) {

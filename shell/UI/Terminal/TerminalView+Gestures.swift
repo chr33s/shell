@@ -693,24 +693,10 @@ extension Ghostty.TerminalView {
                 sendMouseButton(GHOSTTY_MOUSE_RELEASE, button: GHOSTTY_MOUSE_LEFT)
 
                 isSelecting = false
-                let startPoint = selectionStartPoint
                 selectionStartPoint = nil
 
                 // Note: focus was already established in .began, no need to call becomeFirstResponder() again
                 reloadInputViews()
-
-                // Show menu if we created a selection OR if it was a stationary press with clipboard content
-                let hasSelection = ghostty_surface_has_selection(surface)
-                // Non-prompting detection only: deciding whether to show the menu
-                // must not pop the iOS paste-permission dialog. Content is read
-                // for real only when the user taps Paste.
-                let pasteboard = UIPasteboard.general
-                let hasClipboard = pasteboard.hasPasteableContentWithoutPrompt
-                let wasStationary = startPoint.map { abs($0.x - location.x) < 10 && abs($0.y - location.y) < 10 } ?? false
-
-                if hasSelection || (wasStationary && hasClipboard) {
-                    showEditMenu(at: location)
-                }
             }
 
         case .changed:
@@ -1008,72 +994,6 @@ extension Ghostty.TerminalView {
         }
     }
 
-    private func loadPastedNonFileURLs(
-        from providers: [NSItemProvider],
-        completion: @escaping (String?) -> Void
-    ) {
-        let group = DispatchGroup()
-        let lock = NSLock()
-        var values = Array<String?>(repeating: nil, count: providers.count)
-
-        for (index, provider) in providers.enumerated() {
-            group.enter()
-            loadPastedNonFileURL(from: provider) { url in
-                defer { group.leave() }
-                guard let url else { return }
-                lock.lock()
-                values[index] = url.absoluteString
-                lock.unlock()
-            }
-        }
-
-        group.notify(queue: .main) {
-            let text = values.compactMap { $0 }.joined(separator: " ")
-            completion(text.isEmpty ? nil : text)
-        }
-    }
-
-    private func loadPastedNonFileURL(
-        from provider: NSItemProvider,
-        completion: @escaping (URL?) -> Void
-    ) {
-        let usableURL: (Any?) -> URL? = { item in
-            let url: URL?
-            if let value = item as? URL {
-                url = value
-            } else if let value = item as? String {
-                url = URL(string: value)
-            } else if let value = item as? Data {
-                url = URL(dataRepresentation: value, relativeTo: nil)
-            } else {
-                url = nil
-            }
-            guard let url, !url.isFileURL, url.scheme != nil else { return nil }
-            return url
-        }
-
-        let loadItemFallback: () -> Void = {
-            provider.loadItem(
-                forTypeIdentifier: UTType.url.identifier,
-                options: nil
-            ) { item, _ in
-                completion(usableURL(item))
-            }
-        }
-
-        guard provider.canLoadObject(ofClass: URL.self) else {
-            loadItemFallback()
-            return
-        }
-        _ = provider.loadObject(ofClass: URL.self) { url, error in
-            if error == nil, let url = usableURL(url) {
-                completion(url)
-            } else {
-                loadItemFallback()
-            }
-        }
-    }
-
     private func loadPastedPlainText(
         from providers: [NSItemProvider],
         completion: ((Bool) -> Void)? = nil
@@ -1245,15 +1165,6 @@ extension Ghostty.TerminalView {
             return surface != nil
         }
         return super.canPerformAction(action, withSender: sender)
-    }
-
-    /// Show context menu at the specified location
-    /// Note: UIContextMenuInteraction doesn't support programmatic presentation.
-    /// The menu shows automatically on long-press (iOS) or right-click (Catalyst).
-    /// This method is kept for backward compatibility but is no longer needed.
-    func showEditMenu(at point: CGPoint) {
-        // UIContextMenuInteraction handles menu presentation automatically
-        // on long-press (iOS) or right-click (Mac Catalyst)
     }
 
     /// Reset the terminal (clear scrollback and reset state)
@@ -1634,7 +1545,7 @@ extension Ghostty.TerminalView {
         // Check if this is a mouse/trackpad event
         if touch.type == .indirectPointer {
             let point = touch.location(in: self)
-            // Check which button is pressed (iOS 13.4+)
+            // Check which button is pressed
             let isRightClick = event?.buttonMask.contains(.secondary) ?? false
             handleMouseDown(at: point, isRightClick: isRightClick)
             return
@@ -2258,28 +2169,7 @@ extension Ghostty.TerminalView: UIContextMenuInteractionDelegate {
             self?.resetTerminal(nil)
         }
 
-        let aiAgent = UIAction(
-            title: String(localized: "AI Agent"),
-            image: UIImage(systemName: "sparkles")
-        ) { [weak self] _ in
-            self?.menuToggleAIAgent(nil)
-        }
-
-        let voiceAgent = UIAction(
-            title: String(localized: "Voice Agent"),
-            image: UIImage(systemName: "waveform")
-        ) { [weak self] _ in
-            self?.menuToggleVoiceAgent(nil)
-        }
-
-        let changeTheme = UIAction(
-            title: String(localized: "Change Theme"),
-            image: UIImage(systemName: "paintbrush")
-        ) { [weak self] _ in
-            self?.menuToggleThemePicker(nil)
-        }
-
-        let terminalMenu = UIMenu(title: "", options: .displayInline, children: [findAction, settingsAction, changeTheme, resetTerminal, aiAgent, voiceAgent])
+        let terminalMenu = UIMenu(title: "", options: .displayInline, children: [findAction, settingsAction, resetTerminal])
         menuItems.append(terminalMenu)
 
         // Tab bar visibility toggle
@@ -2538,15 +2428,6 @@ extension Ghostty.TerminalView: UIGestureRecognizerDelegate {
             return Self.rightClickTrackingView != nil
         }
 
-        // Handle drag gesture: allow when handles visible and touch is near a handle.
-        // We check at shouldBegin time but use a generous hit area since the finger
-        // may have moved slightly from the initial touch point.
-        if gestureRecognizer === handleDragPanGesture {
-            guard selectionHandlesVisible else { return false }
-            let point = gestureRecognizer.location(in: self)
-            return hitSelectionHandle(at: point) != nil
-        }
-
         // Block all other gestures while actively dragging a handle
         if activeHandleDrag != nil {
             return false
@@ -2597,17 +2478,6 @@ extension Ghostty.TerminalView: UIGestureRecognizerDelegate {
 
         // Disable selection pan in capture mode (tmux, vim handle mouse themselves)
         if gestureRecognizer === selectionPanGesture && isMouseCaptured {
-            return false
-        }
-
-        // Don't start scroll pan gesture if we're text selecting
-        if gestureRecognizer === scrollPanGesture && isSelecting {
-            return false
-        }
-
-        // Don't start scroll pan gesture if trackpad button is already pressed
-        // (trackpad click+drag is handled by touchesBegan/Moved/Ended)
-        if gestureRecognizer === scrollPanGesture && mousePressed {
             return false
         }
 
@@ -3606,7 +3476,6 @@ extension Ghostty.TerminalView {
 // MARK: - Dimension Overlay SwiftUI View
 
 /// Liquid glass overlay showing terminal dimensions (cols × rows) during pinch-to-zoom.
-/// Uses `.glassEffect` on iOS 26+, falls back to `.ultraThinMaterial` on earlier versions.
 #if !targetEnvironment(macCatalyst)
 struct DimensionOverlayView: View {
     let text: String
@@ -3642,14 +3511,8 @@ private extension View {
         self
             .background(.regularMaterial, in: shape)
         #else
-        if #available(iOS 26.0, macOS 26.0, *) {
-            self
-                .glassEffect(.regular, in: shape)
-        } else {
-            self
-                .background(.ultraThinMaterial, in: shape)
-                .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
-        }
+        self
+            .glassEffect(.regular, in: shape)
         #endif
     }
 }

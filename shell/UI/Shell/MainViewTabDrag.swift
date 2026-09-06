@@ -238,9 +238,7 @@ struct TabDragModifier: ViewModifier {
 
                     // Commit a tmux window tab's reorder to the server
                     // (user gesture, never reconcile-driven).
-                    if !tabsModel.isProjectGroupingActive {
-                        TmuxController.syncWindowOrderAfterUserMove(of: tab, in: tabsModel.tabs)
-                    }
+                    TmuxController.syncWindowOrderAfterUserMove(of: tab, in: tabsModel.tabs)
                 } else {
                     withAnimation(.snappy(duration: 0.28, extraBounce: 0.0)) {
                         dragState.reset()

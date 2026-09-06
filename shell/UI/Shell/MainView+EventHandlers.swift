@@ -20,69 +20,6 @@ extension MainView {
 
     // MARK: - View Modifier Handlers
 
-    #if !CHINA_BUILD
-    func handleAIAgentOverlayChange(_ isPresented: Bool) {
-        // Resign first responder when overlay opens to prevent keyboard from appearing
-        if isPresented {
-            resignFirstResponderForSheetPresentation()
-        }
-
-        // iPhone: Update all terminals in current tab when AI Agent sheet visibility changes
-        guard terminals.indices.contains(selectedTabIndex) else { return }
-        let tab = terminals[selectedTabIndex]
-        for terminalView in tab.splitTree.terminalLeaves {
-            terminalView.setAIAgentOverlayActive(isPresented)
-        }
-
-        // Return focus to terminal when overlay is dismissed
-        if !isPresented {
-            if let terminal = tab.focusedTerminal {
-                _ = terminal.becomeFirstResponder()
-            }
-        }
-    }
-
-    func handleAIAgentSidebarVisibilityChange(oldValue: Set<UUID>, newValue: Set<UUID>) {
-        // iPad/Catalyst/visionOS: Update terminals in tabs where AI Agent sidebar visibility changed
-        let changedTabs = oldValue.symmetricDifference(newValue)
-        for tab in terminals where changedTabs.contains(tab.id) {
-            let isActive = newValue.contains(tab.id)
-            for terminalView in tab.splitTree.terminalLeaves {
-                terminalView.setAIAgentOverlayActive(isActive)
-            }
-
-            // Return focus to terminal when sidebar is dismissed for the current tab
-            if !isActive,
-               terminals.indices.contains(selectedTabIndex),
-               tab.id == terminals[selectedTabIndex].id {
-                if let terminal = tab.focusedTerminal {
-                    _ = terminal.becomeFirstResponder()
-                }
-            }
-        }
-
-        // Post layout invalidation after sidebar animation completes to ensure terminals resize
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            NotificationCenter.default.post(name: .terminalLayoutInvalidation, object: nil)
-        }
-    }
-    #endif
-
-    func handleThemePickerOverlayChange(_ isPresented: Bool) {
-        guard terminals.indices.contains(selectedTabIndex) else { return }
-        let tab = terminals[selectedTabIndex]
-        for terminalView in tab.splitTree.terminalLeaves {
-            terminalView.setThemePickerOverlayActive(isPresented)
-        }
-
-        // Return focus to terminal when theme overlay is dismissed
-        if !isPresented {
-            if let terminal = tab.focusedTerminal {
-                _ = terminal.becomeFirstResponder()
-            }
-        }
-    }
-
     func handleOnAppear() {
         updateWindowFocusState()
 
@@ -144,17 +81,6 @@ extension MainView {
         }
         observerBag.track(tabTransferDragObserver)
 
-#if STANDALONE && targetEnvironment(macCatalyst)
-        if windowId == "visor" {
-            let hostID = visorContentHostID
-            VisorController.shared.registerContentHost(
-                id: hostID,
-                hasTerminal: { !terminals.isEmpty },
-                ensureTerminal: { await ensureVisorHasTerminal() }
-            )
-        }
-#endif
-        
         // Check for pending restoration
         if terminals.isEmpty,
            TabTransferCoordinator.shared.claimPendingTransfer(
@@ -164,13 +90,6 @@ extension MainView {
             notifySessionCountChanged()
         } else if terminals.isEmpty {
 #if targetEnvironment(macCatalyst)
-            if windowId == "visor" {
-                // The visor scene can be prewarmed while hidden. Do not
-                // create a terminal until VisorController asks the registered
-                // content host for one during an actual summon; otherwise
-                // Catalyst may materialize a shell before the underlying
-                // NSWindow has been converted into the visor panel.
-            } else {
             // NOTE: getPendingState() has a side effect — it marks the window
             // as restored — so it must be read exactly once and the value
             // reused (a second call returns nil and would skip restore).
@@ -187,7 +106,6 @@ extension MainView {
                 restoreWindowState(savedState)
             } else {
                 createInitialTab()
-            }
             }
 #else
             // Non-Catalyst path (iPad/iPhone/visionOS)
@@ -226,12 +144,6 @@ extension MainView {
 
     func handleOnDisappear() {
         #if targetEnvironment(macCatalyst)
-        #if STANDALONE
-        if windowId == "visor" {
-            cancelVisorReadinessWaiters()
-            VisorController.shared.unregisterContentHost(id: visorContentHostID)
-        }
-        #endif
         performWindowCleanup(reason: "disappear")
         #endif
     }

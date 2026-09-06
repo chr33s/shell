@@ -93,6 +93,21 @@ nonisolated final class ShellEnvironment: @unchecked Sendable {
         lock.withLock { lastExitCode }
     }
 
+    // MARK: - Current Line (`$LINENO`)
+
+    /// Line of the simple command currently executing, within the source unit
+    /// it was parsed from (script file, `source`d file, `eval` string, or the
+    /// submitted interactive command). 0 = unknown.
+    private var currentLineNumber: Int = 0
+
+    func setCurrentLineNumber(_ line: Int) {
+        lock.withLock { currentLineNumber = line }
+    }
+
+    func getCurrentLineNumber() -> Int {
+        lock.withLock { currentLineNumber }
+    }
+
     // MARK: - Shell Options
 
     var options: ShellOptions {
@@ -322,7 +337,7 @@ nonisolated final class ShellEnvironment: @unchecked Sendable {
         case "RANDOM":
             return String(Int.random(in: 0...32767))
         case "LINENO":
-            return "0" // TODO: track line numbers during execution
+            return String(getCurrentLineNumber())
         default:
             // Positional parameter $1-$9+
             if let n = Int(name), n >= 1 {
@@ -788,6 +803,9 @@ nonisolated final class ShellEnvironment: @unchecked Sendable {
 
         copy.setPositionalParams(params, scriptName: name)
         copy.setLastExitCode(lastCode)
+        // A subshell inherits `$LINENO` until its own first simple command
+        // publishes one, matching how `$?` is carried across above.
+        copy.setCurrentLineNumber(getCurrentLineNumber())
         copy.trapRegistry.restore(traps)
         let opts = options
         copy.updateOptions { $0 = opts }

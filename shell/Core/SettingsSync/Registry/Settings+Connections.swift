@@ -46,36 +46,19 @@ nonisolated extension Settings {
             "sshPasswordDefaultStorageLevel", default: KeyStorageLevel.backupOnly, group: .connections,
             configKey: "ssh-password-default-storage-level",
             title: String(localized: "Saved Password Storage", comment: "Setting title"))
-        static let lastConnectionType = SettingKey<String?>(
-            "lastConnectionType", default: nil, group: .connections, policy: .deviceOnly,
-            title: String(localized: "Last Connection Type", comment: "Setting title"))
         static let passwordLastUsedDates = SettingKey<Data?>(
             "sshPasswordLastUsedDates", default: nil, group: .connections, policy: .deviceOnly,
             title: String(localized: "Password Last Used", comment: "Setting title"))
-        static let sshKeysMetadataLegacy = SettingKey<Data?>(
-            "sshKeysMetadata", default: nil, group: .connections, policy: .deviceOnly,
-            title: String(localized: "SSH Identity Metadata (legacy)", comment: "Setting title"))
-        static let sshKeysMetadataMigrated = SettingKey(
-            "sshKeysMetadataMigratedToKeychain", default: false, group: .connections, policy: .deviceOnly,
-            title: String(localized: "SSH Identity Metadata Migrated", comment: "Setting title"))
-        static let connectionHistoryLegacy = SettingKey<Data?>(
-            "ssh_connection_history", default: nil, group: .connections, policy: .deviceOnly,
-            title: String(localized: "Connection History (legacy)", comment: "Setting title"))
         static let defaultKeyIDs = SettingKey<Data?>(
             "defaultSSHKeyIDs", default: nil, group: .connections, policy: .deviceOnly,
             title: String(localized: "Default SSH Identities", comment: "Setting title"))
-        static let defaultKeyIDLegacy = SettingKey<String?>(
-            "defaultSSHKeyID", default: nil, group: .connections, policy: .deviceOnly,
-            title: String(localized: "Default SSH Identity (legacy)", comment: "Setting title"))
 
         static let all: [AnySettingDefinition] = [
             forceIPv4.erased, healthMonitoring.erased, healthProbeInterval.erased,
             backgroundKeepalive.erased, autoReconnectEnabled.erased,
             autoReconnectMaxAttempts.erased, profilesSortOrder.erased, passwordDefaultAuthRequirement.erased,
             passwordDefaultStorageLevel.erased,
-            lastConnectionType.erased, passwordLastUsedDates.erased,
-            sshKeysMetadataLegacy.erased, sshKeysMetadataMigrated.erased, connectionHistoryLegacy.erased,
-            defaultKeyIDs.erased, defaultKeyIDLegacy.erased,
+            passwordLastUsedDates.erased, defaultKeyIDs.erased,
         ]
     }
 

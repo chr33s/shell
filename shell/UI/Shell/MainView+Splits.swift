@@ -286,29 +286,10 @@ extension MainView {
             // Tree is empty after removing the split
             if isLastSplitInTab && isLastTab {
                 #if targetEnvironment(macCatalyst)
-                #if STANDALONE
-                if windowId == "visor" {
-                    // The visor is a persistent panel. When its last shell
-                    // exits, replace it with a fresh local shell instead of
-                    // dismissing the scene or leaving an empty transparent
-                    // panel.
-                    Ghostty.logger.info("Closing last split in visor - creating replacement shell")
-                    closeTab(at: tabIndex)
-                    Task { @MainActor in
-                        _ = await ensureVisorHasTerminal()
-                    }
-                } else {
-                    // Mac Catalyst: closing last window is standard macOS behavior
-                    // (app stays in Dock, user reopens from menu bar)
-                    Ghostty.logger.info("Closing last split in last tab - closing window (Mac Catalyst)")
-                    closeCurrentWindow(windowScene: windowSceneToClose)
-                }
-                #else
                 // Mac Catalyst: closing last window is standard macOS behavior
                 // (app stays in Dock, user reopens from menu bar)
                 Ghostty.logger.info("Closing last split in last tab - closing window (Mac Catalyst)")
                 closeCurrentWindow(windowScene: windowSceneToClose)
-                #endif
                 #else
                 // iOS/iPadOS/visionOS: check if this is the only window scene.
                 // Destroying the sole scene leaves no visible UI and no recovery path.

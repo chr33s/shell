@@ -31,6 +31,20 @@ final class TmuxTabDialogCoordinator {
     var renameSessionText = ""
     var detachConfirmGatewayTab: TabModel?
 
+    /// Message from a tmux command that failed under a user gesture; nil when
+    /// no failure alert is up. The menu's actions are fire-and-forget Tasks
+    /// with no visible success state, so without this a rejected rename or a
+    /// timeout is indistinguishable from the app ignoring the tap. Mirrors
+    /// the dashboard's inline `errorMessage` (TmuxSessionDashboardView).
+    var commandFailure: String?
+
+    /// Surface a failed tmux command. `TmuxCommandError` is a `LocalizedError`
+    /// whose description is already user-facing (tmux's own text for
+    /// `.serverError`, e.g. "duplicate session: x").
+    func report(_ error: Error) {
+        commandFailure = error.localizedDescription
+    }
+
     func requestRenameWindow(_ tab: TabModel) {
         renameWindowText = tab.title
         renameWindowTab = tab
@@ -129,7 +143,10 @@ struct TmuxTabMenuItems: View {
                 Task { @MainActor in
                     do {
                         try await controller.detachOtherClients()
+                    } catch TmuxCommandError.gatewayEnded {
+                        // Control mode already ended; its teardown is the feedback.
                     } catch {
+                        dialogs.report(error)
                     }
                 }
             } label: {
@@ -170,7 +187,10 @@ struct TmuxTabMenuItems: View {
                             Task { @MainActor in
                                 do {
                                     try await controller.moveWindow(id: windowId, toSession: destination.id)
+                                } catch TmuxCommandError.gatewayEnded {
+                                    // Control mode already ended; its teardown is the feedback.
                                 } catch {
+                                    dialogs.report(error)
                                 }
                             }
                         }
@@ -220,6 +240,7 @@ private struct TmuxTabDialogsModifier: ViewModifier {
                 renameWindowDialog
                 renameSessionDialog
                 detachGatewayDialog
+                commandFailureAlert
             }
             .frame(width: 0, height: 0)
             .accessibilityHidden(true)
@@ -245,7 +266,10 @@ private struct TmuxTabDialogsModifier: ViewModifier {
                 Task { @MainActor in
                     do {
                         try await controller.renameWindow(id: windowId, to: name)
+                    } catch TmuxCommandError.gatewayEnded {
+                        // Control mode already ended; its teardown is the feedback.
                     } catch {
+                        dialogs.report(error)
                     }
                 }
             }
@@ -272,7 +296,10 @@ private struct TmuxTabDialogsModifier: ViewModifier {
                 Task { @MainActor in
                     do {
                         try await controller.renameSession(id: sessionId, to: name)
+                    } catch TmuxCommandError.gatewayEnded {
+                        // Control mode already ended; its teardown is the feedback.
                     } catch {
+                        dialogs.report(error)
                     }
                 }
             }
@@ -297,6 +324,21 @@ private struct TmuxTabDialogsModifier: ViewModifier {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Leaves tmux control mode for this tab. The tmux session keeps running on the server.")
+        }
+    }
+
+    /// Failure surface for the menu's tmux commands. The message is tmux's own
+    /// text (or the app-side timeout / invalid-name description), so it is
+    /// shown verbatim — `Text(String)` deliberately picks the non-localizing
+    /// StringProtocol overload here.
+    private var commandFailureAlert: some View {
+        Color.clear.alert("tmux Command Failed", isPresented: Binding(
+            get: { dialogs.commandFailure != nil },
+            set: { if !$0 { dialogs.commandFailure = nil } }
+        )) {
+            Button("OK", role: .cancel) { dialogs.commandFailure = nil }
+        } message: {
+            Text(dialogs.commandFailure ?? "")
         }
     }
 }

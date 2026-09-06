@@ -8,9 +8,10 @@
 # The replacement rect paints the same blue edge to edge and the mask rounds it.
 #
 # The background is baked into the layer rather than left to icon.json's
-# fill-specializations: actool flattens .icon bundles for the pre-26 deployment
-# target, and the flattened output composites layers only — a fill-only
-# background renders transparent there.
+# fill-specializations. The original reason — actool flattening .icon bundles
+# for a pre-26 deployment target, where a fill-only background renders
+# transparent — no longer applies at a 26 floor, but flattened representations
+# may still be produced; verify the rendered icon before removing the baked rect.
 #
 # Usage: ./scripts/make-icon.sh
 set -euo pipefail

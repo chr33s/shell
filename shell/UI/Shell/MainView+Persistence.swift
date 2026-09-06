@@ -34,82 +34,38 @@ private enum WindowGeometryRestoreState {
 
 extension MainView {
 
-    /// tmux gateways that could resume across a scene teardown. The roaming
-    /// transport that made that possible is gone from this fork, so nothing
-    /// qualifies.
-    private func resumableTmuxGatewayUUIDs() -> Set<UUID> { [] }
-
     /// Serialize current window state for persistence
     func serializeWindowState() -> SerializableWindow? {
         guard !terminals.isEmpty else { return nil }
 
         // Build the ordered list of persisted tabs. Ordinary tabs (including the
-        // tmux gateway tab, which is a real tssh session) serialize fully. A
-        // projected tmux -CC WINDOW tab serializes as a lightweight PLACEHOLDER
-        // (tmux window id + title + owning gateway terminal UUID, empty split
-        // tree): its panes are bound to the live viewer, not real sessions, so
-        // they are never serialized — instead the tab is restored at its saved
-        // position and re-adopted when the gateway resumes control mode. A tmux
-        // window tab that is missing its ids (should not happen once
-        // `ensureWindow` stamps them) is excluded rather than restored as a bogus
-        // local shell.
+        // tmux gateway tab, which is a real tssh session) serialize fully.
         //
-        // Gateways whose tmux -CC session survives an app restart: only trzsz/tssh
-        // keeps the remote pty (and the live tmux -CC process) alive across a
-        // reconnect. A local-shell or plain-SSH gateway's tmux -CC dies with the
-        // app, so its projected window tabs must NOT be persisted — they could never
-        // be re-adopted and would linger as empty, un-closable tabs. Keyed on
-        // live OR pending tmux-gateway state so an autosave during the resume
-        // window keeps placeholders only for the gateway that can adopt them.
-        let resumableGatewayUUIDs = resumableTmuxGatewayUUIDs()
-
+        // Projected tmux -CC WINDOW tabs are not persisted at all. Their panes
+        // are bound to the live viewer rather than to real sessions, and no
+        // gateway in this fork survives a scene teardown with its remote pty (and
+        // therefore its tmux -CC process) intact — the roaming transport that
+        // made that possible is gone. A placeholder written now could never be
+        // re-adopted and would linger as an empty, un-closable tab, so the tab is
+        // dropped instead. The same applies to any tab still holding a live tmux
+        // pane binding.
         var persisted: [(tab: TabModel, serialized: SerializableTab)] = []
         persisted.reserveCapacity(terminals.count)
         for tab in terminals {
             let hasLivePane = tab.splitTree.contains { $0.asTerminal?.tmuxPaneBinding != nil }
-            if tab.isTmuxWindow || hasLivePane {
-                // `tmuxWindowId` is set once adopted; a restored-but-not-yet-
-                // adopted placeholder only has `pendingTmuxWindowId`. Fall back to
-                // it so an autosave during the reconnect window doesn't silently
-                // drop the placeholder (which would lose its tab position). Only
-                // persist placeholders owned by a resumable (trzsz) gateway.
-                guard let tmuxWindowId = tab.tmuxWindowId ?? tab.pendingTmuxWindowId,
-                      let owner = tab.owningGatewayTerminalUUID,
-                      resumableGatewayUUIDs.contains(owner) else { continue }
-                persisted.append((tab, SerializableTab(
-                    id: tab.id,
-                    title: tab.title,
-                    splitTree: SerializableSplitTree(),  // live panes are not serialized
-                    focusedTerminalId: nil,
-                    windowId: windowId,
-                    tmuxWindowId: tmuxWindowId,
-                    owningGatewayTerminalUUID: owner,
-                    tmuxFontSizeOverride: tab.tmuxFontSizeOverride,
-                    isHiddenTmuxWindow: tab.isHiddenTmuxWindow ? true : nil
-                )))
-            } else {
-                persisted.append((tab, SerializableTab(
-                    id: tab.id,
-                    title: tab.title,
-                    splitTree: tab.splitTree.serialize(),
-                    focusedTerminalId: tab.focusedPane?.uuid,
-                    windowId: windowId,
-                    // A hidden GATEWAY tab persists its flag so the hide
-                    // survives an app restart — but only when the gateway can
-                    // actually resume (trzsz, mirroring wasTmuxGateway at
-                    // SerializableSplitTree); otherwise the restored pending
-                    // flag could never be consumed. The pending-restore bit
-                    // counts too: during the reconnect window (restored, not
-                    // yet resumed) the live flags are still false, and an
-                    // autosave must not drop the preference — the same
-                    // live-OR-restored treatment wasTmuxGateway gets.
-                    // (id=tmux-hidden-gateway)
-                    isHiddenTmuxWindow: (((tab.isTmuxGateway && tab.isHiddenTmuxWindow)
-                        || tab.pendingHiddenTmuxGatewayRestore)
-                        && tab.splitTree.contains { resumableGatewayUUIDs.contains($0.uuid) })
-                        ? true : nil
-                )))
-            }
+            if tab.isTmuxWindow || hasLivePane { continue }
+            persisted.append((tab, SerializableTab(
+                id: tab.id,
+                title: tab.title,
+                splitTree: tab.splitTree.serialize(),
+                focusedTerminalId: tab.focusedPane?.uuid,
+                windowId: windowId,
+                // A hidden GATEWAY tab could only persist its flag when the
+                // gateway was able to resume after a restart; none can, so the
+                // restored pending flag would never be consumed and the hide is
+                // never written. (id=tmux-hidden-gateway)
+                isHiddenTmuxWindow: nil
+            )))
         }
         guard !persisted.isEmpty else { return nil }
 
@@ -122,12 +78,6 @@ extension MainView {
         let persistedIDs = Set(persisted.map { $0.tab.id })
         let persistedGroupTabOrders = tabsModel.sidebarGroupTabOrders.reduce(into: [String: [UUID]]()) {
             result, entry in
-            let ids = entry.value.filter { persistedIDs.contains($0) }
-            if !ids.isEmpty { result[entry.key] = ids }
-        }
-        let persistedProjectTabOrders = tabsModel.projectTabOrders.reduce(
-            into: [ProjectGroupID: [UUID]]()
-        ) { result, entry in
             let ids = entry.value.filter { persistedIDs.contains($0) }
             if !ids.isEmpty { result[entry.key] = ids }
         }
@@ -174,8 +124,6 @@ extension MainView {
                 : groupOverrides.filter { persistedIDs.contains($0.key) },
             tabGroupOrder: tabsModel.sidebarGroupOrder.isEmpty ? nil : tabsModel.sidebarGroupOrder,
             tabGroupTabOrders: persistedGroupTabOrders.isEmpty ? nil : persistedGroupTabOrders,
-            projectGroupOrder: tabsModel.projectGroupOrder.isEmpty ? nil : tabsModel.projectGroupOrder,
-            projectTabOrders: persistedProjectTabOrders.isEmpty ? nil : persistedProjectTabOrders,
             frameOriginX: savedFrame.map { Double($0.origin.x) },
             frameOriginY: savedFrame.map { Double($0.origin.y) },
             frameWidth: savedFrame.map { Double($0.size.width) },
@@ -219,26 +167,6 @@ extension MainView {
             state.tabGroupTabOrders ?? [:],
             restoredIDsBySavedID: restoredTabIDsBySavedID
         )
-        tabsModel.projectGroupOrder = state.projectGroupOrder ?? []
-        tabsModel.projectTabOrders = remapProjectOrderBuckets(
-            state.projectTabOrders ?? [:],
-            restoredIDsBySavedID: restoredTabIDsBySavedID
-        )
-        tabsModel.clearStaleGroupOverrides()
-
-        // Safety net for state saved by older builds: drop restored tmux window
-        // placeholders whose owning gateway is NOT a resumable (trzsz/tssh) session.
-        // A local-shell or plain-SSH `tmux -CC` gateway is gone after the app quits,
-        // so its projected window tabs can never be re-adopted and would otherwise
-        // linger as empty, never-reconciled tabs the user must close by hand. Current
-        // serialization already omits them, so this fires at most once per upgraded
-        // install. Runs before the selected-index restore below so its bounds check
-        // (and fallback to the gateway / tab 0) absorbs the removals.
-        let resumableOwnerUUIDs = resumableTmuxGatewayUUIDs()
-        terminals.removeAll { tab in
-            tab.awaitingTmuxReconcile &&
-            !(tab.owningGatewayTerminalUUID.map { resumableOwnerUUIDs.contains($0) } ?? false)
-        }
         tabsModel.clearStaleGroupOverrides()
 
         // Restore selected tab index. Assignment is outside any
@@ -248,10 +176,10 @@ extension MainView {
             selectedTabIndex = state.selectedTabIndex
         }
 
-        // The placeholder filtering above may have invalidated the saved
-        // index, leaving `selectedTabID` nil even though tabs exist. Repair
-        // so the displayed-tab reveal has a valid selection to follow
-        // (a nil selection would keep every tab at opacity 0).
+        // A saved index outside the restored tab range leaves `selectedTabID`
+        // nil even though tabs exist. Repair so the displayed-tab reveal has a
+        // valid selection to follow (a nil selection would keep every tab at
+        // opacity 0).
         tabsModel.repairSelectionIfNeeded()
 
         // Restored pane views default to visible before their Ghostty surfaces
@@ -296,9 +224,7 @@ extension MainView {
         }
 
         #if targetEnvironment(macCatalyst)
-        if windowId != "visor" {
-            Self.schedulePendingRegularWindowRestoration()
-        }
+        Self.schedulePendingRegularWindowRestoration()
         #endif
 
         // Mark restoration completed synchronously so a force-quit between
@@ -319,16 +245,6 @@ extension MainView {
         _ buckets: [String: [UUID]],
         restoredIDsBySavedID: [UUID: UUID]
     ) -> [String: [UUID]] {
-        buckets.reduce(into: [:]) { result, entry in
-            let ids = entry.value.compactMap { restoredIDsBySavedID[$0] }
-            if !ids.isEmpty { result[entry.key] = ids }
-        }
-    }
-
-    private func remapProjectOrderBuckets(
-        _ buckets: [ProjectGroupID: [UUID]],
-        restoredIDsBySavedID: [UUID: UUID]
-    ) -> [ProjectGroupID: [UUID]] {
         buckets.reduce(into: [:]) { result, entry in
             let ids = entry.value.compactMap { restoredIDsBySavedID[$0] }
             if !ids.isEmpty { result[entry.key] = ids }
@@ -378,7 +294,13 @@ extension MainView {
             return nil
         }
 
-        let splitTree = SplitTree<SplitPaneView>(root: liveRoot, zoomed: nil)
+        // Re-apply the zoom captured at save time. `restoringZoomedPath`
+        // resolves the saved path against the tree just rebuilt and yields nil
+        // (= un-zoomed) if it no longer resolves, so a stale path can't trap.
+        let splitTree = SplitTree<SplitPaneView>(
+            root: liveRoot,
+            restoringZoomedPath: savedTab.splitTree.zoomedPath
+        )
 
         let focused: SplitPaneView?
         if let focusedId = savedTab.focusedTerminalId {
@@ -548,7 +470,6 @@ extension MainView {
     /// (non-restored) window. Then attempts an immediate apply in case the scene
     /// link is already up (the `WindowSceneReporter` callback may have fired first).
     func stashPendingGeometryRestore(savedFrame: CGRect?) {
-        guard windowId != "visor" else { return }
         pendingRestoreFrame = savedFrame
         isFirstRestoredWindow = WindowGeometryRestoreState.claimFirstWindow()
         geometryRestoreApplied = false
@@ -574,8 +495,7 @@ extension MainView {
     /// launch. So `applyGeometry` is deterministic — first window restores-if-
     /// different (no flash), every later window gets a guaranteed two-step change.
     func tryApplyPendingGeometry(allowRetry: Bool = true) {
-        guard geometryRestorePending, !geometryRestoreApplied,
-              windowId != "visor" else { return }
+        guard geometryRestorePending, !geometryRestoreApplied else { return }
         let capturedWindowId = windowId
         guard let scene = Self.windowScene(forWindowId: capturedWindowId) else {
             // Link not yet published. The reporter callback is the primary

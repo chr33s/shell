@@ -22,25 +22,16 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }()
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        // Capture the main thread's mach port before installing lifecycle
-        // observers — the foreground transition watchdog drives the sampler
-        // and must have a valid port the first time it arms.
-
         // Register volatile UserDefaults defaults BEFORE any scene/view construction.
         // This is safe before unlock — `register(defaults:)` only writes to the volatile
-        // registration domain and never touches disk. The persistent migration below
-        // stays inside the protected-data gate where it belongs.
-        UserDefaultsMigration.registerVolatileDefaults()
+        // registration domain and never touches disk.
+        LaunchDefaults.registerVolatileDefaults()
 
         installLifecycleObservers()
 
         // Register the keyboard-window visibility observer before the first
         // keyboard appearance so toolbar keys can read the system Shift state.
         SystemShiftReader.shared.activate()
-
-        // Wire NIOSSH internals + swift-log (Citadel) into SSHDebugLogger.
-        // Bootstraps run once per process; handlers consult the toggle at
-        // write time, so flipping the toggle takes effect immediately.
 
         // Configure audio session to not interrupt other apps' audio.
         // Use .playback category with .mixWithOthers option - this is the pattern used by
@@ -66,7 +57,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // empty values and permanently overwrite real settings.
         ProtectedDataGuard.whenAvailable {
             UserDefaultsBackup.detectAndRecover()
-            UserDefaultsMigration.migrateIfNeeded()
+            LaunchDefaults.announceProtectedDataAvailable()
             SettingsStore.shared.bootstrap()
             SettingsSyncCoordinator.shared.start()
             // Interim until every manager registers its own reload(keys:).

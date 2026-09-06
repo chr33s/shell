@@ -611,23 +611,8 @@ extension LocalShellSession {
 
         let prompt = getCurrentPromptResult()
 
-        // Right prompt ANSI sequence (cursor-positioned on info bar)
-        var rightPromptSeq = ""
-        if prompt.rightPromptWidth > 0, !prompt.rightPromptText.isEmpty {
-            let rightCol = terminalWidth - prompt.rightPromptWidth + 1
-            if rightCol > 0 {
-                rightPromptSeq += "\u{1b}[1A"
-                rightPromptSeq += "\u{1b}[\(rightCol)G"
-                rightPromptSeq += prompt.rightPromptText
-                rightPromptSeq += PromptStyle.ansiReset
-                rightPromptSeq += "\u{1b}[1B"
-                rightPromptSeq += "\r"
-                rightPromptSeq += "\u{1b}[\(prompt.secondLinePrefix)C"
-            }
-        }
-
         if prompt.secondLinePrefix > 0 {
-            var out = prompt.text + rightPromptSeq
+            var out = prompt.text
 
             if !buffer.isEmpty {
                 let prefixWidth = prompt.secondLinePrefix
@@ -779,11 +764,7 @@ extension LocalShellSession {
 
             let isMultiLine = prompt.secondLinePrefix > 0
 
-            if prompt.rightPromptWidth > 0 {
-                self.onOutput?(self.renderPromptWithRightAlign(prompt))
-            } else {
-                self.onOutput?(prompt.text)
-            }
+            self.onOutput?(prompt.text)
 
             // Render existing buffer content with cursor positioning
             if !self.lineEditor.buffer.isEmpty {

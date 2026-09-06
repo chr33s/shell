@@ -141,12 +141,7 @@ extension View {
         #if os(visionOS)
         self.background(.regularMaterial, in: shape)
         #else
-        if #available(iOS 26.0, macOS 26.0, *) {
-            self.glassEffect(.regular, in: shape)
-        } else {
-            self.background(.ultraThinMaterial, in: shape)
-                .shadow(color: .black.opacity(0.2), radius: 12, x: 0, y: 6)
-        }
+        self.glassEffect(.regular, in: shape)
         #endif
     }
 }

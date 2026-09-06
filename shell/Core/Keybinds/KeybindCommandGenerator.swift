@@ -20,8 +20,8 @@ final class KeybindCommandGenerator: ObservableObject {
     /// Generated UIKeyCommands (cached, regenerated on keybind changes)
     @Published private(set) var keyCommands: [UIKeyCommand] = []
 
-    /// Cached filtered commands for iOS 26+ (regenerated on keybind changes)
-    private var _commandsForIOS26Plus: [UIKeyCommand]?
+    /// Cached filtered commands (regenerated on keybind changes)
+    private var _menuAwareKeyCommands: [UIKeyCommand]?
 
     /// Publisher for command updates
     let commandsDidUpdate = PassthroughSubject<[UIKeyCommand], Never>()
@@ -52,7 +52,7 @@ final class KeybindCommandGenerator: ObservableObject {
     /// Regenerate all UIKeyCommands from current bindings
     private func regenerateCommands() {
         // Clear filtered cache - will be rebuilt on next access
-        _commandsForIOS26Plus = nil
+        _menuAwareKeyCommands = nil
 
         var commands: [UIKeyCommand] = []
         // Dedupe by first trigger. If the same first key is both a single-key
@@ -127,13 +127,12 @@ final class KeybindCommandGenerator: ObservableObject {
              .select_tab_9, .split_right, .split_down, .navigate_split_left,
              .navigate_split_right, .navigate_split_up, .navigate_split_down,
              .toggle_split_zoom, .equalize_splits, .open_settings, .browse_hosts,
-             .browse_profiles, .toggle_ai_agent, .toggle_voice_agent, .toggle_tab_bar, .toggle_group_mode, .toggle_tab_switcher,
-             .toggle_tab_expose, .previous_group, .next_group, .show_tmux_sessions, .detach_other_clients,
-             .toggle_transparency, .toggle_titlebar, .toggle_auto_redact, .toggle_background_effect, .toggle_compose,
+             .browse_profiles, .toggle_tab_bar, .toggle_group_mode,
+             .previous_group, .next_group, .show_tmux_sessions, .detach_other_clients,
+             .toggle_transparency, .toggle_titlebar, .toggle_compose,
              .toggle_full_screen, .toggle_mouse_capture, .cycle_input_source,
              .increase_font_size, .decrease_font_size,
-             .reset_font_size, .start_search, .select_all, .toggle_theme_picker,
-             .toggle_clipboard_manager, .brightness_boost:
+             .reset_font_size, .start_search, .select_all:
             return true
 
         // Terminal actions are handled via ghostty_surface_binding_action
@@ -303,7 +302,7 @@ final class KeybindCommandGenerator: ObservableObject {
         // On Mac Catalyst, ESC needs UIKeyCommand for wantsPriorityOverSystemBehavior
         // and mod-tap source key support. On iOS/visionOS, ESC is handled via
         // pressesBegan → processKeyPress, which correctly intercepts ESC when
-        // overlays (session picker, AI agent) are visible. Registering a UIKeyCommand
+        // overlays (session picker) are visible. Registering a UIKeyCommand
         // for ESC on iPad prevents pressesBegan from firing, bypassing overlay checks.
         #if targetEnvironment(macCatalyst)
         let plainEscapeTrigger = KeyTrigger(key: .escape, modifiers: [])
@@ -410,12 +409,12 @@ final class KeybindCommandGenerator: ObservableObject {
 
     // MARK: - Filtered Commands
 
-    /// Commands suitable for iOS 26+ where SwiftUI Commands handle menu shortcuts
+    /// Commands for contexts where SwiftUI Commands already handle menu shortcuts.
     /// Returns only special key commands and actions not handled by SwiftUI Commands,
     /// UNLESS the shortcut has been customized (then we need UIKeyCommand to take priority)
     /// Cached to avoid re-filtering on every keystroke.
-    var commandsForIOS26Plus: [UIKeyCommand] {
-        if let cached = _commandsForIOS26Plus {
+    var menuAwareKeyCommands: [UIKeyCommand] {
+        if let cached = _menuAwareKeyCommands {
             return cached
         }
 
@@ -453,7 +452,7 @@ final class KeybindCommandGenerator: ObservableObject {
                 return true
             }
 
-            // On iOS 26+, SwiftUI Commands handle menu shortcuts
+            // SwiftUI Commands handle menu shortcuts.
             // Only include UIKeyCommands if:
             // 1. Any matching binding is a user override / external config
             //    (customized shortcut needs UIKeyCommand to take priority)
@@ -468,36 +467,8 @@ final class KeybindCommandGenerator: ObservableObject {
             return matching.contains { !$0.action.isHandledBySwiftUICommands }
         }
 
-        _commandsForIOS26Plus = filtered
+        _menuAwareKeyCommands = filtered
         return filtered
-    }
-
-    /// Commands for iOS < 26 (all commands including menu shortcuts)
-    var commandsForLegacyIOS: [UIKeyCommand] {
-        keyCommands
-    }
-
-    // MARK: - Menu Shortcut Lookup
-
-    /// Get the keyboard shortcut string for an action (for menu display)
-    func shortcutString(for action: KeybindAction) -> String? {
-        guard let sequence = keybindManager.sequence(for: action) else {
-            return nil
-        }
-        return sequence.symbolDescription
-    }
-
-    /// Get the UIKeyboardShortcut for an action (for SwiftUI Commands)
-    func keyboardShortcut(for action: KeybindAction) -> (String, UIKeyModifierFlags)? {
-        guard let sequence = keybindManager.sequence(for: action),
-              let firstTrigger = sequence.first else {
-            return nil
-        }
-
-        // Only return for single-key shortcuts (sequences don't work in menus)
-        guard !sequence.isSequence else { return nil }
-
-        return (firstTrigger.uiKeyInput, firstTrigger.uiModifierFlags)
     }
 }
 

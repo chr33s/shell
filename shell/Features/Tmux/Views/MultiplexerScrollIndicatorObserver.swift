@@ -36,13 +36,6 @@ extension Ghostty {
         /// consumer signature.
         enum Multiplexer: String {
             case tmux
-
-            /// Bridge to the raw-multiplexer binding type.
-            var multiplexerType: MultiplexerType {
-                switch self {
-                case .tmux: return .tmux
-                }
-            }
         }
 
         struct Sample: Equatable {

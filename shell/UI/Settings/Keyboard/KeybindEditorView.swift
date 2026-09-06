@@ -268,8 +268,8 @@ class ShortcutCaptureUIView: UIView {
         applyTheme(nil)
         updateInstructions()
 
-        // Replaces the deprecated traitCollectionDidChange override: only the
-        // traits that actually feed applyTheme's colors are observed.
+        // Register for trait changes: only the traits that actually feed
+        // applyTheme's colors are observed.
         registerForTraitChanges(
             [UITraitUserInterfaceStyle.self, UITraitAccessibilityContrast.self]
         ) { (view: ShortcutCaptureUIView, _) in

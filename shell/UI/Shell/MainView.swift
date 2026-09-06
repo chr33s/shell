@@ -21,7 +21,7 @@
 //  plus the pre-existing: MainViewFocus, MainViewLifecycle, MainViewModifiers,
 //  MainViewNotifications, MainViewPersistence, MainViewSplits,
 //  MainViewSSHValidation, MainViewTabBarStyling, MainViewTabManagement,
-//  MainViewTerminalContent, MainViewTrzszTransfer, MainViewTypes, MainViewAIAgent.
+//  MainViewTerminalContent, MainViewTypes.
 //
 //  Stored properties must stay in this file (Swift disallows stored
 //  properties in extensions). Most are deliberately `internal`, not
@@ -47,11 +47,7 @@ struct MainView: View {
     @Environment(\.openWindow) var openWindow
     @Environment(\.dismissWindow) var dismissWindow
     @SceneStorage("windowId") var sceneWindowId: String = UUID().uuidString
-    var overrideWindowId: String? = nil
-    var windowId: String { overrideWindowId ?? sceneWindowId }
-    /// The visor's hidden panel: it must never claim work meant for a window
-    /// the user can see.
-    var isVisorWindow: Bool { windowId == "visor" }
+    var windowId: String { sceneWindowId }
     @State var isWindowFocused: Bool = false
     @State var windowIsKeyWindow: Bool = false
     /// The default shell a fresh window opened before any request reached it.
@@ -260,7 +256,7 @@ struct MainView: View {
         // re-evaluate the body. Pre-refactor the count grew with per-tab
         // title/health/roam-protocol mutations; post-refactor it should only
         // grow on structural events (tab add/remove, manual selection, sheet
-        // visibility, theme picker, keyboard frame).
+        // visibility, keyboard frame).
         let content = GeometryReader { geometry in
             #if !os(visionOS)
             let _ = keyboardGeometry.keyboardStateVersion
@@ -424,13 +420,7 @@ struct MainView: View {
                         }
                         if windowIsKeyWindow != isKeyWindow {
                             windowIsKeyWindow = isKeyWindow
-                            #if targetEnvironment(macCatalyst) && STANDALONE
-                            MainAlertController.registerWindowController(alerts, isKeyWindow: isKeyWindow)
-                            #endif
                         }
-                        #if targetEnvironment(macCatalyst) && STANDALONE
-                        MainAlertController.registerWindowController(alerts, isKeyWindow: isKeyWindow)
-                        #endif
                     }
                 }, onFrameUpdate: { frame in
                     // Continuously track this window's own frame so save doesn't

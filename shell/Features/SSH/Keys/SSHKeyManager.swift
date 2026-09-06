@@ -38,10 +38,7 @@ class SSHKeyManager: ObservableObject {
 
     static let shared = SSHKeyManager()
 
-    private static let keysMetadataKey = "sshKeysMetadata"
     private static let defaultKeyIDsKey = "defaultSSHKeyIDs"
-    private static let legacyDefaultKeyIDKey = "defaultSSHKeyID"  // For migration from single default
-    private static let metadataMigrationKey = "sshKeysMetadataMigratedToKeychain"
 
     /// All saved SSH keys (metadata only, actual keys in Keychain)
     @Published private(set) var savedKeys: [SSHKey] = []
@@ -50,12 +47,8 @@ class SSHKeyManager: ObservableObject {
     /// Keys are tried in order until one succeeds (SSH servers typically allow 6 attempts)
     @Published private(set) var defaultKeyIDs: [UUID] = []
 
-    /// Primary default key (first in the ordered list) - for backward compatibility
+    /// Primary default key (first in the ordered list).
     var primaryDefaultKeyID: UUID? { defaultKeyIDs.first }
-
-    /// Deprecated: Use primaryDefaultKeyID or defaultKeyIDs instead
-    @available(*, deprecated, message: "Use primaryDefaultKeyID for single key or defaultKeyIDs for all defaults")
-    var defaultKeyID: UUID? { primaryDefaultKeyID }
 
     /// Find a saved key by its user-assigned name (case-insensitive).
     func findKey(byName name: String) -> SSHKey? {
@@ -83,15 +76,68 @@ class SSHKeyManager: ObservableObject {
 
     private init() {
         self.keychainManager = KeychainManager.shared
-        migrateMetadataIfNeeded()  // 1. Migrate existing UserDefaults data to keychain
-        loadKeys()                  // 2. Load from keychain
-        migrateLegacyDefaultKeyID()  // 3. Migrate single default to array format
-        loadDefaultKeyIDs()          // 4. Load ordered default keys
-        discoverSyncedKeys()         // 5. Find keys synced from other devices
+        loadKeys()                   // 1. Load from keychain
+        loadDefaultKeyIDs()          // 2. Load ordered default keys
+        discoverSyncedKeys()         // 3. Find keys synced from other devices
         // Backfill cached public key blobs for existing keys that don't have them
         backfillPublicKeyBlobs()
         // Normalize legacy passphrase-encrypted keys in place (#285)
         scheduleLegacyKeyMigrationIfNeeded()
+        // The launch-time metadata backfill deliberately does NOT run here —
+        // see `publishInitialIdentityMetadata()`.
+    }
+
+    // MARK: - Identity metadata
+
+    /// Runs the launch-time identity-metadata backfill, so an install that
+    /// predates the metadata store publishes the public half of every key it
+    /// already holds without waiting for the user to edit one.
+    ///
+    /// `CloudKitSyncManager` calls this the moment it has wired
+    /// `SSHIdentityMetadataStore.onLocalChange`, and nothing else does. It
+    /// cannot run from `init()`: the store skips a `record` whose content is
+    /// unchanged, so the *first* publish is the only one that can ever fire the
+    /// sync callback. Publishing from `init()` meant that whenever
+    /// `SSHKeyManager.shared` was touched before `CloudKitSyncManager.shared`
+    /// the backfill was written to disk with no callback attached and nothing
+    /// was pushed — and `pushAllLocalRecords()` only runs from
+    /// `performInitialSync()`, so those records could sit out of iCloud until
+    /// the key was next mutated.
+    ///
+    /// Safe to call more than once: `record` is idempotent on unchanged
+    /// content, so a repeat pass is a no-op rather than a second push.
+    func publishInitialIdentityMetadata() {
+        publishIdentityMetadata()
+    }
+
+    /// Publishes the *public* half of every local identity so other devices can
+    /// see which identities exist. No private key material enters this store:
+    /// software keys travel through the iCloud Keychain and Secure Enclave keys
+    /// never leave the device that created them (spec §7).
+    ///
+    /// `reconcile` tombstones only the records this device itself published, so
+    /// another device's identities — which are absent from `savedKeys` by
+    /// design — survive the pass untouched.
+    private func publishIdentityMetadata() {
+        let store = SSHIdentityMetadataStore.shared
+        guard ProtectedDataGuard.isAvailable else {
+            // Locked device: `loadKeys()` cannot see `.deviceOnly` keys (their
+            // Keychain items are `WhenUnlockedThisDeviceOnly`), so publish what
+            // we can and skip the reconcile — tombstoning against a partial
+            // list would delete those identities' metadata on every device.
+            for key in savedKeys {
+                store.record(key)
+            }
+            return
+        }
+        store.reconcile(with: savedKeys)
+    }
+
+    /// Single exit point for every key mutation: refresh the synced public
+    /// metadata, then notify observers.
+    private func notifyKeysChanged() {
+        publishIdentityMetadata()
+        keysDidChange.send()
     }
 
     // MARK: - Public Methods
@@ -215,7 +261,7 @@ class SSHKeyManager: ObservableObject {
 
         // Add to saved keys
         savedKeys.append(sshKey)
-        keysDidChange.send()
+        notifyKeysChanged()
 
         // Add as default if it's the first key
         if savedKeys.count == 1 {
@@ -338,7 +384,7 @@ class SSHKeyManager: ObservableObject {
         }
 
         savedKeys.append(sshKey)
-        keysDidChange.send()
+        notifyKeysChanged()
 
         if savedKeys.count == 1 {
             addToDefaults(id: sshKey.id)
@@ -415,26 +461,21 @@ class SSHKeyManager: ObservableObject {
         // Remove from saved keys
         savedKeys.remove(at: index)
 
+        // Tombstone the published metadata explicitly. `reconcile` only sweeps
+        // records this device published, so a key that was first published by
+        // another device (a software key that reached us through the iCloud
+        // Keychain) would otherwise leave its metadata behind. This deletion is
+        // user-initiated and removes the shared Keychain item, so the identity
+        // really is gone everywhere.
+        SSHIdentityMetadataStore.shared.remove(id: id)
+
         // Remove from defaults list (no auto-replacement)
         if defaultKeyIDs.contains(id) {
             defaultKeyIDs.removeAll { $0 == id }
             saveDefaultKeyIDs()
         }
 
-        keysDidChange.send()
-    }
-
-    /// Sets a single key as the only default (replaces all existing defaults)
-    /// - Parameter id: The key ID to set as default, or nil to clear all defaults
-    @available(*, deprecated, message: "Use addToDefaults/removeFromDefaults for multiple default keys")
-    func setDefault(id: UUID?) {
-        if let id = id {
-            guard savedKeys.contains(where: { $0.id == id }) else { return }
-            defaultKeyIDs = [id]
-        } else {
-            defaultKeyIDs = []
-        }
-        saveDefaultKeyIDs()
+        notifyKeysChanged()
     }
 
     /// Adds a key to the ordered defaults list
@@ -458,15 +499,6 @@ class SSHKeyManager: ObservableObject {
     func removeFromDefaults(id: UUID) {
         guard defaultKeyIDs.contains(id) else { return }
         defaultKeyIDs.removeAll { $0 == id }
-        saveDefaultKeyIDs()
-    }
-
-    /// Moves a key within the defaults list (for drag-to-reorder)
-    /// - Parameters:
-    ///   - source: Source indices to move
-    ///   - destination: Destination index
-    func moveDefaultKey(from source: IndexSet, to destination: Int) {
-        defaultKeyIDs.move(fromOffsets: source, toOffset: destination)
         saveDefaultKeyIDs()
     }
 
@@ -936,7 +968,7 @@ class SSHKeyManager: ObservableObject {
         }
 
         if hasChanges || defaultsPruned {
-            keysDidChange.send()
+            notifyKeysChanged()
         }
 
         if hasChanges {
@@ -968,7 +1000,7 @@ class SSHKeyManager: ObservableObject {
 
         savedKeys[index].name = newName.trimmingCharacters(in: .whitespaces)
         saveKeys()
-        keysDidChange.send()
+        notifyKeysChanged()
     }
 
     // MARK: - User Certificates
@@ -1007,7 +1039,7 @@ class SSHKeyManager: ObservableObject {
         savedKeys[index].userCertificate = parsed.info
         certifiedKeyCache[keyID] = (blob: parsed.info.certificateBlob, cert: parsed.certifiedKey)
         saveKeys()
-        keysDidChange.send()
+        notifyKeysChanged()
 
         let certKeyID = parsed.info.keyID
         Self.logger.info("Attached user certificate '\(certKeyID)' to key '\(keyName)'")
@@ -1022,7 +1054,7 @@ class SSHKeyManager: ObservableObject {
         savedKeys[index].userCertificate = nil
         certifiedKeyCache[keyID] = nil
         saveKeys()
-        keysDidChange.send()
+        notifyKeysChanged()
     }
 
     /// Parses the stored certificate blob for a key (cached). Returns nil if the key
@@ -1306,7 +1338,7 @@ class SSHKeyManager: ObservableObject {
             }
 
             savedKeys[keyIndex] = migratedKey
-            keysDidChange.send()
+            notifyKeysChanged()
             Self.logger.info("Hardware key migration completed successfully")
             return
         }
@@ -1425,7 +1457,7 @@ class SSHKeyManager: ObservableObject {
 
         // Step 5: Publish the new metadata only after both durable items exist.
         savedKeys[keyIndex] = migratedKey
-        keysDidChange.send()
+        notifyKeysChanged()
 
         // Step 6: Clear auth session for this key
         SSHKeyAuthManager.shared.clearAuthentication(for: id)
@@ -1501,46 +1533,6 @@ class SSHKeyManager: ObservableObject {
     }
 
     // MARK: - Private Methods
-
-    /// Migrates key metadata from UserDefaults to Keychain (one-time migration)
-    private func migrateMetadataIfNeeded() {
-        // Skip if already migrated
-        guard !UserDefaults.standard.bool(forKey: Self.metadataMigrationKey) else {
-            return
-        }
-
-        Self.logger.info("Starting SSH key metadata migration to Keychain")
-
-        // Load existing keys from UserDefaults
-        guard let data = UserDefaults.standard.data(forKey: Self.keysMetadataKey),
-              let keys = try? JSONDecoder().decode([SSHKey].self, from: data) else {
-            // No keys to migrate
-            Self.logger.info("No keys found in UserDefaults to migrate")
-            UserDefaults.standard.set(true, forKey: Self.metadataMigrationKey)
-            return
-        }
-
-        var migratedCount = 0
-        for key in keys {
-            do {
-                let metadata = try JSONEncoder().encode(key)
-                try keychainManager.saveSSHKeyMetadata(
-                    metadata,
-                    identifier: key.id.uuidString,
-                    storageLevel: key.storageLevel
-                )
-                migratedCount += 1
-                Self.logger.info("Migrated key: \(key.name)")
-            } catch {
-                Self.logger.error("Failed to migrate key \(key.name): \(error.localizedDescription)")
-            }
-        }
-
-        Self.logger.info("Migrated \(migratedCount)/\(keys.count) keys to Keychain")
-
-        // Mark migration complete (keep UserDefaults data as fallback)
-        UserDefaults.standard.set(true, forKey: Self.metadataMigrationKey)
-    }
 
     /// Discovers keys synced from other devices via iCloud Keychain
     private func discoverSyncedKeys() {
@@ -1620,25 +1612,6 @@ class SSHKeyManager: ObservableObject {
             } catch {
                 Self.logger.error("Failed to save key metadata \(key.name): \(error.localizedDescription)")
             }
-        }
-    }
-
-    /// Migrates from single defaultKeyID to array format (one-time migration)
-    private func migrateLegacyDefaultKeyID() {
-        // Skip if we already have defaults or already migrated
-        guard defaultKeyIDs.isEmpty else { return }
-
-        // Check for legacy single default key
-        if let legacyUUID = UserDefaults.standard.string(forKey: Self.legacyDefaultKeyIDKey),
-           let uuid = UUID(uuidString: legacyUUID) {
-            // Verify the key still exists
-            if savedKeys.contains(where: { $0.id == uuid }) {
-                defaultKeyIDs = [uuid]
-                saveDefaultKeyIDs()
-                Self.logger.info("Migrated single default key to array format: \(uuid.uuidString)")
-            }
-            // Remove legacy key regardless of whether key exists
-            UserDefaults.standard.removeObject(forKey: Self.legacyDefaultKeyIDKey)
         }
     }
 
@@ -1869,16 +1842,16 @@ class SSHKeyManager: ObservableObject {
             if case .migrated = outcome {
                 Self.logger.info("Normalized legacy encrypted key \(keyID.uuidString) in place")
             }
-            if changed { keysDidChange.send() }
+            if changed { notifyKeysChanged() }
         case .clean:
             if keysNeedingUnlock.remove(keyID) != nil {
-                keysDidChange.send()
+                notifyKeysChanged()
             }
         case .needsUnlock:
             if !keysNeedingUnlock.contains(keyID) {
                 keysNeedingUnlock.insert(keyID)
                 Self.logger.warning("Legacy encrypted key \(keyID.uuidString) has no usable local passphrase; manual unlock required")
-                keysDidChange.send()
+                notifyKeysChanged()
             }
         case .skipped:
             break
@@ -2097,7 +2070,6 @@ class SSHKeyManager: ObservableObject {
         case authenticationCancelled
         case authenticationUnavailable
         case authenticationFailed
-        case externalAgentUnavailable
         case legacyKeyNeedsUnlock(keyID: UUID, keyName: String)
 
         var errorDescription: String? {
@@ -2116,8 +2088,6 @@ class SSHKeyManager: ObservableObject {
                 return "Device authentication is unavailable. Set a device passcode and try again."
             case .authenticationFailed:
                 return "Authentication failed. Please try again."
-            case .externalAgentUnavailable:
-                return "This key is served by an SSH agent on a Mac and can't be used on this device."
             case .legacyKeyNeedsUnlock(_, let keyName):
                 return "'\(keyName)' was imported with a passphrase on another device, and passphrases don't sync. Open Settings → SSH Keys → \(keyName) and unlock it once with its passphrase."
             }

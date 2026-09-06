@@ -16,6 +16,36 @@ import os.log
 struct SSHCommandParser {
     private nonisolated static let logger = Logger(subsystem: "dev.chr33s.shell", category: "SSHCommandParser")
 
+    /// The stored-credential lookups both auth ladders consult, held as values
+    /// rather than called directly on the singletons.
+    ///
+    /// TESTABILITY SEAM ONLY — `.live` forwards to exactly the same singletons
+    /// the ladders called before, in the same order, so production behavior is
+    /// unchanged. It exists because `SSHKeyManager` and `SSHPasswordManager`
+    /// are `private init()` singletons backed by the Keychain, and
+    /// `addToDefaults(id:)` refuses any id that is not already in `savedKeys` —
+    /// so there is no way to exercise rungs 1 and 2 of the ladder without real
+    /// Keychain writes.
+    struct CredentialSources {
+        /// Is a password saved for this exact `host:port:user`?
+        var hasSavedPassword: (_ host: String, _ port: Int, _ username: String) -> Bool
+        /// The identity a `-i` path names, if it matches a saved key.
+        var keyIDForIdentityPath: (_ path: String) -> UUID?
+        /// The configured default identities, in preference order.
+        var defaultKeyIDs: () -> [UUID]
+
+        static let live = CredentialSources(
+            hasSavedPassword: { host, port, username in
+                SSHPasswordManager.shared.hasPassword(host: host, port: port, username: username)
+            },
+            keyIDForIdentityPath: { SSHCommandParser.findKeyByIdentityPath($0) },
+            defaultKeyIDs: { SSHKeyManager.shared.defaultKeyIDs }
+        )
+    }
+
+    /// Overridden only by tests; reset to `.live` in `tearDown`.
+    static var credentials: CredentialSources = .live
+
     /// Result of parsing an SSH command
     enum ParseResult {
         /// Successfully parsed with complete config (has auth method)
@@ -28,29 +58,60 @@ struct SSHCommandParser {
         case help
     }
 
+    /// Which hop a pending password prompt is collecting a credential for.
+    /// One prompt serves both hops: the prompt text names the right host and
+    /// `toSSHConfig(password:)` applies the typed secret to the right side.
+    enum PasswordSubject: Sendable, Hashable {
+        case target
+        case jumpHost
+    }
+
     /// Partial config when password is needed
     struct PartialSSHConfig: Sendable {
         var host: String
         var port: Int
         var username: String
         var jumpHost: SSHConfig.JumpHostConfig?
+        /// Which hop this prompt is for. `.target` preserves the historical shape.
+        var passwordSubject: PasswordSubject = .target
+        /// Target-hop credential already resolved by the parser. Non-nil only when
+        /// `passwordSubject == .jumpHost`, so a target key or saved password
+        /// survives the bastion prompt round trip instead of being re-asked.
+        var targetAuthMethod: SSHConfig.AuthMethod?
+        /// Fallback identities for `targetAuthMethod` when it is `.key`.
+        var targetFallbackKeyIDs: [UUID]?
         var tmuxAutoEnable: Bool = false
         var tmuxAutoMode: TmuxAutoMode = .regular
         /// Per-profile tmux session name, carried through the password prompt
         /// round-trip. Not settable from the command line.
         var tmuxSessionName: String?
 
-        /// Convert to full SSHConfig with password
+        /// Convert to full SSHConfig, applying the typed password to the hop the
+        /// prompt was actually collecting for.
         func toSSHConfig(password: String) -> SSHConfig {
             var config = SSHConfig(
                 host: host,
                 port: port,
                 username: username,
-                password: password,
+                password: "",
                 jumpHost: jumpHost,
                 tmuxAutoEnable: tmuxAutoEnable,
                 tmuxAutoMode: tmuxAutoMode
             )
+            switch passwordSubject {
+            case .target:
+                config.authMethod = .password(password)
+            case .jumpHost:
+                // `targetAuthMethod` is nil only when the target has no credential
+                // either; the prompt site chains a second prompt before reaching
+                // here, so this never launches with an empty target password.
+                config.authMethod = targetAuthMethod ?? .password("")
+                config.fallbackKeyIDs = targetFallbackKeyIDs
+                if var jump = config.jumpHost {
+                    jump.authMethod = .password(password)
+                    config.jumpHost = jump
+                }
+            }
             config.tmuxSessionName = tmuxSessionName
             return config
         }
@@ -191,30 +252,40 @@ struct SSHCommandParser {
 
         // Build jump host config if specified
         var jumpHostConfig: SSHConfig.JumpHostConfig?
+        var jumpNeedsPassword = false
         if let jumpStr = jumpHostString {
             let jumpParsed = parseDestination(jumpStr)
             let jumpUser = jumpParsed.username ?? finalUsername
             guard let jumpHost = jumpParsed.host, !jumpHost.isEmpty else {
                 return .error("Invalid jump host")
             }
-            // For jump host auth, we'll try to find a matching key or fall back to password prompt
-            let jumpKeyID = findMatchingKey(for: jumpUser, host: jumpHost, identityHint: nil)
+            let jumpPort = jumpParsed.port ?? 22
 
-            // Build fallback keys for jump host
-            let jumpFallbackIDs: [UUID]?
-            if let keyID = jumpKeyID {
-                jumpFallbackIDs = SSHKeyManager.shared.defaultKeyIDs.filter { $0 != keyID }
-            } else {
-                jumpFallbackIDs = nil
-            }
-
-            jumpHostConfig = SSHConfig.JumpHostConfig(
+            switch resolveJumpAuth(
+                for: jumpUser,
                 host: jumpHost,
-                port: jumpParsed.port ?? 22,
-                username: jumpUser,
-                authMethod: jumpKeyID != nil ? .key(jumpKeyID!) : .password(""),
-                fallbackKeyIDs: jumpFallbackIDs?.isEmpty == true ? nil : jumpFallbackIDs
-            )
+                port: jumpPort,
+                identityFile: identityFile
+            ) {
+            case .resolved(let method):
+                jumpHostConfig = SSHConfig.JumpHostConfig(
+                    host: jumpHost,
+                    port: jumpPort,
+                    username: jumpUser,
+                    authMethod: method
+                )
+            case .needsPassword:
+                jumpNeedsPassword = true
+                // Placeholder filled in by the prompt. Never launched as-is:
+                // every return path below runs through
+                // `resultAwaitingJumpPassword`, which diverts to the prompt.
+                jumpHostConfig = SSHConfig.JumpHostConfig(
+                    host: jumpHost,
+                    port: jumpPort,
+                    username: jumpUser,
+                    authMethod: .password("")
+                )
+            }
         }
 
         // Try to find a matching key
@@ -222,7 +293,7 @@ struct SSHCommandParser {
 
         // First try explicit identity file
         if let identity = identityFile {
-            keyID = findKeyByIdentityPath(identity)
+            keyID = credentials.keyIDForIdentityPath(identity)
         }
 
         // If no explicit key, try to find from history
@@ -240,11 +311,11 @@ struct SSHCommandParser {
                 jumpHost: jumpHostConfig,
                 tmuxAutoEnable: tmuxAutoEnable
             )
-            return .success(config)
+            return resultAwaitingJumpPassword(config, jumpNeedsPassword: jumpNeedsPassword)
         }
 
         // Check if we have a saved password for this connection
-        if SSHPasswordManager.shared.hasPassword(host: finalHost, port: port, username: finalUsername) {
+        if credentials.hasSavedPassword(finalHost, port, finalUsername) {
             logger.info("Found saved password for \(finalUsername)@\(finalHost):\(port)")
             let config = SSHConfig(
                 host: finalHost,
@@ -254,13 +325,13 @@ struct SSHCommandParser {
                 jumpHost: jumpHostConfig,
                 tmuxAutoEnable: tmuxAutoEnable
             )
-            return .success(config)
+            return resultAwaitingJumpPassword(config, jumpNeedsPassword: jumpNeedsPassword)
         }
 
         // Fall back to default keys if set and no saved password found
-        if let primaryKeyID = SSHKeyManager.shared.primaryDefaultKeyID {
+        let allDefaults = credentials.defaultKeyIDs()
+        if let primaryKeyID = allDefaults.first {
             // Build fallback keys list from remaining defaults
-            let allDefaults = SSHKeyManager.shared.defaultKeyIDs
             let fallbackIDs = Array(allDefaults.dropFirst())
 
             logger.info("Using default key for \(finalUsername)@\(finalHost): \(primaryKeyID) (+ \(fallbackIDs.count) fallbacks)")
@@ -273,19 +344,49 @@ struct SSHCommandParser {
                 jumpHost: jumpHostConfig,
                 tmuxAutoEnable: tmuxAutoEnable
             )
-            return .success(config)
+            return resultAwaitingJumpPassword(config, jumpNeedsPassword: jumpNeedsPassword)
         }
 
-        // If jump host needs password, we need to prompt for that too
-        // For now, just prompt for target password
-        let partial = PartialSSHConfig(
+        // Neither hop resolved a credential. Ask for the bastion's first — it is
+        // the first hop, and OpenSSH asks in the same order. `targetAuthMethod`
+        // stays nil, which the prompt site reads as "the target still needs one
+        // too" and chains a second prompt.
+        var partial = PartialSSHConfig(
             host: finalHost,
             port: port,
             username: finalUsername,
             jumpHost: jumpHostConfig,
             tmuxAutoEnable: tmuxAutoEnable,
         )
+        partial.passwordSubject = jumpNeedsPassword ? .jumpHost : .target
 
+        return .needsPassword(partial)
+    }
+
+    /// Wrap a fully-resolved target config: launch it, or divert to the bastion
+    /// password prompt when the bastion has no stored credential.
+    ///
+    /// The bastion prompt is strictly LAST: it runs only after the target ladder
+    /// produced a credential, so a key that would have worked is never skipped,
+    /// and the user is asked for exactly one secret — the bastion's.
+    private static func resultAwaitingJumpPassword(
+        _ config: SSHConfig,
+        jumpNeedsPassword: Bool
+    ) -> ParseResult {
+        guard jumpNeedsPassword else { return .success(config) }
+
+        var partial = PartialSSHConfig(
+            host: config.host,
+            port: config.port,
+            username: config.username,
+            jumpHost: config.jumpHost,
+            tmuxAutoEnable: config.tmuxAutoEnable,
+            tmuxAutoMode: config.tmuxAutoMode,
+            tmuxSessionName: config.tmuxSessionName
+        )
+        partial.passwordSubject = .jumpHost
+        partial.targetAuthMethod = config.authMethod
+        partial.targetFallbackKeyIDs = config.fallbackKeyIDs
         return .needsPassword(partial)
     }
 
@@ -427,5 +528,57 @@ struct SSHCommandParser {
     /// the configured default identities.
     private static func findMatchingKey(for username: String, host: String, identityHint: String?) -> UUID? {
         nil
+    }
+
+    /// Outcome of the bastion credential ladder.
+    private enum JumpAuthResolution {
+        /// A stored credential usable without asking the user.
+        case resolved(SSHConfig.AuthMethod)
+        /// Nothing configured for this bastion — the caller must prompt.
+        case needsPassword
+    }
+
+    /// Resolve the credential to present at a jump host (bastion). Exactly three
+    /// rungs, in order, and NO key fallbacks beyond the one chosen:
+    ///
+    ///   1. the explicit `-i` identity (OpenSSH applies `-i` to every hop of the
+    ///      chain unless overridden),
+    ///   2. a password saved for that exact `host:port:user`,
+    ///   3. the configured primary default identity.
+    ///
+    /// The fallback list is deliberately absent. A bastion's `MaxAuthTries` is
+    /// the scarce resource here: `MultiKeyAuthDelegate` offers a certificate and
+    /// then the plain key for each candidate, so every certified identity costs
+    /// TWO `MSG_USERAUTH_REQUEST`s. Four default identities is eight attempts —
+    /// past a stock `MaxAuthTries 6`, which locks the account out before the
+    /// working key is reached and leaves no budget for a password. The target hop
+    /// keeps its fallbacks: it is a separate SSH connection over the tunnel with
+    /// its own budget.
+    ///
+    /// Returns `.needsPassword` when the user has configured nothing for this
+    /// bastion; the caller then prompts rather than sending an empty password.
+    private static func resolveJumpAuth(
+        for username: String,
+        host: String,
+        port: Int,
+        identityFile: String?
+    ) -> JumpAuthResolution {
+        if let identity = identityFile, let keyID = credentials.keyIDForIdentityPath(identity) {
+            logger.info("Jump host \(username)@\(host):\(port) using -i identity \(keyID)")
+            return .resolved(.key(keyID))
+        }
+
+        if credentials.hasSavedPassword(host, port, username) {
+            logger.info("Jump host \(username)@\(host):\(port) using saved password")
+            return .resolved(.savedPassword)
+        }
+
+        if let primaryKeyID = credentials.defaultKeyIDs().first {
+            logger.info("Jump host \(username)@\(host):\(port) using primary default key \(primaryKeyID)")
+            return .resolved(.key(primaryKeyID))
+        }
+
+        logger.info("No stored credential for jump host \(username)@\(host):\(port) — prompting")
+        return .needsPassword
     }
 }

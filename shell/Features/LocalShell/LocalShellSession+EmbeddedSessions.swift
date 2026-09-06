@@ -61,8 +61,14 @@ extension LocalShellSession {
     }
 
     /// Build a partial SSH config for password prompts.
-    private func makePartialSSHConfig(from config: SSHConfig) -> SSHCommandParser.PartialSSHConfig {
-        SSHCommandParser.PartialSSHConfig(
+    /// - Parameter subject: which hop the prompt will collect a credential for.
+    ///   `.jumpHost` carries the already-resolved target credential across the
+    ///   round trip so the target is not re-asked for a secret it already has.
+    private func makePartialSSHConfig(
+        from config: SSHConfig,
+        subject: SSHCommandParser.PasswordSubject = .target
+    ) -> SSHCommandParser.PartialSSHConfig {
+        var partial = SSHCommandParser.PartialSSHConfig(
             host: config.host,
             port: config.port,
             username: config.username,
@@ -71,13 +77,44 @@ extension LocalShellSession {
             tmuxAutoMode: config.tmuxAutoMode,
             tmuxSessionName: config.tmuxSessionName
         )
+        partial.passwordSubject = subject
+        if subject == .jumpHost {
+            partial.targetAuthMethod = config.authMethod
+            partial.targetFallbackKeyIDs = config.fallbackKeyIDs
+        }
+        return partial
     }
 
     /// Begin a password prompt for the given session mode.
-    private func beginPasswordPrompt(_ mode: SessionMode) {
+    func beginPasswordPrompt(_ mode: SessionMode) {
         sessionMode = mode
         passwordBuffer = ""
-        onOutput?(normalizeLineEndings("Password: "))
+        onOutput?(normalizeLineEndings(Self.passwordPromptText(for: mode)))
+    }
+
+    /// Prompt line naming the hop being authenticated. Mirrors OpenSSH's
+    /// "user@host's password:" and the reconnection overlay's jump-host wording
+    /// (`ReconnectionOverlayView.passwordPrompt(for:)`), so the user can always
+    /// see WHICH host is asking before typing a credential into it.
+    private static func passwordPromptText(for mode: SessionMode) -> String {
+        guard case .passwordPrompt(let partial) = mode else { return "Password: " }
+        switch partial.passwordSubject {
+        case .jumpHost:
+            guard let jump = partial.jumpHost else { return "Password: " }
+            let jumpName = jump.displayName
+            return String(
+                localized: "[jump host] \(jumpName)'s password: ",
+                comment: "Inline terminal password prompt for an `ssh -J` bastion; names the jump host"
+            )
+        case .target:
+            let userHost = partial.port == 22
+                ? "\(partial.username)@\(partial.host)"
+                : "\(partial.username)@\(partial.host):\(partial.port)"
+            return String(
+                localized: "\(userHost)'s password: ",
+                comment: "Inline terminal password prompt for an embedded SSH connection; names the target host"
+            )
+        }
     }
 
     /// Resolve SSH config or fall back to a password prompt.
@@ -88,7 +125,16 @@ extension LocalShellSession {
         do {
             return try await config.resolvedConfig()
         } catch {
-            let partialConfig = makePartialSSHConfig(from: config)
+            // `resolvedConfig()` loads the target's saved password first and the
+            // jump host's second, so the failure belongs to the bastion only when
+            // the target had no saved password to load. Asking for the other
+            // hop's password would offer a credential the failing hop never
+            // asked for — and would re-throw here forever.
+            let subject: SSHCommandParser.PasswordSubject =
+                (!config.authMethod.isSavedPassword && config.jumpHost?.authMethod.isSavedPassword == true)
+                ? .jumpHost
+                : .target
+            let partialConfig = makePartialSSHConfig(from: config, subject: subject)
             beginPasswordPrompt(promptMode(partialConfig))
             return nil
         }
@@ -286,8 +332,13 @@ extension LocalShellSession {
             launchEmbeddedSSHSession(config: config)
 
         case .needsPassword(let partialConfig):
-            // Check if we have a saved password for this connection
-            if SSHPasswordManager.shared.hasPassword(host: partialConfig.host, port: partialConfig.port, username: partialConfig.username) {
+            // The saved-password shortcut is keyed by the TARGET triple, so it
+            // only applies when the target is what we are being asked for. When
+            // the prompt is for the bastion the parser already proved no password
+            // is saved for it (ladder rung 2); a target password must never stand
+            // in for the bastion's.
+            if partialConfig.passwordSubject == .target,
+               SSHPasswordManager.shared.hasPassword(host: partialConfig.host, port: partialConfig.port, username: partialConfig.username) {
                 // Use saved password - create config with .savedPassword auth method
                 var config = partialConfig.toSSHConfig(password: "")
                 config.authMethod = .savedPassword
@@ -466,12 +517,22 @@ extension LocalShellSession {
         // 1. We have the original config
         // 2. The error is authentication-related
         // 3. The original auth was NOT already a password (avoid infinite loop)
+        // Attribute the failure to the hop that actually rejected us. With the
+        // bastion ladder holding no key fallbacks, a rejected bastion key has no
+        // second chance — prompting for the TARGET's password here would ask for
+        // the wrong host's secret while re-offering the same failing bastion key.
+        let subject: SSHCommandParser.PasswordSubject =
+            (error as? SSHJumpError)?.isJumpHostError == true ? .jumpHost : .target
         if attemptPasswordFallback(
             error: error,
             lastAttempted: &lastAttemptedSSHConfig,
-            isPasswordAuth: { $0.authMethod.isPassword },
-            promptMode: { config in
-                .passwordPrompt(makePartialSSHConfig(from: config))
+            isPasswordAuth: { (config: SSHConfig) -> Bool in
+                subject == .jumpHost
+                    ? (config.jumpHost?.authMethod.isPassword ?? true)  // no jump hop ⇒ nothing to retry
+                    : config.authMethod.isPassword
+            },
+            promptMode: { (config: SSHConfig) -> SessionMode in
+                .passwordPrompt(makePartialSSHConfig(from: config, subject: subject))
             }
         ) {
             return

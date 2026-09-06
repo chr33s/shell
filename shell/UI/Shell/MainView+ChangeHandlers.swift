@@ -37,11 +37,9 @@ extension MainView {
             // window may receive at all, and narrowing it makes iPadOS spawn
             // a new empty window for anything outside the set — including
             // plain app-icon activations and ssh/mosh/shell URLs.
-            // These are the SCENE's activation conditions, so the hidden visor
-            // must not advertise itself as a file:// target.
             .handlesExternalEvents(
-                preferring: isVisorWindow ? ["visor-terminal"] : ["file://"],
-                allowing: isVisorWindow ? ["visor-terminal"] : ["*"]
+                preferring: ["file://"],
+                allowing: ["*"]
             )
             .onOpenURL { url in
                 guard url.isFileURL else { return }
@@ -218,11 +216,6 @@ extension MainView {
                 // titlebar: surfaces must resize into/out of the top strip.
                 handleTabsInTitlebarEnabledChange()
             }
-            #if STANDALONE
-            .onChange(of: ghosttyApp.readiness) { _, readiness in
-                handleVisorGhosttyReadinessChange(readiness)
-            }
-            #endif
 #else
             .onChange(of: tabBarHidden) { _, isHidden in
                 // If the tab bar was just hidden while no terminals exist,

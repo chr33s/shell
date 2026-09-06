@@ -121,8 +121,7 @@ extension MainView {
             // The incremental dropEntered moves above are local-only; commit
             // a dragged tmux window tab's final position to the server once,
             // at drop time (user gesture, never reconcile-driven).
-            if !tabsModel.isProjectGroupingActive,
-               let draggingID = tabsModel.draggingTabID,
+            if let draggingID = tabsModel.draggingTabID,
                let draggedTab = tabsModel.tabs.first(where: { $0.id == draggingID }) {
                 TmuxController.syncWindowOrderAfterUserMove(of: draggedTab, in: tabsModel.tabs)
             }

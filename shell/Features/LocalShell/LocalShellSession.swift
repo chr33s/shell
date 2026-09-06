@@ -631,11 +631,17 @@ final class LocalShellSession: TerminalSession, EmbeddedConnectionConfigProvidin
 
         // Check for prompt modes - cancel and return to local shell
         switch sessionMode {
-        case .passwordPrompt:
+        case .passwordPrompt(let partialConfig):
             Self.logger.info("[Ctrl-C] Cancelling password prompt")
             passwordBuffer = ""
+            // Cancelling a bastion prompt refuses the connection outright; say so,
+            // in the same words the inline Ctrl-C handler uses.
+            let refusal = Self.jumpHostPasswordRefusal(for: partialConfig)
             sessionMode = .localShell
             onOutput?(normalizeLineEndings("^C\n"))
+            if let refusal {
+                onOutput?(normalizeLineEndings(refusal + "\n"))
+            }
             displayPrompt()
             return
 

@@ -88,38 +88,20 @@ enum TopTabLayout: String, CaseIterable, Identifiable {
 /// Namespace for user preferences that affect prompts and SSH defaults
 nonisolated enum UserPreferences {
 
-    // MARK: - Tab Bar
-
-    static let showTabScopeMenuKey = "showTabScopeMenu"
-    static let compactPillTabSpacingKey = "compactPillTabSpacing"
-
-    // MARK: - Background Effects
-
-    static let backgroundEffectIncludesPinnedSidebarKey =
-        "backgroundEffectIncludesPinnedSidebar"
-
     // MARK: - Text Selection
-
-    static let useNativeSelectionLoupeKey = "useNativeSelectionLoupe"
 
     /// Custom is the default; the system loupe is an explicit iOS/iPadOS opt-in.
     static var useNativeSelectionLoupe: Bool {
-        get { SettingsStore.shared.value(Settings.Selection.useNativeLoupe) }
-        // Setter stays raw: this enum is nonisolated and the store's set is MainActor
-        set { UserDefaults.standard.set(newValue, forKey: useNativeSelectionLoupeKey) }
+        SettingsStore.shared.value(Settings.Selection.useNativeLoupe)
     }
 
     // MARK: - Background Keepalive
-
-    static let backgroundSessionKeepaliveEnabledKey = "backgroundSessionKeepaliveEnabled"
 
     /// Whether eligible TCP SSH sessions, active local tasks and live Screen
     /// Sharing panes should request a short UIKit background grace task when
     /// the app backgrounds.
     static var backgroundSessionKeepaliveEnabled: Bool {
-        get { SettingsStore.shared.value(Settings.Connections.backgroundKeepalive) }
-        // Setter stays raw: this enum is nonisolated and the store's set is MainActor
-        set { UserDefaults.standard.set(newValue, forKey: backgroundSessionKeepaliveEnabledKey) }
+        SettingsStore.shared.value(Settings.Connections.backgroundKeepalive)
     }
 
     // MARK: - Username
@@ -144,28 +126,5 @@ nonisolated enum UserPreferences {
             case .twentyFourHour: return String(localized: "24-Hour", comment: "Clock format: 24-hour")
             }
         }
-    }
-
-    private static let clockFormatKey = "clockFormat"
-
-    /// Current clock format preference
-    static var clockFormat: ClockFormat {
-        get { SettingsStore.shared.value(Settings.Locale.clockFormat) }
-        // Setter stays raw: this enum is nonisolated and the store's set is MainActor
-        set { UserDefaults.standard.set(newValue.rawValue, forKey: clockFormatKey) }
-    }
-
-    /// Formats current time according to the user's clock format preference
-    static func formattedTime() -> String {
-        let formatter = DateFormatter()
-        switch clockFormat {
-        case .system:
-            formatter.timeStyle = .short
-        case .twelveHour:
-            formatter.dateFormat = "h:mm a"
-        case .twentyFourHour:
-            formatter.dateFormat = "HH:mm"
-        }
-        return formatter.string(from: Date())
     }
 }

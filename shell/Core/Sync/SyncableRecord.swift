@@ -48,18 +48,3 @@ struct PendingChange: Codable, Identifiable, Sendable {
         self.retryCount = 0
     }
 }
-
-/// Version tracking for sync storage migrations
-struct SyncStorageVersion: Codable, Sendable {
-    static let current = 1
-
-    let version: Int
-    let migratedAt: Date
-    let backupPaths: [String]
-
-    init(version: Int = SyncStorageVersion.current, migratedAt: Date = Date(), backupPaths: [String] = []) {
-        self.version = version
-        self.migratedAt = migratedAt
-        self.backupPaths = backupPaths
-    }
-}

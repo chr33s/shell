@@ -5,7 +5,7 @@ struct KnownHost: Codable, Identifiable, Equatable, Hashable, SyncableRecord {
     /// Stable unique identifier for sync
     let id: UUID
 
-    /// Legacy identifier for hostname:port lookup (for migration compatibility)
+    /// hostname:port identity used for host lookup and as the CloudKit record name.
     var legacyId: String { "\(hostname):\(port)" }
 
     /// Hostname or IP address
@@ -66,7 +66,7 @@ struct KnownHost: Codable, Identifiable, Equatable, Hashable, SyncableRecord {
         self.isDeleted = false
     }
 
-    /// Create with explicit ID (for migration and sync)
+    /// Create with an explicit ID (identity-preserving update and sync).
     init(id: UUID, hostname: String, port: Int, publicKeyData: String, keyType: String, fingerprint: String,
          firstSeen: Date = Date(), lastSeen: Date = Date(), modifiedAt: Date? = nil, isDeleted: Bool = false) {
         self.id = id
@@ -85,32 +85,6 @@ struct KnownHost: Codable, Identifiable, Equatable, Hashable, SyncableRecord {
     mutating func updateLastSeen() {
         lastSeen = Date()
         modifiedAt = Date()
-    }
-
-    // MARK: - Codable (backward-compatible)
-
-    private enum CodingKeys: String, CodingKey {
-        case id, hostname, port, publicKeyData, keyType, fingerprint
-        case firstSeen, lastSeen, modifiedAt, isDeleted
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-
-        // ID: use existing UUID or generate new one for legacy entries
-        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
-
-        hostname = try container.decode(String.self, forKey: .hostname)
-        port = try container.decode(Int.self, forKey: .port)
-        publicKeyData = try container.decode(String.self, forKey: .publicKeyData)
-        keyType = try container.decode(String.self, forKey: .keyType)
-        fingerprint = try container.decode(String.self, forKey: .fingerprint)
-        firstSeen = try container.decode(Date.self, forKey: .firstSeen)
-        lastSeen = try container.decode(Date.self, forKey: .lastSeen)
-
-        // Sync fields: use defaults for legacy entries
-        modifiedAt = try container.decodeIfPresent(Date.self, forKey: .modifiedAt) ?? lastSeen
-        isDeleted = try container.decodeIfPresent(Bool.self, forKey: .isDeleted) ?? false
     }
 
     // MARK: - Hashable
@@ -141,14 +115,5 @@ struct HostIdentifier: Hashable, Codable {
     init(hostname: String, port: Int) {
         self.hostname = hostname
         self.port = port
-    }
-}
-
-/// Container for JSON storage
-struct KnownHostsStorage: Codable {
-    var hosts: [KnownHost]
-
-    init(hosts: [KnownHost] = []) {
-        self.hosts = hosts
     }
 }

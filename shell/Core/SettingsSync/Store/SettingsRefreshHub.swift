@@ -32,6 +32,22 @@ final class SettingsRefreshHub {
         .theme, .font, .cursor, .selection, .transparency, .keybinds, .terminal, .keyboard,
     ]
 
+    /// Live-apply consumers that are per-instance (terminal views, keyboard
+    /// controllers) rather than a singleton manager. Managers register above and
+    /// write their own keys through, so a local write has already been applied
+    /// by the time it reaches the hub; these consumers have no such
+    /// write-through path, so they are notified on every origin.
+    ///
+    /// Every entry must have a live observer — a name posted here and observed
+    /// nowhere is a silent no-op. `Settings.Connections.healthMonitoring` and
+    /// `healthProbeInterval` are deliberately absent: their apply-to-live-session
+    /// receivers do not exist (CitadelSSHSession reads both only at monitor
+    /// start), so posting for them would be exactly that no-op.
+    private static let liveApplyNotifications: [String: Notification.Name] = [
+        Settings.Keyboard.forceASCIIKeyboard.name: .forceASCIIKeyboardChanged,
+        Settings.KeyboardToolbar.showWithHardwareKeyboard.name: .keyboardToolbarHardwareSettingChanged,
+    ]
+
     @discardableResult
     func register(keys: Set<String>, _ reload: @escaping @MainActor (Set<String>) -> Void) -> Token {
         let token = Token()
@@ -50,9 +66,19 @@ final class SettingsRefreshHub {
         registrations.removeValue(forKey: token)
     }
 
-    /// Called by the store for non-local batches while `isApplyingBatch` is set.
+    /// Called by the store for every batch: the per-instance notifications above
+    /// fire on any origin, the manager registrations and the ghostty reload only
+    /// for non-local batches, while `isApplyingBatch` is set.
     func dispatch(_ change: SettingsChange) {
-        guard change.origin != .local, !change.keys.isEmpty else { return }
+        guard !change.keys.isEmpty else { return }
+
+        var posted: Set<Notification.Name> = []
+        for key in change.keys {
+            guard let name = Self.liveApplyNotifications[key], posted.insert(name).inserted else { continue }
+            NotificationCenter.default.post(name: name, object: nil)
+        }
+
+        guard change.origin != .local else { return }
         let registry = SettingsRegistry.shared
         var groups: Set<SettingGroup> = []
         for key in change.keys {

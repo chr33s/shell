@@ -14,19 +14,52 @@ extension LocalShellSession {
 
         switch scalar {
         case 0x0D, 0x0A:  // Enter
-            // Immediately switch to connecting mode to prevent double-trigger from CRLF
-            sessionMode = .sshSession
-
-            onOutput?(normalizeLineEndings("\n"))
             let password = passwordBuffer
             passwordBuffer = ""
+
+            // An empty entry is not a credential: never attempt an empty password.
+            // Matches the `disabled(password.isEmpty)` invariant the SwiftUI
+            // surfaces enforce (PasswordPromptSheet, ReconnectPromptCard) — the
+            // prompt simply stays up. This also absorbs the LF of a CRLF pair on
+            // the paths below that stay in `.passwordPrompt`.
+            guard !password.isEmpty else { return }
+
+            onOutput?(normalizeLineEndings("\n"))
+
+            // Both hops need a secret: the bastion was asked first, now re-enter
+            // the SAME prompt for the target. A re-entry of the existing resume
+            // path, not a second one. The bastion password rides along in memory
+            // on the partial config and is dropped if the user cancels.
+            if partialConfig.passwordSubject == .jumpHost, partialConfig.targetAuthMethod == nil {
+                var next = partialConfig
+                next.passwordSubject = .target
+                if var jump = next.jumpHost {
+                    jump.authMethod = .password(password)
+                    next.jumpHost = jump
+                }
+                beginPasswordPrompt(.passwordPrompt(next))
+                return
+            }
+
+            // Immediately switch to connecting mode to prevent double-trigger from CRLF
+            sessionMode = .sshSession
 
             // Build full config with password and start session
             let config = partialConfig.toSSHConfig(password: password)
 
-            // Store password for potential saving after successful connection
-            pendingPasswordToSave = (host: partialConfig.host, port: partialConfig.port,
-                                     username: partialConfig.username, password: password)
+            // Store password for potential saving after successful connection,
+            // keyed by the hop that was actually asked. A bastion password is a
+            // row of its own — never merged into the target's entry.
+            switch partialConfig.passwordSubject {
+            case .target:
+                pendingPasswordToSave = (host: partialConfig.host, port: partialConfig.port,
+                                         username: partialConfig.username, password: password)
+            case .jumpHost:
+                if let jump = partialConfig.jumpHost {
+                    pendingPasswordToSave = (host: jump.host, port: jump.port,
+                                             username: jump.username, password: password)
+                }
+            }
 
             Task { @MainActor in
                 launchEmbeddedSSHSession(config: config)
@@ -39,8 +72,12 @@ extension LocalShellSession {
 
         case 0x03:  // Ctrl-C - cancel
             passwordBuffer = ""
+            let refusal = Self.jumpHostPasswordRefusal(for: partialConfig)
             sessionMode = .localShell
             onOutput?(normalizeLineEndings("^C\n"))
+            if let refusal {
+                onOutput?(normalizeLineEndings(refusal + "\n"))
+            }
             displayPrompt()
 
         case 0x15:  // Ctrl-U - clear line
@@ -52,6 +89,22 @@ extension LocalShellSession {
                 // No echo for password input
             }
         }
+    }
+
+    /// Refusal shown when the user cancels a bastion password prompt. Cancelling
+    /// declines the connection outright — an empty password is never presented to
+    /// the jump host — so say why, and where to configure a credential.
+    /// Returns nil when the cancelled prompt was for the target host.
+    static func jumpHostPasswordRefusal(
+        for partialConfig: SSHCommandParser.PartialSSHConfig
+    ) -> String? {
+        guard partialConfig.passwordSubject == .jumpHost,
+              let jump = partialConfig.jumpHost else { return nil }
+        let jumpName = jump.displayName
+        return String(
+            localized: "ssh: no credentials for jump host \(jumpName); connection refused. Save a password for it, or set a default SSH identity in Settings → SSH → SSH Identities.",
+            comment: "Shown when the user cancels the jump-host password prompt for `ssh -J`"
+        )
     }
 
     /// Handle host key validation input

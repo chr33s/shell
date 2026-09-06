@@ -12,11 +12,6 @@ import os
 import UniformTypeIdentifiers
 import GhosttyKit
 
-protocol GhosttyAppDelegate: AnyObject {
-    /// Called when a surface should be closed
-    func closeSurface(uuid: UUID, processAlive: Bool)
-}
-
 protocol GhosttyActionDelegate: AnyObject {
     /// Called after terminal content changes for this exact surface.
     func handleSurfaceContentChanged()
@@ -33,9 +28,6 @@ protocol GhosttyActionDelegate: AnyObject {
     /// Called when terminal cell size changes
     func handleCellSizeChange(width: CGFloat, height: CGFloat)
 
-    /// Called when renderer health status changes
-    func handleRendererHealth(healthy: Bool)
-
     /// Called when mouse shape changes
     func handleMouseShape(shape: Int)
 
@@ -50,10 +42,6 @@ protocol GhosttyActionDelegate: AnyObject {
 
     /// Called when progress report is requested
     func handleProgressReport(_ report: Ghostty.Action.ProgressReport)
-
-    /// Called when a shell command finishes (OSC 133 shell integration).
-    /// exitCode is nil when the shell reported none; duration is wall time.
-    func handleCommandFinished(exitCode: Int?, duration: TimeInterval)
 
     /// Called when search should start
     func handleStartSearch(_ startSearch: Ghostty.Action.StartSearch)
@@ -219,9 +207,6 @@ extension Ghostty {
             weak var value: T?
         }
 
-        /// Optional delegate for handling app events
-        weak var delegate: GhosttyAppDelegate?
-
         /// The readiness state of the app
         @Published var readiness: Readiness = .loading
 
@@ -291,19 +276,11 @@ extension Ghostty {
         /// Subscription to transparency changes
         private var transparencySubscription: AnyCancellable?
 
-        /// Observer token for shader config changes
-
         /// Observer token for cursor config changes
         private var cursorObserver: NSObjectProtocol?
 
         /// Observer token for selection config changes
         private var selectionObserver: NSObjectProtocol?
-
-        /// Observer token for palette config changes
-
-        /// Observer token for HDR brightness-boost changes
-
-        /// Observer token for auto-redact configuration changes
 
         /// Observer token for power-tier changes
         private var powerObserver: NSObjectProtocol?
@@ -1090,7 +1067,7 @@ extension Ghostty {
             guard !bridge.isMaterialBackdrop(nsWindow) else { return }
             let manager = TransparencyManager.shared
             let opacity = manager.backgroundOpacity
-            let style = manager.effectiveBlurStyle
+            let style = manager.blurStyle
 
             if style != .standard, opacity < 1.0 {
                 bridge.setVisualEffectBlur(false, for: nsWindow)
@@ -1750,23 +1727,6 @@ extension Ghostty {
 
                 return true
 
-            case GHOSTTY_ACTION_COMMAND_FINISHED:
-                // Not gated on isBackgrounded: a command finishing while
-                // backgrounded must still set the unseen done/failed flags.
-                let finished = action.action.command_finished
-                if target.tag == GHOSTTY_TARGET_SURFACE {
-                    let surface = target.target.surface
-                    let surfaceId = Int(bitPattern: surface)
-                    let exitCode: Int? = finished.exit_code >= 0 ? Int(finished.exit_code) : nil
-                    let duration = TimeInterval(finished.duration) / 1_000_000_000
-
-                    Task { @MainActor in
-                        appInstance.surfaceDelegates[surfaceId]?.delegate?
-                            .handleCommandFinished(exitCode: exitCode, duration: duration)
-                    }
-                }
-                return true
-
             case GHOSTTY_ACTION_CELL_SIZE:
                 if isBackgrounded { return true }
                 let cellSize = action.action.cell_size
@@ -2098,15 +2058,10 @@ extension Ghostty {
         }
         #endif
 
-        private static func closeSurface(_ userdata: UnsafeMutableRawPointer?, processAlive: Bool) {
-            guard let userdata = userdata else { return }
-            _ = Unmanaged<App>.fromOpaque(userdata).takeUnretainedValue()
-
-            // Notify delegate
-            Task { @MainActor in
-                // TODO: Determine which surface to close
-                // app.delegate?.closeSurface(uuid: uuid, processAlive: processAlive)
-            }
-        }
+        /// Required by `ghostty_runtime_config_s`, but intentionally a no-op:
+        /// every surface is created with `use_external_io`, so libghostty owns no
+        /// child process whose exit could raise this. Tab/pane teardown is driven
+        /// entirely by the app's own session-end path posting `.closeSplit`.
+        private static func closeSurface(_ userdata: UnsafeMutableRawPointer?, processAlive: Bool) {}
     }
 }

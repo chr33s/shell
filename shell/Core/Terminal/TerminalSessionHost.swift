@@ -53,8 +53,6 @@ protocol TerminalSessionControllerHost: TerminalSessionHost, TerminalResponsePip
     var terminalWindowID: String { get }
     var terminalConnectionConfig: ConnectionConfig { get set }
     var terminalRestorationState: Ghostty.TerminalView.RestorationState { get set }
-    var terminalRestoredWasTmuxGateway: Bool { get }
-    var terminalHasTmuxController: Bool { get }
     var terminalSurfaceAvailable: Bool { get }
     var terminalSurfaceGridSize: (rows: UInt16, cols: UInt16)? { get }
     var terminalIsLiveDisconnectionOverlay: Bool { get set }
@@ -78,13 +76,10 @@ protocol TerminalSessionControllerHost: TerminalSessionHost, TerminalResponsePip
     func terminalApplyConnectionHealth(_ health: ConnectionHealth?)
     func terminalProgressUpdate(message: String, style: SpinnerAnimator.ColorStyle)
     func terminalProgressFinish(_ mode: ConnectionProgressPresenter.FinishMode)
-    func terminalProgressReset()
     func terminalRestoreScrollbackAfterAnimation()
     func terminalWriteToGhostty(_ string: String)
-    func terminalRemoveAwaitingTmuxPlaceholders()
     func terminalUpdatePTYSize()
     func terminalPerformResetAction()
     func terminalSetLocalTaskActive(_ isActive: Bool)
-    func terminalResetLaunchCommandGate()
     func terminalResetUserTypingForReconnect()
 }

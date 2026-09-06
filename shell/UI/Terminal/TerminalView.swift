@@ -277,9 +277,6 @@ extension Ghostty {
         /// The cell size of this surface
         @Published var cellSize: CGSize = .zero
 
-        /// Health state of the surface
-        @Published var healthy: Bool = true
-
         /// Any error while initializing the surface
         @Published var error: Error? = nil
 
@@ -304,6 +301,12 @@ extension Ghostty {
                 if oldValue && !isMouseCaptured {
                     multiplexerScrollObserver?.reset()
                 }
+                // The Mouse Capture checkmark reads this flag, and a UIView's
+                // `@Published` is invisible to `@Observable`. Notifying here
+                // covers the app-driven flip (`updateMouseCaptureState()` when
+                // vim or tmux enables mouse reporting), which otherwise only
+                // reaches the menu through a sink re-armed on focus changes.
+                MenuFocusState.shared.notePaneStateChanged()
             }
         }
 
@@ -399,38 +402,6 @@ extension Ghostty {
             didSet { refreshPanePresentationTitle() }
         }
 
-        /// A multiplexer the app does NOT drive (raw `tmux`, `zellij`) is
-        /// rendering into this surface, so one surface holds many logical
-        /// windows. Agent detection reads a pane's screen assuming it is a
-        /// single agent context; that assumption is false here, and every
-        /// protection built on it inverts (the multiplexer owns the alternate
-        /// screen for its whole attach, so presence never lapses; its status
-        /// bar keeps activity permanently fresh, so completions never settle).
-        /// Set by construction wherever the app knows it started or attached
-        /// one, so nothing has to be inferred from the screen.
-        /// (id=agent-attention-raw-mux)
-        struct RawMultiplexerBinding: Equatable {
-            let type: MultiplexerType
-            /// Known when the app issued the attach; nil when the binding came
-            /// from a corroborating screen signal.
-            let sessionName: String?
-            /// True once the multiplexer has actually taken the alternate
-            /// screen. The binding is recorded at session-ready, before the
-            /// remote command has run, so the surface is legitimately on the
-            /// primary screen for a moment — releasing on that would undo the
-            /// binding instantly. Only a primary frame AFTER ownership means
-            /// the multiplexer detached or exited.
-            var hasOwnedAltScreen: Bool = false
-            /// Whether focus may detach this zmx client and reattach through
-            /// the shell beneath it. Auto-started clients have no shell to
-            /// fall back to, so they must use leader-addressed IPC instead.
-            var canDetachSwitch: Bool = false
-        }
-        var rawMultiplexer: RawMultiplexerBinding?
-
-        /// A transparent multiplexer identity that does not suppress agent
-        /// attention or depend on alternate-screen ownership.
-        var passthroughMultiplexer: RawMultiplexerBinding?
         nonisolated(unsafe) var tmuxDetachInProgressAtomic: Bool = false
 
         var isTmuxDetachInProgress: Bool {
@@ -565,6 +536,10 @@ extension Ghostty {
                 #if !targetEnvironment(macCatalyst)
                 syncSelectionHandlesForSurfaceActivity()
                 #endif
+                // Same reason as `isMouseCaptured`: the Compose checkmark reads
+                // this flag off a UIView. Every write site is covered here, not
+                // just the ones that post `.ghosttyComposeStateChanged`.
+                MenuFocusState.shared.notePaneStateChanged()
             }
         }
         var composeText: String = ""
@@ -586,14 +561,6 @@ extension Ghostty {
             get { keyboardAccessoryController?.dismissTapStartPoint }
             set { keyboardAccessoryController?.dismissTapStartPoint = newValue }
         }
-        /// Whether AI Agent overlay is visible for this terminal's tab (suppresses keyboard toolbar)
-        var aiAgentOverlayActive: Bool = false {
-            didSet {
-                keyboardAccessoryController?.setAIAgentOverlayActive(aiAgentOverlayActive)
-            }
-        }
-        /// Whether the theme picker overlay is visible over this terminal's tab.
-        var themePickerOverlayActive: Bool = false
 
         // MARK: Input Mode Indicator
         #if !targetEnvironment(macCatalyst)
@@ -629,12 +596,6 @@ extension Ghostty {
         /// pinch zoom. Nil means this terminal follows `FontManager`'s global
         /// font size and should adopt future global changes.
         var fontSizeOverride: Double?
-
-        /// For trzsz terminals being restored from saved window state: the
-        /// `lastConnectedAt` heartbeat captured by the previous run. Read
-        /// once by `TrzszSession.attemptResume` to drive the "still within
-        /// the server's 24h AliveTimeout" deadline; remains available so a
-        /// re-serialization before the resume completes can re-emit it.
 
         /// Set on a restored gateway terminal whose saved leaf had
         /// `wasTmuxGateway == true`. When this terminal's tssh session resumes
@@ -692,11 +653,6 @@ extension Ghostty {
         // shapes (one carries a hash + algo + keygrip preview) and the
         // dismiss messages differ.
 
-        /// Companion withdraw callback fired when the session decides
-        /// a previously-surfaced GPG approval is no longer wanted
-        /// (e.g. the underlying connection tore down). MainView
-        /// removes the matching queued entry by id.
-
         // Connection health for SSH sessions.
         // Mutate via `applyConnectionHealth(_:)` so writes are equality-guarded
         // and suppressed while the app is backgrounded; the cached value is
@@ -709,17 +665,7 @@ extension Ghostty {
         /// pattern used for `sessionProvidedPwd` / `sessionProvidedTitle`).
         var sessionProvidedConnectionHealth: ConnectionHealth?
 
-        // Attachment upload state
-
-        /// While an in-window overlay (tab exposé) is presented it takes keys
-        /// here instead of stealing first responder, so the software keyboard
-        /// and grid stay put. Fed from both `processKeyPress` and the dedicated
-        /// UIKeyCommand handlers (arrows/Return/Tab/Escape). Return true to consume.
-        var presentedOverlayKeyHandler: ((OverlayKeyEvent) -> Bool)?
         var hasUserTyped: Bool = false
-        var sessionSelectionIndex: Int = 0
-        var tmuxDiscoveryAttachMode: TmuxAutoMode = TmuxAutoMode.persistedDiscoveryAttachMode
-        var sessionDiscoveryTask: Task<Void, Never>?
 
         // MARK: Restoration State
 
@@ -774,9 +720,6 @@ extension Ghostty {
         var reconnectionManager: ReconnectionManager? {
             sessionController?.reconnectionManager
         }
-
-        // Flag to gate launch command / tmux auto-connect per connection (reset on reconnect)
-        var hasSentLaunchCommand: Bool = false
 
         // Flag to indicate this terminal should become first responder when ready
         var shouldBecomeFirstResponderWhenReady: Bool = false
@@ -990,8 +933,6 @@ extension Ghostty {
         var selectionWasTouchInitiated: Bool = false
         /// Coalesces deferred selection-handle visibility refreshes.
         var selectionHandleSyncPending: Bool = false
-        /// Pan gesture for dragging selection handles
-        var handleDragPanGesture: UIPanGestureRecognizer?
         /// Which handle is currently being dragged
         var activeHandleDrag: Ghostty.SelectionHandlePosition?
         /// Magnifier shown during touch selection and selection-handle drags.
@@ -1039,12 +980,6 @@ extension Ghostty {
 
         // Context menu for copy/paste/split/etc
         var contextMenuInteraction: UIContextMenuInteraction?
-
-        /// Hosting controller for the HDR brightness-boost HUD. Cross-platform
-        /// (iOS/iPadOS/Catalyst/visionOS) — unlike the dimension overlay, the
-        /// brightness HUD is reachable on Catalyst via the hardware keybind.
-        /// Auto-hide timer for the brightness HUD.
-        var brightnessHUDHideTask: Task<Void, Never>?
 
         #if !targetEnvironment(macCatalyst)
         /// Pan gesture for right-click drag on iPad (bypasses UIContextMenuInteraction touch issues)
@@ -1454,10 +1389,6 @@ extension Ghostty {
             /// Scene/window is being torn down (rotation, app exit). Keep
             /// server-side session alive so resume can pick it back up.
             case sceneTeardown
-            /// Continuity transfer: a peer device has already attached to
-            /// the same server-side session and ack'd. Abandon transport
-            /// silently AND delete local creds (peer owns the session now).
-            case transferOut
         }
 
         /// Generic pane close funnel: a user-initiated close of this pane.
@@ -1596,18 +1527,32 @@ extension Ghostty {
             // FIX: Set content scale to match screen for Retina rendering
             // By default UIView has contentScaleFactor = 1.0, but we need 2.0+ for Retina
 #if os(visionOS)
-            // visionOS doesn't have UIScreen.main, use display scale from trait collection
+            // visionOS has no UIScreen; the trait collection is the only source.
             self.contentScaleFactor = traitCollection.displayScale
 #else
-            self.contentScaleFactor = UIScreen.main.scale
+            // `traitCollection.displayScale` is the documented per-view
+            // equivalent of the deprecated `UIScreen.main.scale`, and it tracks
+            // the display this view actually lands on. It reads 0 when the
+            // trait environment hasn't resolved a scale yet, so keep UIKit's
+            // own default in that case rather than rasterizing at 0x.
+            let displayScale = traitCollection.displayScale
+            if displayScale > 0 {
+                self.contentScaleFactor = displayScale
+            }
 #endif
             
             // Log display properties
             Ghostty.logger.info("Display properties:")
             Ghostty.logger.info("   contentScaleFactor: \(self.contentScaleFactor) (set to match screen)")
 #if !os(visionOS)
-            Ghostty.logger.info("   Screen scale: \(UIScreen.main.scale)")
-            Ghostty.logger.info("   Screen nativeScale: \(UIScreen.main.nativeScale)")
+            // Diagnostics only. `UIScreen.main` is deprecated, and `nativeScale`
+            // has no trait equivalent, so report the view's own screen when one
+            // is already attached (setup usually runs before that).
+            Ghostty.logger.info("   Trait displayScale: \(self.traitCollection.displayScale)")
+            if let screen = window?.windowScene?.screen {
+                Ghostty.logger.info("   Screen scale: \(screen.scale)")
+                Ghostty.logger.info("   Screen nativeScale: \(screen.nativeScale)")
+            }
 #endif
             
             // Add tap gesture to show keyboard
@@ -1762,10 +1707,6 @@ extension Ghostty {
             setupBottomInsetObserver()
             #endif
 
-            #if STANDALONE && targetEnvironment(macCatalyst)
-            setupVisorResizeFlushObserver()
-            #endif
-
             // Flush the size a dropped layout left behind when the overlay
             // keyboard-preservation latch releases.
             setupOverlayPreservationFlushObserver()
@@ -1792,7 +1733,7 @@ extension Ghostty {
             isUserInteractionEnabled = true
 
             // Add hover gesture for cursor management and right-click tracking
-            // Works on Mac Catalyst and iPad with trackpad (iPadOS 13.4+)
+            // Works on Mac Catalyst and iPad with trackpad
             let hoverGesture = UIHoverGestureRecognizer(target: self, action: #selector(handleHoverGesture(_:)))
             addGestureRecognizer(hoverGesture)
 
@@ -1899,6 +1840,8 @@ extension Ghostty {
             }
         }
 
+        /// Retarget the software keyboard live when "Force ASCII Keyboard" is
+        /// toggled, instead of only for terminals created afterwards.
         private func setupASCIIKeyboardObserver() {
             let observer = NotificationCenter.default.addObserver(
                 forName: .forceASCIIKeyboardChanged,
@@ -1968,60 +1911,6 @@ extension Ghostty {
             sizeDidChange(bounds.size)
         }
 
-        #if STANDALONE && targetEnvironment(macCatalyst)
-        private func setupVisorResizeFlushObserver() {
-            let observer = NotificationCenter.default.addObserver(
-                forName: .visorResizeSuppressionEnded,
-                object: nil,
-                queue: .main
-            ) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    guard let self, self.windowId == "visor" else { return }
-                    self.flushVisorSuppressedResize()
-                }
-            }
-            cancellables.insert(AnyCancellable { NotificationCenter.default.removeObserver(observer) })
-        }
-
-        /// Visor resize suppression ended. Any layout that landed while it was
-        /// active was dropped and UIKit will not re-fire it, so push the
-        /// current bounds through. Deliberately NO invalidateCachedSize():
-        /// the cached sizes reflect what was actually sent (written after all
-        /// suppression gates), so a dropped resize mismatches the cache and
-        /// flows, while an unchanged size dedupes away without touching
-        /// Ghostty or the PTY (no spurious SIGWINCH/TUI redraw per toggle).
-        private func flushVisorSuppressedResize() {
-            // The cache records what was last SENT, which catches a resize the
-            // suppression gate dropped but NOT a surface that is stale despite
-            // a matching cache. That case leaves the grid taller than the view,
-            // with its bottom rows (the shell input line on a multi-line
-            // prompt) rendering past the visible bottom edge. Ask the surface
-            // what size it believes it has and only overrule the cache when it
-            // disagrees, so a healthy toggle still dedupes to nothing.
-            let scale = contentScaleFactor
-            if scale > 0, bounds.width > 0, bounds.height > 0,
-               let grid = surfaceController.surfaceSize {
-                let expectedWidth = UInt32(bounds.width * scale)
-                let expectedHeight = UInt32(bounds.height * scale)
-                let actualWidth = grid.width_px
-                let actualHeight = grid.height_px
-                if actualWidth != expectedWidth || actualHeight != expectedHeight {
-                    Ghostty.logger.warning(
-                        "visor surface drifted from view: surface=\(actualWidth)x\(actualHeight) expected=\(expectedWidth)x\(expectedHeight)")
-                    surfaceController.invalidateCachedSize()
-                }
-            }
-
-            sizeDidChange(bounds.size)
-            let boundsSize = bounds.size
-            let windowHeight = window?.bounds.height ?? -1
-            let grid = surfaceController.surfaceSize
-            let columns = grid?.columns ?? 0
-            let rows = grid?.rows ?? 0
-            Ghostty.logger.info("visor resize flush: bounds=\(boundsSize.width)x\(boundsSize.height) windowHeight=\(windowHeight) grid=\(columns)x\(rows)")
-        }
-        #endif
-
         private func setupScrollIndicator() {
             let indicator = UIView()
             indicator.backgroundColor = UIColor.white.withAlphaComponent(0.5)
@@ -2077,10 +1966,6 @@ extension Ghostty {
             reloadInputViews()
         }
 
-        private func updateCollapsedKeyboardToolbarButtonVisibility() {
-            keyboardAccessoryController?.setAIAgentOverlayActive(aiAgentOverlayActive)
-        }
-
         private func updateCollapsedKeyboardToolbarButtonLayout() {
             keyboardAccessoryController?.updateCollapsedKeyboardToolbarButtonLayout()
         }
@@ -2125,13 +2010,6 @@ extension Ghostty {
                 }
 
                 guard let data = action.data else { return }
-
-                if data == Data([0x1B]) {
-                    if self.aiAgentOverlayActive {
-                        NotificationCenter.default.post(name: .toggleAIAgent, object: self)
-                        return
-                    }
-                }
 
                 NotificationCenter.default.post(name: .ghosttyDidReceiveInput, object: self)
                 self.sendUserInput(data)
@@ -2565,8 +2443,6 @@ extension Ghostty {
             selectionUIExternallyOccluded
                 || selectionUISwipeSuppressed
                 || isModalPresented()
-                || aiAgentOverlayActive
-                || themePickerOverlayActive
                 || showsReconnectionOverlay
                 || showComposeOverlay
                 || searchState != nil
@@ -3197,25 +3073,6 @@ extension Ghostty {
         }
         #endif
 
-        /// Sets whether the AI Agent overlay is active for this terminal's tab.
-        /// When active, the keyboard toolbar is suppressed.
-        func setAIAgentOverlayActive(_ active: Bool) {
-            guard aiAgentOverlayActive != active else { return }
-            aiAgentOverlayActive = active
-            reloadInputViews()
-            #if !targetEnvironment(macCatalyst)
-            syncSelectionHandlesForSurfaceActivity()
-            #endif
-        }
-
-        func setThemePickerOverlayActive(_ active: Bool) {
-            guard themePickerOverlayActive != active else { return }
-            themePickerOverlayActive = active
-            #if !targetEnvironment(macCatalyst)
-            syncSelectionHandlesForSurfaceActivity()
-            #endif
-        }
-
         // MARK: - UIView Overrides
 
         // NOTE: We do NOT override layerClass to CAMetalLayer.
@@ -3289,12 +3146,6 @@ extension Ghostty {
         /// tab visible via `notifyOnFirstFrame`.
         var hasRenderedFirstFrame: Bool {
             surfaceController.hasRenderedFirstFrame
-        }
-
-        /// The core's renderer layer; its `contents` is the live frame's
-        /// IOSurface, which a mirror layer can share (tab exposé previews).
-        var rendererLayer: CALayer? {
-            surfaceController.rendererLayer()
         }
 
         /// Invoke `callback` on the main actor once the first frame has been
@@ -3598,40 +3449,26 @@ extension Ghostty {
 
         // MARK: - Hardware Keyboard Language Pill Suppression
         //
-        // iPadOS 18 draws a floating "input source" pill (the minimised
-        // Shortcuts bar — Apple calls it the "language button" in user docs)
-        // in a corner of the screen whenever a UITextInput-conforming view is
-        // first responder, a hardware keyboard is attached, and more than one
-        // input source is installed. There is no public API to hide it.
+        // iPadOS 27 shows a globe/language + mic + return cluster whenever an
+        // Apple Pencil interacts with a focused text input and a hardware
+        // keyboard is attached, and there is no public API to hide it.
         //
         // Clearing inputAssistantItem on the view AND recursively on every
         // subview, then reapplying on the lifecycle hooks that can re-populate
-        // the bar, suppresses it without breaking CJK IME composition.
-        //
-        // iPadOS 18's always-on pill vanished in later majors, but iPadOS 27
-        // shows a sibling (globe/language + mic + return cluster) whenever an
-        // Apple Pencil interacts with a focused text input and a hardware
-        // keyboard is attached. Clearing the assistant groups suppresses that
-        // one too; the terminal ships no shortcut-bar buttons, so there is
-        // nothing to lose on any version.
-        private static let suppressLanguagePill: Bool = {
-            ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 18
-        }()
+        // the bar, suppresses it without breaking CJK IME composition; the
+        // terminal ships no shortcut-bar buttons, so there is nothing to lose.
 
         override var inputAssistantItem: UITextInputAssistantItem {
             let item = super.inputAssistantItem
             #if !os(visionOS)
-            if Self.suppressLanguagePill {
-                item.leadingBarButtonGroups = []
-                item.trailingBarButtonGroups = []
-            }
+            item.leadingBarButtonGroups = []
+            item.trailingBarButtonGroups = []
             #endif
             return item
         }
 
         private func clearInputAssistantsRecursively(_ view: UIView? = nil) {
             #if !os(visionOS)
-            guard Self.suppressLanguagePill else { return }
             let root = view ?? self
             root.inputAssistantItem.leadingBarButtonGroups = []
             root.inputAssistantItem.trailingBarButtonGroups = []
@@ -4089,11 +3926,6 @@ extension Ghostty {
             case .keyboardDeleteForward:
                 return hasCommand ? nil : "\u{1B}[3~" // Delete (forward delete)
             case .keyboardEscape:
-                if aiAgentOverlayActive {
-                    // If AI Agent is active, Escape should close it
-                    NotificationCenter.default.post(name: .toggleAIAgent, object: self)
-                    return nil
-                }
                 return hasCommand ? nil : "\u{1B}" // Escape
             case .keyboardTab:
                 return hasCommand ? nil : "\t" // Tab
@@ -4378,8 +4210,6 @@ extension Ghostty {
 extension Ghostty.TerminalView: TerminalKeyboardAccessoryHost {
     var keyboardHostView: UIView { self }
     var keyboardIsFirstResponder: Bool { isFirstResponder }
-    var keyboardAIAgentOverlayActive: Bool { aiAgentOverlayActive }
-    var keyboardToolbarOnlyMode: Bool { toolbarOnlyMode }
 
     @discardableResult
     func keyboardBecomeFirstResponder() -> Bool {
@@ -4479,8 +4309,6 @@ extension Ghostty.TerminalView: GhosttyActionDelegate {
             }
         }
     }
-
-    func handleCommandFinished(exitCode: Int?, duration: TimeInterval) {}
 
     func handlePwdChange(_ reported: String) {
         // Decode OSC 7/file URLs at the point where all pwd sources converge.
@@ -4597,11 +4425,6 @@ extension Ghostty.TerminalView: GhosttyActionDelegate {
         if isTmuxPane {
             NotificationCenter.default.post(name: .terminalLayoutInvalidation, object: nil)
         }
-    }
-    
-    func handleRendererHealth(healthy: Bool) {
-        self.healthy = healthy
-        Ghostty.logger.info("Renderer health: \(healthy)")
     }
     
     func handleMouseShape(shape: Int) {
@@ -4764,21 +4587,6 @@ extension Ghostty.TerminalView: GhosttyActionDelegate {
             multiplexerScrollActive = false
             NotificationCenter.default.post(name: .ghosttyDidUpdateScrollbar, object: self)
             return
-        }
-
-        // A copy-mode position indicator rendered into OUR surface is evidence
-        // this pane is a multiplexer the app does not drive: control mode
-        // projects panes onto their own surfaces and never paints this chrome
-        // here. This is the late fallback for a multiplexer the user started
-        // by hand, which no by-construction site can know about.
-        //
-        // Deliberately NOT conditioned on the pane having no agent yet: by the
-        // time anyone scrolls, the agent is usually already identified, and
-        // that is precisely the pane whose completion inferences need
-        // correcting. Refused only for surfaces the app already drives as
-        // tmux -CC. (id=agent-attention-raw-mux)
-        if tmuxPaneBinding == nil, tmuxController == nil {
-            bindRawMultiplexer(sample.source.multiplexerType, sessionName: nil)
         }
 
         let viewportRows = sample.viewportRows

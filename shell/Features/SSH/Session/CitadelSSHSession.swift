@@ -89,6 +89,27 @@ final class CitadelSSHSession: SSHTerminalSession {
     private(set) var negotiatedCipher: String?
     private(set) var negotiatedMac: String?
 
+    /// Metadata for the Connection Info sheet. Nil until the handshake
+    /// completes (`connectionStartTime` is stamped alongside the negotiated
+    /// algorithms), which is what keeps the menu item disabled while a tab is
+    /// still connecting.
+    var connectionInfo: ConnectionInfo? {
+        guard let startTime = connectionStartTime else { return nil }
+        return .ssh(SSHConnectionInfo(
+            host: config.host,
+            port: config.port,
+            username: config.username,
+            resolvedIP: resolvedIPAddress,
+            connectedAt: startTime,
+            jumpHost: config.jumpHost?.host,
+            jumpPort: config.jumpHost?.port,
+            keyExchangeAlgorithm: negotiatedKeyExchange,
+            hostKeyAlgorithm: negotiatedHostKey,
+            cipherAlgorithm: negotiatedCipher,
+            macAlgorithm: negotiatedMac
+        ))
+    }
+
     // TerminalSession callbacks
     // NOTE: These callbacks may be called from a background thread (async for loop).
     // Callers must ensure thread-safe handling.
@@ -159,8 +180,49 @@ final class CitadelSSHSession: SSHTerminalSession {
         onSessionEnd?()
     }
 
+    /// Which hop of the connection the bootstrap is currently working on.
+    /// There are exactly two credentials in play on a `ssh -J` connect, and
+    /// this says which one the in-flight handshake is presenting.
+    /// `internal` rather than `private` purely so `SSHHopAttributionTests` can
+    /// read the recorded hop. No behavior change.
+    enum ConnectionHop {
+        /// The bastion: TCP connect, KEX and auth against `config.jumpHost`.
+        case jumpHost
+        /// The destination the user asked for — either a direct connect, or the
+        /// tunnelled `jump(to:)` handshake that runs over an established bastion.
+        case target
+    }
+
+    /// The hop that was in flight, recorded by `transition(to:)` as the
+    /// bootstrap walks its states. `categorizeError` attributes auth and
+    /// host-key failures with THIS, not with `config.usesJumpHost`: with a
+    /// bastion configured, "a jump host exists" is not evidence that the jump
+    /// host is what rejected us, and mis-attributing a target rejection to the
+    /// bastion aims the user's typed password at the wrong host.
+    ///
+    /// Starts at `.target`: before any hop has begun, nothing has rejected a
+    /// credential, and the host the user actually named is the only safe
+    /// subject for a prompt. Only a transition that names the bastion moves it.
+    var connectionHop: ConnectionHop = .target
+
     /// Transitions to a new state and notifies the callback
-    private func transition(to state: SSHSessionState) {
+    func transition(to state: SSHSessionState) {
+        // Record which hop this state belongs to, so a later failure is blamed
+        // on the hop that was actually in flight. States that name no hop leave
+        // the recorded value ALONE rather than clearing it — `.failed` is
+        // emitted immediately before `categorizeError` runs, so clearing here
+        // would erase the very attribution it is about to read.
+        switch state {
+        case .connecting(_, let isJumpHost), .authenticating(_, let isJumpHost):
+            connectionHop = isJumpHost ? .jumpHost : .target
+        case .connectingToTarget, .authenticatingTarget:
+            // Reached only through a bastion, and both cover the tunnelled
+            // target handshake — the bastion is already authenticated by here.
+            connectionHop = .target
+        default:
+            break
+        }
+
         // Deliberately NO immediate card clear on .failed/.disconnected:
         // Tailscale SSH sends its rejection reason ("tailnet policy does not
         // permit you to SSH as user …", "tailscale: access denied") as an auth
@@ -1000,12 +1062,17 @@ final class CitadelSSHSession: SSHTerminalSession {
         self.healthMonitor = monitor
     }
 
-    /// Update the health monitoring probe interval
+    /// Re-time the live probe loop. `ConnectionHealthMonitor.updateInterval`
+    /// rescales its rolling window, drops the samples measured at the old
+    /// cadence and restarts the loop, so an interval change applies to the
+    /// running session instead of waiting for the next connect.
     func updateHealthProbeInterval(_ newInterval: TimeInterval) {
         healthMonitor?.updateInterval(newInterval)
     }
 
-    /// Stop health monitoring (called when setting is disabled)
+    /// Stop health monitoring (called when the setting is switched off).
+    /// Publishes `.initial` so the tab's indicator drops back to "no data"
+    /// rather than freezing on the last measured RTT.
     func stopHealthMonitoring() {
         guard healthMonitor != nil else { return }
         healthMonitor?.stop()
@@ -1103,7 +1170,26 @@ final class CitadelSSHSession: SSHTerminalSession {
         return description.contains("eof") || description.contains("ChannelError error 6")
     }
 
-    private func categorizeError(_ error: Error) -> Error {
+    /// Host + hop to blame for an auth or host-key failure, taken from the hop
+    /// that was in flight (`connectionHop`) rather than from whether a jump
+    /// host is merely configured. Consumers turn `isJumpHost` straight into the
+    /// subject of a password prompt and into the host a typed secret is applied
+    /// to, so a wrong answer here sends the user's credential to the wrong host.
+    var failedHopAttribution: (host: String, isJumpHost: Bool) {
+        switch connectionHop {
+        case .jumpHost:
+            // `.jumpHost` is only ever recorded from a transition carrying the
+            // bastion's own host, so `config.jumpHost` is non-nil here. If it
+            // somehow is not, fall back to the target rather than force-unwrap:
+            // naming a bastion we cannot identify would be worse than a crash.
+            guard let jump = config.jumpHost else { return (config.host, false) }
+            return (jump.host, true)
+        case .target:
+            return (config.host, false)
+        }
+    }
+
+    func categorizeError(_ error: Error) -> Error {
         // Check for Citadel SSHClientError - conforms to Error but not LocalizedError,
         // so NSError bridging produces opaque "error N" messages
         if let sshClientError = error as? SSHClientError {
@@ -1112,14 +1198,16 @@ final class CitadelSSHSession: SSHTerminalSession {
                  .unsupportedPasswordAuthentication,
                  .unsupportedPrivateKeyAuthentication,
                  .unsupportedKeyboardInteractiveAuthentication:
+                let hop = failedHopAttribution
                 return SSHJumpError.authenticationFailed(
-                    host: config.usesJumpHost ? config.jumpHost!.host : config.host,
-                    isJumpHost: config.usesJumpHost
+                    host: hop.host,
+                    isJumpHost: hop.isJumpHost
                 )
             case .unsupportedHostBasedAuthentication:
+                let hop = failedHopAttribution
                 return SSHJumpError.authenticationFailed(
-                    host: config.usesJumpHost ? config.jumpHost!.host : config.host,
-                    isJumpHost: config.usesJumpHost
+                    host: hop.host,
+                    isJumpHost: hop.isJumpHost
                 )
             case .channelCreationFailed:
                 return SSHConnectionError.sshError(host: config.host, detail: "Failed to open SSH channel")
@@ -1130,9 +1218,13 @@ final class CitadelSSHSession: SSHTerminalSession {
 
         // Check for host key rejection
         if error is HostKeyRejectedError || error is InvalidHostKey {
+            // Same attribution as auth: the target's host key is validated
+            // during the tunnelled `jump(to:)`, long after the bastion's was
+            // accepted, so a rejection there is the TARGET's — not the bastion's.
+            let hop = failedHopAttribution
             return SSHJumpError.hostKeyRejected(
-                host: config.usesJumpHost ? config.jumpHost!.host : config.host,
-                isJumpHost: config.usesJumpHost
+                host: hop.host,
+                isJumpHost: hop.isJumpHost
             )
         }
 

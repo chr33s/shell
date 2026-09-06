@@ -353,24 +353,6 @@ extension MainView {
         return themeName
     }
 
-    /// Whether the current theme is light (for glassmorphism fallback styling)
-    var isLightTheme: Bool {
-        if let themeColors = effectiveThemeColors,
-           let baseColor = Color(hex: themeColors.background) {
-            return baseColor.isLight
-        }
-        return false
-    }
-
-    /// Whether the device is an iPhone (for AI Agent presentation mode)
-    var isPhone: Bool {
-        #if os(visionOS)
-        return false
-        #else
-        return UIDevice.current.userInterfaceIdiom == .phone
-        #endif
-    }
-
     /// Whether tabs are displayed in the titlebar (Catalyst only)
     var usesTitlebarTabs: Bool {
         #if targetEnvironment(macCatalyst)

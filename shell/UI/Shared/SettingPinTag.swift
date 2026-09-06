@@ -3,10 +3,10 @@
 //  shell
 //
 //  Provenance glyph for a settings row or group header: kept on this device,
-//  set by the config file, or nothing. A single small symbol so it never
-//  competes with the title for width; the words live in the context menu
-//  and the accessibility label. Renders as EmptyView when there is nothing
-//  to say so it drops into any HStack without spacing artifacts.
+//  or nothing. A single small symbol so it never competes with the title for
+//  width; the words live in the context menu and the accessibility label.
+//  Renders as EmptyView when there is nothing to say so it drops into any
+//  HStack without spacing artifacts.
 //
 
 import SwiftUI
@@ -36,10 +36,8 @@ struct SettingPinTag: View {
     var body: some View {
         switch subject {
         case .key(let name):
-            let state = coordinator.pinState(for: name)
-            // File provenance matters even without iCloud; pins only with it.
-            if state == .configFile || syncManager.isAppSettingsSyncEnabled {
-                keyGlyph(state)
+            if syncManager.isAppSettingsSyncEnabled {
+                keyGlyph(coordinator.pinState(for: name))
             }
         case .group(let group):
             if syncManager.isAppSettingsSyncEnabled {
@@ -57,9 +55,6 @@ struct SettingPinTag: View {
         case .group:
             glyph("pin", tint: .secondary)
                 .accessibilityLabel(Text("Kept on this device with its group"))
-        case .configFile:
-            glyph("doc.text", tint: .appHighlight)
-                .accessibilityLabel(Text("Set by config file"))
         case .none, .deviceOnly:
             EmptyView()
         }

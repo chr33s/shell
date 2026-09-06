@@ -394,7 +394,7 @@ extension Ghostty.TerminalView {
         lastHardwareTextInputTime = ProcessInfo.processInfo.systemUptime
         lastDictationActivityAt = nil
         invalidateInputDocument()
-        // iOS 13.4+ - use UIPress.key for better key information
+        // Use UIPress.key for better key information
         guard let key = press.key else { return (false, false) }
 
         // Track which physical modifier sides are currently held.
@@ -484,19 +484,6 @@ extension Ghostty.TerminalView {
             return (false, false)
         }
         #endif
-
-        // A presented overlay (tab exposé) owns navigation keys while up; it
-        // must see Escape before the tmux-detach and AI-agent handlers below.
-        if let overlayHandler = presentedOverlayKeyHandler, overlayHandler(OverlayKeyEvent(key)) {
-            return (true, true)
-        }
-
-        // Handle Escape overlays early so key is marked handled when routed via pressesBegan
-        // (not UIKeyCommand), such as on Mac Catalyst with mod-tap source-key support.
-        if key.keyCode == .keyboardEscape && aiAgentOverlayActive {
-            NotificationCenter.default.post(name: .toggleAIAgent, object: self)
-            return (true, true)
-        }
 
         // tmux control-mode gateway: ESC gracefully detaches (matches the in-TUI
         // menu the core prints). Fires if `self` is the gateway view OR the
@@ -1002,7 +989,7 @@ extension Ghostty.TerminalView {
 
             guard let key = press.key else { continue }
             // A translated Cmd+Period press can be tracked as Escape by the
-            // overlay handlers but released as physical Period.
+            // Escape handler but released as physical Period.
             if key.keyCode == .keyboardPeriod {
                 keysConsumedByOverlayAction.remove(.keyboardEscape)
             }
@@ -1620,25 +1607,9 @@ extension Ghostty.TerminalView {
     }
     #endif
 
-    /// Dedicated UIKeyCommand handlers fire before `pressesBegan`, so a
-    /// presented overlay (tab exposé) must get first refusal here too.
-    /// Return/Escape repeats are swallowed until release so a held key can't
-    /// leak into the session the overlay just revealed.
-    private func overlayConsumedKeyCommand(_ command: UIKeyCommand) -> Bool {
-        guard let handler = presentedOverlayKeyHandler,
-              let event = OverlayKeyEvent(keyCommand: command) else { return false }
-        if keysConsumedByOverlayAction.contains(event.keyCode) { return true }
-        guard handler(event) else { return false }
-        if event.keyCode == .keyboardReturnOrEnter || event.keyCode == .keyboardEscape {
-            keysConsumedByOverlayAction.insert(event.keyCode)
-        }
-        return true
-    }
-
     @objc func handleArrowKey(_ command: UIKeyCommand) {
         commitKoreanCompositionIfNeeded(external: true)
         guard let input = command.input else { return }
-        if overlayConsumedKeyCommand(command) { return }
 
         // Map UIKeyCommand input to HID usage for Ghostty's key encoder
         let hidUsage: UIKeyboardHIDUsage
@@ -1673,7 +1644,6 @@ extension Ghostty.TerminalView {
 
     @objc func handleReturnKey(_ command: UIKeyCommand) {
         commitKoreanCompositionIfNeeded(external: true)
-        if overlayConsumedKeyCommand(command) { return }
         // A one-shot action consumed this press; swallow repeats until release
         // so the held key doesn't leak input into the newly focused session.
         if keysConsumedByOverlayAction.contains(.keyboardReturnOrEnter) { return }
@@ -1695,17 +1665,8 @@ extension Ghostty.TerminalView {
         }
     }
 
-    @objc func handleOptionReturnKey(_ command: UIKeyCommand) {
-        handleModifiedReturnKey(command)
-    }
-
-    @objc func handleShiftReturnKey(_ command: UIKeyCommand) {
-        handleModifiedReturnKey(command)
-    }
-
     @objc func handleModifiedReturnKey(_ command: UIKeyCommand) {
         commitKoreanCompositionIfNeeded(external: true)
-        if overlayConsumedKeyCommand(command) { return }
         if keysConsumedByOverlayAction.contains(.keyboardReturnOrEnter) { return }
         if case .manualReconnectRequired = reconnectionManager?.state {
             keysConsumedByOverlayAction.insert(.keyboardReturnOrEnter)
@@ -1748,14 +1709,7 @@ extension Ghostty.TerminalView {
         }
 
         commitKoreanCompositionIfNeeded(external: true)
-        if overlayConsumedKeyCommand(command) { return }
         if keysConsumedByOverlayAction.contains(.keyboardEscape) { return }
-        if aiAgentOverlayActive {
-            // If AI Agent is active, Escape should close it
-            keysConsumedByOverlayAction.insert(.keyboardEscape)
-            NotificationCenter.default.post(name: .toggleAIAgent, object: self)
-            return
-        }
         // tmux control-mode gateway: ESC gracefully detaches (matches the in-TUI
         // menu the core prints). Hardware ESC arrives here via UIKeyCommand on
         // Catalyst. Fires if `self` is the gateway view OR the selected tab is the
@@ -1804,24 +1758,14 @@ extension Ghostty.TerminalView {
         handleSystemCancelChordDelivery()
     }
 
-    /// One normalized chord press: binding dispatch first, then overlay cancel
-    /// semantics, then a single one-shot ESC byte. A plain byte (not the
-    /// enhanced-protocol press/release pair) is correct for a synthesized
-    /// chord. Deliberately one-shot: no rail auto-repeats a reserved chord,
-    /// and self-driven repeat is not attempted.
+    /// One normalized chord press: binding dispatch first, then a single
+    /// one-shot ESC byte. A plain byte (not the enhanced-protocol
+    /// press/release pair) is correct for a synthesized chord. Deliberately
+    /// one-shot: no rail auto-repeats a reserved chord, and self-driven
+    /// repeat is not attempted.
     private func handleSystemCancelChordDelivery() {
         commitKoreanCompositionIfNeeded(external: true)
         if dispatchKeybindTrigger(.commandPeriod) { return }
-        let cancelEvent = OverlayKeyEvent(
-            keyCode: .keyboardEscape,
-            modifiers: [],
-            characters: UIKeyCommand.inputEscape
-        )
-        if presentedOverlayKeyHandler?(cancelEvent) == true { return }
-        if aiAgentOverlayActive {
-            NotificationCenter.default.post(name: .toggleAIAgent, object: self)
-            return
-        }
         NotificationCenter.default.post(name: .ghosttyDidReceiveInput, object: self)
         sendUserInput(Data([0x1B]))
     }
@@ -1841,7 +1785,6 @@ extension Ghostty.TerminalView {
 
     @objc func handleTabKey(_ command: UIKeyCommand) {
         commitKoreanCompositionIfNeeded(external: true)
-        if overlayConsumedKeyCommand(command) { return }
         if command.modifierFlags.isEmpty,
            let rule = ModTapManager.shared.activeRulesByKey[.keyboardTab] {
             modTapInterceptor.startPending(for: rule)
@@ -1860,7 +1803,6 @@ extension Ghostty.TerminalView {
 
     @objc func handleShiftTabKey(_ command: UIKeyCommand) {
         commitKoreanCompositionIfNeeded(external: true)
-        if overlayConsumedKeyCommand(command) { return }
         // Send backtab escape sequence \e[Z to session
         if let data = "\u{1B}[Z".data(using: .utf8) {
             sendUserInput(data)
@@ -1922,54 +1864,6 @@ extension Ghostty.TerminalView {
 
 extension Ghostty.TerminalView {
 
-    @objc func splitRight(_ command: UIKeyCommand) {
-        NotificationCenter.default.post(
-            name: .createSplit,
-            object: self,
-            userInfo: ["direction": "right"]
-        )
-    }
-
-    @objc func splitDown(_ command: UIKeyCommand) {
-        NotificationCenter.default.post(
-            name: .createSplit,
-            object: self,
-            userInfo: ["direction": "down"]
-        )
-    }
-
-    @objc func navigateSplitLeft(_ command: UIKeyCommand) {
-        NotificationCenter.default.post(
-            name: .navigateSplit,
-            object: self,
-            userInfo: ["direction": "left"]
-        )
-    }
-
-    @objc func navigateSplitRight(_ command: UIKeyCommand) {
-        NotificationCenter.default.post(
-            name: .navigateSplit,
-            object: self,
-            userInfo: ["direction": "right"]
-        )
-    }
-
-    @objc func navigateSplitUp(_ command: UIKeyCommand) {
-        NotificationCenter.default.post(
-            name: .navigateSplit,
-            object: self,
-            userInfo: ["direction": "up"]
-        )
-    }
-
-    @objc func navigateSplitDown(_ command: UIKeyCommand) {
-        NotificationCenter.default.post(
-            name: .navigateSplit,
-            object: self,
-            userInfo: ["direction": "down"]
-        )
-    }
-
     @objc func closeSplit(_ command: UIKeyCommand) {
         Ghostty.logger.info("TerminalView.closeSplit called on terminal \(self.uuid.uuidString.prefix(8))")
         NotificationCenter.default.post(
@@ -1978,100 +1872,11 @@ extension Ghostty.TerminalView {
             userInfo: ["windowId": windowId]
         )
     }
-
-    @objc func toggleSplitZoom(_ command: UIKeyCommand) {
-        NotificationCenter.default.post(
-            name: .toggleSplitZoom,
-            object: self
-        )
-    }
-
-    @objc func equalizeSplits(_ command: UIKeyCommand) {
-        NotificationCenter.default.post(
-            name: .equalizeSplits,
-            object: self
-        )
-    }
 }
 
 // MARK: - Tab Management Handlers
 
 extension Ghostty.TerminalView {
-
-    @objc func newTab(_ command: UIKeyCommand) {
-        NotificationCenter.default.post(
-            name: .newTab,
-            object: self,
-            userInfo: ["windowId": windowId]
-        )
-    }
-
-    @objc func newWindow(_ command: UIKeyCommand) {
-        NotificationCenter.default.post(
-            name: .newWindow,
-            object: self,
-            userInfo: ["windowId": windowId]
-        )
-    }
-
-    @objc func duplicateTabWithSSH(_ command: UIKeyCommand) {
-        NotificationCenter.default.post(
-            name: .duplicateTabWithSSH,
-            object: self
-        )
-    }
-
-    @objc func previousTab(_ command: UIKeyCommand) {
-        NotificationCenter.default.post(
-            name: .previousTab,
-            object: self
-        )
-    }
-
-    @objc func nextTab(_ command: UIKeyCommand) {
-        NotificationCenter.default.post(
-            name: .nextTab,
-            object: self
-        )
-    }
-
-    @objc func selectTab(_ command: UIKeyCommand) {
-        guard let input = command.input, let tabIndex = Int(input) else { return }
-        NotificationCenter.default.post(
-            name: .selectTab,
-            object: self,
-            userInfo: ["tabIndex": tabIndex]
-        )
-    }
-
-    @objc func openSettings(_ command: UIKeyCommand) {
-        NotificationCenter.default.post(
-            name: .openSettings,
-            object: self
-        )
-    }
-
-    @objc func createLocalShell(_ command: UIKeyCommand) {
-        NotificationCenter.default.post(
-            name: .createLocalShell,
-            object: self
-        )
-    }
-
-    @objc func browseHosts(_ command: UIKeyCommand) {
-        NotificationCenter.default.post(
-            name: .browseHosts,
-            object: self
-        )
-    }
-
-    @objc func toggleAIAgent(_ command: UIKeyCommand) {
-        Ghostty.logger.info("toggleAIAgent UIKeyCommand triggered")
-        NotificationCenter.default.post(
-            name: .toggleAIAgent,
-            object: self
-        )
-    }
 
     @objc func findInTerminal(_ command: UIKeyCommand) {
         performActionAsync("start_search")
@@ -2173,10 +1978,6 @@ extension Ghostty.TerminalView {
         NotificationCenter.default.post(name: .navigateSplit, object: self, userInfo: ["direction": "down"])
     }
 
-    @objc func menuCloseSplit(_ sender: Any?) {
-        NotificationCenter.default.post(name: .closeSplit, object: self)
-    }
-
     @objc func menuToggleSplitZoom(_ sender: Any?) {
         NotificationCenter.default.post(name: .toggleSplitZoom, object: self)
     }
@@ -2197,29 +1998,12 @@ extension Ghostty.TerminalView {
         NotificationCenter.default.post(name: .browseProfiles, object: self)
     }
 
-    @objc func menuToggleAIAgent(_ sender: Any?) {
-        Ghostty.logger.info("menuToggleAIAgent triggered")
-        NotificationCenter.default.post(name: .toggleAIAgent, object: self)
-    }
-
-    @objc func menuToggleVoiceAgent(_ sender: Any?) {
-        NotificationCenter.default.post(name: .toggleVoiceAgent, object: self)
-    }
-
     @objc func menuToggleTabBar(_ sender: Any?) {
         NotificationCenter.default.post(name: .toggleTabBar, object: self)
     }
 
     @objc func menuToggleGroupMode(_ sender: Any?) {
         NotificationCenter.default.post(name: .toggleGroupMode, object: self)
-    }
-
-    @objc func menuToggleTabSwitcher(_ sender: Any?) {
-        NotificationCenter.default.post(name: .showTabSwitcher, object: self)
-    }
-
-    @objc func menuToggleTabExpose(_ sender: Any?) {
-        NotificationCenter.default.post(name: .toggleTabExpose, object: self)
     }
 
     @objc func menuPreviousGroup(_ sender: Any?) {
@@ -2244,14 +2028,6 @@ extension Ghostty.TerminalView {
 
     @objc func menuToggleTitleBar(_ sender: Any?) {
         NotificationCenter.default.post(name: .toggleTitleBar, object: self)
-    }
-
-    @objc func menuToggleAutoRedact(_ sender: Any?) {
-        NotificationCenter.default.post(name: .toggleAutoRedact, object: self)
-    }
-
-    @objc func menuToggleBackgroundEffect(_ sender: Any?) {
-        NotificationCenter.default.post(name: .toggleBackgroundEffect, object: self)
     }
 
     @objc func menuToggleFullScreen(_ sender: Any?) {
@@ -2280,14 +2056,6 @@ extension Ghostty.TerminalView {
         performActionAsync("scroll_to_bottom")
     }
 
-    @objc func menuToggleThemePicker(_ sender: Any?) {
-        NotificationCenter.default.post(name: .toggleThemePicker, object: self)
-    }
-
-    @objc func menuToggleClipboardManager(_ sender: Any?) {
-        NotificationCenter.default.post(name: .toggleClipboardManager, object: self)
-    }
-
     @objc func menuToggleCompose(_ sender: Any?) {
         if showComposeOverlay {
             becomeFirstResponder()
@@ -2298,6 +2066,10 @@ extension Ghostty.TerminalView {
 
     @objc func menuToggleMouseCapture(_ sender: Any?) {
         toggleMouseReporting()
+        // `toggleMouseReporting()` refreshes `isMouseCaptured` synchronously,
+        // so the menu bar's checkmark reads the settled value. `isMouseCaptured`
+        // is a plain `@Published` on a UIView, which `@Observable` cannot see.
+        MenuFocusState.shared.notePaneStateChanged()
     }
 
     @objc func menuCycleInputSource(_ sender: Any?) {
@@ -2332,12 +2104,6 @@ extension Ghostty.TerminalView {
             // Reject a twin of a chord delivery already handled on another rail.
             guard inputController.consumeSystemCancelChordDelivery() else { return }
         }
-
-        // A user-bound navigation key (arrow/Return/Tab/Escape/digit) still
-        // belongs to a presented overlay before the keybind runs. Do this after
-        // normalizing Cmd+Period above because UIKit can translate that chord
-        // into plain Escape, which must not cancel the overlay when it is bound.
-        if overlayConsumedKeyCommand(command) { return }
 
         guard dispatchKeybindTrigger(commandTrigger) else {
             let trigFormat = commandTrigger.ghosttyFormat

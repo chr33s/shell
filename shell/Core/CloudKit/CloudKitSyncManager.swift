@@ -130,6 +130,13 @@ final class CloudKitSyncManager {
         SSHIdentityMetadataStore.shared.onLocalChange = { [weak self] metadata, operation in
             self?.recordLocalChange(metadata, operation: operation)
         }
+        // The key manager's launch-time backfill runs here, immediately after
+        // the callback above exists, rather than from `SSHKeyManager.init()`.
+        // The store skips a record whose content is unchanged, so only the
+        // first publish can fire `onLocalChange`: backfilling from that init
+        // meant a device that touched `SSHKeyManager.shared` first wrote the
+        // metadata to disk with no callback attached and pushed nothing.
+        SSHKeyManager.shared.publishInitialIdentityMetadata()
 
         // Known Hosts changes
         KnownHostsManager.shared.onLocalChange = { [weak self] host, operation in
@@ -241,12 +248,20 @@ final class CloudKitSyncManager {
         syncState = .fetchingChanges
         do {
             _ = try await ensureCustomZoneReady()
-            // An existing change token has already consumed past AppSetting
-            // records, so fetch the zone from scratch.
-            let changes = try await fetchZoneChanges(resetToken: true)
-            await processChangedRecords(changes.records)
-            await processDeletedRecords(changes.deletedRecords)
-            let cloud = changes.records.compactMap { $0.recordType == AppSettingRecord.recordType ? AppSettingRecord.from($0) : nil }
+            // The decision ahead is only about AppSetting records, and the user
+            // has not answered the merge dialog yet — so read those and nothing
+            // else, and leave every other record class (and the change token)
+            // to the regular sync path.
+            let settingRecords = try await fetchSettingRecordsFromScratch()
+            // Replace the cache rather than merge into it. An entry left behind
+            // by an earlier attempt the user cancelled may name a record that
+            // has since been deleted server-side, and this read — taken with
+            // the toggle still off, so no save is relying on those change tags
+            // — is the authority on what the zone holds now.
+            settingServerRecords = Dictionary(
+                settingRecords.map { ($0.recordID.recordName, $0) },
+                uniquingKeysWith: { $1 })
+            let cloud = settingRecords.compactMap { AppSettingRecord.from($0) }
             let preview = coordinator.mergePreview(cloud: cloud)
 
             // A cloud holding only resets still conflicts with local values.
@@ -265,6 +280,19 @@ final class CloudKitSyncManager {
             syncState = .error(syncError)
             throw syncError
         }
+    }
+
+    /// The merge dialog was dismissed without a choice: the toggle snaps back
+    /// and the flag stays false. Drop the record cache the preview fetch filled,
+    /// because `completeAppSettingsSyncEnable` prefers that cache over
+    /// `preview.cloud` — a record deleted server-side between this attempt and
+    /// a later confirm would otherwise linger there and be merged back in as a
+    /// cloud value. Cleared here, a later confirm re-reads the zone.
+    func cancelAppSettingsSyncEnable() {
+        // Only a cancel that leaves sync off may clear this: once the toggle is
+        // on, the cache holds the change tags that keep saves conditional.
+        guard !isAppSettingsSyncEnabled else { return }
+        settingServerRecords = [:]
     }
 
     /// Finish enabling after the merge choice (or automatically when one side was empty).
@@ -425,30 +453,13 @@ final class CloudKitSyncManager {
             let shouldPushAll = try await ensureCustomZoneReady()
             try await registerSubscriptions()
 
-            // If migration happened during revalidation, push records now.
+            // If the zone was created during revalidation, push records now.
             // The push-all decision must be forwarded: performSync re-runs
             // ensureCustomZoneReady, which returns false now that the zone
-            // exists and the migration flag is persisted.
+            // exists.
             if shouldPushAll {
-                Self.logger.info("Migration detected during revalidation, triggering sync")
+                Self.logger.info("Zone created during revalidation, triggering sync")
                 try await performSync(forcePushAll: true)
-            } else if !pendingInitialPushTypes.isEmpty {
-                // New record types were added since sync was enabled
-                // First fetch to get any remote changes, then push all local records for new types
-                Self.logger.info("New record types detected (\(self.pendingInitialPushTypes)), fetching and pushing")
-                let typesToPush = pendingInitialPushTypes
-                pendingInitialPushTypes.removeAll()
-
-                // Fetch remote changes first
-                syncState = .fetchingChanges
-                let changes = try await fetchZoneChanges()
-                await processChangedRecords(changes.records)
-                await processDeletedRecords(changes.deletedRecords)
-
-                // Push all local records for the new types
-                try await pushNewRecordTypes(typesToPush)
-
-                syncState = .idle
             } else {
                 // Log current state for debugging
                 Self.logger.debug("Revalidation complete. Identity metadata enabled: \(self.isIdentityMetadataSyncEnabled), KnownHosts enabled: \(self.isKnownHostsSyncEnabled), Profiles enabled: \(self.isProfilesSyncEnabled)")
@@ -537,10 +548,8 @@ final class CloudKitSyncManager {
             await processDeletedRecords(changes.deletedRecords)
 
             if shouldPushAll {
-                // ensureCustomZoneReady may have just created the zone or run
-                // the legacy default-zone migration, and the migration flag is
-                // already persisted — push now or the migrated records never
-                // reach the custom zone.
+                // ensureCustomZoneReady may have just created the zone —
+                // push now or the local records never reach the custom zone.
                 syncState = .pushingChanges
                 try await pushAllLocalRecords()
             }
@@ -573,41 +582,6 @@ final class CloudKitSyncManager {
         "cloudKitEmptyRecoveryAttempted.\(recordType)"
     }
 
-    /// Push records for newly added record types
-    private func pushNewRecordTypes(_ types: Set<String>) async throws {
-        syncState = .pushingChanges
-
-        for recordType in types {
-            switch recordType {
-            case ConnectionProfile.recordType:
-                let profiles = ConnectionProfileManager.shared.allRecordsForSync
-                Self.logger.info("Pushing \(profiles.count) profiles for newly enabled profiles sync")
-                for profile in profiles {
-                    await pushRecord(profile, operation: .create)
-                }
-            case SSHIdentityMetadata.recordType:
-                let entries = SSHIdentityMetadataStore.shared.allRecordsForSync
-                Self.logger.info("Pushing \(entries.count) identity metadata records for newly enabled identity sync")
-                for entry in entries {
-                    await pushRecord(entry, operation: .create)
-                }
-            case KnownHost.recordType:
-                let hosts = KnownHostsManager.shared.allRecordsForSync
-                Self.logger.info("Pushing \(hosts.count) known hosts for newly enabled hosts sync")
-                for host in hosts {
-                    await pushRecord(host, operation: .create)
-                }
-            case AppSettingRecord.recordType:
-                // Settings are opt-in through setAppSettingsSyncEnabled; never pushed here.
-                break
-            default:
-                Self.logger.warning("Unknown record type in pending push: \(recordType)")
-            }
-        }
-
-        syncState = .idle
-    }
-
     /// Enable or disable sync
     func setEnabled(_ enabled: Bool) async throws {
         guard enabled != isSyncEnabled else { return }
@@ -622,14 +596,19 @@ final class CloudKitSyncManager {
                 throw CloudKitSyncError.accountNotAvailable
             }
 
-            // Set flags BEFORE initial sync so pushAllLocalRecords knows what to push
+            // Set flags BEFORE initial sync so pushAllLocalRecords knows what to push.
             isSyncEnabled = true
-            isIdentityMetadataSyncEnabled = true
-            isKnownHostsSyncEnabled = true
-            isProfilesSyncEnabled = true
+            // The three per-class toggles default on, but only the first time
+            // sync is enabled. Thereafter an explicit choice wins: a user who
+            // turned "Sync Profiles" off and later cycled the master toggle
+            // used to get profile sync back without being asked.
+            let firstEnable = Self.firstEnableFlags()
+            isIdentityMetadataSyncEnabled = firstEnable.identityMetadata
+            isKnownHostsSyncEnabled = firstEnable.knownHosts
+            isProfilesSyncEnabled = firstEnable.profiles
 
             do {
-                // Ensure custom zone exists (and migrate legacy data if needed)
+                // Ensure custom zone exists
                 _ = try await ensureCustomZoneReady()
 
                 // Register subscriptions
@@ -671,7 +650,9 @@ final class CloudKitSyncManager {
             offlineQueue.clearAll()
             invalidateSettingsSync()
 
-            // Save settings
+            // Save settings. The in-memory per-class flags go false so nothing
+            // can push while sync is off; `saveSettings()` keeps their stored
+            // preferences exactly as the user left them.
             isSyncEnabled = false
             isIdentityMetadataSyncEnabled = false
             isKnownHostsSyncEnabled = false
@@ -685,22 +666,47 @@ final class CloudKitSyncManager {
         }
     }
 
-    /// Set whether SSH history sync is enabled
-    func setHistorySyncEnabled(_ enabled: Bool) {
+    /// Set whether SSH identity metadata sync is enabled
+    func setIdentityMetadataSyncEnabled(_ enabled: Bool) {
+        guard enabled != isIdentityMetadataSyncEnabled else { return }
         isIdentityMetadataSyncEnabled = enabled
+        // Both names are written so the UI-facing key and the inherited
+        // rootshell name can never disagree; `loadSettings()` prefers the
+        // former and falls back to the latter.
         UserDefaults.standard.set(enabled, forKey: CloudKitSyncSettings.syncHistoryKey)
+        UserDefaults.standard.set(enabled, forKey: CloudKitSyncSettings.syncIdentityMetadataKey)
+        guard enabled, isSyncEnabled else { return }
+        Task { await backfill(SSHIdentityMetadataStore.shared.allRecordsForSync) }
     }
 
     /// Set whether known hosts sync is enabled
     func setKnownHostsSyncEnabled(_ enabled: Bool) {
+        guard enabled != isKnownHostsSyncEnabled else { return }
         isKnownHostsSyncEnabled = enabled
         UserDefaults.standard.set(enabled, forKey: CloudKitSyncSettings.syncKnownHostsKey)
+        guard enabled, isSyncEnabled else { return }
+        Task { await backfill(KnownHostsManager.shared.allRecordsForSync) }
     }
 
     /// Set whether connection profiles sync is enabled
     func setProfilesSyncEnabled(_ enabled: Bool) {
+        guard enabled != isProfilesSyncEnabled else { return }
         isProfilesSyncEnabled = enabled
         UserDefaults.standard.set(enabled, forKey: CloudKitSyncSettings.syncProfilesKey)
+        guard enabled, isSyncEnabled else { return }
+        Task { await backfill(ConnectionProfileManager.shared.allRecordsForSync) }
+    }
+
+    /// Re-push a record class that was just switched back on, so edits made
+    /// while it was off are not silently missing from iCloud. Uses the same
+    /// per-record path as `pushAllLocalRecords()`, which already diverts to the
+    /// offline queue under rate-limit backoff.
+    private func backfill<T: CloudKitSyncable>(_ records: [T]) async {
+        guard !records.isEmpty else { return }
+        Self.logger.info("Backfilling \(records.count) \(T.recordType) records after re-enable")
+        for record in records {
+            await pushRecord(record, operation: .create)
+        }
     }
 
     /// Trigger a manual sync
@@ -726,7 +732,6 @@ final class CloudKitSyncManager {
         Self.logger.info("Last sync: \(self.lastSyncDate?.description ?? "never")")
         Self.logger.info("Pending changes: \(self.pendingChangesCount)")
         Self.logger.info("Has change token: \(self.zoneChangeToken != nil)")
-        Self.logger.info("Migrated to custom zone: \(UserDefaults.standard.bool(forKey: CloudKitSyncSettings.migratedToCustomZoneKey))")
         Self.logger.info("Network available: \(self.isNetworkAvailable)")
 
         if isSyncEnabled {
@@ -839,13 +844,13 @@ final class CloudKitSyncManager {
 
     /// Perform a full sync cycle
     /// - Parameter forcePushAll: Push all local records even if the zone was
-    ///   already ready (used when the caller observed zone creation/migration
-    ///   in its own ensureCustomZoneReady call).
+    ///   already ready (used when the caller observed zone creation in its
+    ///   own ensureCustomZoneReady call).
     private func performSync(forcePushAll: Bool = false) async throws {
         syncState = .fetchingChanges
 
         do {
-            // Ensure custom zone exists (and migrate legacy data if needed)
+            // Ensure custom zone exists
             let zoneRequiresPush = try await ensureCustomZoneReady()
             let shouldPushAll = forcePushAll || zoneRequiresPush
 
@@ -858,7 +863,7 @@ final class CloudKitSyncManager {
             syncState = .pushingChanges
 
             if shouldPushAll {
-                // Zone was just created or migration happened - push all local records
+                // Zone was just created - push all local records
                 Self.logger.info("Pushing all local records to custom zone")
                 try await pushAllLocalRecords()
             } else {
@@ -888,7 +893,7 @@ final class CloudKitSyncManager {
 
     /// Perform initial sync when first enabling
     private func performInitialSync() async throws {
-        // Ensure custom zone exists (and migrate legacy data if needed)
+        // Ensure custom zone exists
         _ = try await ensureCustomZoneReady()
 
         // Fetch all existing records from the custom zone
@@ -903,60 +908,6 @@ final class CloudKitSyncManager {
         UserDefaults.standard.set(lastSyncDate, forKey: CloudKitSyncSettings.lastSyncDateKey)
     }
 
-    /// Fetch all records of a type from the legacy default zone
-    /// Returns true if fetch succeeded, false if record type doesn't exist yet
-    @discardableResult
-    private func fetchAllRecords<T: CloudKitSyncable>(type: T.Type) async throws -> Bool {
-        // Don't use sort descriptors - CloudKit requires fields to be marked queryable/sortable
-        // in the dashboard. We'll sort locally after fetching.
-        let query = CKQuery(recordType: T.recordType, predicate: NSPredicate(value: true))
-
-        var allRecords: [CKRecord] = []
-        var cursor: CKQueryOperation.Cursor? = nil
-
-        do {
-            repeat {
-                let result: (matchResults: [(CKRecord.ID, Result<CKRecord, Error>)], queryCursor: CKQueryOperation.Cursor?)
-
-                if let cursor = cursor {
-                    result = try await database.records(continuingMatchFrom: cursor)
-                } else {
-                    result = try await database.records(matching: query)
-                }
-
-                for (_, recordResult) in result.matchResults {
-                    if case .success(let record) = recordResult {
-                        allRecords.append(record)
-                    }
-                }
-
-                cursor = result.queryCursor
-            } while cursor != nil
-        } catch let error as CKError {
-            // Record type doesn't exist yet - this is fine on first sync
-            // The schema will be created when we push local records
-            if error.code == .unknownItem {
-                Self.logger.info("Record type \(T.recordType) doesn't exist yet, will be created on first push")
-                return false
-            }
-            // In development, fields may not be marked queryable - treat as empty
-            // User needs to configure indexes in CloudKit Dashboard for queries to work
-            if error.code == .invalidArguments,
-               error.localizedDescription.contains("not marked queryable") {
-                Self.logger.warning("Record type \(T.recordType) not queryable - configure indexes in CloudKit Dashboard")
-                return true  // Schema exists but can't query - don't re-push all records
-            }
-            throw error
-        }
-
-        Self.logger.info("Fetched \(allRecords.count) \(T.recordType) records from CloudKit")
-
-        // Apply to local store
-        let records = allRecords.compactMap { T.from($0) }
-        await applyRemoteRecords(records, type: type)
-        return true
-    }
-
     private struct DeletedRecord {
         let recordID: CKRecord.ID
         let recordType: CKRecord.RecordType
@@ -968,8 +919,8 @@ final class CloudKitSyncManager {
         let newChangeToken: CKServerChangeToken?
     }
 
-    /// Ensure the custom record zone exists and legacy data is migrated
-    /// - Returns: true if local records should be pushed to CloudKit (zone created OR migration performed)
+    /// Ensure the custom record zone exists
+    /// - Returns: true if the zone was just created and local records should be pushed
     private func ensureCustomZoneReady() async throws -> Bool {
         let zoneID = CloudKitSyncSettings.zoneID
         let existingZone = try await fetchRecordZone(zoneID)
@@ -983,15 +934,7 @@ final class CloudKitSyncManager {
             Self.logger.info("Created custom CloudKit zone: \(zoneID.zoneName)")
         }
 
-        let didMigrate = try await migrateLegacyDefaultZoneIfNeeded()
-
-        // Push all records if zone was just created OR if we migrated legacy data
-        // This ensures devices that didn't create the zone still push their migrated data
-        let shouldPushAll = zoneCreated || didMigrate
-        if shouldPushAll {
-            Self.logger.info("Will push all local records (zoneCreated=\(zoneCreated), didMigrate=\(didMigrate))")
-        }
-        return shouldPushAll
+        return zoneCreated
     }
 
     /// Fetch a record zone by ID
@@ -1029,32 +972,6 @@ final class CloudKitSyncManager {
         }
     }
 
-    /// One-time migration from the legacy default zone into local storage
-    /// Returns true if migration was performed and records should be pushed to custom zone
-    private func migrateLegacyDefaultZoneIfNeeded() async throws -> Bool {
-        guard !UserDefaults.standard.bool(forKey: CloudKitSyncSettings.migratedToCustomZoneKey) else { return false }
-        guard isIdentityMetadataSyncEnabled || isKnownHostsSyncEnabled else { return false }
-
-        Self.logger.info("Migrating legacy default-zone CloudKit records")
-
-        do {
-            if isIdentityMetadataSyncEnabled {
-                _ = try await fetchAllRecords(type: SSHIdentityMetadata.self)
-            }
-
-            if isKnownHostsSyncEnabled {
-                _ = try await fetchAllRecords(type: KnownHost.self)
-            }
-
-            UserDefaults.standard.set(true, forKey: CloudKitSyncSettings.migratedToCustomZoneKey)
-            Self.logger.info("Legacy CloudKit migration complete - will push to custom zone")
-            return true
-        } catch {
-            Self.logger.warning("Legacy CloudKit migration failed: \(error.localizedDescription)")
-            return false
-        }
-    }
-
     /// Fetch incremental changes from the custom zone
     private func fetchZoneChanges(resetToken: Bool = false) async throws -> ZoneChanges {
         if resetToken {
@@ -1079,6 +996,39 @@ final class CloudKitSyncManager {
             Self.logger.warning("Custom CloudKit zone not found, recreating")
             _ = try await ensureCustomZoneReady()
             return ZoneChanges(records: [], deletedRecords: [], newChangeToken: zoneChangeToken)
+        }
+    }
+
+    /// Read every `AppSetting` record currently in the zone, without disturbing
+    /// the stored change token or any other record class.
+    ///
+    /// A from-scratch read is genuinely needed: an existing change token has
+    /// already consumed past `AppSetting` records, and while settings sync was
+    /// off `processChangedRecords` dropped them. CloudKit cannot narrow a
+    /// zone-changes fetch to one record type — `CKFetchRecordZoneChangesOperation`'s
+    /// per-zone configuration selects a *previous token* and *desired keys*,
+    /// never a record type — so the whole zone crosses the wire and the
+    /// filtering happens here. (Querying by record type instead would need a
+    /// queryable index on a schema this app creates implicitly, so it is not a
+    /// safer alternative.)
+    ///
+    /// What this does avoid is the wider side effects. Nothing but settings is
+    /// applied, so the caller cannot replay every remote profile, known host
+    /// and identity-metadata record before the user has even answered the merge
+    /// dialog. And `zoneChangeToken` is left exactly as it was: adopting the
+    /// token this read produces would mark those other classes' pending changes
+    /// as seen without ever applying them, and clearing it would make the next
+    /// sync replay the entire zone. Untouched, the regular delta sync resumes
+    /// from where it was, and a cancelled merge leaves no trace at all.
+    private func fetchSettingRecordsFromScratch() async throws -> [CKRecord] {
+        do {
+            let changes = try await fetchZoneChangesInternal(previousToken: nil)
+            return changes.records.filter { $0.recordType == AppSettingRecord.recordType }
+        } catch let ckError as CKError where ckError.code == .zoneNotFound {
+            // `ensureCustomZoneReady()` runs first, so this means the zone was
+            // removed underneath us: there are no cloud settings to merge.
+            Self.logger.warning("Zone not found while reading settings records")
+            return []
         }
     }
 
@@ -1421,30 +1371,11 @@ final class CloudKitSyncManager {
         }
 
         if isKnownHostsSyncEnabled {
-            // Check if there's legacy data that wasn't migrated
-            let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            let legacyURL = documentsURL
-                .appendingPathComponent(".ghostty", isDirectory: true)
-                .appendingPathComponent("known_hosts.json")
-            let hasLegacyData = FileManager.default.fileExists(atPath: legacyURL.path)
-
-            if hasLegacyData && KnownHostsManager.shared.allRecordsForSync.isEmpty {
-                Self.logger.warning("Found legacy known_hosts.json but store is empty - force re-migrating")
-                SyncMigrationManager.forceMigrateKnownHosts()
-                KnownHostsManager.shared.reload()
-            }
-
             let hosts = KnownHostsManager.shared.allRecordsForSync
-            Self.logger.info("Pushing \(hosts.count) known host records to CloudKit (legacy file exists: \(hasLegacyData))")
+            Self.logger.info("Pushing \(hosts.count) known host records to CloudKit")
 
             for host in hosts {
                 await pushRecord(host, operation: .create)
-            }
-
-            // Clean up legacy file after successful push
-            if hasLegacyData && !hosts.isEmpty {
-                try? FileManager.default.removeItem(at: legacyURL)
-                Self.logger.info("Cleaned up legacy known_hosts.json")
             }
         }
 
@@ -1515,29 +1446,11 @@ final class CloudKitSyncManager {
             _ = try await database.save(subscription)
             Self.logger.info("Created zone subscription: \(subscriptionID) for zone: \(zoneID.zoneName)")
         }
-
-        // Clean up legacy per-record-type query subscriptions (default zone)
-        let legacyIDs = [
-            "\(SSHIdentityMetadata.recordType.lowercased())-changes",
-            "\(KnownHost.recordType.lowercased())-changes"
-        ]
-        for legacyID in legacyIDs {
-            do {
-                try await database.deleteSubscription(withID: legacyID)
-                Self.logger.debug("Cleaned up legacy subscription: \(legacyID)")
-            } catch {
-                // Ignore - may not exist
-            }
-        }
     }
 
     /// Remove CloudKit subscriptions
     private func removeSubscriptions() async throws {
-        let subscriptionIDs = [
-            "shell-sync-zone-changes",
-            "\(SSHIdentityMetadata.recordType.lowercased())-changes",
-            "\(KnownHost.recordType.lowercased())-changes"
-        ]
+        let subscriptionIDs = ["shell-sync-zone-changes"]
 
         for subscriptionID in subscriptionIDs {
             do {
@@ -1551,46 +1464,92 @@ final class CloudKitSyncManager {
 
     // MARK: - Settings & State
 
-    /// Track record types that need initial push (added after sync was enabled)
-    @ObservationIgnored
-    private var pendingInitialPushTypes: Set<String> = []
+    /// The three per-record-class sync preferences, in the order they are
+    /// applied to the published flags.
+    typealias PerClassSyncFlags = (identityMetadata: Bool, knownHosts: Bool, profiles: Bool)
+
+    /// The stored value of a per-record-class sync preference, or `nil` when
+    /// the user has never made a choice. `bool(forKey:)` alone cannot tell
+    /// "absent" from "explicitly off", and the first-enable defaults depend on
+    /// exactly that distinction, so the presence check comes first.
+    ///
+    /// `defaults` is a parameter only so tests can drive a throwaway suite;
+    /// every caller in the app uses `.standard`.
+    static func storedChoice(_ key: String, defaults: UserDefaults = .standard) -> Bool? {
+        guard defaults.object(forKey: key) != nil else { return nil }
+        return defaults.bool(forKey: key)
+    }
+
+    /// The identity-metadata preference under either of its two names.
+    ///
+    /// The UI writes `cloudKitSyncIdentityMetadata`; the inherited rootshell
+    /// name is `cloudKitSyncHistory`. Prefer the UI key when it has ever been
+    /// written and fall back to the legacy one, so a device that only holds the
+    /// legacy value is not read as "never chosen".
+    static func storedIdentityMetadataChoice(defaults: UserDefaults = .standard) -> Bool? {
+        storedChoice(CloudKitSyncSettings.syncIdentityMetadataKey, defaults: defaults)
+            ?? storedChoice(CloudKitSyncSettings.syncHistoryKey, defaults: defaults)
+    }
+
+    /// The per-class flags a *first* enable adopts. A preference that was never
+    /// written means "not asked yet", which here — and only here — defaults on.
+    /// An explicit `false` survives the master toggle being cycled.
+    static func firstEnableFlags(defaults: UserDefaults = .standard) -> PerClassSyncFlags {
+        (
+            identityMetadata: storedIdentityMetadataChoice(defaults: defaults) ?? true,
+            knownHosts: storedChoice(CloudKitSyncSettings.syncKnownHostsKey, defaults: defaults) ?? true,
+            profiles: storedChoice(CloudKitSyncSettings.syncProfilesKey, defaults: defaults) ?? true
+        )
+    }
+
+    /// The per-class flags restored at launch. The asymmetry with
+    /// `firstEnableFlags` is deliberate: a preference that was never written
+    /// means off at launch, so a device that has not been asked syncs nothing
+    /// until it is.
+    static func launchFlags(syncEnabled: Bool, defaults: UserDefaults = .standard) -> PerClassSyncFlags {
+        (
+            identityMetadata: syncEnabled && (storedIdentityMetadataChoice(defaults: defaults) ?? false),
+            knownHosts: syncEnabled && (storedChoice(CloudKitSyncSettings.syncKnownHostsKey, defaults: defaults) ?? false),
+            profiles: syncEnabled && (storedChoice(CloudKitSyncSettings.syncProfilesKey, defaults: defaults) ?? false)
+        )
+    }
 
     private func loadSettings() {
         isSyncEnabled = UserDefaults.standard.bool(forKey: CloudKitSyncSettings.enabledKey)
-        isIdentityMetadataSyncEnabled = UserDefaults.standard.bool(forKey: CloudKitSyncSettings.syncHistoryKey)
-        isKnownHostsSyncEnabled = UserDefaults.standard.bool(forKey: CloudKitSyncSettings.syncKnownHostsKey)
+        // Absent means off here: this is launch state, and a device that has
+        // never enabled sync syncs nothing. `setEnabled(true)` is the only
+        // place a missing preference means "default on", and it re-reads these
+        // keys rather than trusting the flags below.
+        let launch = Self.launchFlags(syncEnabled: isSyncEnabled)
+        isIdentityMetadataSyncEnabled = launch.identityMetadata
+        isKnownHostsSyncEnabled = launch.knownHosts
+        isProfilesSyncEnabled = launch.profiles
         lastSyncDate = UserDefaults.standard.object(forKey: CloudKitSyncSettings.lastSyncDateKey) as? Date
 
-        // Handle profiles sync - detect if sync is enabled but profiles flag was never set
-        // This happens when profiles sync was added after the user already enabled sync
-        let profilesKeyValue = UserDefaults.standard.object(forKey: CloudKitSyncSettings.syncProfilesKey)
-
-        if isSyncEnabled {
-            if profilesKeyValue == nil {
-                // Profiles sync key doesn't exist - this is a new record type
-                // Auto-enable and mark for initial push
-                Self.logger.info("Profiles sync not configured but sync enabled - auto-enabling and scheduling push")
-                isProfilesSyncEnabled = true
-                UserDefaults.standard.set(true, forKey: CloudKitSyncSettings.syncProfilesKey)
-                pendingInitialPushTypes.insert(ConnectionProfile.recordType)
-            } else {
-                isProfilesSyncEnabled = UserDefaults.standard.bool(forKey: CloudKitSyncSettings.syncProfilesKey)
-            }
-        } else {
-            isProfilesSyncEnabled = UserDefaults.standard.bool(forKey: CloudKitSyncSettings.syncProfilesKey)
-        }
-
-        // Plain read: settings sync is opt-in and never joins the auto-enable path above.
+        // Settings sync is opt-in and is never auto-enabled.
         isAppSettingsSyncEnabled = isSyncEnabled && UserDefaults.standard.bool(forKey: CloudKitSyncSettings.syncAppSettingsKey)
 
         syncState = isSyncEnabled ? .idle : .disabled
     }
 
+    /// Persists the sync flags.
+    ///
+    /// The three per-record-class preferences are written only while sync is
+    /// enabled — while it is off the in-memory flags are all false for gating
+    /// purposes and say nothing about what the user wants. Turning the master
+    /// toggle off means "stop syncing", not "the user wants profiles off", and
+    /// writing false over those keys would leave the next enable unable to tell
+    /// a real choice from the master switch's own bookkeeping.
     private func saveSettings() {
         UserDefaults.standard.set(isSyncEnabled, forKey: CloudKitSyncSettings.enabledKey)
-        UserDefaults.standard.set(isIdentityMetadataSyncEnabled, forKey: CloudKitSyncSettings.syncHistoryKey)
-        UserDefaults.standard.set(isKnownHostsSyncEnabled, forKey: CloudKitSyncSettings.syncKnownHostsKey)
-        UserDefaults.standard.set(isProfilesSyncEnabled, forKey: CloudKitSyncSettings.syncProfilesKey)
+        if isSyncEnabled {
+            // Both identity-metadata names are written so the UI-facing key and
+            // the inherited rootshell name can never disagree.
+            UserDefaults.standard.set(isIdentityMetadataSyncEnabled, forKey: CloudKitSyncSettings.syncHistoryKey)
+            UserDefaults.standard.set(isIdentityMetadataSyncEnabled, forKey: CloudKitSyncSettings.syncIdentityMetadataKey)
+            UserDefaults.standard.set(isKnownHostsSyncEnabled, forKey: CloudKitSyncSettings.syncKnownHostsKey)
+            UserDefaults.standard.set(isProfilesSyncEnabled, forKey: CloudKitSyncSettings.syncProfilesKey)
+        }
         UserDefaults.standard.set(isAppSettingsSyncEnabled, forKey: CloudKitSyncSettings.syncAppSettingsKey)
     }
 

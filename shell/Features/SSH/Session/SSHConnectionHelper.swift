@@ -293,34 +293,33 @@ enum SSHConnectionHelper {
 
     /// Build a host key validator using CitadelHostKeyValidatorDelegate + KnownHostsManager.
     ///
-    /// Resolves the trusted host CAs that apply to `host` (from `HostCAManager`)
-    /// and hands them to the delegate, so a server presenting a CA-signed host
-    /// certificate validates without prompting. CA validation is wired for every
-    /// caller here; the matching connection must also advertise host-certificate
-    /// algorithms (see `hostCertificateProtocolOptions(forHost:)`) for the server
-    /// to actually send a certificate.
+    /// Host trust is known-hosts only: the presented key either matches a stored
+    /// entry or the user is prompted. Host certificate authorities are out of
+    /// scope for this fork (see spec.md §3.1), so no CA keys are supplied and the
+    /// delegate never takes its certificate path. This is unrelated to OpenSSH
+    /// *user* certificates, which are supported and live in `Features/SSH/Keys`.
     static func buildHostKeyValidator(
         for host: String,
         port: Int,
         label: String? = nil,
         onValidation: ((HostKeyValidationRequest) async -> HostKeyValidationResult)?
     ) -> SSHHostKeyValidator {
-        let trustedCAKeys = HostCAManager.shared.trustedCAKeys(forHost: host)
         let delegate = CitadelHostKeyValidatorDelegate(
             hostname: host,
             port: port,
             label: label,
-            trustedCAKeys: trustedCAKeys,
             onValidation: onValidation
         )
         return .custom(delegate)
     }
 
-    /// Protocol options that advertise OpenSSH host-certificate algorithms when a
-    /// configured CA applies to `host`, so a certificate-capable server presents a
-    /// host certificate. Empty when no CA matches, leaving negotiation unchanged.
+    /// Protocol options for a client connection. Always empty: host certificate
+    /// authorities are out of scope (see spec.md §3.1), so we never advertise
+    /// OpenSSH host-certificate algorithms and host-key negotiation is left
+    /// exactly as it was. Kept as the single call site every connection assigns
+    /// from, so the behaviour is stated once rather than at six settings sites.
     static func hostCertificateProtocolOptions(forHost host: String) -> Set<SSHProtocolOption> {
-        HostCAManager.shared.hasCA(forHost: host) ? [.advertiseHostCertificateAlgorithms] : []
+        []
     }
 
     // MARK: - SSH Connection

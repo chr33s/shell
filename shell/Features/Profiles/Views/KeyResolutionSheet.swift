@@ -148,7 +148,14 @@ struct KeyResolutionSheet: View {
 
     @ViewBuilder
     private func keyPickerView(selection: Binding<UUID?>, filterType: SSHKey.KeyType?) -> some View {
-        let availableKeys = keyManager.savedKeys
+        // Narrow to the algorithm the original key used — a replacement of a
+        // different type usually is not in the server's authorized_keys. If no
+        // local key matches, fall back to the full list rather than a dead end:
+        // the user may well have a working key of another algorithm.
+        let sameType = filterType.map { type in
+            keyManager.savedKeys.filter { $0.keyType == type }
+        } ?? keyManager.savedKeys
+        let availableKeys = sameType.isEmpty ? keyManager.savedKeys : sameType
         if availableKeys.isEmpty {
             Text("No SSH keys available on this device")
                 .foregroundStyle(.secondary)

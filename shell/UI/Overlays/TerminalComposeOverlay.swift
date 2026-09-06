@@ -286,15 +286,11 @@ private struct ComposeTextView: UIViewRepresentable {
         if autocorrectEnabled {
             textView.autocorrectionType = .yes
             textView.spellCheckingType = .yes
-            if #available(iOS 17.0, *) {
-                textView.inlinePredictionType = .yes
-            }
+            textView.inlinePredictionType = .yes
         } else {
             textView.autocorrectionType = .no
             textView.spellCheckingType = .no
-            if #available(iOS 17.0, *) {
-                textView.inlinePredictionType = .no
-            }
+            textView.inlinePredictionType = .no
         }
         textView.autocapitalizationType = .none
         textView.smartQuotesType = .no
@@ -326,12 +322,7 @@ private extension View {
         #if os(visionOS)
         self.background(.regularMaterial, in: shape)
         #else
-        if #available(iOS 26.0, macOS 26.0, *) {
-            self.glassEffect(.regular, in: shape)
-        } else {
-            self.background(.ultraThinMaterial, in: shape)
-                .shadow(color: .black.opacity(0.2), radius: 12, x: 0, y: 6)
-        }
+        self.glassEffect(.regular, in: shape)
         #endif
     }
 }

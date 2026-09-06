@@ -105,7 +105,7 @@ struct TabIndicatorOverlay: View {
     }
 }
 
-// MARK: - AI Agent Sidebar Container
+// MARK: - Container Corner Modifier
 
 struct ContainerCornerModifier: ViewModifier {
     func body(content: Content) -> some View {
@@ -113,11 +113,7 @@ struct ContainerCornerModifier: ViewModifier {
         // containerCornerOffset is not available on visionOS
         content
 #else
-        if #available(iOS 26.0, *) {
-            content.containerCornerOffset(.leading, sizeToFit: true)
-        } else {
-            content
-        }
+        content.containerCornerOffset(.leading, sizeToFit: true)
 #endif
     }
 }

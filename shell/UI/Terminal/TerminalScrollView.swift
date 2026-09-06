@@ -404,7 +404,7 @@ extension Ghostty {
         scrollView.alwaysBounceVertical = false
         scrollView.alwaysBounceHorizontal = false
 
-        // iOS 11.1+: Use content inset adjustment behavior for safe area
+        // Use content inset adjustment behavior for safe area
         scrollView.contentInsetAdjustmentBehavior = .never
 
         // Allow touches to reach TerminalView for tap gestures

@@ -1,7 +1,7 @@
 import AppKit
 
 /// Owns the AppKit side of the window background material: the liquid-glass
-/// backdrop (macOS 26+) and the NSVisualEffectView blur used by sandboxed builds.
+/// backdrop and the NSVisualEffectView blur used by sandboxed builds.
 ///
 /// Glass lives in a borderless child window ordered directly behind the terminal
 /// window rather than in-window: Catalyst's hosted UIKit tree is treated as

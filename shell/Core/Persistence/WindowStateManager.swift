@@ -16,7 +16,6 @@ final class WindowStateManager {
     static let shared = WindowStateManager()
 
     private nonisolated static let logger = Logger(subsystem: "dev.chr33s.shell", category: "WindowStateManager")
-    private static let visorWindowId = "visor"
 
     // MARK: - Settings
 
@@ -434,8 +433,7 @@ final class WindowStateManager {
     /// the scene session, so a returning window asks for exactly its own state.
     /// A scene the app opened itself for restoration has no stored id, so
     /// `willConnectTo` bound one to it up front; that binding is consumed here in
-    /// connect order. The visor is never bound and matches by id only, so its
-    /// stable id can never take a regular window's tabs and scrollback.
+    /// connect order.
     func getPendingState(forWindowId windowId: String) -> SerializableWindow? {
         // Check if session persistence is enabled
         guard Self.isSessionPersistenceEnabled else {
@@ -463,7 +461,7 @@ final class WindowStateManager {
         }
 
         let window = state.windows.first { $0.id == windowId }
-            ?? (windowId == Self.visorWindowId ? nil : takeConnectingWindow(from: state))
+            ?? takeConnectingWindow(from: state)
         guard let window else { return nil }
 
         restoredWindowIds.insert(window.id)
@@ -488,16 +486,10 @@ final class WindowStateManager {
 
     /// Next saved window bound to a connecting scene, skipping any that were
     /// claimed by id in the meantime.
-    ///
-    /// The visor is filtered out here as well as at bind time: visor-scene
-    /// detection is heuristic (see `CatalystSceneDelegate.isVisorScene`), so a
-    /// missed detection could stamp the visor's id onto an ordinary scene's
-    /// restoration activity. Only an exact id match may ever return visor state.
     private func takeConnectingWindow(from state: AppWindowState) -> SerializableWindow? {
         while let id = connectingWindowIds.first {
             connectingWindowIds.removeFirst()
-            guard id != Self.visorWindowId,
-                  !restoredWindowIds.contains(id),
+            guard !restoredWindowIds.contains(id),
                   let window = state.windows.first(where: { $0.id == id }) else { continue }
             return window
         }
@@ -545,10 +537,10 @@ final class WindowStateManager {
         guard let state = pendingRestoration else { return nil }
         let taken = restoredWindowIds.union(connectingWindowIds)
         let window: SerializableWindow?
-        if let preferred, preferred != Self.visorWindowId, !taken.contains(preferred) {
+        if let preferred, !taken.contains(preferred) {
             window = state.windows.first { $0.id == preferred }
         } else {
-            window = state.windows.first { $0.id != Self.visorWindowId && !taken.contains($0.id) }
+            window = state.windows.first { !taken.contains($0.id) }
         }
         guard let window else { return nil }
         connectingWindowIds.append(window.id)
@@ -575,7 +567,7 @@ final class WindowStateManager {
     func claimWindowIdsNeedingScenes() -> [String] {
         guard let state = pendingRestoration else { return [] }
         let taken = restoredWindowIds.union(connectingWindowIds).union(requestedWindowIds)
-        let ids = state.windows.map(\.id).filter { $0 != Self.visorWindowId && !taken.contains($0) }
+        let ids = state.windows.map(\.id).filter { !taken.contains($0) }
         requestedWindowIds.formUnion(ids)
         return ids
     }
@@ -586,7 +578,7 @@ final class WindowStateManager {
     /// - Returns: True when another same-launch retry should be scheduled.
     func releaseSceneRequest(forWindowId windowId: String) -> Bool {
         guard requestedWindowIds.remove(windowId) != nil else { return false }
-        guard hasPendingRegularWindowRestoration else { return false }
+        guard hasPendingRestoration else { return false }
         guard regularRestorationActivationRetryCount < maxRegularRestorationActivationRetries else {
             Self.logger.warning("Regular window restoration activation retry limit reached")
             return false
@@ -630,23 +622,9 @@ final class WindowStateManager {
         return AppWindowState(windows: windows)
     }
 
-    /// Whether any REGULAR (non-visor) saved window is still awaiting restoration.
-    /// Distinct from `hasPendingRestoration`, which also counts the visor entry —
-    /// the visor is claimed only when summoned (and never on App Store builds), so
-    /// `hasPendingRestoration` can stay true for the whole session. Use THIS as the
-    /// "are we still restoring real windows" signal (e.g. the Catalyst willConnectTo
-    /// geometry gate) so runtime new windows aren't misread as restores.
-    var hasPendingRegularWindowRestoration: Bool {
-        guard let state = pendingRestoration else { return false }
-        return state.windows.contains {
-            $0.id != Self.visorWindowId && !restoredWindowIds.contains($0.id)
-        }
-    }
-
     /// Preserve saved windows that have not been materialized yet. This keeps
-    /// hidden visor state and not-yet-opened regular windows from being
-    /// dropped by a save taken after only part of the saved app state has been
-    /// restored.
+    /// not-yet-opened windows from being dropped by a save taken after only
+    /// part of the saved app state has been restored.
     private func includingUnrestoredPendingWindows(_ liveWindows: [SerializableWindow]) -> [SerializableWindow] {
         guard let state = pendingRestoration else { return liveWindows }
 

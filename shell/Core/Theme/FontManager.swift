@@ -49,8 +49,6 @@ class FontManager: ObservableObject {
     /// A user-imported custom font family with one or more style variants
     // MARK: - Keys
 
-    private static let nerdFontMigrationKey = "nerdFontFamilyMigrationDone"
-
     /// Registered keys this manager reloads from the store; file-backed font lists stay raw.
     private static let ownedKeys: Set<String> = [
         Settings.Font.size.name, Settings.Font.family.name, Settings.Font.ligatures.name,
@@ -59,12 +57,6 @@ class FontManager: ObservableObject {
 
     /// True while `reload(keys:)` re-assigns properties from the store.
     private var isReloading = false
-
-    /// Maps old Nerd Font Mono family names to their unpatched replacements.
-    /// Used for one-time migration when users had a nerd font family selected.
-    private static let nerdFontFamilyMigration: [String: String] = [
-        "GeistMono Nerd Font Mono": "Geist Mono",
-    ]
 
     /// Bundled fonts used only for UI glyph rendering (profile icons, etc.).
     /// Registered with CoreText but never offered as terminal fonts.
@@ -77,12 +69,8 @@ class FontManager: ObservableObject {
     /// All available bundled font families
     @Published private(set) var availableFamilies: [FontFamilyInfo] = []
 
-    /// User-imported custom font families
-
     /// System-installed monospace font families (e.g., from Font Case)
     @Published private(set) var systemFontFamilies: [FontFamilyInfo] = []
-
-    /// Bundled font families that have been replaced by custom imports
 
     /// Currently selected font size
     @Published var currentFontSize: Double {
@@ -143,26 +131,8 @@ class FontManager: ObservableObject {
 
         self.ligaturesEnabled = store.get(Settings.Font.ligatures)
 
-        // Clean up any previously-seeded legacy defaults (from earlier migration code)
-        if UserDefaults.standard.bool(forKey: "fontFeatureMigrationV1Done") {
-            store.reset(Settings.Font.featurePrefs)
-            UserDefaults.standard.removeObject(forKey: "fontFeatureMigrationV1Done")
-        }
         self.enabledFontFeatures = Self.decodeFontFeatures(store.get(Settings.Font.featurePrefs))
         self.cellAdjustments = Self.decodeCellAdjustments(store.get(Settings.Font.cellAdjustmentPrefs))
-
-        // One-time migration: map old Nerd Font Mono family names to unpatched equivalents.
-        // Skip when protected data is unavailable — bool(forKey:) returns false (not migrated)
-        // which would write the migration-done flag to an empty/encrypted plist.
-        if ProtectedDataGuard.isAvailable,
-           !UserDefaults.standard.bool(forKey: Self.nerdFontMigrationKey) {
-            if let current = self.currentFontFamily,
-               let migrated = Self.nerdFontFamilyMigration[current] {
-                self.currentFontFamily = migrated
-                store.set(Settings.Font.family, migrated)
-            }
-            UserDefaults.standard.set(true, forKey: Self.nerdFontMigrationKey)
-        }
 
         // Register bundled fonts with iOS, then load available families
         registerBundledFonts()

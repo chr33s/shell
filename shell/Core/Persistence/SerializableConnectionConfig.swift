@@ -100,8 +100,16 @@ nonisolated struct SerializableConnectionConfig: Codable, Equatable, Sendable {
         /// Convert back to SSHConfig, leaving the password empty.
         /// @MainActor: reads `SSHKeyManager.shared` for fallback identities;
         /// the Codable conformance stays nonisolated.
+        ///
+        /// `defaultKeyIDs` is a testability seam: it defaults to exactly the
+        /// value the body read before (`SSHKeyManager.shared.defaultKeyIDs`),
+        /// so every existing caller is unchanged. Without it the "bastion gets
+        /// no fallbacks" assertion is vacuous — against the empty default list
+        /// of a test process the target's fallbacks are nil too, and the test
+        /// would pass even with the `fallbackKeyIDs: nil` line deleted.
         @MainActor
-        func toSSHConfig() -> SSHConfig {
+        func toSSHConfig(defaultKeyIDs: [UUID]? = nil) -> SSHConfig {
+            let defaultKeyIDs = defaultKeyIDs ?? SSHKeyManager.shared.defaultKeyIDs
             var config = SSHConfig(host: host, port: port, username: username)
             config.authMethod = Self.liveAuth(authMethod)
             config.tmuxAutoEnable = tmuxAutoEnable ?? false
@@ -110,26 +118,26 @@ nonisolated struct SerializableConnectionConfig: Codable, Equatable, Sendable {
             config.tmuxSessionName = tmuxSessionName
 
             if case .key(let keyID) = config.authMethod {
-                let fallbacks = SSHKeyManager.shared.defaultKeyIDs.filter { $0 != keyID }
+                let fallbacks = defaultKeyIDs.filter { $0 != keyID }
                 config.fallbackKeyIDs = fallbacks.isEmpty ? nil : fallbacks
             }
 
             if let jump = jumpHost {
-                let jumpAuth = Self.liveAuth(jump.authMethod)
-                let jumpFallbackIDs: [UUID]?
-                if case .key(let keyID) = jumpAuth {
-                    let fallbacks = SSHKeyManager.shared.defaultKeyIDs.filter { $0 != keyID }
-                    jumpFallbackIDs = fallbacks.isEmpty ? nil : fallbacks
-                } else {
-                    jumpFallbackIDs = nil
-                }
-
+                // The bastion is offered exactly one identity — the same single
+                // credential `SSHCommandParser.resolveJumpAuth` hands a fresh
+                // `ssh -J`. Never synthesize fallbacks from the default keys
+                // here: a bastion's `MaxAuthTries` is commonly 6 and a
+                // certified key costs two attempts, so walking the whole
+                // default list locks the account out on the first hop.
+                // Fallbacks a profile or an OpenSSH import states explicitly
+                // travel with that profile's own `SSHConfig`, never through
+                // this restoration record.
                 config.jumpHost = SSHConfig.JumpHostConfig(
                     host: jump.host,
                     port: jump.port,
                     username: jump.username,
-                    authMethod: jumpAuth,
-                    fallbackKeyIDs: jumpFallbackIDs
+                    authMethod: Self.liveAuth(jump.authMethod),
+                    fallbackKeyIDs: nil
                 )
             }
 

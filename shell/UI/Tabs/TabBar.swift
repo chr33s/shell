@@ -715,31 +715,6 @@ struct TabBar: View {
                     .help("Active tab group")
                     .accessibilityLabel("Active tab group: \(title)")
                 }
-
-            case .projectGrouped:
-                if let title = tabsModel.orderProjection.activeScopeTitle {
-                    Menu {
-                        ForEach(tabsModel.projectSections.filter { !$0.tabIDs.isEmpty }) { section in
-                            Button {
-                                guard let targetID = tabsModel.preferredTabID(inProjectSection: section),
-                                      let rawIndex = tabsModel.index(of: targetID) else { return }
-                                onSelectTab(rawIndex)
-                            } label: {
-                                if tabsModel.orderProjection.activeProjectID == section.id {
-                                    Label(section.title, systemImage: "checkmark")
-                                } else {
-                                    Text(section.title)
-                                }
-                            }
-                        }
-                    } label: {
-                        scopeMenuLabel(title: title, systemImage: "folder")
-                    }
-                    .buttonStyle(.plain)
-                    .frame(maxWidth: 170)
-                    .help("Active project")
-                    .accessibilityLabel("Active project: \(title)")
-                }
             }
         }
     }

@@ -38,15 +38,6 @@ extension WindowAccessor {
     static func sceneSessionId(for nsWindow: NSObject) -> String? {
         objc_getAssociatedObject(nsWindow, &sceneSessionIdKey) as? String
     }
-
-    /// Removes a scene-session claim. Used by the visor's stolen-claim
-    /// recovery: when this accessor's key-window heuristic claims the
-    /// visor's NSWindow during the launch race, the visor identifies its
-    /// window by geometry and clears the bad claim so both accessors can
-    /// re-claim their true windows.
-    static func clearSceneSessionClaim(for nsWindow: NSObject) {
-        objc_setAssociatedObject(nsWindow, &sceneSessionIdKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-    }
 }
 
 /// Snapshot of every input that affects the Catalyst NSWindow + titlebar
@@ -313,8 +304,7 @@ private class TransparentWindowView: UIView {
         bridge.setTitle(title, for: nsWindow)
         lastAppliedTitle = title
 
-        // Setting the title can resurrect native title UI (macOS 15+); keep
-        // the hidden-titlebar style asserted.
+        // Setting the title can resurrect native title UI; keep the hidden-titlebar style asserted.
         if SettingsStore.shared.get(Settings.Window.hideTitleBar) {
             configureTitleBar(for: nsWindow, transparent: true, tabCount: SessionTracker.shared.tabCount(forSceneSessionId: sceneSessionId))
         }
@@ -370,11 +360,11 @@ private class TransparentWindowView: UIView {
             }
         } else {
             // No active surfaces - use system background color (adapts to light/dark mode)
-            window.backgroundColor = .systemBackground
+            window.backgroundColor = UIColor(named: "LaunchScreenBackground") ?? .systemBackground
             window.isOpaque = true
 
             if let rootView = window.rootViewController?.view {
-                rootView.backgroundColor = .systemBackground
+                rootView.backgroundColor = UIColor(named: "LaunchScreenBackground") ?? .systemBackground
                 rootView.isOpaque = true
             }
         }
@@ -469,19 +459,6 @@ private class TransparentWindowView: UIView {
     private func makeNSWindowTransparent() {
         guard let uiWindow = self.window else { return }
 
-        #if STANDALONE && targetEnvironment(macCatalyst)
-        // The visor hosts a full MainView, so this accessor also lives in the
-        // visor scene — but its NSWindow is a borderless panel owned entirely
-        // by VisorWindowAccessor. Claiming it here (the key path can win the
-        // race before the visor's own claim lands) applies titlebar/opacity
-        // configuration meant for regular windows and desyncs the panel from
-        // its UIKit scene. Never touch NSWindows from the visor's scene.
-        if let session = uiWindow.windowScene?.session,
-           VisorSceneRegistry.shared.isVisor(session: session) {
-            return
-        }
-        #endif
-
         // Check if there are active Ghostty surfaces
         let hasActiveSurfaces = Ghostty.App.shared?.hasActiveSurfaces ?? false
         let opacity = TransparencyManager.shared.backgroundOpacity
@@ -531,16 +508,6 @@ private class TransparentWindowView: UIView {
         } else if windows.count == 1 {
             // Only one window - claim it
             let candidate = windows[0]
-            #if STANDALONE && targetEnvironment(macCatalyst)
-            // Never claim the visor's window. A stolen claim makes the
-            // visor's own resolveNSWindow() skip its window forever, and
-            // the unconfigured visor stays on screen as a small white
-            // window at launch.
-            if VisorWindowClaims.isVisorWindow(candidate) {
-                Self.logger.debug("Only NSWindow is the visor's; waiting to claim")
-                return
-            }
-            #endif
             nsWindow = candidate
             objc_setAssociatedObject(nsWindow, &sceneSessionIdKey, sceneSessionId, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
             Self.logger.info("Claimed single NSWindow for scene \(sceneSessionId)")
@@ -548,21 +515,15 @@ private class TransparentWindowView: UIView {
             // Multiple windows - claim the key NSWindow if we're the key UIWindow
             guard let keyWindow = windows.first(where: { window in
                 // Find unclaimed key window
-                #if STANDALONE && targetEnvironment(macCatalyst)
-                if VisorWindowClaims.isVisorWindow(window) { return false }
-                #endif
                 let storedId = objc_getAssociatedObject(window, &sceneSessionIdKey) as? String
                 let isKey = bridge.isKeyWindow(window) == true
                 return isKey && storedId == nil
             }) ?? windows.first(where: { window in
                 // Fallback: reclaim a key window only when its existing
                 // claim is stale (no live scene session). Stealing a live
-                // claim (another terminal window's, or the visor's)
-                // misroutes window configuration; the visor case left an
-                // unconfigured white window on screen at launch.
-                #if STANDALONE && targetEnvironment(macCatalyst)
-                if VisorWindowClaims.isVisorWindow(window) { return false }
-                #endif
+                // claim from another terminal window misroutes window
+                // configuration and leaves that window unconfigured —
+                // a white, untinted window on screen.
                 guard bridge.isKeyWindow(window) == true else { return false }
                 if let storedId = objc_getAssociatedObject(window, &sceneSessionIdKey) as? String,
                    storedId != sceneSessionId,

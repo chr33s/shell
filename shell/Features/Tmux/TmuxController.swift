@@ -54,12 +54,6 @@ private extension ConnectionConfig {
 /// `nonisolated`: built by `TmuxReconcileDecoder.decode` on the off-main action
 /// callback thread (see that type), so it must NOT pick up the project's default
 /// `@MainActor` isolation. A pure value type — safe to construct/read anywhere.
-extension Notification.Name {
-    /// Posted after a tmux -CC pane is bound to a local surface, so pending
-    /// push routes can retry.
-    static let tmuxPaneBindingsChanged = Notification.Name("dev.chr33s.shell.tmuxPaneBindingsChanged")
-}
-
 nonisolated indirect enum TmuxLayoutNode: Equatable {
     case pane(paneId: Int, width: Int, height: Int, x: Int, y: Int)
     case split(direction: Direction, children: [TmuxLayoutNode], width: Int, height: Int, x: Int, y: Int)
@@ -340,14 +334,6 @@ final class TmuxController {
     /// The dashboard shows this so multiple tmux gateways can be distinguished.
     private(set) var gatewaySourceDisplayName = String(localized: "Gateway")
     private(set) var gatewaySourceSystemImage = "terminal"
-    /// Opaque `(host, socket, server pid, server start time)` identity shared
-    /// by every control client connected to this exact tmux server lifetime.
-    /// Combined with the server-global pane ID for device-independent push
-    /// notification routing.
-    var pushRouteServerIdentity: String?
-    /// Prevents reconcile and foreground retry triggers from launching
-    /// overlapping server-identity queries.
-    var pushRouteServerIdentityTask: Task<Void, Never>?
     /// Correlation tags for in-flight `sendCommandWithReply` requests
     /// (ghostty_surface_tmux_command_with_reply). Tag 0 is never used.
     var nextReplyTag: UInt32 = 1
@@ -624,7 +610,6 @@ final class TmuxController {
         // access and resuming a Sendable continuation are both legal from a
         // nonisolated deinit.
         for task in replyTimeouts.values { task.cancel() }
-        pushRouteServerIdentityTask?.cancel()
         for continuation in pendingReplies.values {
             continuation.resume(throwing: TmuxCommandError.gatewayEnded)
         }
@@ -899,7 +884,6 @@ final class TmuxController {
                 controller.paneIdentityRefreshTask = nil
             } else {
                 controller.schedulePaneIdentityRefresh(after: .milliseconds(150))
-                controller.refreshPushRouteServerIdentity()
             }
         }
         for key in staleKeys {
@@ -1210,7 +1194,6 @@ final class TmuxController {
             // consuming a full visible surface's GPU resources.
             view.setOcclusion(false)
         }
-        NotificationCenter.default.post(name: .tmuxPaneBindingsChanged, object: nil)
         paneViews[paneId] = view
         return true
     }
@@ -1666,7 +1649,6 @@ final class TmuxController {
         guard let gatewayTab = resolvedGatewayTab() else { return false }
         if gatewayTab.isHiddenTmuxWindow {
             gatewayTab.isHiddenTmuxWindow = false
-            postHiddenWindowsDidChange()
         }
         selectTab(gatewayTab.id)
         return true
@@ -1858,7 +1840,6 @@ final class TmuxController {
                 persistHiddenWindowsToServer()
                 saveHiddenMirror()
             }
-            postHiddenWindowsDidChange()
         }
 
         // A kill (possibly from another client) may have removed the last
@@ -1920,7 +1901,6 @@ final class TmuxController {
                 // the attachment. (id=tmux-hidden-gateway)
                 if gatewayTab.isHiddenTmuxWindow {
                     gatewayTab.isHiddenTmuxWindow = false
-                    postHiddenWindowsDidChange()
                 }
                 gatewayTab.pendingHiddenTmuxGatewayRestore = false
                 if closeGatewayTabAfterDetach {
@@ -3587,11 +3567,6 @@ extension Ghostty.TerminalView {
 
         controller.updateGatewaySource(from: connectionConfig)
         controller.apply(ops)
-        if !controller.didEnd {
-            controller.refreshPushRouteServerIdentity()
-        }
-
-
 
         // A metadata-only title batch has now completed all transport rebinding
         // required on every reconcile. It does not need the remaining gateway

@@ -190,7 +190,10 @@ final class KeyboardGeometryMonitor {
         #if os(visionOS)
         return keyboardFrame.height > Self.softwareKeyboardHeightThreshold
         #else
-        let screenBounds = activeWindowFrame() ?? UIScreen.main.bounds
+        // `UIScreen.main` is deprecated; `activeWindowFrame` already resolves
+        // this app's own window/screen. With nothing connected, measuring the
+        // keyboard against itself matches the visionOS branch above.
+        let screenBounds = activeWindowFrame() ?? keyboardFrame
         let intersection = screenBounds.intersection(keyboardFrame)
         if intersection.isNull || intersection.isEmpty {
             return false
@@ -200,7 +203,10 @@ final class KeyboardGeometryMonitor {
     }
 
     private func isKeyboardFrameDocked(_ keyboardFrame: CGRect) -> Bool {
-        let windowFrame = activeWindowFrame() ?? UIScreen.main.bounds
+        // No window and no screen means nothing for the keyboard to be docked
+        // against. (`UIScreen.main` used to stand in here; it is deprecated and
+        // on a multi-display setup is not necessarily this window's screen.)
+        guard let windowFrame = activeWindowFrame() else { return false }
         let screenHeight = windowFrame.height
 
         let keyboardBottom = keyboardFrame.origin.y + keyboardFrame.height
@@ -237,11 +243,11 @@ final class KeyboardGeometryMonitor {
     }
 
     private func keyboardIntersectionHeight(for keyboardFrame: CGRect) -> CGFloat {
-        // visionOS doesn't have UIScreen.main - use keyboard frame directly
+        // visionOS has no UIScreen - use the keyboard frame directly
         #if os(visionOS)
         let screenBounds = keyboardFrame
         #else
-        let screenBounds = activeWindowFrame() ?? UIScreen.main.bounds
+        let screenBounds = activeWindowFrame() ?? keyboardFrame
         #endif
 
         let keyboardIntersection = screenBounds.intersection(keyboardFrame)
@@ -266,7 +272,13 @@ final class KeyboardGeometryMonitor {
             return keyWindow.frame
         }
 
-        return windowScene.windows.first?.frame
+        if let window = windowScene.windows.first {
+            return window.frame
+        }
+
+        // A connected scene with no window yet still names the screen it is on.
+        // This is the contextual replacement for the deprecated `UIScreen.main`.
+        return windowScene.screen.bounds
         #endif
     }
 }

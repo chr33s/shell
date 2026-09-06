@@ -16,8 +16,6 @@ nonisolated enum SettingsChangeOrigin: String, Sendable {
     case restore
     /// Adopted an iCloud value after unpinning.
     case unpin
-    /// Applied from the text config overlay.
-    case configFile
 }
 
 nonisolated struct SettingsChange: Sendable {

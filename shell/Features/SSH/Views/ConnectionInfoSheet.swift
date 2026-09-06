@@ -113,8 +113,10 @@ struct ConnectionInfoSheet: View {
 
     @ViewBuilder
     private func featuresSection(_ info: SSHConnectionInfo) -> some View {
-        Section("Features") {
-            if info.jumpHost != nil {
+        // Wrapped around the whole Section: with the condition inside, a direct
+        // connection rendered an empty "Features" header.
+        if info.jumpHost != nil {
+            Section("Features") {
                 Label("Proxy Jump", systemImage: "arrow.triangle.branch")
                     .themedRow()
             }

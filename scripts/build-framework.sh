@@ -1,17 +1,17 @@
 #!/bin/bash
 set -euo pipefail
 
-# Build one or both Zig GhosttyKit variants and install them into a local Swift
+# Build the Zig GhosttyKit App Store variant and install it into a local Swift
 # package override. Normal app builds use the pinned remote binary package.
 #
 # Usage:
-#   ./scripts/build-framework.sh [appstore|standalone|all]
+#   ./scripts/build-framework.sh [appstore]
 #       [--ghostty-source <path>] [--zig <path>] [--clean]
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-VARIANT="all"
+VARIANT="appstore"
 GHOSTTY_SOURCE="${GHOSTTY_SOURCE_DIR:-${GHOSTTY_DIR:-}}"
 ZIG_BIN="${ZIG_BIN:-}"
 CLEAN="${CLEAN:-false}"
@@ -48,10 +48,9 @@ while [[ $# -gt 0 ]]; do
 done
 
 case "$VARIANT" in
-    appstore|standalone|all) ;;
-    china) VARIANT=appstore ;;
+    appstore) ;;
     *)
-        echo "ERROR: expected appstore, standalone, or all; got '$VARIANT'" >&2
+        echo "ERROR: expected appstore; got '$VARIANT'" >&2
         exit 1
         ;;
 esac
@@ -94,14 +93,12 @@ if [[ "$ZIG_VERSION" != 0.16.* ]]; then
     exit 1
 fi
 
-# Zig 0.15.x needed a locally patched stdlib (scripts/patch-zig.sh) to teach it
-# about visionOS/tvOS and to fix Mac Catalyst's 64-bit inode symbol selection.
-# Zig 0.16 handles all of that upstream — Catalyst is its own `.maccatalyst` OS
-# tag now — so we build against the stock toolchain.
+# Zig 0.16 supports visionOS and the `.maccatalyst` OS tag upstream; no stdlib
+# patch is needed, so we build against the stock toolchain.
 LOCAL_BUILD_DIR="$PROJECT_DIR/.build/ghosttykit"
 LOCAL_PACKAGE_DIR="$PROJECT_DIR/.local-packages/ghosttykit-rootshell"
 ARTIFACTS_DIR="$LOCAL_PACKAGE_DIR/Artifacts"
-mkdir -p "$ARTIFACTS_DIR/AppStore" "$ARTIFACTS_DIR/Standalone"
+mkdir -p "$ARTIFACTS_DIR/AppStore"
 
 if [[ "$CLEAN" == true ]]; then
     echo "Cleaning Ghostty build outputs..."
@@ -147,10 +144,6 @@ verify_variant() {
         echo "ERROR: App Store GhosttyKit contains $cgs_count CGS symbols" >&2
         exit 1
     fi
-    if [[ "$variant" == standalone && "$cgs_count" -eq 0 ]]; then
-        echo "ERROR: Standalone GhosttyKit does not contain the expected CGS symbols" >&2
-        exit 1
-    fi
     local init_count
     init_count="$(nm -g "$catalyst" 2>/dev/null | grep -c '_ghostty_init' || true)"
     if [[ "$init_count" -eq 0 ]]; then
@@ -168,13 +161,6 @@ build_variant() {
             package_name=GhosttyKitAppStore.xcframework
             package_subdir=AppStore
             appstore=true
-            ;;
-        standalone)
-            target=rootshell_standalone
-            output_name=GhosttyKitStandalone.xcframework
-            package_name=GhosttyKitStandalone.xcframework
-            package_subdir=Standalone
-            appstore=false
             ;;
     esac
 
@@ -206,12 +192,7 @@ build_variant() {
     printf '%s\n' "$build_id" > "$ARTIFACTS_DIR/$package_subdir/current"
 }
 
-if [[ "$VARIANT" == appstore || "$VARIANT" == all ]]; then
-    build_variant appstore
-fi
-if [[ "$VARIANT" == standalone || "$VARIANT" == all ]]; then
-    build_variant standalone
-fi
+build_variant appstore
 
 if [[ -d "$GHOSTTY_SOURCE/zig-out/share/terminfo" ]]; then
     while IFS= read -r source_entry; do
@@ -223,10 +204,8 @@ if [[ -d "$GHOSTTY_SOURCE/zig-out/share/terminfo" ]]; then
 fi
 
 APPSTORE_ID="$(cat "$ARTIFACTS_DIR/AppStore/current" 2>/dev/null || true)"
-STANDALONE_ID="$(cat "$ARTIFACTS_DIR/Standalone/current" 2>/dev/null || true)"
-if [[ -z "$APPSTORE_ID" || -z "$STANDALONE_ID" ]]; then
-    echo "Built $VARIANT, but the local override needs both variants." >&2
-    echo "Run '$0 all' once before adding it to Xcode." >&2
+if [[ -z "$APPSTORE_ID" ]]; then
+    echo "Built $VARIANT, but no App Store build id was recorded." >&2
     exit 0
 fi
 
@@ -239,16 +218,11 @@ let package = Package(
     platforms: [.iOS(.v17), .macCatalyst(.v17), .visionOS(.v1)],
     products: [
         .library(name: "GhosttyKitAppStore", targets: ["GhosttyKitAppStore"]),
-        .library(name: "GhosttyKitStandalone", targets: ["GhosttyKitStandalone"]),
     ],
     targets: [
         .binaryTarget(
             name: "GhosttyKitAppStore",
             path: "Artifacts/AppStore/$APPSTORE_ID/GhosttyKitAppStore.xcframework"
-        ),
-        .binaryTarget(
-            name: "GhosttyKitStandalone",
-            path: "Artifacts/Standalone/$STANDALONE_ID/GhosttyKitStandalone.xcframework"
         ),
     ]
 )

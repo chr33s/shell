@@ -62,12 +62,6 @@ extension Ghostty.TerminalView: TerminalSessionControllerHost {
 
     func sessionDidEnd() {
         invalidateInputDocument(resetDocument: true)
-        // Cancel connection success timer if session ends prematurely.
-        self.sessionController.cancelConnectionSuccessTimer()
-
-        // Reconnection starts outside any picker-attached passthrough session;
-        // configured bindings are restored when the new session becomes ready.
-        self.passthroughMultiplexer = nil
 
         // Check if reconnection manager is in a state that should keep tab open
         if let state = self.sessionController.reconnectionState {
@@ -109,24 +103,18 @@ extension Ghostty.TerminalView: TerminalSessionControllerHost {
 
         // Refresh tab bar after a restoration-state change.
         NotificationCenter.default.post(name: .ghosttySessionDidChange, object: self)
-
-        // Record a configured multiplexer before anything reads the screen, so
-        // agent detection never adopts an identity from a multi-window surface.
-        self.applyConfiguredMultiplexerBinding()
-
-        // Send tmux auto-connect and/or launch command if configured
-        self.sendLaunchCommandIfConfigured()
     }
 }
 
 extension Ghostty.TerminalView {
     var terminalResponseFd: Int32 { responseFd }
     var terminalResponseReadQueue: DispatchQueue { readQueue }
-    var terminalResponseTmuxGatewayOwnerKey: Int { tmuxGatewayOwnerKey }
     var terminalResponseHasTmuxController: Bool { tmuxController != nil }
 
+    /// The roaming transport that needed size-report filtering is gone from
+    /// this fork, so nothing filters.
     func terminalResponseShouldFilterSizeReports(for session: TerminalSession) -> Bool {
-        shouldFilterSizeReportsNow(session: session)
+        false
     }
 
     var terminalUUID: UUID { uuid }
@@ -138,8 +126,6 @@ extension Ghostty.TerminalView {
         get { restorationState }
         set { restorationState = newValue }
     }
-    var terminalRestoredWasTmuxGateway: Bool { restoredWasTmuxGateway }
-    var terminalHasTmuxController: Bool { tmuxController != nil }
     var terminalSurfaceAvailable: Bool { surface != nil }
     var terminalSurfaceGridSize: (rows: UInt16, cols: UInt16)? {
         guard let surfaceSize else { return nil }
@@ -219,20 +205,12 @@ extension Ghostty.TerminalView {
         connectionProgress.finish(mode)
     }
 
-    func terminalProgressReset() {
-        connectionProgress.reset()
-    }
-
     func terminalRestoreScrollbackAfterAnimation() {
         restoreScrollbackAfterAnimation()
     }
 
     func terminalWriteToGhostty(_ string: String) {
         writeToGhostty(string: string)
-    }
-
-    func terminalRemoveAwaitingTmuxPlaceholders() {
-        removeAwaitingTmuxPlaceholders()
     }
 
     func terminalUpdatePTYSize() {
@@ -246,10 +224,6 @@ extension Ghostty.TerminalView {
     func terminalSetLocalTaskActive(_ isActive: Bool) {
         hasActiveLocalTask = isActive
         terminalNotifyConnectionConfigChanged()
-    }
-
-    func terminalResetLaunchCommandGate() {
-        hasSentLaunchCommand = false
     }
 
     func terminalResetUserTypingForReconnect() {

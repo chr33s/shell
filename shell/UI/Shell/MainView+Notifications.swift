@@ -228,6 +228,18 @@ extension MainView {
             self.nextTab()
         }
 
+        observerBag.observeOnMainActor(.previousGroup) { [self] notification in
+            // Handle both UIKeyCommand (with terminal) and SwiftUI Commands (nil object)
+            guard self.shouldHandleNotification(notification) else { return }
+            self.previousGroup()
+        }
+
+        observerBag.observeOnMainActor(.nextGroup) { [self] notification in
+            // Handle both UIKeyCommand (with terminal) and SwiftUI Commands (nil object)
+            guard self.shouldHandleNotification(notification) else { return }
+            self.nextGroup()
+        }
+
         observerBag.observe(.appTabSwipeBegan, queue: nil) { [self] notification in
             MainActor.assumeIsolated {
                 guard self.shouldHandleNotification(notification) else {
@@ -426,44 +438,21 @@ extension MainView {
             self.showToolbarSettings = true
         }
 
-        // Handle SSH health monitoring toggle changes
-        observerBag.observeOnMainActor(.sshHealthMonitoringToggled) { [self] notification in
-            guard let enabled = notification.userInfo?["enabled"] as? Bool else { return }
-
-            // Iterate through all terminals in this window
-            for (tabIndex, tab) in self.terminals.enumerated() {
-                for terminalView in tab.splitTree.terminalLeaves {
-                    // Check if this is a CitadelSSHSession (the only type with health monitoring)
-                    if let citadelSession = terminalView.session as? CitadelSSHSession {
-                        if enabled {
-                            // Start monitoring on this active session
-                            citadelSession.startHealthMonitoringIfEnabled()
-                        } else {
-                            // Stop monitoring
-                            citadelSession.stopHealthMonitoring()
-                            // Clear health state on the tab (equality-guard:
-                            // every write to @State terminals invalidates all
-                            // of MainView until the Phase 3 TabsModel refactor).
-                            if self.terminals[tabIndex].connectionHealth != nil {
-                                self.terminals[tabIndex].connectionHealth = nil
-                            }
-                        }
-                    }
-                }
+        // SSH connection-health settings, applied to already-running sessions.
+        // `SettingsStore.emit` posts `.settingsDidChange` once per batch for
+        // every origin (a local write from Settings, an iCloud merge, the text
+        // config overlay), and the batch carries only the key names — so the
+        // handlers re-read the current values from the store rather than
+        // trusting a payload. Both rows in Settings are window-agnostic, so
+        // this deliberately skips `shouldHandleNotification`: every open window
+        // must retune its own sessions.
+        observerBag.observeOnMainActor(.settingsDidChange) { [self] notification in
+            guard let changed = notification.userInfo?[SettingsChange.userInfoKeys] as? [String] else { return }
+            if changed.contains(Settings.Connections.healthMonitoring.name) {
+                self.applySSHHealthMonitoringSetting()
             }
-        }
-
-        // Handle SSH health probe interval changes
-        observerBag.observeOnMainActor(.sshHealthProbeIntervalChanged) { [self] notification in
-            guard let interval = notification.userInfo?["interval"] as? Int else { return }
-
-            // Update interval on all active CitadelSSHSession monitors
-            for tab in self.terminals {
-                for terminalView in tab.splitTree.terminalLeaves {
-                    if let citadelSession = terminalView.session as? CitadelSSHSession {
-                        citadelSession.updateHealthProbeInterval(TimeInterval(interval))
-                    }
-                }
+            if changed.contains(Settings.Connections.healthProbeInterval.name) {
+                self.applySSHHealthProbeIntervalSetting()
             }
         }
 
@@ -477,6 +466,48 @@ extension MainView {
             }
             self.notifySessionCountChanged()
 
+        }
+    }
+
+    // MARK: - SSH Health Monitoring Live Apply
+
+    /// Start or stop the probe loop on every live `CitadelSSHSession` in this
+    /// window so the toggle takes effect without reconnecting.
+    /// `startHealthMonitoringIfEnabled()` re-checks the setting itself and
+    /// no-ops when a monitor already exists, so this is safe to run repeatedly.
+    private func applySSHHealthMonitoringSetting() {
+        let enabled = SettingsStore.shared.value(Settings.Connections.healthMonitoring)
+        for tab in self.terminals {
+            for terminalView in tab.splitTree.terminalLeaves {
+                guard let citadelSession = terminalView.session as? CitadelSSHSession else { continue }
+                if enabled {
+                    citadelSession.startHealthMonitoringIfEnabled()
+                } else {
+                    citadelSession.stopHealthMonitoring()
+                    // Clear the tab's mirrored health so the indicator doesn't
+                    // freeze on the last RTT. Written through the `TabModel`
+                    // reference rather than `terminals[i]`, which would round-trip
+                    // the whole array through the shim's setter, and
+                    // equality-guarded because an unconditional write to an
+                    // @Observable property invalidates every view reading it.
+                    if tab.connectionHealth != nil {
+                        tab.connectionHealth = nil
+                    }
+                }
+            }
+        }
+    }
+
+    /// Re-time the probe loop on every live `CitadelSSHSession` in this window.
+    /// `ConnectionHealthMonitor.updateInterval` ignores a no-op change, so an
+    /// unrelated write in the same batch costs nothing.
+    private func applySSHHealthProbeIntervalSetting() {
+        let interval = TimeInterval(SettingsStore.shared.value(Settings.Connections.healthProbeInterval))
+        for tab in self.terminals {
+            for terminalView in tab.splitTree.terminalLeaves {
+                guard let citadelSession = terminalView.session as? CitadelSSHSession else { continue }
+                citadelSession.updateHealthProbeInterval(interval)
+            }
         }
     }
 

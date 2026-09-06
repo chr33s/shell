@@ -43,7 +43,6 @@ protocol TerminalSurfaceHost: AnyObject {
     func surfaceDidNeedSessionSetup()
     func surfaceRunLayoutDeferredScrollbackRestore()
     func surfaceUpdatePTYSize()
-    func surfaceGeometryDidChange()
     func surfaceFirstFrameDidFailOpen()
 }
 
@@ -460,19 +459,6 @@ final class TerminalSurfaceController: NSObject {
             return
         }
 
-        #if STANDALONE && targetEnvironment(macCatalyst)
-        // Never drop the first size of a never-sized surface: its grid is at
-        // default dims and wrong no matter what, and a tab created/restored
-        // mid-summon lays out entirely inside the suppression window (the
-        // panel is still sliding in at partial alpha, so no visible reflow).
-        if host.surfaceWindowID == "visor",
-           VisorController.shared.suppressesTerminalResizeForAnimation,
-           let lastSent = lastFramebufferSize {
-            Ghostty.logger.info("sizeDidChange: SUPPRESSED during unchanged visor animation (size=\(size.width)x\(size.height), lastSent=\(lastSent.width)x\(lastSent.height))")
-            return
-        }
-        #endif
-
         let scale = host.surfaceView.contentScaleFactor
         let framebufferWidth = UInt32(size.width * scale)
         let framebufferHeight = UInt32(size.height * scale)
@@ -492,7 +478,6 @@ final class TerminalSurfaceController: NSObject {
 
         lastFramebufferSize = (width: framebufferWidth, height: framebufferHeight)
         lastContentScaleFactor = scale
-        host.surfaceGeometryDidChange()
 
         if host.surfaceLogFrequentLayout {
             Ghostty.logger.debug("sizeDidChange: size=\(size.width)x\(size.height), scale=\(scale), framebuffer=\(framebufferWidth)x\(framebufferHeight)")
@@ -815,8 +800,6 @@ extension Ghostty.TerminalView: TerminalSurfaceHost {
     func surfaceUpdatePTYSize() {
         updatePTYSize()
     }
-
-    func surfaceGeometryDidChange() {}
 
     func surfaceFirstFrameDidFailOpen() {
         guard isTabVisible else {

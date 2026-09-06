@@ -235,11 +235,8 @@ final class WindowSceneReportingView: UIView {
     /// This is the reliable way to detect window focus in iPadOS 26+ multi-window environments.
     private func registerTraitChangeObservers() {
 #if !targetEnvironment(macCatalyst)
-        // iOS 17+ uses registerForTraitChanges for activeAppearance
-        if #available(iOS 17.0, visionOS 1.0, *) {
-            registerForTraitChanges([UITraitActiveAppearance.self]) { (view: WindowSceneReportingView, _) in
-                view.handleActiveAppearanceChange()
-            }
+        registerForTraitChanges([UITraitActiveAppearance.self]) { (view: WindowSceneReportingView, _) in
+            view.handleActiveAppearanceChange()
         }
 #endif
     }

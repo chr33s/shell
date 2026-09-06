@@ -51,11 +51,11 @@ extension MainView {
         // inset, which would push content down and expose the window backdrop.
         view
             .modifier(TitlebarTabsModifier(isEnabled: usesTitlebarTabs || hideWindowTitleBar, fullScreenEnabled: false))
-            .background(windowId == "visor" ? nil : CurrentWindowTitleAccessor(tabsModel: tabsModel))
+            .background(CurrentWindowTitleAccessor(tabsModel: tabsModel))
 #elseif !os(visionOS)
         view
             .modifier(TitlebarTabsModifier(isEnabled: usesTitlebarTabs, fullScreenEnabled: fullScreenModeEnabled))
-            .background(windowId == "visor" ? nil : CurrentWindowTitleAccessor(tabsModel: tabsModel))
+            .background(CurrentWindowTitleAccessor(tabsModel: tabsModel))
 #else
         view
             .modifier(TitlebarTabsModifier(isEnabled: usesTitlebarTabs, fullScreenEnabled: false))

@@ -39,8 +39,18 @@ final class SSHIdentityMetadataStore {
         didSet { store.onLocalChange = onLocalChange }
     }
 
-    private init() {
-        self.store = SyncableFileStore<SSHIdentityMetadata>(storeName: "ssh_identity_metadata")
+    /// How this store learns the device ID to stamp on the records it
+    /// publishes. Injected only so tests can drive ownership deterministically
+    /// and without touching the live device identity; production always uses
+    /// `liveOwningDeviceID`, which is what `shared` gets.
+    private let owningDeviceID: @MainActor () -> String?
+
+    init(
+        storeName: String = "ssh_identity_metadata",
+        owningDeviceID: (@MainActor () -> String?)? = nil
+    ) {
+        self.owningDeviceID = owningDeviceID ?? { SSHIdentityMetadataStore.liveOwningDeviceID }
+        self.store = SyncableFileStore<SSHIdentityMetadata>(storeName: storeName)
         updateEntriesFromStore()
     }
 
@@ -48,8 +58,26 @@ final class SSHIdentityMetadataStore {
 
     /// Publish (or refresh) the public metadata for a local identity.
     func record(_ identity: SSHKey) {
-        let metadata = SSHIdentityMetadata(identity: identity)
-        guard store.record(for: metadata.id) != metadata else { return }
+        var metadata = SSHIdentityMetadata(identity: identity)
+        let existing = store.record(for: metadata.id)
+        // This method is only ever called with an identity that exists on this
+        // device, so this device is the rightful owner of the record. With no
+        // readable device ID (locked device) keep whatever owner is already
+        // stored rather than clearing it — see `owningDeviceID`.
+        metadata.ownerDeviceID = owningDeviceID() ?? existing?.ownerDeviceID
+        if let existing {
+            // Adopt a record that nobody owns (written before the field
+            // existed, or by an older build) even when nothing else changed:
+            // an unowned record is one `reconcile` can never tombstone. The
+            // claim writes once and then stops, because the next pass sees a
+            // non-nil owner.
+            let claimsUnownedRecord = existing.ownerDeviceID == nil && metadata.ownerDeviceID != nil
+            // Otherwise compare content only: the projection carries the key's
+            // own security-modified date while the stored copy was stamped by
+            // `save(_:)`, so a whole-value `!=` never matches and every call
+            // would rewrite the file and fire a CloudKit push.
+            if !claimsUnownedRecord, Self.sameContent(existing, metadata) { return }
+        }
         do {
             try store.save(metadata)
             updateEntriesFromStore()
@@ -58,19 +86,45 @@ final class SSHIdentityMetadataStore {
         }
     }
 
-    /// Replace the published set with exactly the identities that exist locally,
-    /// tombstoning any metadata whose identity is gone.
+    /// Refresh the published metadata for every local identity, then tombstone
+    /// the records **this device published** whose identity is gone.
+    ///
+    /// The sweep is deliberately scoped by owner. `applyRemoteChanges` writes
+    /// other devices' records into this same store, and an identity that lives
+    /// on another device — a Secure Enclave key above all, which by definition
+    /// can never be here (spec §7) — is *expected* to be absent from this
+    /// device's key list. Sweeping on absence alone would tombstone it and push
+    /// that deletion to every device, destroying the metadata account-wide.
+    /// A record this device did not publish is therefore never soft-deleted
+    /// here; only `remove(id:)` (an explicit, user-initiated key deletion) and
+    /// `applyRemoteDeletions` can tombstone one.
     func reconcile(with identities: [SSHKey]) {
         let liveIDs = Set(identities.map(\.id))
         for identity in identities {
             record(identity)
         }
-        for stale in store.allRecords where !stale.isDeleted && !liveIDs.contains(stale.id) {
-            try? store.softDelete(id: stale.id)
+        if let owner = owningDeviceID() {
+            // `stale.ownerDeviceID == owner` compares `String?` against
+            // `String`: an unowned (nil) record never matches, so it survives.
+            var swept = 0
+            for stale in store.allRecords
+            where !stale.isDeleted && !liveIDs.contains(stale.id) && stale.ownerDeviceID == owner {
+                try? store.softDelete(id: stale.id)
+                swept += 1
+            }
+            if swept > 0 {
+                Self.logger.info("Tombstoned \(swept) identity metadata record(s) published by this device")
+            }
+        } else {
+            Self.logger.info("Skipped identity metadata sweep: no stable device ID available")
         }
         updateEntriesFromStore()
     }
 
+    /// Tombstone one identity's metadata outright — for a deliberate, local
+    /// key deletion, which removes the identity everywhere (the Keychain item
+    /// it deletes is the shared one). Unlike `reconcile` this ignores ownership,
+    /// so it must only be called when the user actually deleted the key.
     func remove(id: UUID) {
         try? store.softDelete(id: id)
         updateEntriesFromStore()
@@ -110,6 +164,28 @@ final class SSHIdentityMetadataStore {
     }
 
     // MARK: - Private
+
+    /// The stable device ID to stamp on records this device publishes, or
+    /// `nil` when it cannot be established. While protected data is unavailable
+    /// `CloudKitSyncSettings.deviceID` hands back a throwaway `transient-<pid>`
+    /// value; stamping that would claim ownership under an ID that never comes
+    /// back, and a record owned by nobody real can never be swept again.
+    private static var liveOwningDeviceID: String? {
+        guard ProtectedDataGuard.isAvailable else { return nil }
+        return CloudKitSyncSettings.deviceID
+    }
+
+    /// Equality that ignores `modifiedAt`, which is stamped by the store on
+    /// save and therefore always differs from a freshly projected record, and
+    /// `ownerDeviceID`, which is claimed only on a real content change: two
+    /// devices holding the same iCloud Keychain key would otherwise trade
+    /// ownership back and forth, each rewrite firing a CloudKit push.
+    private static func sameContent(_ lhs: SSHIdentityMetadata, _ rhs: SSHIdentityMetadata) -> Bool {
+        var normalized = lhs
+        normalized.modifiedAt = rhs.modifiedAt
+        normalized.ownerDeviceID = rhs.ownerDeviceID
+        return normalized == rhs
+    }
 
     private func updateEntriesFromStore() {
         entries = store.activeRecords.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }

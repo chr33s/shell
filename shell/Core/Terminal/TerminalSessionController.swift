@@ -11,10 +11,9 @@ import os
 /// stored properties.
 ///
 /// This controller owns `session`/`pty`, common callback wiring, startup for
-/// normal connection configs, response-pipe monitoring, connection-success
-/// history timing, reconnection, and teardown. The view still owns the Ghostty
-/// surface, terminal output plumbing, and UI state, and exposes those pieces
-/// through `TerminalSessionControllerHost`.
+/// normal connection configs, response-pipe monitoring, reconnection, and
+/// teardown. The view still owns the Ghostty surface, terminal output plumbing,
+/// and UI state, and exposes those pieces through `TerminalSessionControllerHost`.
 @MainActor
 final class TerminalSessionController {
 
@@ -599,7 +598,6 @@ final class TerminalSessionController {
         Ghostty.logger.info("Performing reconnection attempt")
 
         guard let host else { return }
-        host.terminalResetLaunchCommandGate()
         host.terminalResetUserTypingForReconnect()
 
         session?.stop()
@@ -786,12 +784,6 @@ final class TerminalSessionController {
 
     func clearGatewayFastPath() {
         responsePipeline.clearGatewayFastPath()
-    }
-
-    func startConnectionSuccessTimer(connectionConfig: ConnectionConfig) {
-    }
-
-    func cancelConnectionSuccessTimer() {
     }
 
     enum RestoredSessionError: LocalizedError {

@@ -45,8 +45,8 @@ final class TerminalInputController {
     /// Press-time modifiers for special keys routed through Ghostty, so release events match.
     var specialKeyPressModifiers: [UIKeyboardHIDUsage: UIKeyModifierFlags] = [:]
 
-    /// Keys whose UIKeyCommand press was consumed by a one-shot overlay action
-    /// (session picker select, manual reconnect, AI agent toggle, tmux detach).
+    /// Keys whose UIKeyCommand press was consumed by a one-shot action
+    /// (manual reconnect, tmux detach).
     /// Repeat invocations of the held key are swallowed until release so they
     /// don't leak into whatever gained focus after the action.
     var keysConsumedByOverlayAction: Set<UIKeyboardHIDUsage> = []
@@ -154,22 +154,9 @@ final class TerminalInputController {
         #endif
 
         // Add dynamically generated keybind commands from KeybindCommandGenerator.
-        // On iOS 26+, SwiftUI Commands handle menu shortcuts, so we only include
-        // special key commands and actions not handled by menus.
-        if #available(iOS 26, *) {
-            commands.append(contentsOf: KeybindCommandGenerator.shared.commandsForIOS26Plus)
-        } else {
-            commands.append(contentsOf: KeybindCommandGenerator.shared.commandsForLegacyIOS)
-
-            #if !targetEnvironment(macCatalyst)
-            // iPadOS < 26 snapshots a responder's keyCommands for system-shortcut
-            // arbitration before Control is held, so the dynamic `keyCommands -> nil`
-            // short-circuit does not remove us from Ctrl+Space arbitration in time.
-            // Strip Control-modified commands statically; hardware Control chords
-            // are handled in pressesBegan.
-            commands.removeAll { $0.modifierFlags.contains(.control) }
-            #endif
-        }
+        // SwiftUI Commands handle menu shortcuts, so we only include special
+        // key commands and actions not handled by menus.
+        commands.append(contentsOf: KeybindCommandGenerator.shared.menuAwareKeyCommands)
 
         cachedKeyCommands = commands
         #if targetEnvironment(macCatalyst)
@@ -243,12 +230,9 @@ final class TerminalInputController {
 }
 
 extension UIKeyCommand {
-    /// Opt in to key repeat while the key is held. On iOS 26 the automatic
-    /// repeat behavior resolves modifier combos like Shift+Return to
-    /// non-repeatable; earlier systems always repeat, so no fallback is needed.
+    /// Opt in to key repeat while the key is held. The automatic repeat
+    /// behavior resolves modifier combos like Shift+Return to non-repeatable.
     func allowKeyRepeat() {
-        if #available(iOS 26.0, *) {
-            repeatBehavior = .repeatable
-        }
+        repeatBehavior = .repeatable
     }
 }

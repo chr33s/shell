@@ -232,9 +232,6 @@ class KeyboardToolbarView: UIView {
     /// Callback when the dismiss button is long-pressed to pin the keyboard hidden
     var onPinHiddenRequested: (() -> Void)?
 
-    /// Callback when tab switcher button is tapped
-    var onTabSwitcherRequested: (() -> Void)?
-
     /// Callback when compose button is tapped
     var onComposeRequested: (() -> Void)?
 
@@ -258,12 +255,6 @@ class KeyboardToolbarView: UIView {
 
     /// Callback when toggle mouse capture button is tapped
     var onToggleMouseCaptureRequested: (() -> Void)?
-
-    /// Callback when AI agent button is tapped
-
-    /// Callback when the brightness-boost button is tapped
-
-    /// Callback when the clipboard manager button is tapped
 
     /// Callback when drawer opens/closes (for height updates)
     var onDrawerStateChanged: (() -> Void)?
@@ -625,16 +616,12 @@ class KeyboardToolbarView: UIView {
             return createArrowButton(icon: "arrow.right", key: "\u{1B}[C")
         case .dismiss:
             return createDismissButton()
-        case .tabSwitcher:
-            return createTabSwitcherButton()
         case .compose:
             return createComposeButton()
         case .toolbarSettings:
             return createToolbarSettingsButton()
         case .paste:
             return createPasteButton()
-        case .voiceAgent:
-            return createVoiceAgentButton()
         case .toggleFullScreen:
             return createToggleFullScreenButton()
         case .toggleTabBar:
@@ -764,16 +751,6 @@ class KeyboardToolbarView: UIView {
         return button
     }
 
-    private func createTabSwitcherButton() -> KeyboardSymbolButton {
-        let button = KeyboardSymbolButton(
-            key: "__tabswitcher__",
-            display: .icon("rectangle.stack"),
-            sizes: sizes
-        )
-        button.delegate = self
-        return button
-    }
-
     #if os(visionOS)
     private func createArrowDrawerToggleButton() -> KeyboardSymbolButton {
         let button = KeyboardSymbolButton(
@@ -833,16 +810,6 @@ class KeyboardToolbarView: UIView {
         let button = KeyboardSymbolButton(
             key: "__paste__",
             display: .icon("doc.on.clipboard"),
-            sizes: sizes
-        )
-        button.delegate = self
-        return button
-    }
-
-    private func createVoiceAgentButton() -> KeyboardSymbolButton {
-        let button = KeyboardSymbolButton(
-            key: "__voiceAgent__",
-            display: .icon("waveform.circle"),
             sizes: sizes
         )
         button.delegate = self
@@ -1242,10 +1209,6 @@ extension KeyboardToolbarView: KeyboardButtonDelegate {
             onPinHiddenRequested?()
             return
         }
-        if key == "__tabswitcher__" {
-            onTabSwitcherRequested?()
-            return
-        }
         if key == "__compose__" {
             onComposeRequested?()
             return
@@ -1256,10 +1219,6 @@ extension KeyboardToolbarView: KeyboardButtonDelegate {
         }
         if key == "__paste__" {
             onPasteRequested?()
-            return
-        }
-        if key == "__voiceAgent__" {
-            NotificationCenter.default.post(name: .toggleVoiceAgent, object: nil)
             return
         }
         if key == "__toggleFullScreen__" {

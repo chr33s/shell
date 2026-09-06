@@ -119,12 +119,6 @@ struct PromptStyle {
         let text: String
         /// Visible width of the second line prefix (for cursor positioning)
         let secondLinePrefix: Int
-        /// Right-aligned prompt ANSI text (empty = no right prompt)
-        var rightPromptText: String = ""
-        /// Visible width of the right prompt (for cursor positioning)
-        var rightPromptWidth: Int = 0
-        /// Number of visible lines in the info bar (above the input line)
-        var infoLineCount: Int = 1
         /// Whether to leave a blank row between prior output and this prompt.
         var addsLeadingSeparator: Bool = false
     }
@@ -146,7 +140,6 @@ struct PromptStyle {
         return PromptResult(
             text: text,
             secondLinePrefix: 2,
-            infoLineCount: 1,
             addsLeadingSeparator: true
         )
     }

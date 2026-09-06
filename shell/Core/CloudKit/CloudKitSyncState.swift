@@ -103,6 +103,12 @@ enum CloudKitSyncSettings {
     /// SSH history sync enabled (default: false when master enabled)
     static let syncHistoryKey = "cloudKitSyncHistory"
 
+    /// UI-facing name for the same flag (Settings ▸ Sync ▸ "Sync Identity
+    /// Metadata"). `syncHistoryKey` is the inherited rootshell name; both are
+    /// written so neither side can go stale, and the legacy name is still the
+    /// read fallback for devices that only ever wrote it.
+    static let syncIdentityMetadataKey = "cloudKitSyncIdentityMetadata"
+
     /// Known hosts sync enabled (default: false when master enabled)
     static let syncKnownHostsKey = "cloudKitSyncKnownHosts"
 
@@ -117,9 +123,6 @@ enum CloudKitSyncSettings {
 
     /// Server change token (stored as Data)
     static let changeTokenKey = "cloudKitZoneChangeToken"
-
-    /// One-time migration flag for moving from default zone to custom zone
-    static let migratedToCustomZoneKey = "cloudKitMigratedToCustomZone"
 
     /// Custom record zone name for sync data
     static let zoneName = "ShellSync"

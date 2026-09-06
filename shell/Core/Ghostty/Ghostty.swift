@@ -153,38 +153,6 @@ enum Ghostty {
     #endif
 }
 
-/// Helper to wrap allocated C strings from ghostty
-extension Ghostty {
-}
-
-/// UUID conversion helpers
-/// TODO: Enable when ghostty_uuid_t is available in headers
-/*
-extension UUID {
-    init(ghosttyUUID: ghostty_uuid_t) {
-        var uuid = ghostty_uuid_t()
-        uuid = ghosttyUUID
-        let bytes = withUnsafeBytes(of: &uuid) { Data($0) }
-        self.init(uuid: uuid_t(
-            bytes[0], bytes[1], bytes[2], bytes[3],
-            bytes[4], bytes[5], bytes[6], bytes[7],
-            bytes[8], bytes[9], bytes[10], bytes[11],
-            bytes[12], bytes[13], bytes[14], bytes[15]
-        ))
-    }
-
-    var ghosttyUUID: ghostty_uuid_t {
-        var result = ghostty_uuid_t()
-        withUnsafeBytes(of: uuid) { buffer in
-            withUnsafeMutableBytes(of: &result) { resultBuffer in
-                resultBuffer.copyBytes(from: buffer)
-            }
-        }
-        return result
-    }
-}
-*/
-
 /// Shell escaping utilities (matches macOS Ghostty.Shell)
 extension Ghostty {
     // nonisolated: pure string helpers, also called from off-main clipboard transforms.

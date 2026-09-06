@@ -116,6 +116,12 @@ Keep:
 - optional jump host / ProxyJump
 - basic SSH key import/generation
 
+Remove:
+
+- host certificate authorities (OpenSSH `@cert-authority` host trust)
+
+Host-key verification is known-hosts only: a presented key either matches a stored entry or the user is prompted. Trusting a CA to vouch for *host* keys is a different feature from the OpenSSH *user* certificate auth kept above, and is deliberately out of scope — not a gap to be filled later.
+
 The current `SSHConfig` is broader than this fork needs. Replace it with a reduced model rather than carrying forward agent forwarding, GPG forwarding, port forwarding, cloud labels, HSS, herdr/zmx, TSSH state, VPN state, or unrelated transport configuration.
 
 ### Proposed minimal profile model

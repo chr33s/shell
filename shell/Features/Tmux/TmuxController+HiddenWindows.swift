@@ -16,14 +16,6 @@
 
 import Foundation
 
-extension Notification.Name {
-    /// Posted (object: the gateway's owner terminal UUID) when this gateway's
-    /// hidden-window set changed (hide/show action or an attach reload). The
-    /// session dashboard refreshes on it; the sidebar follows the per-tab
-    /// observable flag directly.
-    static let tmuxHiddenWindowsDidChange = Notification.Name("tmuxHiddenWindowsDidChange")
-}
-
 extension TmuxController {
     func isWindowHidden(_ windowId: Int) -> Bool {
         hiddenWindowIds.contains(windowId)
@@ -50,7 +42,6 @@ extension TmuxController {
         enforceGatewayVisibleWhenGroupHidden()
         persistHiddenWindowsToServer()
         saveHiddenMirror()
-        postHiddenWindowsDidChange()
         return true
     }
 
@@ -67,7 +58,6 @@ extension TmuxController {
         }
         persistHiddenWindowsToServer()
         saveHiddenMirror()
-        postHiddenWindowsDidChange()
     }
 
     /// Load the attached session's hidden set: the local mirror applies
@@ -102,25 +92,15 @@ extension TmuxController {
         }
     }
 
-    /// Read another session's hidden set (dashboard display). Does not touch
-    /// this gateway's own state.
-    func fetchHiddenWindows(sessionId: Int) async throws -> Set<Int> {
-        let body = try await sendCommandWithReply(
-            "show -v -q -t \"$\(sessionId)\" @hidden")
-        return TmuxHiddenWindowsCodec.decode(body)
-    }
-
     /// Replace the in-memory hidden set and re-derive every projected tab's
     /// flag. Selection is repaired if it pointed at a now-hidden tab.
     private func applyHiddenSet(_ ids: Set<Int>) {
-        let changed = hiddenWindowIds != ids
         hiddenWindowIds = ids
         applyHiddenFlagsToWindowTabs()
         // Another client's @hidden may converge to "all windows hidden" while
         // this client's gateway tab is hidden. (id=tmux-hidden-gateway)
         enforceGatewayVisibleWhenGroupHidden()
         ensureSelectionVisible()
-        if changed { postHiddenWindowsDidChange() }
     }
 
     /// Persist the hidden set as the session's `@hidden` option. Fire and
@@ -152,12 +132,6 @@ extension TmuxController {
             hiddenWindowIds, connectionKey: connectionKey, sessionId: sessionId)
     }
 
-    func postHiddenWindowsDidChange() {
-        NotificationCenter.default.post(
-            name: .tmuxHiddenWindowsDidChange,
-            object: ownerTerminalUUIDForNotifications)
-    }
-
     // MARK: - Gateway tab (id=tmux-hidden-gateway)
     //
     // The gateway tab can be hidden too, riding the same per-tab flag (so all
@@ -186,14 +160,12 @@ extension TmuxController {
               hasVisibleWindowTabs else { return }
         tab.isHiddenTmuxWindow = true
         moveSelectionOffTab(tab.id)
-        postHiddenWindowsDidChange()
     }
 
     /// Restore a hidden gateway tab, optionally selecting it.
     func showGatewayTab(andSelect: Bool = true) {
         guard let tab = resolvedGatewayTab(), tab.isHiddenTmuxWindow else { return }
         tab.isHiddenTmuxWindow = false
-        postHiddenWindowsDidChange()
         if andSelect { selectTab(tab.id) }
     }
 
@@ -205,6 +177,5 @@ extension TmuxController {
         guard let tab = resolvedGatewayTab(), tab.isHiddenTmuxWindow,
               !hasVisibleWindowTabs else { return }
         tab.isHiddenTmuxWindow = false
-        postHiddenWindowsDidChange()
     }
 }

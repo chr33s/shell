@@ -62,8 +62,6 @@ struct SettingPinActions: View {
             } label: {
                 Label("Sync This Setting Again…", systemImage: "icloud")
             }
-        case .configFile:
-            Text(String(localized: "Set by config file", comment: "Disabled context menu note"))
         case .deviceOnly:
             EmptyView()
         }

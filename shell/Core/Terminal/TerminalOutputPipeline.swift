@@ -44,7 +44,15 @@ struct TerminalOutputCoalescingConfig: Sendable {
 #if os(visionOS)
         return 16
 #else
-        let maxFps = UIScreen.main.maximumFramesPerSecond
+        // `UIScreen.main` is deprecated, and on a multi-display Mac or an
+        // external-display iPad it need not be the screen this app is showing
+        // on. No view exists yet at pipeline construction, so the
+        // foreground-active window scene is the closest available context.
+        // With no scene connected the existing 16ms default still stands.
+        let scenes = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+        let scene = scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
+        let maxFps = scene?.screen.maximumFramesPerSecond ?? 0
         guard maxFps > 0 else { return 16 }
         let frameMs = Int((1000.0 / Double(maxFps)).rounded())
         return max(8, frameMs)

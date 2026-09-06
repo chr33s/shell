@@ -136,6 +136,10 @@ nonisolated final class ShellParser: @unchecked Sendable {
     /// command : compound_command | function_def | simple_command
     private func parseCommand() throws -> ShellCommand {
         let tok = tokenizer.peek()
+        // Captured here, before any token is consumed: the simple-command
+        // parsers below run after `tokenizer.next()` has already moved past
+        // the first word, so they can no longer ask where it started.
+        let commandLine = tokenizer.upcomingTokenLine
 
         // Compound commands (while…done < file, if…fi > out, etc.) can carry
         // trailing redirections that bash applies to the whole construct.
@@ -192,7 +196,8 @@ nonisolated final class ShellParser: @unchecked Sendable {
                 if name.hasPrefix("(("), name.hasSuffix("))"), name.count >= 5 {
                     _ = tokenizer.next()
                     let expr = String(name.dropFirst(2).dropLast(2))
-                    return .simple(SimpleCommand(words: [.literal("let"), .singleQuoted(expr)]))
+                    return .simple(SimpleCommand(words: [.literal("let"), .singleQuoted(expr)],
+                                                 line: commandLine))
                 }
                 // Save position — peek ahead for ()
                 let saved = tokenizer.next() // consume the word
@@ -213,9 +218,9 @@ nonisolated final class ShellParser: @unchecked Sendable {
                     return .functionDef(name: name, body: body)
                 }
                 // Not a function def — parse as simple command starting with this word
-                return try parseSimpleCommandStartingWith(saved)
+                return try parseSimpleCommandStartingWith(saved, line: commandLine)
             }
-            return try parseSimpleCommand()
+            return try parseSimpleCommand(line: commandLine)
         }
     }
 
@@ -235,7 +240,10 @@ nonisolated final class ShellParser: @unchecked Sendable {
     // MARK: - Simple Command
 
     /// simple_command : (assignment)* word+ (redirection)*
-    private func parseSimpleCommand() throws -> ShellCommand {
+    ///
+    /// `line` is where the command's first token begins, captured by
+    /// `parseCommand()` before the token stream advanced (`$LINENO`).
+    private func parseSimpleCommand(line: Int) throws -> ShellCommand {
         var assignments: [(String, String)] = []
         var words: [ShellWord] = []
         var redirections: [Redirection] = []
@@ -280,11 +288,15 @@ nonisolated final class ShellParser: @unchecked Sendable {
         return .simple(SimpleCommand(assignments: assignments, words: words,
                                       redirections: redirections,
                                       heredocContent: heredocInfo?.content,
-                                      heredocQuoted: heredocInfo?.quoted))
+                                      heredocQuoted: heredocInfo?.quoted,
+                                      line: line))
     }
 
     /// Parse a simple command when we've already consumed the first token (a word).
-    private func parseSimpleCommandStartingWith(_ firstToken: ShellToken) throws -> ShellCommand {
+    ///
+    /// `line` is where `firstToken` begins — it must come from the caller,
+    /// since the tokenizer has already moved past it.
+    private func parseSimpleCommandStartingWith(_ firstToken: ShellToken, line: Int) throws -> ShellCommand {
         var assignments: [(String, String)] = []
         var words: [ShellWord] = []
         var redirections: [Redirection] = []
@@ -331,7 +343,8 @@ nonisolated final class ShellParser: @unchecked Sendable {
         return .simple(SimpleCommand(assignments: assignments, words: words,
                                       redirections: redirections,
                                       heredocContent: heredocInfo?.content,
-                                      heredocQuoted: heredocInfo?.quoted))
+                                      heredocQuoted: heredocInfo?.quoted,
+                                      line: line))
     }
 
     /// If `text` ends in `=` and is followed by `(`, consume the bash array

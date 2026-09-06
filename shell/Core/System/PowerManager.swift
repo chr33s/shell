@@ -27,8 +27,6 @@ extension Notification.Name {
     static let powerTierChanged = Notification.Name("dev.chr33s.shell.powerTierChanged")
 }
 
-/// Modeled on `BrightnessManager` (`@Observable` singleton, UserDefaults
-/// `didSet`, NotificationCenter broadcast).
 @MainActor
 @Observable
 final class PowerManager {

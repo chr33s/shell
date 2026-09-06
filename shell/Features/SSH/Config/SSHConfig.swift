@@ -11,21 +11,6 @@ nonisolated enum TmuxAutoMode: String, Codable, CaseIterable, Hashable, Sendable
     case control
 }
 
-extension TmuxAutoMode {
-    static let discoveryAttachStorageKey = "tmuxDiscoveryAttachMode"
-
-    /// Mode used when attaching to a tmux server discovered on the remote host.
-    static var persistedDiscoveryAttachMode: TmuxAutoMode {
-        get {
-            SettingsStore.shared.value(Settings.Tmux.discoveryAttachMode)
-        }
-        set {
-            // Nonisolated setter; the store's local-change observer picks the write up.
-            UserDefaults.standard.set(newValue.rawValue, forKey: discoveryAttachStorageKey)
-        }
-    }
-}
-
 /// The spec's three-state tmux selection for a profile: off, plain tmux, or
 /// native control mode. Stored on `SSHConfig` as the pair
 /// (`tmuxAutoEnable`, `tmuxAutoMode`); this is the UI-facing view of it.
@@ -305,7 +290,7 @@ struct SSHConfig: Codable, Hashable {
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             host = try container.decode(String.self, forKey: .host)
-            port = try container.decodeIfPresent(Int.self, forKey: .port) ?? 22
+            port = try container.decode(Int.self, forKey: .port)
             username = try container.decode(String.self, forKey: .username)
             authMethod = try container.decode(AuthMethod.self, forKey: .authMethod)
             fallbackKeyIDs = try container.decodeIfPresent([UUID].self, forKey: .fallbackKeyIDs)
@@ -432,12 +417,12 @@ struct SSHConfig: Codable, Hashable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
         host = try container.decode(String.self, forKey: .host)
-        port = try container.decodeIfPresent(Int.self, forKey: .port) ?? 22
+        port = try container.decode(Int.self, forKey: .port)
         username = try container.decode(String.self, forKey: .username)
-        authMethod = try container.decodeIfPresent(AuthMethod.self, forKey: .authMethod) ?? .password("")
+        authMethod = try container.decode(AuthMethod.self, forKey: .authMethod)
         jumpHost = try container.decodeIfPresent(JumpHostConfig.self, forKey: .jumpHost)
-        tmuxAutoEnable = try container.decodeIfPresent(Bool.self, forKey: .tmuxAutoEnable) ?? false
-        tmuxAutoMode = try container.decodeIfPresent(TmuxAutoMode.self, forKey: .tmuxAutoMode) ?? .regular
+        tmuxAutoEnable = try container.decode(Bool.self, forKey: .tmuxAutoEnable)
+        tmuxAutoMode = try container.decode(TmuxAutoMode.self, forKey: .tmuxAutoMode)
         tmuxSessionName = try container.decodeIfPresent(String.self, forKey: .tmuxSessionName)
         fallbackKeyIDs = try container.decodeIfPresent([UUID].self, forKey: .fallbackKeyIDs)
         keyResolutionHints = try container.decodeIfPresent([String: KeyResolutionHint].self, forKey: .keyResolutionHints)

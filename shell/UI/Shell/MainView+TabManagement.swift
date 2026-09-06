@@ -15,60 +15,6 @@ import os
 extension MainView {
 
     #if targetEnvironment(macCatalyst)
-    #if STANDALONE
-    @MainActor
-    func ensureVisorHasTerminal() async -> Bool {
-        guard windowId == "visor" else { return !terminals.isEmpty }
-        guard terminals.isEmpty else { return true }
-        guard await waitForGhosttyAppReadyForVisor() else { return false }
-
-        if let savedState = WindowStateManager.shared.getPendingState(forWindowId: "visor") {
-            RestorationHealthTracker.shared.markRestorationStarted()
-            Ghostty.logger.info("Restoring visor window state: \(savedState.tabs.count) tabs")
-            restoreWindowState(savedState)
-            return !terminals.isEmpty
-        }
-
-        guard MacLocalShellManager.isAvailable else {
-            Ghostty.logger.info("No macOS support bundle, showing visor connection sheet")
-            addNewTab()
-            return false
-        }
-        createLocalShellTabInternal()
-        return !terminals.isEmpty
-    }
-
-    @MainActor
-    private func waitForGhosttyAppReadyForVisor() async -> Bool {
-        if ghosttyApp.readiness == .ready, ghosttyApp.app != nil { return true }
-        if ghosttyApp.readiness == .error { return false }
-        guard ghosttyApp.readiness == .loading else { return false }
-
-        return await withCheckedContinuation { continuation in
-            visorReadinessContinuations.append(continuation)
-        }
-    }
-
-    @MainActor
-    func handleVisorGhosttyReadinessChange(_ readiness: Ghostty.App.Readiness) {
-        guard windowId == "visor", readiness != .loading else { return }
-        resumeVisorReadinessWaiters(returning: readiness == .ready && ghosttyApp.app != nil)
-    }
-
-    @MainActor
-    func cancelVisorReadinessWaiters() {
-        resumeVisorReadinessWaiters(returning: false)
-    }
-
-    @MainActor
-    private func resumeVisorReadinessWaiters(returning isReady: Bool) {
-        let continuations = visorReadinessContinuations
-        visorReadinessContinuations.removeAll()
-        for continuation in continuations {
-            continuation.resume(returning: isReady)
-        }
-    }
-    #endif
 
     /// Open the initial tab of a window that has no saved state: a local shell,
     /// or the connection sheet when the macOS support bundle is missing and no
@@ -367,8 +313,6 @@ extension MainView {
     /// that doesn't exist falls back to HOME inside the session.
     /// `startupCommand` (AppleScript) is typed into the shell once it starts.
     func createLocalShellTab(intentDirectory: String?, startupCommand: String? = nil) {
-        // Backstop: automation must never materialize a tab in the hidden visor.
-        guard !isVisorWindow else { return }
         performLocalShellAction(description: "open a local shell tab") {
             let resolved = intentDirectory
                 .flatMap { Self.resolveIntentDirectory($0) }
@@ -494,9 +438,7 @@ extension MainView {
         // tmux window tabs: mirror the user's reorder to the server so the
         // order sticks (and propagates to other attached clients) instead of
         // snapping back at the next reconcile.
-        if !tabsModel.isProjectGroupingActive {
-            TmuxController.syncWindowOrderAfterUserMove(of: movingTab, in: terminals)
-        }
+        TmuxController.syncWindowOrderAfterUserMove(of: movingTab, in: terminals)
     }
 
     /// Reorder tabs WITHIN the raw slots occupied by the given class
@@ -728,18 +670,6 @@ extension MainView {
         // Handle empty state
         guard !terminals.isEmpty else {
             selectedTabIndex = 0
-            #if STANDALONE && targetEnvironment(macCatalyst)
-            if windowId == "visor" {
-                // Keep the visor usable: closing its final tab immediately
-                // provisions a fresh local shell instead of leaving an
-                // empty hidden MainView that may never receive another
-                // first-launch creation signal.
-                Task { @MainActor in
-                    _ = await ensureVisorHasTerminal()
-                }
-                return
-            }
-            #endif
 
             // Auto-show connection sheet (same as first launch)
             // since there's no UI to recover from empty state

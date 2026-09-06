@@ -49,13 +49,35 @@ struct SettingsTerminalSection: View {
                     }
                 }
                 .themedRow()
+                .onChange(of: scrollbackLimit) { _, _ in
+                    // A local write does not reach SettingsRefreshHub (it skips
+                    // `.local` origins), so rewrite and push the Ghostty config here.
+                    Ghostty.App.shared?.reloadGlobalConfig()
+                }
+            } header: {
+                SettingGroupHeader("Scrollback", group: .scrollback)
+            } footer: {
+                Text("Lines of history kept per terminal. Applies to terminals opened from now on; open terminals keep their current history.")
+            }
+
+            // MARK: - Session
+            Section {
+                SettingToggle(
+                    Settings.SessionRestore.sessionPersistence,
+                    title: "Restore Sessions on Launch"
+                )
+                .themedRow()
                 SettingToggle(
                     Settings.SessionRestore.scrollbackPersistence,
                     title: "Persist Scrollback History"
-                )
+                ) { newValue in
+                    if !newValue {
+                        ScrollbackPersistenceManager.shared.removeAllScrollbackFiles()
+                    }
+                }
                 .themedRow()
             } header: {
-                SettingGroupHeader("Scrollback", group: .scrollback)
+                SettingGroupHeader("Session", group: .sessionRestore)
             }
 
             Section {
@@ -77,6 +99,18 @@ struct SettingsTerminalSection: View {
                 SettingGroupHeader("TERM", group: .terminal)
             } footer: {
                 Text("The terminal type advertised to the shell. Defaults to \(TerminalTypeSettings.fallback).")
+            }
+
+            Section {
+                SettingToggle(
+                    Settings.Keyboard.forceASCIIKeyboard,
+                    title: "Force ASCII Keyboard"
+                )
+                .themedRow()
+            } header: {
+                SettingGroupHeader("Keyboard", group: .keyboard)
+            } footer: {
+                Text("Restricts the software keyboard to ASCII input, hiding emoji and other non-ASCII input modes. Open terminals switch immediately.")
             }
 
             Section {

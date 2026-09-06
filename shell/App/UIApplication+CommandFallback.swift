@@ -8,47 +8,6 @@
 
 import UIKit
 
-/// App shortcuts whose destination can switch while a VNC pane is focused.
-/// A notification marker lets MainView route the chord exclusively to VNC;
-/// otherwise shell performs its normal action.
-enum VNCReservedKeyboardShortcut: String, Sendable {
-    case toggleTabSwitcher
-    case openSettings
-    case previousTab
-    case nextTab
-
-    static let notificationUserInfoKey = "vncReservedKeyboardShortcut"
-
-    /// Only the four physical default chords can be routed to VNC. If the user
-    /// remaps one of these app actions, the custom shortcut remains app-only.
-    var notificationSender: Any? {
-        guard KeybindManager.shared.sequence(for: action) == expectedSequence else { return nil }
-        return self
-    }
-
-    private var action: KeybindAction {
-        switch self {
-        case .toggleTabSwitcher: .toggle_tab_switcher
-        case .openSettings: .open_settings
-        case .previousTab: .previous_tab
-        case .nextTab: .next_tab
-        }
-    }
-
-    private var expectedSequence: KeySequence {
-        switch self {
-        case .toggleTabSwitcher:
-            KeySequence(key: .backslash, modifiers: [.command, .shift])
-        case .openSettings:
-            KeySequence(key: .comma, modifiers: [.command])
-        case .previousTab:
-            KeySequence(key: .leftBrace, modifiers: [.command])
-        case .nextTab:
-            KeySequence(key: .rightBrace, modifiers: [.command])
-        }
-    }
-}
-
 extension UIApplication {
 
     @MainActor
@@ -60,8 +19,14 @@ extension UIApplication {
         NotificationCenter.default.post(name: name, object: nil, userInfo: info.isEmpty ? nil : info)
     }
 
+    /// The scene an untargeted command is stamped for: the registry's key
+    /// scene when it still exists, then the key window's scene, then any
+    /// foreground one. Not private — the menu bar's checkable items resolve
+    /// their state through the same call (see `MenuFocusState.activeTabs()`),
+    /// so a checkmark cannot describe a different window than the one the
+    /// command lands in.
     @MainActor
-    private func ghostty_activeWindowSceneSessionID() -> String? {
+    func ghostty_activeWindowSceneSessionID() -> String? {
         let scenes = connectedScenes.compactMap { $0 as? UIWindowScene }
         if let activeSceneId = WindowFocusRegistry.shared.activeSceneSessionId() {
             if scenes.contains(where: { $0.session.persistentIdentifier == activeSceneId }) {
@@ -122,10 +87,6 @@ extension UIApplication {
         ghostty_postNotification(.navigateSplit, userInfo: ["direction": "down"])
     }
 
-    @objc func menuCloseSplit(_ sender: Any?) {
-        ghostty_postNotification(.closeSplit)
-    }
-
     @objc func menuToggleSplitZoom(_ sender: Any?) {
         ghostty_postNotification(.toggleSplitZoom)
     }
@@ -135,10 +96,7 @@ extension UIApplication {
     }
 
     @objc func menuOpenSettings(_ sender: Any?) {
-        ghostty_postNotification(
-            .openSettings,
-            userInfo: reservedVNCShortcutUserInfo(from: sender)
-        )
+        ghostty_postNotification(.openSettings)
     }
 
     @objc func menuBrowseHosts(_ sender: Any?) {
@@ -157,14 +115,6 @@ extension UIApplication {
         ghostty_postNotification(.openRecentProfile, userInfo: ["profileID": id.uuidString])
     }
 
-    @objc func menuToggleAIAgent(_ sender: Any?) {
-        ghostty_postNotification(.toggleAIAgent)
-    }
-
-    @objc func menuToggleVoiceAgent(_ sender: Any?) {
-        ghostty_postNotification(.toggleVoiceAgent)
-    }
-
     @objc func menuToggleTabBar(_ sender: Any?) {
         ghostty_postNotification(.toggleTabBar)
     }
@@ -181,27 +131,12 @@ extension UIApplication {
         ghostty_postNotification(.toggleGroupMode)
     }
 
-    @objc func menuToggleTabExpose(_ sender: Any?) {
-        ghostty_postNotification(.toggleTabExpose)
-    }
-
     @objc func menuPreviousGroup(_ sender: Any?) {
         ghostty_postNotification(.previousGroup)
     }
 
     @objc func menuNextGroup(_ sender: Any?) {
         ghostty_postNotification(.nextGroup)
-    }
-
-    @objc func menuToggleTabSwitcher(_ sender: Any?) {
-        // Critical for the tab sidebar's toggle-to-dismiss: presenting the
-        // sidebar resigns the terminal's first responder, so the terminal's
-        // own UIKeyCommand/menu handler is out of the responder chain for
-        // the second press; sendAction(to: nil) lands here instead.
-        ghostty_postNotification(
-            .showTabSwitcher,
-            userInfo: reservedVNCShortcutUserInfo(from: sender)
-        )
     }
 
     @objc func menuToggleTransparency(_ sender: Any?) {
@@ -212,35 +147,12 @@ extension UIApplication {
         ghostty_postNotification(.toggleTitleBar)
     }
 
-    @objc func menuToggleAutoRedact(_ sender: Any?) {
-        ghostty_postNotification(.toggleAutoRedact)
-    }
-
-    @objc func menuToggleClipboardManager(_ sender: Any?) {
-        ghostty_postNotification(.toggleClipboardManager)
-    }
-
-    @objc func menuToggleBackgroundEffect(_ sender: Any?) {
-        ghostty_postNotification(.toggleBackgroundEffect)
-    }
-
     @objc func menuPreviousTab(_ sender: Any?) {
-        ghostty_postNotification(
-            .previousTab,
-            userInfo: reservedVNCShortcutUserInfo(from: sender)
-        )
+        ghostty_postNotification(.previousTab)
     }
 
     @objc func menuNextTab(_ sender: Any?) {
-        ghostty_postNotification(
-            .nextTab,
-            userInfo: reservedVNCShortcutUserInfo(from: sender)
-        )
-    }
-
-    private func reservedVNCShortcutUserInfo(from sender: Any?) -> [String: Any] {
-        guard let shortcut = sender as? VNCReservedKeyboardShortcut else { return [:] }
-        return [VNCReservedKeyboardShortcut.notificationUserInfoKey: shortcut.rawValue]
+        ghostty_postNotification(.nextTab)
     }
 
     @objc func menuShowTmuxSessions(_ sender: Any?) {

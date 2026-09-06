@@ -84,63 +84,6 @@ extension Ghostty {
             return cfg
         }
 
-        // MARK: - Configuration Values
-
-        /// Get a configuration value by key
-        func getString(_ key: String) -> String? {
-            guard let config = self.config else { return nil }
-            var v: UnsafePointer<Int8>? = nil
-            guard ghostty_config_get(config, &v, key, UInt(key.count)) else { return nil }
-            guard let ptr = v else { return nil }
-            return String(cString: ptr)
-        }
-
-        func getBool(_ key: String, defaultValue: Bool = false) -> Bool {
-            guard let config = self.config else { return defaultValue }
-            var v = defaultValue
-            _ = ghostty_config_get(config, &v, key, UInt(key.count))
-            return v
-        }
-
-        func getInt(_ key: String, defaultValue: Int = 0) -> Int {
-            guard let config = self.config else { return defaultValue }
-            var v: CInt = CInt(defaultValue)
-            _ = ghostty_config_get(config, &v, key, UInt(key.count))
-            return Int(v)
-        }
-
-        func getDouble(_ key: String, defaultValue: Double = 0.0) -> Double {
-            guard let config = self.config else { return defaultValue }
-            var v: Double = defaultValue
-            _ = ghostty_config_get(config, &v, key, UInt(key.count))
-            return v
-        }
-
-        // Common configuration accessors for iOS
-        var fontFamily: String? {
-            getString("font-family")
-        }
-
-        var fontSize: Int {
-            getInt("font-size", defaultValue: 13)
-        }
-
-        var theme: String? {
-            getString("theme")
-        }
-
-        var backgroundColor: String? {
-            getString("background")
-        }
-
-        var foregroundColor: String? {
-            getString("foreground")
-        }
-
-        var backgroundOpacity: Double {
-            getDouble("background-opacity", defaultValue: 1.0)
-        }
-
         // MARK: - Theme Management
 
         /// Set the theme by creating a config file and reloading
@@ -317,6 +260,13 @@ extension Ghostty {
             let copyOnSelect = SettingsStore.shared.value(Settings.Selection.copyOnSelect)
             configLines.append("copy-on-select = \(copyOnSelect)")
 
+            // Lines of history per surface. `scrollback-limit-lines`, not the
+            // compatibility alias `scrollback-limit`, which ghostty renamed to
+            // `scrollback-limit-bytes`. Applies to surfaces created after this
+            // config is pushed; open surfaces keep their current history.
+            let scrollbackLimit = SettingsStore.shared.value(Settings.Terminal.scrollbackLimit)
+            configLines.append("scrollback-limit-lines = \(scrollbackLimit)")
+
             // Option key as Alt setting (matches Ghostty's macos-option-as-alt)
             let optionAsAlt = SettingsStore.shared.value(Settings.Keyboard.optionKeyAsAlt)
             if optionAsAlt == .on {
@@ -477,6 +427,13 @@ extension Ghostty {
             // Auto-copy selected text to clipboard (default on, matches macOS Ghostty)
             let copyOnSelect = SettingsStore.shared.value(Settings.Selection.copyOnSelect)
             configLines.append("copy-on-select = \(copyOnSelect)")
+
+            // Lines of history per surface. `scrollback-limit-lines`, not the
+            // compatibility alias `scrollback-limit`, which ghostty renamed to
+            // `scrollback-limit-bytes`. Applies to surfaces created after this
+            // config is pushed; open surfaces keep their current history.
+            let scrollbackLimit = SettingsStore.shared.value(Settings.Terminal.scrollbackLimit)
+            configLines.append("scrollback-limit-lines = \(scrollbackLimit)")
 
             // Option key as Alt setting (matches Ghostty's macos-option-as-alt)
             let optionAsAlt = SettingsStore.shared.value(Settings.Keyboard.optionKeyAsAlt)

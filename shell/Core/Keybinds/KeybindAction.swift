@@ -139,18 +139,10 @@ enum KeybindAction: String, CaseIterable, Codable, Identifiable, Hashable {
     case browse_hosts = "browse_hosts"
     /// Open profiles browser
     case browse_profiles = "browse_profiles"
-    /// Toggle AI agent panel
-    case toggle_ai_agent = "toggle_ai_agent"
-    /// Toggle voice agent mode
-    case toggle_voice_agent = "toggle_voice_agent"
     /// Toggle tab bar visibility
     case toggle_tab_bar = "toggle_tab_bar"
     /// Toggle grouped mode (scope tabs/top tab bar to the active group) in the vertical sidebar
     case toggle_group_mode = "toggle_group_mode"
-    /// Toggle tab switcher panel
-    case toggle_tab_switcher = "toggle_tab_switcher"
-    /// Toggle the tab exposé (live previews of the current scope)
-    case toggle_tab_expose = "toggle_tab_expose"
     /// Switch to the previous / next tab group (or project) while grouped
     case previous_group = "previous_group"
     case next_group = "next_group"
@@ -158,22 +150,12 @@ enum KeybindAction: String, CaseIterable, Codable, Identifiable, Hashable {
     case toggle_transparency = "toggle_transparency"
     /// Toggle the macOS window title bar (Mac Catalyst only)
     case toggle_titlebar = "toggle_titlebar"
-    /// Toggle auto-redact (mask sensitive strings on screen)
-    case toggle_auto_redact = "toggle_auto_redact"
-    /// Toggle theme picker overlay
-    case toggle_theme_picker = "toggle_theme_picker"
-    /// Toggle clipboard manager overlay
-    case toggle_clipboard_manager = "toggle_clipboard_manager"
-    /// Toggle background effect on/off
-    case toggle_background_effect = "toggle_background_effect"
     /// Toggle compose text overlay
     case toggle_compose = "toggle_compose"
     /// Toggle full screen mode
     case toggle_full_screen = "toggle_full_screen"
     /// Toggle mouse capture override (force-disable mouse reporting)
     case toggle_mouse_capture = "toggle_mouse_capture"
-    /// Toggle the HDR brightness-boost HUD
-    case brightness_boost = "brightness_boost"
     /// Cycle to the next system keyboard/input source (Ctrl+Space-style)
     case cycle_input_source = "cycle_input_source"
 
@@ -288,15 +270,15 @@ enum KeybindAction: String, CaseIterable, Codable, Identifiable, Hashable {
     /// Category for grouping in UI
     var category: KeybindCategory {
         switch self {
-        case .copy_to_clipboard, .paste_from_clipboard, .toggle_clipboard_manager:
+        case .copy_to_clipboard, .paste_from_clipboard:
             return .clipboard
 
         case .scroll_page_up, .scroll_page_down, .scroll_to_top, .scroll_to_bottom:
             return .navigation
 
         case .new_local_shell, .new_tab, .new_window, .close_tab, .duplicate_ssh_tab,
-             .previous_tab, .next_tab, .show_tmux_sessions, .detach_other_clients, .toggle_tab_switcher,
-             .toggle_tab_expose, .previous_group, .next_group, .select_tab_1, .select_tab_2, .select_tab_3, .select_tab_4, .select_tab_5,
+             .previous_tab, .next_tab, .show_tmux_sessions, .detach_other_clients,
+             .previous_group, .next_group, .select_tab_1, .select_tab_2, .select_tab_3, .select_tab_4, .select_tab_5,
              .select_tab_6, .select_tab_7, .select_tab_8, .select_tab_9:
             return .tabs
 
@@ -306,12 +288,11 @@ enum KeybindAction: String, CaseIterable, Codable, Identifiable, Hashable {
             return .splits
 
         case .increase_font_size, .decrease_font_size, .reset_font_size, .start_search,
-             .toggle_tab_bar, .toggle_group_mode, .toggle_transparency, .toggle_titlebar, .toggle_theme_picker, .toggle_background_effect,
-             .toggle_compose, .toggle_full_screen, .toggle_mouse_capture, .cycle_input_source, .brightness_boost,
-             .toggle_auto_redact:
+             .toggle_tab_bar, .toggle_group_mode, .toggle_transparency, .toggle_titlebar,
+             .toggle_compose, .toggle_full_screen, .toggle_mouse_capture, .cycle_input_source:
             return .view
 
-        case .open_settings, .browse_hosts, .browse_profiles, .toggle_ai_agent, .toggle_voice_agent:
+        case .open_settings, .browse_hosts, .browse_profiles:
             return .shell
 
         case .select_all, .clear_screen, .reset_terminal,
@@ -377,24 +358,15 @@ enum KeybindAction: String, CaseIterable, Codable, Identifiable, Hashable {
         case .open_settings: return String(localized: "Settings", comment: "Keybind action: open settings")
         case .browse_hosts: return String(localized: "Browse Hosts", comment: "Keybind action")
         case .browse_profiles: return String(localized: "Browse Profiles", comment: "Keybind action")
-        case .toggle_ai_agent: return String(localized: "Toggle AI Agent", comment: "Keybind action")
-        case .toggle_voice_agent: return String(localized: "Toggle Voice Agent", comment: "Keybind action")
         case .toggle_tab_bar: return String(localized: "Toggle Top Tab Bar", comment: "Keybind action")
         case .toggle_group_mode: return String(localized: "Toggle Group Mode", comment: "Keybind action")
-        case .toggle_tab_switcher: return String(localized: "Toggle Vertical Tab Bar", comment: "Keybind action")
-        case .toggle_tab_expose: return String(localized: "Toggle Tab Exposé", comment: "Keybind action")
         case .previous_group: return String(localized: "Previous Group", comment: "Keybind action")
         case .next_group: return String(localized: "Next Group", comment: "Keybind action")
         case .toggle_transparency: return String(localized: "Toggle Transparency", comment: "Keybind action")
         case .toggle_titlebar: return String(localized: "Toggle Title Bar", comment: "Keybind action")
-        case .toggle_auto_redact: return String(localized: "Toggle Auto-Redact", comment: "Keybind action")
-        case .toggle_theme_picker: return String(localized: "Toggle Theme Picker", comment: "Keybind action")
-        case .toggle_clipboard_manager: return String(localized: "Toggle Clipboard Manager", comment: "Keybind action")
-        case .toggle_background_effect: return String(localized: "Toggle Background Effect", comment: "Keybind action")
         case .toggle_compose: return String(localized: "Toggle Compose", comment: "Keybind action")
         case .toggle_full_screen: return String(localized: "Toggle Full Screen", comment: "Keybind action")
         case .toggle_mouse_capture: return String(localized: "Toggle Mouse Capture", comment: "Keybind action")
-        case .brightness_boost: return String(localized: "Brightness Boost", comment: "Keybind action: toggle HDR brightness boost HUD")
         case .cycle_input_source: return String(localized: "Switch Keyboard Language", comment: "Keybind action: cycle to next system keyboard/input source")
 
         // Control characters: technical abbreviations, not localized
@@ -463,20 +435,12 @@ enum KeybindAction: String, CaseIterable, Codable, Identifiable, Hashable {
         case .open_settings: return .openSettings
         case .browse_hosts: return .browseHosts
         case .browse_profiles: return .browseProfiles
-        case .toggle_ai_agent: return .toggleAIAgent
-        case .toggle_voice_agent: return .toggleVoiceAgent
         case .toggle_tab_bar: return .toggleTabBar
         case .toggle_group_mode: return .toggleGroupMode
-        case .toggle_tab_switcher: return .showTabSwitcher
-        case .toggle_tab_expose: return .toggleTabExpose
         case .previous_group: return .previousGroup
         case .next_group: return .nextGroup
         case .toggle_transparency: return .toggleTransparency
         case .toggle_titlebar: return .toggleTitleBar
-        case .toggle_auto_redact: return .toggleAutoRedact
-        case .toggle_theme_picker: return .toggleThemePicker
-        case .toggle_clipboard_manager: return .toggleClipboardManager
-        case .toggle_background_effect: return .toggleBackgroundEffect
         case .toggle_full_screen: return .toggleFullScreen
 
         // toggle_compose and toggle_mouse_capture are handled directly in executeKeybindAction (not via notification)
@@ -597,26 +561,23 @@ enum KeybindAction: String, CaseIterable, Codable, Identifiable, Hashable {
              .select_tab_9, .split_right, .split_down, .navigate_split_left,
              .navigate_split_right, .navigate_split_up, .navigate_split_down,
              .toggle_split_zoom, .equalize_splits, .open_settings, .browse_hosts,
-             .browse_profiles, .toggle_ai_agent, .toggle_voice_agent, .toggle_tab_bar, .toggle_group_mode, .toggle_transparency,
-             .toggle_titlebar, .toggle_auto_redact,
-             .toggle_background_effect, .toggle_tab_switcher, .toggle_tab_expose, .show_tmux_sessions,
+             .browse_profiles, .toggle_tab_bar, .toggle_group_mode, .toggle_transparency,
+             .toggle_titlebar, .show_tmux_sessions,
              .detach_other_clients,
              .increase_font_size, .decrease_font_size,
              .reset_font_size, .start_search:
             return true
 
         // Clipboard and terminal actions now have menu entries in AppCommands.swift
-        case .copy_to_clipboard, .paste_from_clipboard, .toggle_clipboard_manager,
+        case .copy_to_clipboard, .paste_from_clipboard,
              .scroll_page_up, .scroll_page_down, .scroll_to_top, .scroll_to_bottom,
-             .clear_screen, .select_all, .toggle_theme_picker, .toggle_compose,
-             .toggle_full_screen, .toggle_mouse_capture, .cycle_input_source,
-             .brightness_boost:
+             .clear_screen, .select_all, .toggle_compose,
+             .toggle_full_screen, .toggle_mouse_capture, .cycle_input_source:
             return true
 
-        // Group navigation: the menu owns ⌘⌥[ / ⌘⌥] from 26 so the items can
-        // show their glyph. `needsSystemPriority` still covers the pre-26 rail,
-        // where the UIKeyCommand is generated and must beat the terminal's
-        // Alt-[ encoding.
+        // Group navigation: the menu owns ⌘⌥[ / ⌘⌥] so the items can show their
+        // glyph. `needsSystemPriority` still covers a customized binding, whose
+        // UIKeyCommand must beat the terminal's Alt-[ encoding.
         case .previous_group, .next_group:
             return true
 

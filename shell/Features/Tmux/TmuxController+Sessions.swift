@@ -31,39 +31,6 @@ extension Notification.Name {
 extension TmuxController {
     // MARK: - Reply layer
 
-    /// Queries the canonical server identity used by push routes. Every -CC
-    /// client on every shell device receives the same value for the same
-    /// tmux server lifetime. A restart changes pid/start-time, preventing a
-    /// stale notification from matching a reused pane ID.
-    func refreshPushRouteServerIdentity() {
-        guard pushRouteServerIdentity == nil,
-              pushRouteServerIdentityTask == nil,
-              !didEnd, !isDetaching, !ownerSurfaceFreed else { return }
-        pushRouteServerIdentityTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            defer { self.pushRouteServerIdentityTask = nil }
-            guard self.pushRouteServerIdentity == nil else { return }
-            for attempt in 1...3 {
-                guard !Task.isCancelled,
-                      !self.didEnd, !self.isDetaching, !self.ownerSurfaceFreed else { return }
-                if let body = try? await self.sendCommandWithReply(
-                    "display-message -p \"#{host}:#{socket_path},#{pid},#{start_time}\"",
-                    timeout: .seconds(4)
-                ) {
-                    let identity = body.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !identity.isEmpty {
-                        self.pushRouteServerIdentity = identity
-                        NotificationCenter.default.post(name: .tmuxPaneBindingsChanged, object: nil)
-                        return
-                    }
-                }
-                if attempt < 3 {
-                    try? await Task.sleep(for: .milliseconds(500))
-                }
-            }
-        }
-    }
-
     /// Send a tmux command through the gateway's FIFO command channel and
     /// await its response body. Throws `TmuxCommandError.serverError` when
     /// tmux answers `%error`, `.gatewayEnded` when the query was dropped by a

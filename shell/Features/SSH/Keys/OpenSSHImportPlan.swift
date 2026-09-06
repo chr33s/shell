@@ -702,8 +702,22 @@ enum OpenSSHImporter {
         }
 
         if let proxyCommand = entry.proxyCommand, !proxyCommand.isEmpty {
-            // Only ProxyJump is supported; an arbitrary ProxyCommand needs a
-            // local process, which this app has no way to run.
+            // `ssh -W %h:%p [user@]bastion` is exactly ProxyJump spelled the
+            // old way, so it maps onto the supported jump host. Any other
+            // ProxyCommand needs a local helper process, which this app has
+            // no way to run.
+            if let parsed = parseProxyCommandJumpHost(proxyCommand) {
+                let portSuffix = parsed.port == 22 ? "" : ":\(parsed.port)"
+                let display = "\(parsed.username ?? "")@\(parsed.host)\(portSuffix)"
+                let source = OpenSSHProfilePlan.JumpHostSource(
+                    host: parsed.host,
+                    port: parsed.port,
+                    username: parsed.username ?? defaultUsername,
+                    identityKeyPlanIDs: identityKeyPlanIDs,
+                    display: display
+                )
+                return (source, nil)
+            }
             return (
                 nil,
                 "Unsupported ProxyCommand for \(entry.aliases.first ?? "host"): \(proxyCommand)"
@@ -718,6 +732,101 @@ enum OpenSSHImporter {
         let host: String
         let port: Int
         let username: String?
+    }
+
+    /// Extract a jump host from an `ssh -W %h:%p` style ProxyCommand — the
+    /// pre-ProxyJump spelling of the same hop. Returns nil for any other
+    /// ProxyCommand (those need a local helper process).
+    ///
+    /// Supported forms:
+    /// - `ssh -W %h:%p user@jumphost`
+    /// - `ssh -W %h:%p -p 2222 user@jumphost`
+    /// - `ssh -W %h:%p jumphost -l user`
+    private static func parseProxyCommandJumpHost(_ proxyCommand: String) -> ParsedJumpHost? {
+        var input = proxyCommand.trimmingCharacters(in: .whitespaces)
+
+        // Must start with ssh
+        guard input.lowercased().hasPrefix("ssh ") else { return nil }
+        input = String(input.dropFirst(4)).trimmingCharacters(in: .whitespaces)
+
+        // Must contain -W %h:%p (the tunnel directive)
+        guard input.contains("-W") && input.contains("%h:%p") else { return nil }
+
+        // Remove the -W %h:%p part
+        input = input.replacingOccurrences(of: "-W %h:%p", with: "")
+            .replacingOccurrences(of: "-W%h:%p", with: "")
+            .trimmingCharacters(in: .whitespaces)
+
+        var host = ""
+        var port = 22
+        var username: String?
+
+        let tokens = tokenizeProxyCommand(input)
+        var i = 0
+        while i < tokens.count {
+            let token = tokens[i]
+
+            // Stop at shell subcommand syntax $(...) / backticks
+            if token.hasPrefix("$(") || token.hasPrefix("`") { break }
+
+            if token == "-p" && i + 1 < tokens.count {
+                port = Int(tokens[i + 1]) ?? 22
+                i += 2
+            } else if token == "-l" && i + 1 < tokens.count {
+                username = tokens[i + 1]
+                i += 2
+            } else if token.hasPrefix("-") {
+                // Skip other options
+                i += 1
+            } else {
+                // First non-option token is the jump host (user@host or host).
+                // Split on the LAST @ so AD-style user@domain names survive.
+                if let atIndex = token.lastIndex(of: "@") {
+                    username = String(token[..<atIndex])
+                    host = String(token[token.index(after: atIndex)...])
+                } else {
+                    host = token
+                }
+                break
+            }
+        }
+
+        guard !host.isEmpty else { return nil }
+        return ParsedJumpHost(host: host, port: port, username: username)
+    }
+
+    /// Whitespace tokenizer that honours single and double quotes.
+    private static func tokenizeProxyCommand(_ input: String) -> [String] {
+        var tokens: [String] = []
+        var current = ""
+        var inQuote = false
+        var quoteChar: Character = "\""
+
+        for char in input {
+            if inQuote {
+                if char == quoteChar {
+                    inQuote = false
+                } else {
+                    current.append(char)
+                }
+            } else {
+                switch char {
+                case "\"", "'":
+                    inQuote = true
+                    quoteChar = char
+                case " ", "\t":
+                    if !current.isEmpty {
+                        tokens.append(current)
+                        current = ""
+                    }
+                default:
+                    current.append(char)
+                }
+            }
+        }
+
+        if !current.isEmpty { tokens.append(current) }
+        return tokens
     }
 
     /// Parse a `[user@]host[:port]` hop (the format used by ProxyJump entries).

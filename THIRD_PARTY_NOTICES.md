@@ -60,8 +60,6 @@ and complete licensing information.
 
 | Font project | Copyright or acknowledgement | License |
 | --- | --- | --- |
-| [0xProto](https://github.com/0xType/0xProto) | Copyright (c) 2024 0xType Project Authors | SIL Open Font License 1.1 |
-| [Fira Code](https://github.com/tonsky/FiraCode) | Copyright (c) 2014 The Fira Code Project Authors | SIL Open Font License 1.1 |
 | [Geist Mono](https://github.com/vercel/geist-font) | Copyright (c) 2023 Vercel | SIL Open Font License 1.1 |
 | [Nerd Fonts](https://github.com/ryanoasis/nerd-fonts) | Copyright (c) 2014 Ryan L McIntyre | MIT; individual fonts and glyph sources retain their own licenses, including SIL OFL 1.1 |
 
@@ -82,14 +80,6 @@ The rootshell MIT license does not apply to the font files under
 CryptoSwift requires the following acknowledgement:
 
 > This product includes software developed by Marcin Krzyzanowski.
-
-## Cloud and Kubernetes
-
-| Project | Copyright or acknowledgement | License |
-| --- | --- | --- |
-| [SwiftkubeClient](https://github.com/swiftkube/client) | Copyright (c) 2020 Iskandar Abudiab | Apache 2.0 |
-| [Yams](https://github.com/kitknox/Yams-rootshell) | Copyright (c) 2016 JP Simard | MIT |
-| [SwiftOpenAI](https://github.com/kitknox/SwiftOpenAI-rootshell) | Copyright (c) 2023 James Rochabrun | MIT; excluded from China builds |
 
 ## Apple open-source projects
 

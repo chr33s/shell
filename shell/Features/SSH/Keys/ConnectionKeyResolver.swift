@@ -73,7 +73,7 @@ enum ConnectionKeyResolver {
             if let resolvedKey {
                 resolvedConfig.authMethod = .key(resolvedKey.id)
             } else {
-                let hint = config.keyResolutionHints?[keyID.uuidString]
+                let hint = resolutionHint(for: keyID, config: config)
                 unresolvedKeys.append(UnresolvedKeyInfo(originalKeyID: keyID, hint: hint, isJumpHost: false))
             }
         }
@@ -91,8 +91,7 @@ enum ConnectionKeyResolver {
                 jumpConfig.authMethod = .key(resolvedKey.id)
                 resolvedConfig.jumpHost = jumpConfig
             } else {
-                let hint = config.keyResolutionHints?[jumpKeyID.uuidString]
-                    ?? jumpConfig.keyResolutionHints?[jumpKeyID.uuidString]
+                let hint = resolutionHint(for: jumpKeyID, config: config, jumpConfig: jumpConfig)
                 unresolvedKeys.append(UnresolvedKeyInfo(originalKeyID: jumpKeyID, hint: hint, isJumpHost: true))
             }
         }
@@ -126,7 +125,7 @@ enum ConnectionKeyResolver {
             if let overrideKeyID = override?.targetKeyID {
                 if keyManager.findKey(id: overrideKeyID) == nil { return false }
             } else {
-                let hint = config.keyResolutionHints?[keyID.uuidString]
+                let hint = resolutionHint(for: keyID, config: config)
                 if keyManager.resolveKey(id: keyID, hint: hint) == nil { return false }
             }
         }
@@ -137,8 +136,7 @@ enum ConnectionKeyResolver {
             if let overrideKeyID = override?.jumpHostKeyID {
                 if keyManager.findKey(id: overrideKeyID) == nil { return false }
             } else {
-                let hint = config.keyResolutionHints?[jumpKeyID.uuidString]
-                    ?? jumpConfig.keyResolutionHints?[jumpKeyID.uuidString]
+                let hint = resolutionHint(for: jumpKeyID, config: config, jumpConfig: jumpConfig)
                 if keyManager.resolveKey(id: jumpKeyID, hint: hint) == nil { return false }
             }
         }
@@ -147,6 +145,67 @@ enum ConnectionKeyResolver {
     }
 
     // MARK: - Private
+
+    /// The resolution hint recorded for `keyID`: config-level first, then the
+    /// jump host's own dictionary, then — only for a profile that already
+    /// carries explicit hints — the identity-metadata store.
+    ///
+    /// The metadata fallback fills a *gap* in a profile whose author already
+    /// recorded hints for some of its keys: a profile written before jump-host
+    /// hints were captured, or one whose target key was hinted while the jump
+    /// key was not. It deliberately does not extend to profiles that carry no
+    /// hints at all. The store now holds records pulled from CloudKit, and
+    /// consulting it for every profile would silently widen the trust boundary
+    /// from "the hints this profile carries" to "anything any device ever
+    /// published to the account".
+    ///
+    /// Either way resolution stays fail-closed: a hint only ever matches a key
+    /// that is already on this device, by exact SHA256 fingerprint — the same
+    /// public key under a different UUID. A hint can therefore narrow
+    /// resolution, never select a different credential and never downgrade to
+    /// password auth.
+    /// `metadataEntries` is a testability seam: it defaults to exactly the
+    /// value the body read before (`SSHIdentityMetadataStore.shared.entries`),
+    /// so every existing caller is unchanged. The store is a `private init()`
+    /// singleton writing to a fixed on-disk path, and the gate below cannot be
+    /// exercised at all without being able to state what the store holds.
+    static func resolutionHint(
+        for keyID: UUID,
+        config: SSHConfig,
+        jumpConfig: SSHConfig.JumpHostConfig? = nil,
+        metadataEntries: [SSHIdentityMetadata]? = nil
+    ) -> KeyResolutionHint? {
+        let metadataEntries = metadataEntries ?? SSHIdentityMetadataStore.shared.entries
+        if let recorded = config.keyResolutionHints?[keyID.uuidString] {
+            return recorded
+        }
+        if let recorded = jumpConfig?.keyResolutionHints?[keyID.uuidString] {
+            return recorded
+        }
+        guard carriesExplicitHints(config: config, jumpConfig: jumpConfig) else { return nil }
+        guard let entry = metadataEntries.first(where: { $0.id == keyID }),
+              // An empty fingerprint would match any local key whose own
+              // fingerprint failed to compute, so it is never a usable hint.
+              !entry.fingerprint.isEmpty else {
+            return nil
+        }
+        var synthesized = KeyResolutionHint()
+        synthesized.fingerprint = entry.fingerprint
+        synthesized.keyName = entry.name
+        synthesized.keyType = SSHKey.KeyType(rawValue: entry.keyType)
+        return synthesized
+    }
+
+    /// Whether this profile recorded any key resolution hints of its own —
+    /// the gate on the identity-metadata fallback above.
+    private static func carriesExplicitHints(
+        config: SSHConfig,
+        jumpConfig: SSHConfig.JumpHostConfig?
+    ) -> Bool {
+        if let hints = config.keyResolutionHints, !hints.isEmpty { return true }
+        if let hints = jumpConfig?.keyResolutionHints, !hints.isEmpty { return true }
+        return false
+    }
 
     private static func resolveTargetKey(
         keyID: UUID,
@@ -162,7 +221,7 @@ enum ConnectionKeyResolver {
         }
 
         // Hint-based resolution
-        let hint = config.keyResolutionHints?[keyID.uuidString]
+        let hint = resolutionHint(for: keyID, config: config)
         if let key = keyManager.resolveKey(id: keyID, hint: hint) {
             return key
         }
@@ -184,9 +243,8 @@ enum ConnectionKeyResolver {
             return key
         }
 
-        // Hint-based resolution (check both config-level and jump-level hints)
-        let hint = config.keyResolutionHints?[keyID.uuidString]
-            ?? jumpConfig.keyResolutionHints?[keyID.uuidString]
+        // Hint-based resolution (config-level, then jump-level, then metadata)
+        let hint = resolutionHint(for: keyID, config: config, jumpConfig: jumpConfig)
         if let key = keyManager.resolveKey(id: keyID, hint: hint) {
             return key
         }

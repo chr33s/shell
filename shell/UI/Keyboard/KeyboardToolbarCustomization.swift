@@ -61,13 +61,11 @@ enum KeyID: String, Codable, CaseIterable, Hashable, Sendable {
     case ampersand
     case asterisk
 
-    // Actions (11)
+    // Actions (9)
     case dismiss
-    case tabSwitcher
     case compose
     case toolbarSettings
     case paste
-    case voiceAgent
     case toggleFullScreen
     case toggleTabBar
     case newConnection
@@ -121,11 +119,9 @@ enum KeyID: String, Codable, CaseIterable, Hashable, Sendable {
         case .ampersand: return String(localized: "Ampersand &")
         case .asterisk: return String(localized: "Asterisk *")
         case .dismiss: return String(localized: "Dismiss Keyboard")
-        case .tabSwitcher: return String(localized: "Tab Switcher")
         case .compose: return String(localized: "Compose")
         case .toolbarSettings: return String(localized: "Toolbar Settings")
         case .paste: return String(localized: "Paste")
-        case .voiceAgent: return String(localized: "Voice Agent")
         case .toggleFullScreen: return String(localized: "Toggle Full Screen")
         case .toggleTabBar: return String(localized: "Toggle Top Tab Bar")
         case .newConnection: return String(localized: "New Connection")
@@ -150,11 +146,9 @@ enum KeyID: String, Codable, CaseIterable, Hashable, Sendable {
         case .arrowLeft: return "arrow.left"
         case .arrowRight: return "arrow.right"
         case .dismiss: return "chevron.down"
-        case .tabSwitcher: return "rectangle.stack"
         case .compose: return "character.cursor.ibeam"
         case .toolbarSettings: return "gearshape"
         case .paste: return "doc.on.clipboard"
-        case .voiceAgent: return "waveform.circle"
         case .toggleFullScreen: return "arrow.up.left.and.arrow.down.right"
         case .toggleTabBar: return "menubar.rectangle"
         case .newConnection: return "plus"
@@ -208,11 +202,9 @@ enum KeyID: String, Codable, CaseIterable, Hashable, Sendable {
         case .ampersand: return "&"
         case .asterisk: return "*"
         case .dismiss: return "__dismiss__"
-        case .tabSwitcher: return "__tabswitcher__"
         case .compose: return "__compose__"
         case .toolbarSettings: return "__toolbarSettings__"
         case .paste: return "__paste__"
-        case .voiceAgent: return "__voiceAgent__"
         case .toggleFullScreen: return "__toggleFullScreen__"
         case .toggleTabBar: return "__toggleTabBar__"
         case .newConnection: return "__newConnection__"
@@ -237,11 +229,9 @@ enum KeyID: String, Codable, CaseIterable, Hashable, Sendable {
         case .arrowLeft: return .text("\u{1B}[D")
         case .arrowRight: return .text("\u{1B}[C")
         case .dismiss: return .dismiss
-        case .tabSwitcher: return .tabSwitcher
         case .compose: return .compose
         case .toolbarSettings: return .toolbarSettings
         case .paste: return .paste
-        case .voiceAgent: return .voiceAgent
         case .toggleFullScreen: return .toggleFullScreen
         case .toggleTabBar: return .toggleTabBar
         case .newConnection: return .newConnection
@@ -268,8 +258,8 @@ enum KeyID: String, Codable, CaseIterable, Hashable, Sendable {
         case .esc, .ctrl, .alt, .shift, .cmd: return .modifier
         case .tab: return .special
         case .arrowDrawerToggle, .arrowUp, .arrowDown, .arrowLeft, .arrowRight: return .navigation
-        case .dismiss, .tabSwitcher, .compose, .toolbarSettings, .paste, .voiceAgent,
-             .toggleFullScreen, .toggleTabBar, .newConnection, .appSettings,
+        case .dismiss, .compose, .toolbarSettings, .paste, .toggleFullScreen,
+             .toggleTabBar, .newConnection, .appSettings,
              .toggleMouseCapture: return .action
         case .drawerToggle: return .toggle
         default: return .symbol
@@ -344,7 +334,6 @@ struct ToolbarLayoutConfig: Equatable, Sendable {
         version: currentVersion,
         mainRow: [
             .builtIn(.dismiss),
-            .builtIn(.tabSwitcher),
             .builtIn(.esc),
             .builtIn(.ctrl),
             .builtIn(.shift),
@@ -386,7 +375,6 @@ struct ToolbarLayoutConfig: Equatable, Sendable {
             .builtIn(.asterisk),
             .builtIn(.paste),
             .builtIn(.compose),
-            .builtIn(.voiceAgent),
             .builtIn(.toggleFullScreen),
             .builtIn(.toggleTabBar),
             .builtIn(.newConnection),
@@ -400,7 +388,6 @@ struct ToolbarLayoutConfig: Equatable, Sendable {
         version: currentVersion,
         mainRow: [
             .builtIn(.dismiss),
-            .builtIn(.tabSwitcher),
             .builtIn(.esc),
             .builtIn(.ctrl),
             .builtIn(.alt),
@@ -442,7 +429,6 @@ struct ToolbarLayoutConfig: Equatable, Sendable {
             .builtIn(.asterisk),
             .builtIn(.paste),
             .builtIn(.compose),
-            .builtIn(.voiceAgent),
             .builtIn(.toggleFullScreen),
             .builtIn(.toggleTabBar),
             .builtIn(.newConnection),
@@ -463,33 +449,6 @@ struct ToolbarLayoutConfig: Equatable, Sendable {
         let defaults = defaultConfig(for: idiom)
         var migrated = saved
         if migrated.drawerRows.isEmpty { migrated.drawerRows = [[]] }
-
-        // Saved defaults (including Reset to Defaults) should follow the new
-        // placement. Compare the complete layout so custom placements stay intact.
-        var previousDefaults = defaults
-        previousDefaults.version = saved.version
-        for row in previousDefaults.drawerRows.indices {
-            previousDefaults.drawerRows[row].removeAll { $0 == .builtIn(.compose) }
-        }
-        if (11...12).contains(saved.version), saved == previousDefaults {
-            return defaults
-        }
-
-        // v2 → v3: Move toolbar settings from drawer to main row (after drawer toggle)
-        if saved.version < 3 && !saved.hiddenKeys.contains(.toolbarSettings) {
-            // Remove from all rows
-            migrated.mainRow.removeAll { $0 == .builtIn(.toolbarSettings) }
-            for i in migrated.drawerRows.indices {
-                migrated.drawerRows[i].removeAll { $0 == .builtIn(.toolbarSettings) }
-            }
-
-            // Insert after .drawerToggle in main row, or append if not found
-            if let toggleIndex = migrated.mainRow.firstIndex(of: .builtIn(.drawerToggle)) {
-                migrated.mainRow.insert(.builtIn(.toolbarSettings), at: toggleIndex + 1)
-            } else {
-                migrated.mainRow.append(.builtIn(.toolbarSettings))
-            }
-        }
 
         // Collect all KeyIDs currently in the saved config
         let savedKeyIDs = Set(
@@ -521,10 +480,6 @@ struct ToolbarLayoutConfig: Equatable, Sendable {
         }
         migrated.hiddenKeys = migrated.hiddenKeys.filter { validKeyIDs.contains($0) }
 
-        if migrated.drawerRows.isEmpty {
-            migrated.drawerRows = [[]]
-        }
-
         migrated.version = currentVersion
         return migrated
     }
@@ -532,29 +487,37 @@ struct ToolbarLayoutConfig: Equatable, Sendable {
 
 // MARK: - ToolbarLayoutConfig Codable
 
-// Manual Codable: v10 and earlier persisted a single `drawerRow` array; v11+
-// persists `drawerRows`. The decoder accepts either shape so old configs load
-// losslessly, and the encoder also writes the first row under the legacy key
-// so a downgraded build still finds a usable layout.
+// Manual Codable: `drawerRows` is decoded defensively so an empty or missing
+// array still yields one empty row, which the layout code assumes. Slots and
+// hidden keys are decoded leniently: a saved layout naming a KeyID this build
+// no longer defines drops that one key instead of failing the whole decode,
+// which would silently reset the user's entire toolbar to the defaults.
 extension ToolbarLayoutConfig: Codable {
     private enum CodingKeys: String, CodingKey {
         case version
         case mainRow
         case drawerRows
-        case drawerRow  // legacy (v ≤ 10)
         case hiddenKeys
+    }
+
+    /// Wraps `KeySlot` so an unrecognised slot decodes to `nil` instead of throwing.
+    private struct LenientKeySlot: Decodable {
+        let slot: KeySlot?
+
+        init(from decoder: Decoder) throws {
+            slot = try? KeySlot(from: decoder)
+        }
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         version = try container.decode(Int.self, forKey: .version)
-        mainRow = try container.decode([KeySlot].self, forKey: .mainRow)
-        hiddenKeys = try container.decode(Set<KeyID>.self, forKey: .hiddenKeys)
-        if let rows = try container.decodeIfPresent([[KeySlot]].self, forKey: .drawerRows) {
-            drawerRows = rows.isEmpty ? [[]] : rows
-        } else {
-            drawerRows = [try container.decodeIfPresent([KeySlot].self, forKey: .drawerRow) ?? []]
-        }
+        mainRow = try container.decode([LenientKeySlot].self, forKey: .mainRow).compactMap(\.slot)
+        let savedHiddenKeys = try container.decode([String].self, forKey: .hiddenKeys)
+        hiddenKeys = Set(savedHiddenKeys.compactMap(KeyID.init(rawValue:)))
+        let savedRows = try container.decodeIfPresent([[LenientKeySlot]].self, forKey: .drawerRows)
+        let rows = savedRows?.map { $0.compactMap(\.slot) } ?? [[]]
+        drawerRows = rows.isEmpty ? [[]] : rows
     }
 
     func encode(to encoder: Encoder) throws {
@@ -562,7 +525,6 @@ extension ToolbarLayoutConfig: Codable {
         try container.encode(version, forKey: .version)
         try container.encode(mainRow, forKey: .mainRow)
         try container.encode(drawerRows, forKey: .drawerRows)
-        try container.encode(drawerRows[0], forKey: .drawerRow)
         try container.encode(hiddenKeys, forKey: .hiddenKeys)
     }
 }

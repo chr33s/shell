@@ -22,9 +22,7 @@ enum SSHCustomAlgorithms {
         NIOSSHAlgorithms.register(keyExchangeAlgorithm: Sntrup761X25519Sha512.self)
         NIOSSHAlgorithms.register(keyExchangeAlgorithm: DiffieHellmanGroup14Sha256.self)
         NIOSSHAlgorithms.register(keyExchangeAlgorithm: DiffieHellmanGroup14Sha1.self)
-        if #available(iOS 26, macOS 26, macCatalyst 26, visionOS 26, *) {
-            NIOSSHAlgorithms.register(keyExchangeAlgorithm: MLKem768X25519Sha256.self)
-        }
+        NIOSSHAlgorithms.register(keyExchangeAlgorithm: MLKem768X25519Sha256.self)
 
         NIOSSHAlgorithms.register(transportProtectionScheme: AES256CTR_ETM.self)
         NIOSSHAlgorithms.register(transportProtectionScheme: AES128CTR_ETM.self)

@@ -92,12 +92,7 @@ extension LocalShellSession {
             onOutput?("\r\n")
         }
 
-        // Render the prompt with optional right-aligned component
-        if prompt.rightPromptWidth > 0 {
-            onOutput?(renderPromptWithRightAlign(prompt))
-        } else {
-            onOutput?(prompt.text)
-        }
+        onOutput?(prompt.text)
     }
 
     /// Replace the current prompt with a transient (simplified) version before executing a command.
@@ -142,49 +137,6 @@ extension LocalShellSession {
     /// Whether transient prompt should be applied
     private func shouldUseTransientPrompt() -> Bool {
         SettingsStore.shared.value(Settings.Prompt.useTransientPrompt)
-    }
-
-    /// Render a prompt with right-aligned text on the info bar line.
-    /// Uses ANSI cursor positioning (CHA) to place the right prompt at an absolute
-    /// column, avoiding fragile width measurement of the left prompt.
-    func renderPromptWithRightAlign(_ prompt: PromptStyle.PromptResult) -> String {
-        let columns = Int(pty.windowSize.cols)
-        let rightWidth = prompt.rightPromptWidth
-        guard columns > 0, rightWidth > 0, rightWidth < columns else { return prompt.text }
-
-        // Write the full left prompt first (terminal handles rendering)
-        var output = prompt.text
-
-        // Cursor is now at the end of the input line (after "❯ ").
-        // Move up to the info bar line, write right prompt at absolute column, move back.
-        let visibleText = PromptStyle.stripANSI(prompt.text)
-        let lineCount = visibleText.components(separatedBy: "\n").count
-        let linesUp = lineCount - 1
-
-        if linesUp > 0 {
-            output += "\u{1b}[\(linesUp)A"  // CUU — move up to info bar
-        }
-
-        // CHA — Cursor Horizontal Absolute (1-based column)
-        let rightCol = columns - rightWidth + 1
-        output += "\u{1b}[\(rightCol)G"
-
-        // Write the right prompt
-        output += prompt.rightPromptText
-        output += PromptStyle.ansiReset
-
-        // Move cursor back down to input line
-        if linesUp > 0 {
-            output += "\u{1b}[\(linesUp)B"  // CUD — move down
-        }
-
-        // Restore cursor to input position (start of input area)
-        output += "\r"
-        if prompt.secondLinePrefix > 0 {
-            output += "\u{1b}[\(prompt.secondLinePrefix)C"  // CUF — move forward
-        }
-
-        return output
     }
 
     /// Generate a fresh prompt (called from displayPrompt only — caches result for redraw)

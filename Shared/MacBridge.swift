@@ -14,6 +14,12 @@ public protocol MacBridge: NSObjectProtocol {
     /// Installs the Dock menu. `provider` is invoked on the main thread each time
     /// the Dock asks, so the entries reflect the app's state at click time.
     func installDockMenu(_ provider: @escaping () -> [any MacMenuEntry]) -> Bool
+    /// Installs the standard Services submenu into the application menu and hands
+    /// it to AppKit. `title` comes from the caller because the bundle ships no
+    /// strings catalog, the same reason the Dock menu passes localized titles in.
+    /// False means UIKit has not built the main menu yet; the bundle re-attaches
+    /// the item on the next menu-bar tracking pass, so the caller need not retry.
+    func installServicesMenu(title: String) -> Bool
     func inputSources() -> [[String: String]]
     func currentInputSourceID() -> String?
     func currentInputSourceLanguages() -> [String]
@@ -34,7 +40,6 @@ public protocol MacBridge: NSObjectProtocol {
     /// `requestSceneSessionActivation` alone can leave a Catalyst window hidden
     /// or in the Dock, so external events finish the job here.
     func activate(_ window: NSObject)
-    func setAlpha(_ alpha: CGFloat, for window: NSObject)
     func configureBackground(_ transparent: Bool, for window: NSObject)
     func refresh(_ window: NSObject)
     /// True for the borderless glass backdrop windows this bundle owns, so the
@@ -57,7 +62,6 @@ public protocol MacBridge: NSObjectProtocol {
 @objc(ShellMacShellProcess)
 public protocol MacShellProcess: NSObjectProtocol {
     var processID: Int32 { get }
-    var exitStatus: Int32 { get }
     func duplicateMaster() -> Int32
     func terminate(signal: Int32)
 }

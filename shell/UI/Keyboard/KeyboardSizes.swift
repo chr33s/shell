@@ -113,7 +113,14 @@ struct KeyboardSizes {
             return orientation.isLandscape
         }
 
-        let screenBounds = UIScreen.main.bounds
+        // Last resort: no size class and no valid device orientation. Read the
+        // screen off the scene this app is showing in - `UIScreen.main` is
+        // deprecated and need not be the display this window is on. Nothing
+        // connected means no landscape evidence, so keep the portrait default.
+        let scenes = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+        let activeScene = scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
+        guard let screenBounds = activeScene?.screen.bounds else { return false }
         return screenBounds.width > screenBounds.height
     }
     #endif

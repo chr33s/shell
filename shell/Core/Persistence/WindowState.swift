@@ -110,10 +110,6 @@ nonisolated struct SerializableWindow: Codable, Identifiable, Equatable, Sendabl
     /// Independent tab order inside each user group.
     var tabGroupTabOrders: [String: [UUID]]?
 
-    /// Stable Coding Agent project-section and per-project tab orders.
-    var projectGroupOrder: [ProjectGroupID]?
-    var projectTabOrders: [ProjectGroupID: [UUID]]?
-
     /// Saved window frame in Mac Catalyst system coordinates (points). Stored as
     /// individual fields (not a CGRect) so this model stays Foundation-only.
     /// Optional so saves from versions without geometry decode as nil. Applied on
@@ -136,8 +132,6 @@ nonisolated struct SerializableWindow: Codable, Identifiable, Equatable, Sendabl
         tabGroupOverrides: [UUID: TabGroupID]? = nil,
         tabGroupOrder: [String]? = nil,
         tabGroupTabOrders: [String: [UUID]]? = nil,
-        projectGroupOrder: [ProjectGroupID]? = nil,
-        projectTabOrders: [ProjectGroupID: [UUID]]? = nil,
         frameOriginX: Double? = nil,
         frameOriginY: Double? = nil,
         frameWidth: Double? = nil,
@@ -153,8 +147,6 @@ nonisolated struct SerializableWindow: Codable, Identifiable, Equatable, Sendabl
         self.tabGroupOverrides = tabGroupOverrides
         self.tabGroupOrder = tabGroupOrder
         self.tabGroupTabOrders = tabGroupTabOrders
-        self.projectGroupOrder = projectGroupOrder
-        self.projectTabOrders = projectTabOrders
         self.frameOriginX = frameOriginX
         self.frameOriginY = frameOriginY
         self.frameWidth = frameWidth

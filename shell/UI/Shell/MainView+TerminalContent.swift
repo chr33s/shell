@@ -115,7 +115,22 @@ extension MainView {
         Task { @MainActor in
             do {
                 try await controller.detachOtherClients()
+            } catch TmuxCommandError.gatewayEnded {
+                // Control mode already ended; its teardown is the feedback.
             } catch {
+                // Same surface the tab menus give this command
+                // (TmuxTabMenu's commandFailureAlert): the shortcut has no
+                // visible success state either, so a rejected or timed-out
+                // detach would otherwise be indistinguishable from the app
+                // ignoring the keystroke.
+                NotificationCenter.default.post(
+                    name: .tmuxShortcutCommandFailed,
+                    object: nil,
+                    userInfo: [
+                        "windowId": windowId,
+                        "message": error.localizedDescription
+                    ]
+                )
             }
         }
     }
@@ -184,6 +199,10 @@ extension MainView {
 
             // Compose text overlay
             composeOverlay(composeStateVersion: composeStateVersion)
+
+            // Failure alert for tmux commands run from a keyboard shortcut
+            // (the tab menus carry their own coordinator).
+            TmuxShortcutFailureAlert(windowId: windowId)
 
             #if os(visionOS)
             // Floating button to toggle keyboard toolbar ornament
@@ -431,6 +450,24 @@ extension MainView {
         }
     }
 
+    #if !os(visionOS) && !targetEnvironment(macCatalyst)
+    /// This window's live `UIWindowScene`, resolved through the
+    /// windowId -> sceneSessionId link `TerminalWindowRegistry` publishes.
+    /// Returns nil before the scene reporter has established that link, or once
+    /// the scene has gone away.
+    ///
+    /// The Catalyst build carries its own copy in `MainView+Persistence.swift`
+    /// (inside that file's `targetEnvironment(macCatalyst)` fence); the two
+    /// fences are mutually exclusive, so exactly one definition is compiled for
+    /// any given platform.
+    static func windowScene(forWindowId windowId: String) -> UIWindowScene? {
+        guard let sessionId = TerminalWindowRegistry.sceneSessionId(for: windowId) else { return nil }
+        return UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.session.persistentIdentifier == sessionId }
+    }
+    #endif
+
     /// Calculates bottom padding for a terminal based on effects and keyboard.
     /// Also reports whether that padding puts the terminal's bottom edge
     /// directly against a resting toolbar row, i.e. whether
@@ -454,9 +491,14 @@ extension MainView {
         let isDocked = keyboardGeometry.isKeyboardDocked
         let containerFrame = geometry.frame(in: .global)
         let isPhone = UIDevice.current.userInterfaceIdiom == .phone
+        // `UIScreen.main` is deprecated and need not be the display this window
+        // is on. Resolve this window's own scene through the windowId -> scene
+        // link; before that link is up (or once the scene has gone away) fall
+        // back to the container the terminal is drawn in.
+        let windowScreenBounds = Self.windowScene(forWindowId: windowId)?.screen.bounds
         let visibleKeyboardFrameHeight: CGFloat = {
             guard !keyboardFrame.isNull, !keyboardFrame.isEmpty else { return 0 }
-            let bounds = isPhone ? containerFrame : UIScreen.main.bounds
+            let bounds = isPhone ? containerFrame : (windowScreenBounds ?? containerFrame)
             // Narrow bottom HUDs (the pencil's minimized-keyboard pill, the
             // floating mini keyboard) are not keyboard coverage.
             guard keyboardFrame.width >= bounds.width - 50 else { return 0 }
@@ -700,9 +742,8 @@ extension MainView {
     /// inside its OWN stacking context. A bare `ForEach` would flatten into
     /// the parent `terminalContentZStack`, so the displayed tab's zIndex (1)
     /// would compete with — and paint OVER — the zIndex-0 overlays and effect
-    /// layer in that ZStack (theme picker, search, compose, reconnection,
-    /// theme picker, search, compose, reconnection…), hiding them and
-    /// swallowing touch/keyboard input.
+    /// layer in that ZStack (search, compose, reconnection…), hiding them
+    /// and swallowing touch/keyboard input.
     /// Wrapping in a ZStack scopes those zIndex values to the tabs alone and
     /// restores plain source-order layering against the overlays.
     @ViewBuilder
@@ -896,6 +937,52 @@ extension MainView {
             width: geometry.size.width
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+extension Notification.Name {
+    /// A tmux command invoked by keyboard shortcut failed. Carries
+    /// `"windowId"` (the originating window, so only that window alerts) and
+    /// `"message"` (the error's already user-facing description — tmux's own
+    /// `%error` text, or the app-side timeout / invalid-name description).
+    /// Consumed by `TmuxShortcutFailureAlert`.
+    static let tmuxShortcutCommandFailed = Notification.Name("dev.chr33s.shell.tmuxShortcutCommandFailed")
+}
+
+/// Failure alert for the tmux commands reachable by keyboard shortcut.
+///
+/// The tab menus report the same failures through `TmuxTabDialogCoordinator`,
+/// but that coordinator is `@State` on the menu's host view (TabBar), so a
+/// MainView method has no way to reach it — and a MainView extension cannot
+/// add stored state of its own. So the message lives in this tiny view, which
+/// picks it up from the window-scoped `.tmuxShortcutCommandFailed` post.
+/// Title, buttons and verbatim message match `TmuxTabMenu`'s
+/// `commandFailureAlert` so the two paths look identical to the user;
+/// `Text(String)` deliberately picks the non-localizing StringProtocol
+/// overload, since the message is the server's own text.
+private struct TmuxShortcutFailureAlert: View {
+    let windowId: String
+    @State private var message: String?
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+            .alert("tmux Command Failed", isPresented: Binding(
+                get: { message != nil },
+                set: { if !$0 { message = nil } }
+            )) {
+                Button("OK", role: .cancel) { message = nil }
+            } message: {
+                Text(message ?? "")
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .tmuxShortcutCommandFailed)) { notification in
+                guard notification.userInfo?["windowId"] as? String == windowId,
+                      let text = notification.userInfo?["message"] as? String,
+                      !text.isEmpty
+                else { return }
+                message = text
+            }
     }
 }
 

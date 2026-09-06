@@ -26,9 +26,6 @@ final class KnownHostsManager: ObservableObject {
 
     /// Initialize the manager and load existing known hosts
     init() {
-        // Run migration before initializing store
-        SyncMigrationManager.migrateIfNeeded()
-
         self.store = SyncableFileStore<KnownHost>(storeName: "known_hosts")
 
         // Build legacy ID lookup table

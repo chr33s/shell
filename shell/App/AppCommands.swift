@@ -24,23 +24,6 @@ final class MenuShortcutState: ObservableObject {
 
     @Published var shortcuts: [KeybindAction: KeyboardShortcut] = [:]
 
-    /// Whether a menu bar exists to carry app shortcuts. Both menu rails dispatch
-    /// through UIApplication notifications rather than the responder chain, so a
-    /// menu item still fires while an overlay owns first responder — and a second
-    /// SwiftUI `.keyboardShortcut` for the same chord blanks the item's glyph.
-    /// Overlay shortcut catchers are installed only where this is false; before
-    /// iPadOS 26 the ⌘-hold HUD is the surface and there is no menu to break.
-    nonisolated static var menuRailOwnsShortcuts: Bool {
-        #if targetEnvironment(macCatalyst)
-        return true
-        #elseif os(visionOS)
-        return false
-        #else
-        if #available(iOS 26.0, *) { return true }
-        return false
-        #endif
-    }
-
     private var cancellables = Set<AnyCancellable>()
 
     private init() {
@@ -93,20 +76,16 @@ struct AppCommands: Commands {
     @ObservedObject var shortcutState = MenuShortcutState.shared
 
     var body: some Commands {
-        // These are the only menu rail: the UIMenuBuilder path is gone, and the
-        // Mac build's deployment target is 26. On iPad below 26 there is no menu
-        // bar at all, so the ⌘-hold HUD remains the surface for these shortcuts.
-        if #available(macCatalyst 26.0, iOS 26.0, *) {
-            #if targetEnvironment(macCatalyst)
-            MacApplicationCommands()
-            #endif
-            FileCommands(shortcutState: shortcutState)
-            EditCommands(shortcutState: shortcutState)
-            AppViewCommands(shortcutState: shortcutState)
-            TerminalCommands(shortcutState: shortcutState)
-            ShellCommands(shortcutState: shortcutState)
-            WindowCommands(shortcutState: shortcutState)
-        }
+        // These are the only menu rail: the UIMenuBuilder path is gone.
+        #if targetEnvironment(macCatalyst)
+        MacApplicationCommands()
+        #endif
+        FileCommands(shortcutState: shortcutState)
+        EditCommands(shortcutState: shortcutState)
+        AppViewCommands(shortcutState: shortcutState)
+        TerminalCommands(shortcutState: shortcutState)
+        ShellCommands(shortcutState: shortcutState)
+        WindowCommands(shortcutState: shortcutState)
     }
 }
 
@@ -215,7 +194,360 @@ struct DynamicShortcut: ViewModifier {
 // Note: Close (Cmd-W) is handled by:
 // 1. System-provided Close menu item
 // 2. UIKeyCommand in TerminalViewKeyboard.swift with wantsPriorityOverSystemBehavior
-// 3. pressesBegan fallback for macOS Sequoia compatibility
+// 3. pressesBegan fallback for keys that bypass UIKeyCommand
+
+// MARK: - Menu Toggle State
+
+/// Invalidation signal for menu-bar checkmarks whose truth `@Observable`
+/// cannot see: which window is key (`WindowFocusRegistry` is a plain registry)
+/// and the two flags that live on `Ghostty.TerminalView`, a UIView. Everything
+/// else the toggles read (`SettingBox`, `TabsModel`, `TabModel`,
+/// `TransparencyManager`) is already `@Observable` and needs no wiring here.
+///
+/// `noteWindowFocusChanged()` / `notePaneStateChanged()` are the intended hooks
+/// for the sites that own those truths — `WindowFocusRegistry.update/remove`
+/// and the `didSet` of `TerminalView.isMouseCaptured` / `showComposeOverlay`.
+/// Until those call in, this class self-wires from the same notifications those
+/// sites react to, so the checkmarks are correct on their own. The hooks are
+/// purely additive: a duplicate window bump is dropped (the resolved model is
+/// unchanged) and a duplicate pane bump costs one extra, identical rebuild.
+///
+/// It never stores a `TabsModel` and holds the tracked pane weakly, so the menu
+/// bar can never keep a closed window or pane alive.
+@MainActor
+@Observable
+final class MenuFocusState {
+    static let shared = MenuFocusState()
+
+    private(set) var windowRevision = 0
+    private(set) var paneRevision = 0
+
+    @ObservationIgnored private let observers = MainViewObserverBag()
+    @ObservationIgnored private var windowRefreshScheduled = false
+    @ObservationIgnored private var paneTrackingRefreshScheduled = false
+    /// Last window the menu resolved to. Weak, and compared by identity only —
+    /// bumping `windowRevision` only when this actually changes keeps a stream
+    /// of key/main notifications from becoming a stream of menu rebuilds.
+    @ObservationIgnored private weak var lastResolvedTabs: TabsModel?
+    /// The pane whose `isMouseCaptured` is currently sunk.
+    @ObservationIgnored private weak var trackedTerminal: Ghostty.TerminalView?
+    @ObservationIgnored private var mouseCaptureSink: AnyCancellable?
+
+    private init() {
+        // Which window is key. These are exactly the notifications
+        // `MainViewWindowSceneReporter` turns into `WindowFocusRegistry`
+        // writes, so watching them keeps the checkmarks in step with the
+        // registry `activeTabs()` reads.
+        observeWindowFocus([
+            UIWindow.didBecomeKeyNotification,
+            UIWindow.didResignKeyNotification,
+            UIScene.didActivateNotification,
+            UIScene.willDeactivateNotification,
+            UIScene.didDisconnectNotification,
+        ])
+        #if targetEnvironment(macCatalyst)
+        // Catalyst raises AppKit's key/main changes as well, and the reporter
+        // already listens to these same string-named notifications.
+        observeWindowFocus([
+            Notification.Name("NSWindowDidBecomeKeyNotification"),
+            Notification.Name("NSWindowDidResignKeyNotification"),
+            Notification.Name("NSWindowDidBecomeMainNotification"),
+            Notification.Name("NSWindowDidResignMainNotification"),
+        ])
+        #endif
+
+        // Compose posts this from every one of its write sites, so it stands in
+        // for the `showComposeOverlay` didSet.
+        observers.observeOnMainActor(.ghosttyComposeStateChanged) { [weak self] _ in
+            self?.notePaneStateChanged()
+        }
+
+        // Moving focus between panes and tabs changes which pane the
+        // pane-scoped items describe. The read itself is already covered by
+        // `@Observable` (`TabsModel.selectedTabID`, `TabModel.focusedPane`);
+        // this only re-points the mouse-capture sink, and never bumps on its
+        // own. These fire as the change is requested, so re-arm a turn later.
+        for name in [
+            Notification.Name.focusSplit,
+            .navigateSplit,
+            .createSplit,
+            .closeSplit,
+            .selectTab,
+            .nextTab,
+            .previousTab,
+        ] {
+            observers.observeOnMainActor(name) { [weak self] _ in
+                self?.schedulePaneTrackingRefresh()
+            }
+        }
+    }
+
+    private func observeWindowFocus(_ names: [Notification.Name]) {
+        for name in names {
+            observers.observeOnMainActor(name) { [weak self] _ in
+                self?.noteWindowFocusChanged()
+            }
+        }
+    }
+
+    /// The key window changed. Safe to call redundantly: it re-resolves and
+    /// only invalidates the menu when the resolved window actually differs.
+    func noteWindowFocusChanged() {
+        refreshWindowFocus()
+        scheduleWindowFocusRefresh()
+    }
+
+    /// A flag on the focused pane changed (compose, mouse capture).
+    func notePaneStateChanged() {
+        paneRevision &+= 1
+        refreshPaneTracking()
+    }
+
+    /// The `TabsModel` a menu command will actually land in. Mirrors
+    /// `UIApplication.ghostty_activeWindowSceneSessionID()` (which stamps the
+    /// command) and `MainView.shouldHandleNotification` (which accepts it), so
+    /// the checkmark can never disagree with where the command goes.
+    static func activeTabs() -> TabsModel? {
+        if let sceneID = UIApplication.shared.ghostty_activeWindowSceneSessionID(),
+           let windowId = TerminalWindowRegistry.windowId(forSceneSessionId: sceneID),
+           let model = TerminalWindowRegistry.tabsModel(for: windowId) {
+            return model
+        }
+        return soleTerminalWindowTabs()
+    }
+
+    /// The single terminal window's model, when it is the only one. Mirrors
+    /// `shouldHandleNotification`'s single-window acceptance rule — including
+    /// its exclusion of the Settings scene, which is a `UIWindowScene` too.
+    private static func soleTerminalWindowTabs() -> TabsModel? {
+        #if targetEnvironment(macCatalyst)
+        let scenes = UIApplication.shared.connectedScenes
+            .filter { CatalystSceneDelegate.isTerminalScene($0) }
+            .compactMap { $0 as? UIWindowScene }
+        #else
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        #endif
+        guard scenes.count == 1,
+              let windowId = TerminalWindowRegistry.windowId(
+                  forSceneSessionId: scenes[0].session.persistentIdentifier
+              ) else {
+            return nil
+        }
+        return TerminalWindowRegistry.tabsModel(for: windowId)
+    }
+
+    private func refreshWindowFocus() {
+        let resolved = Self.activeTabs()
+        defer { refreshPaneTracking() }
+        guard resolved !== lastResolvedTabs else { return }
+        lastResolvedTabs = resolved
+        windowRevision &+= 1
+    }
+
+    /// `MainViewWindowSceneReporter` writes `WindowFocusRegistry` from a
+    /// `Task { @MainActor }`, and a window registers itself with
+    /// `TerminalWindowRegistry` from `onAppear`; neither is ordered against
+    /// this observer. Re-resolving on the next two main-queue turns guarantees
+    /// at least one read lands after the registry settled. Each re-resolve is a
+    /// dictionary lookup that invalidates nothing unless the answer changed.
+    private func scheduleWindowFocusRefresh() {
+        guard !windowRefreshScheduled else { return }
+        windowRefreshScheduled = true
+        onNextMainQueueTurn { [weak self] in
+            guard let self else { return }
+            self.refreshWindowFocus()
+            self.onNextMainQueueTurn { [weak self] in
+                guard let self else { return }
+                self.windowRefreshScheduled = false
+                self.refreshWindowFocus()
+            }
+        }
+    }
+
+    private func schedulePaneTrackingRefresh() {
+        guard !paneTrackingRefreshScheduled else { return }
+        paneTrackingRefreshScheduled = true
+        onNextMainQueueTurn { [weak self] in
+            guard let self else { return }
+            self.paneTrackingRefreshScheduled = false
+            self.refreshPaneTracking()
+        }
+    }
+
+    /// Points the `isMouseCaptured` sink at the currently focused pane.
+    ///
+    /// `isMouseCaptured` is ghostty's own truth and is written without any
+    /// notification — `updateMouseCaptureState()` flips it when the program
+    /// enables mouse reporting. It is `@Published`, so a sink is the one way to
+    /// see that from here. Re-arming is identity-guarded, so the sink calling
+    /// back into `notePaneStateChanged()` cannot recurse.
+    private func refreshPaneTracking() {
+        let terminal = Self.activeTabs()?.selectedTab?.focusedTerminal
+        guard terminal !== trackedTerminal else { return }
+        trackedTerminal = terminal
+        mouseCaptureSink = terminal?.$isMouseCaptured
+            .dropFirst()
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                Task { @MainActor in self?.notePaneStateChanged() }
+            }
+    }
+
+    private func onNextMainQueueTurn(_ work: @escaping @MainActor @Sendable () -> Void) {
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated(work)
+        }
+    }
+}
+
+// MARK: - Menu Toggle Item
+
+/// One checkable menu-bar item.
+///
+/// It is a `View` rather than bare `Commands` content for the same reason
+/// `OpenRecentProfilesMenu` is: only a view body that reads its own truth gets
+/// `@Observable` tracking, so a parent `Commands` struct computing `isOn` and
+/// passing it down would never invalidate.
+///
+/// This adds state reflection only. Every item dispatches through the same
+/// `sendAction(_:to:from:for:)` call its `Button` made, so what the item *does*
+/// — and which responder handles it — is unchanged.
+struct MenuToggleItem: View {
+    enum Kind {
+        case topTabBar
+        case groupMode
+        case transparency
+        case titleBar
+        case fullScreen
+        case splitZoom
+        case compose
+        case mouseCapture
+    }
+
+    let kind: Kind
+    let shortcuts: [KeybindAction: KeyboardShortcut]
+
+    @State private var focus = MenuFocusState.shared
+    @State private var transparency = TransparencyManager.shared
+
+    @Setting(Settings.Tabs.barHidden) private var tabBarHidden
+    @Setting(Settings.Window.hideTitleBar) private var hideWindowTitleBar
+    @Setting(Settings.Window.fullScreenMode) private var fullScreenMode
+
+    var body: some View {
+        // Both truths are read here, in this view's own body, so `@Observable`
+        // registers the dependency against THIS item. A binding getter runs
+        // outside the body's tracking scope and would never invalidate it.
+        let checked = isOn
+        let enabled = isEnabled
+        Toggle(title, isOn: Binding(get: { checked }, set: { _ in dispatch() }))
+            .disabled(!enabled)
+            .modifier(DynamicShortcut(action: keybind, shortcuts: shortcuts))
+    }
+
+    /// The window the command will land in, re-resolved whenever the key window
+    /// changes. Deliberately not cached: every downstream read re-registers
+    /// with `@Observable` against the new model, and nothing retains the old.
+    private var tabs: TabsModel? {
+        _ = focus.windowRevision
+        return MenuFocusState.activeTabs()
+    }
+
+    private var terminal: Ghostty.TerminalView? {
+        _ = focus.paneRevision
+        return tabs?.selectedTab?.focusedTerminal
+    }
+
+    /// The item is named for the thing it checks, not the verb it performs — a
+    /// checked "Toggle Compose" would be wrong on macOS. The two settings that
+    /// store the *hidden* state are therefore inverted here.
+    private var isOn: Bool {
+        switch kind {
+        case .topTabBar: return !tabBarHidden
+        case .groupMode: return tabs?.isGroupedModeEnabled == true
+        case .transparency: return !transparency.isTransparencyDisabled
+        case .titleBar: return !hideWindowTitleBar
+        case .fullScreen: return fullScreenMode
+        case .splitZoom: return tabs?.selectedTab?.splitTree.zoomed != nil
+        case .compose: return terminal?.showComposeOverlay == true
+        case .mouseCapture: return terminal?.isMouseCaptured == true
+        }
+    }
+
+    /// Window-scoped items act on the key window, not on a focused pane, so
+    /// they stay live with no terminal focused; they grey out only when no
+    /// window would accept the command. Pane-scoped items need a focused pane.
+    /// Unchecked-and-disabled is the macOS idiom for "unknown" — mixed state
+    /// would be wrong here, since every one of these resolves to exactly one
+    /// truth and no item fans out over a selection.
+    private var isEnabled: Bool {
+        switch kind {
+        case .topTabBar, .groupMode, .transparency, .titleBar, .fullScreen:
+            return tabs != nil
+        case .splitZoom, .compose, .mouseCapture:
+            return terminal != nil
+        }
+    }
+
+    private var title: String {
+        switch kind {
+        case .topTabBar:
+            return String(localized: "Top Tab Bar", comment: "Checkable View menu item")
+        case .groupMode:
+            return String(localized: "Group Mode", comment: "Checkable View menu item")
+        case .transparency:
+            return String(localized: "Transparency", comment: "Checkable View menu item")
+        case .titleBar:
+            return String(localized: "Title Bar", comment: "Checkable View menu item")
+        case .fullScreen:
+            return String(localized: "Full Screen", comment: "Checkable View menu item")
+        case .splitZoom:
+            return String(localized: "Split Zoom", comment: "Checkable Terminal menu item")
+        case .compose:
+            return String(localized: "Compose", comment: "Checkable Terminal menu item")
+        case .mouseCapture:
+            return String(localized: "Mouse Capture", comment: "Checkable Terminal menu item")
+        }
+    }
+
+    private var keybind: KeybindAction {
+        switch kind {
+        case .topTabBar: return .toggle_tab_bar
+        case .groupMode: return .toggle_group_mode
+        case .transparency: return .toggle_transparency
+        case .titleBar: return .toggle_titlebar
+        case .fullScreen: return .toggle_full_screen
+        case .splitZoom: return .toggle_split_zoom
+        case .compose: return .toggle_compose
+        case .mouseCapture: return .toggle_mouse_capture
+        }
+    }
+
+    private func dispatch() {
+        switch kind {
+        case .topTabBar:
+            send(#selector(Ghostty.TerminalView.menuToggleTabBar(_:)))
+        case .groupMode:
+            send(#selector(Ghostty.TerminalView.menuToggleGroupMode(_:)))
+        case .transparency:
+            send(#selector(Ghostty.TerminalView.menuToggleTransparency(_:)))
+        case .titleBar:
+            send(#selector(Ghostty.TerminalView.menuToggleTitleBar(_:)))
+        case .fullScreen:
+            send(#selector(Ghostty.TerminalView.menuToggleFullScreen(_:)))
+        case .splitZoom:
+            send(#selector(Ghostty.TerminalView.menuToggleSplitZoom(_:)))
+        case .compose:
+            send(#selector(Ghostty.TerminalView.menuToggleCompose(_:)))
+        case .mouseCapture:
+            send(#selector(Ghostty.TerminalView.menuToggleMouseCapture(_:)))
+        }
+    }
+
+    private func send(_ selector: Selector) {
+        UIApplication.shared.sendAction(selector, to: nil, from: nil, for: nil)
+    }
+}
 
 // MARK: - Edit Commands
 
@@ -283,37 +615,9 @@ struct AppViewCommands: Commands {
             Divider()
 
             // View toggles
-            Button("Toggle Top Tab Bar") {
-                UIApplication.shared.sendAction(
-                    #selector(Ghostty.TerminalView.menuToggleTabBar(_:)),
-                    to: nil, from: nil, for: nil
-                )
-            }
-            .modifier(DynamicShortcut(action: .toggle_tab_bar, shortcuts: shortcutState.shortcuts))
+            MenuToggleItem(kind: .topTabBar, shortcuts: shortcutState.shortcuts)
 
-            Button("Toggle Group Mode") {
-                UIApplication.shared.sendAction(
-                    #selector(Ghostty.TerminalView.menuToggleGroupMode(_:)),
-                    to: nil, from: nil, for: nil
-                )
-            }
-            .modifier(DynamicShortcut(action: .toggle_group_mode, shortcuts: shortcutState.shortcuts))
-
-            Button("Toggle Background Effect") {
-                UIApplication.shared.sendAction(
-                    #selector(Ghostty.TerminalView.menuToggleBackgroundEffect(_:)),
-                    to: nil, from: nil, for: nil
-                )
-            }
-            .modifier(DynamicShortcut(action: .toggle_background_effect, shortcuts: shortcutState.shortcuts))
-
-            Button("Toggle Theme Picker") {
-                UIApplication.shared.sendAction(
-                    #selector(Ghostty.TerminalView.menuToggleThemePicker(_:)),
-                    to: nil, from: nil, for: nil
-                )
-            }
-            .modifier(DynamicShortcut(action: .toggle_theme_picker, shortcuts: shortcutState.shortcuts))
+            MenuToggleItem(kind: .groupMode, shortcuts: shortcutState.shortcuts)
 
             Button("Switch Keyboard Language") {
                 UIApplication.shared.sendAction(
@@ -324,32 +628,14 @@ struct AppViewCommands: Commands {
             .modifier(DynamicShortcut(action: .cycle_input_source, shortcuts: shortcutState.shortcuts))
 
             #if targetEnvironment(macCatalyst)
-            Button("Toggle Transparency") {
-                UIApplication.shared.sendAction(
-                    #selector(Ghostty.TerminalView.menuToggleTransparency(_:)),
-                    to: nil, from: nil, for: nil
-                )
-            }
-            .modifier(DynamicShortcut(action: .toggle_transparency, shortcuts: shortcutState.shortcuts))
+            MenuToggleItem(kind: .transparency, shortcuts: shortcutState.shortcuts)
 
-            Button("Toggle Title Bar") {
-                UIApplication.shared.sendAction(
-                    #selector(Ghostty.TerminalView.menuToggleTitleBar(_:)),
-                    to: nil, from: nil, for: nil
-                )
-            }
-            .modifier(DynamicShortcut(action: .toggle_titlebar, shortcuts: shortcutState.shortcuts))
+            MenuToggleItem(kind: .titleBar, shortcuts: shortcutState.shortcuts)
             #endif
 
             #if !targetEnvironment(macCatalyst)
             // iPad only — macOS system provides "Enter Full Screen" in View menu
-            Button("Toggle Full Screen") {
-                UIApplication.shared.sendAction(
-                    #selector(Ghostty.TerminalView.menuToggleFullScreen(_:)),
-                    to: nil, from: nil, for: nil
-                )
-            }
-            .modifier(DynamicShortcut(action: .toggle_full_screen, shortcuts: shortcutState.shortcuts))
+            MenuToggleItem(kind: .fullScreen, shortcuts: shortcutState.shortcuts)
             #endif
         }
     }
@@ -419,13 +705,7 @@ struct TerminalCommands: Commands {
             Divider()
 
             // Split management
-            Button("Toggle Split Zoom") {
-                UIApplication.shared.sendAction(
-                    #selector(Ghostty.TerminalView.menuToggleSplitZoom(_:)),
-                    to: nil, from: nil, for: nil
-                )
-            }
-            .modifier(DynamicShortcut(action: .toggle_split_zoom, shortcuts: shortcutState.shortcuts))
+            MenuToggleItem(kind: .splitZoom, shortcuts: shortcutState.shortcuts)
 
             Button("Equalize Splits") {
                 UIApplication.shared.sendAction(
@@ -472,26 +752,9 @@ struct TerminalCommands: Commands {
 
             Divider()
 
-            Button("Toggle Compose") {
-                UIApplication.shared.sendAction(
-                    #selector(Ghostty.TerminalView.menuToggleCompose(_:)),
-                    to: nil, from: nil, for: nil
-                )
-            }
-            .modifier(DynamicShortcut(action: .toggle_compose, shortcuts: shortcutState.shortcuts))
+            MenuToggleItem(kind: .compose, shortcuts: shortcutState.shortcuts)
 
-            Button("Toggle Mouse Capture") {
-                if !UIApplication.shared.sendAction(
-                    NSSelectorFromString("toggleVNCKeyboardCapture:"),
-                    to: nil, from: nil, for: nil
-                ) {
-                    UIApplication.shared.sendAction(
-                        #selector(Ghostty.TerminalView.menuToggleMouseCapture(_:)),
-                        to: nil, from: nil, for: nil
-                    )
-                }
-            }
-            .modifier(DynamicShortcut(action: .toggle_mouse_capture, shortcuts: shortcutState.shortcuts))
+            MenuToggleItem(kind: .mouseCapture, shortcuts: shortcutState.shortcuts)
 
             #if targetEnvironment(macCatalyst)
             Divider()
@@ -536,26 +799,6 @@ struct ShellCommands: Commands {
                 )
             }
             .modifier(DynamicShortcut(action: .browse_profiles, shortcuts: shortcutState.shortcuts))
-
-            #if !CHINA_BUILD
-            Divider()
-
-            Button("AI Agent") {
-                UIApplication.shared.sendAction(
-                    #selector(Ghostty.TerminalView.menuToggleAIAgent(_:)),
-                    to: nil, from: nil, for: nil
-                )
-            }
-            .modifier(DynamicShortcut(action: .toggle_ai_agent, shortcuts: shortcutState.shortcuts))
-
-            Button("Voice Agent") {
-                UIApplication.shared.sendAction(
-                    #selector(Ghostty.TerminalView.menuToggleVoiceAgent(_:)),
-                    to: nil, from: nil, for: nil
-                )
-            }
-            .modifier(DynamicShortcut(action: .toggle_voice_agent, shortcuts: shortcutState.shortcuts))
-            #endif
         }
 
         // Handle system Settings menu item (Cmd+,)
@@ -565,9 +808,7 @@ struct ShellCommands: Commands {
                 #if targetEnvironment(macCatalyst)
                 MacSettingsWindow.show()
                 #else
-                UIApplication.shared.menuOpenSettings(
-                    VNCReservedKeyboardShortcut.openSettings.notificationSender
-                )
+                UIApplication.shared.menuOpenSettings(nil)
                 #endif
             }
             .modifier(DynamicShortcut(action: .open_settings, shortcuts: shortcutState.shortcuts))
@@ -583,37 +824,19 @@ struct WindowCommands: Commands {
     var body: some Commands {
         // Use "Tabs" menu to avoid conflict with system Window menu
         CommandMenu("Tabs") {
-            Button("Toggle Vertical Tab Bar") {
-                UIApplication.shared.menuToggleTabSwitcher(
-                    VNCReservedKeyboardShortcut.toggleTabSwitcher.notificationSender
-                )
-            }
-            .modifier(DynamicShortcut(action: .toggle_tab_switcher, shortcuts: shortcutState.shortcuts))
-
-            Button("Tab Exposé") {
-                // Posts the window-scoped notification directly so it works
-                // with no terminal in the responder chain (VNC pane focused).
-                UIApplication.shared.menuToggleTabExpose(nil)
-            }
-            .modifier(DynamicShortcut(action: .toggle_tab_expose, shortcuts: shortcutState.shortcuts))
-
             Button("Previous Tab") {
-                UIApplication.shared.menuPreviousTab(
-                    VNCReservedKeyboardShortcut.previousTab.notificationSender
-                )
+                UIApplication.shared.menuPreviousTab(nil)
             }
             .modifier(DynamicShortcut(action: .previous_tab, shortcuts: shortcutState.shortcuts))
 
             Button("Next Tab") {
-                UIApplication.shared.menuNextTab(
-                    VNCReservedKeyboardShortcut.nextTab.notificationSender
-                )
+                UIApplication.shared.menuNextTab(nil)
             }
             .modifier(DynamicShortcut(action: .next_tab, shortcuts: shortcutState.shortcuts))
 
-            // ⌘⌥[ / ⌘⌥]: Option composes a different character, so before 26 a
-            // prioritized UIKeyCommand owns these (KeybindAction.needsSystemPriority).
-            // From 26 the menu owns them, which is what shows the glyph.
+            // ⌘⌥[ / ⌘⌥]: the menu owns these, which is what shows the glyph; a
+            // customized binding still gets a prioritized UIKeyCommand
+            // (KeybindAction.needsSystemPriority).
             Button("Previous Group") {
                 UIApplication.shared.menuPreviousGroup(nil)
             }

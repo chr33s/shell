@@ -56,63 +56,6 @@ nonisolated enum TabOrderRules {
         return result
     }
 
-    /// Applies the currently-live section permutation to remembered slots while
-    /// leaving temporarily unresolved identities exactly where they were.
-    /// Newly discovered live identities that have no remembered slot append.
-    static func mergingLivePermutation<ID: Hashable>(
-        _ liveOrder: [ID],
-        into rememberedOrder: [ID]
-    ) -> [ID] {
-        let liveSet = Set(liveOrder)
-        var nextLiveIndex = liveOrder.startIndex
-        var result = rememberedOrder
-
-        for index in result.indices where liveSet.contains(result[index]) {
-            guard nextLiveIndex < liveOrder.endIndex else { break }
-            result[index] = liveOrder[nextLiveIndex]
-            liveOrder.formIndex(after: &nextLiveIndex)
-        }
-        if nextLiveIndex < liveOrder.endIndex {
-            result.append(contentsOf: liveOrder[nextLiveIndex...])
-        }
-        return result
-    }
-
-    /// The shortest trailing path whose components distinguish `path` from
-    /// all peers. Useful when project label + host are still ambiguous.
-    static func shortestUniquePathSuffix(
-        for path: String,
-        among paths: [String]
-    ) -> String {
-        let components = path.split(separator: "/").map(String.init)
-        guard !components.isEmpty else { return path }
-
-        for length in 1...components.count {
-            let candidate = components.suffix(length).joined(separator: "/")
-            let matchCount = paths.reduce(into: 0) { count, peer in
-                let peerComponents = peer.split(separator: "/").map(String.init)
-                if peerComponents.suffix(length).joined(separator: "/") == candidate {
-                    count += 1
-                }
-            }
-            if matchCount == 1 { return candidate }
-        }
-        return path
-    }
-
-    /// Selects the section containing the current identity. A stable first
-    /// section fallback keeps restoration usable while selection catches up.
-    static func activeSectionIndex<ID: Equatable>(
-        containing selectedID: ID?,
-        in sections: [[ID]]
-    ) -> Int? {
-        if let selectedID,
-           let index = sections.firstIndex(where: { $0.contains(selectedID) }) {
-            return index
-        }
-        return sections.isEmpty ? nil : sections.startIndex
-    }
-
     /// Shared title composition for group switchers and sidebar headers.
     /// Empty metadata never displaces the explicit structural fallback.
     static func scopeTitle(

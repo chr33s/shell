@@ -106,61 +106,6 @@ class SplitPaneView: UIView, Identifiable {
     var defersBottomSystemGestureForKeyboardToolbar: Bool { false }
 }
 
-/// A hardware key as seen by an in-window overlay (tab exposé), normalized
-/// from either a `UIKey` (pressesBegan) or a `UIKeyCommand` (dedicated handlers).
-struct OverlayKeyEvent {
-    let keyCode: UIKeyboardHIDUsage
-    let modifiers: UIKeyModifierFlags
-    let characters: String
-
-    init(keyCode: UIKeyboardHIDUsage, modifiers: UIKeyModifierFlags, characters: String) {
-        self.keyCode = keyCode
-        self.modifiers = modifiers
-        self.characters = characters
-    }
-
-    init(_ key: UIKey) {
-        self.init(keyCode: key.keyCode, modifiers: key.modifierFlags, characters: key.characters)
-    }
-
-    /// Navigation keys an overlay may own, from a UIKeyCommand (dedicated
-    /// handlers, keybind commands, first-responder fallback). nil for anything
-    /// else so ordinary shortcuts never reach the overlay.
-    init?(keyCommand: UIKeyCommand) {
-        guard let input = keyCommand.input else { return nil }
-        let keyCode: UIKeyboardHIDUsage
-        switch input {
-        case UIKeyCommand.inputUpArrow: keyCode = .keyboardUpArrow
-        case UIKeyCommand.inputDownArrow: keyCode = .keyboardDownArrow
-        case UIKeyCommand.inputLeftArrow: keyCode = .keyboardLeftArrow
-        case UIKeyCommand.inputRightArrow: keyCode = .keyboardRightArrow
-        case UIKeyCommand.inputEscape: keyCode = .keyboardEscape
-        case UIKeyCommand.inputHome: keyCode = .keyboardHome
-        case UIKeyCommand.inputEnd: keyCode = .keyboardEnd
-        case "\r", "\n": keyCode = .keyboardReturnOrEnter
-        case "\t": keyCode = .keyboardTab
-        case " ": keyCode = .keyboardSpacebar
-        case "1", "2", "3", "4", "5", "6", "7", "8", "9":
-            // Digits are matched by `characters`.
-            keyCode = .keyboardErrorUndefined
-        default:
-            return nil
-        }
-        self.init(keyCode: keyCode, modifiers: keyCommand.modifierFlags, characters: input)
-    }
-
-    var isModifierOnly: Bool {
-        switch keyCode {
-        case .keyboardLeftControl, .keyboardLeftShift, .keyboardLeftAlt, .keyboardLeftGUI,
-             .keyboardRightControl, .keyboardRightShift, .keyboardRightAlt, .keyboardRightGUI,
-             .keyboardCapsLock:
-            return true
-        default:
-            return false
-        }
-    }
-}
-
 // MARK: - Terminal-scan helpers
 
 extension SplitPaneView {

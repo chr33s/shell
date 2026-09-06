@@ -799,10 +799,6 @@ extension Ghostty.TerminalView {
         set { objc_setAssociatedObject(self, &Self.fingerDragActiveKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
     }
 
-    // scrollPanGesture is no longer used - UIScrollView handles finger scrolling
-    // Keep property for compatibility with gesture delegate checks
-    var scrollPanGesture: UIPanGestureRecognizer? { nil }
-
     private func setupIOSScrollHandling() {
         // Gesture for Magic Keyboard trackpad scrolling in capture mode only
         // In non-capture mode, UIScrollView handles trackpad scroll with native momentum

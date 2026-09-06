@@ -58,6 +58,16 @@ nonisolated final class ShellTokenizer: @unchecked Sendable {
     /// Token that has been peeked but not yet consumed.
     private var peekedToken: ShellToken?
 
+    /// Line on which the token most recently produced by `readNextToken()`
+    /// STARTS. `line` alone can't answer that: by the time a token has been
+    /// scanned, `line` is wherever the scanner stopped, which is past the
+    /// token (and past any newline that ended it).
+    private var tokenStartLine = 1
+
+    /// `tokenStartLine` captured for `peekedToken`, so the parser can ask
+    /// where the token it is about to consume begins.
+    private var peekedTokenLine = 1
+
     init(source: String) {
         self.source = source
         self.chars = source.unicodeScalars
@@ -71,6 +81,7 @@ nonisolated final class ShellTokenizer: @unchecked Sendable {
         if let t = peekedToken { return t }
         let t = readNextToken()
         peekedToken = t
+        peekedTokenLine = tokenStartLine
         return t
     }
 
@@ -85,6 +96,16 @@ nonisolated final class ShellTokenizer: @unchecked Sendable {
 
     /// Current line number (for error messages).
     var currentLine: Int { line }
+
+    /// 1-based line on which the token the parser is about to consume begins.
+    /// Unlike `currentLine` (the scanner's position, already past the peeked
+    /// token) this is stable for the upcoming token, which is what `$LINENO`
+    /// needs. Forces a peek, which is idempotent via `peekedToken`, so this is
+    /// free once the parser has peeked.
+    var upcomingTokenLine: Int {
+        _ = peek()
+        return peekedTokenLine
+    }
 
     // MARK: - Character Helpers
 
@@ -123,6 +144,13 @@ nonisolated final class ShellTokenizer: @unchecked Sendable {
 
     private func readNextToken() -> ShellToken {
         skipSpacesAndTabs()
+
+        // Where this token begins, for `$LINENO`. The line-continuation and
+        // comment paths below re-enter `readNextToken()`, which re-assigns
+        // this — so the innermost (real) token's position wins: a token after
+        // a `# comment` line reports its own line, not the comment's, and a
+        // token after `\<newline>` reports the continued line.
+        tokenStartLine = line
 
         // Collect pending here-document bodies after a newline
         // (handled inside readNewline)

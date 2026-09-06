@@ -49,6 +49,7 @@ struct SSHKeyDetailView: View {
             publicKeySection
             certificateSection
             installInstructionsSection
+            defaultKeysSection
             securitySection
             deleteSection
         }
@@ -336,6 +337,42 @@ struct SSHKeyDetailView: View {
                 .padding(.vertical, 8)
             }
             .themedRow()
+        }
+    }
+
+    @ViewBuilder
+    private var defaultKeysSection: some View {
+        // Default keys section
+        Section {
+            Toggle("Include in Default Keys", isOn: Binding(
+                get: { sshKeyManager.isDefault(id: key.id) },
+                set: { enabled in
+                    if enabled {
+                        sshKeyManager.addToDefaults(id: key.id)
+                    } else {
+                        sshKeyManager.removeFromDefaults(id: key.id)
+                    }
+                }
+            ))
+            .themedRow()
+
+            if isDefault,
+               let priority = sshKeyManager.defaultPriority(for: key.id) {
+                HStack {
+                    Text("Priority")
+                    Spacer()
+                    Text("\(priority + 1) of \(sshKeyManager.defaultKeyIDs.count)")
+                        .foregroundColor(.secondary)
+                }
+                .themedRow()
+            }
+        } footer: {
+            if defaultKeyAttemptCount > 6 {
+                Text("Warning: SSH servers typically allow only 6 authentication attempts, and a key with a certificate uses two (certificate, then plain key). Consider removing some default keys.")
+                    .foregroundColor(.appHighlight)
+            } else {
+                Text("Default keys are tried in order when connecting following the selected key")
+            }
         }
     }
 

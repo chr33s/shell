@@ -7,6 +7,7 @@ final class ShellMacSupport: NSObject, MacBridge {
     private let terminalEvents = NativeTerminalEvents()
     private let material = NativeWindowMaterial()
     private let dockMenu = NativeDockMenu()
+    private let servicesMenu = NativeServicesMenu()
     private var shells: [Int32: NativeShellProcess] = [:]
     func createShell(executable: String, arguments: [String], environment: [String: String],
                      directory: String, rows: UInt16, columns: UInt16) throws -> any MacShellProcess {
@@ -26,6 +27,7 @@ final class ShellMacSupport: NSObject, MacBridge {
     func installDockMenu(_ provider: @escaping () -> [any MacMenuEntry]) -> Bool {
         dockMenu.install(provider: provider)
     }
+    func installServicesMenu(title: String) -> Bool { servicesMenu.install(title: title) }
     func showAbout() { NSApp.orderFrontStandardAboutPanel(nil) }
     func closeKeyWindow() { NSApp.keyWindow?.performClose(nil) }
     func stopShells() {

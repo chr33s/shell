@@ -114,7 +114,7 @@ class KeyboardModifierButton: KeyboardButton {
             lockIndicatorBar.heightAnchor.constraint(equalToConstant: 2)
         ])
 
-        // Register for trait changes (iOS 17+ replacement for traitCollectionDidChange)
+        // Register for trait changes
         registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (self: KeyboardModifierButton, _: UITraitCollection) in
             self.updateVisualState()
         }

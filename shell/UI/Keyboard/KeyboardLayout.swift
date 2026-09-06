@@ -40,7 +40,6 @@ enum KeyDefinition {
 
     // Action buttons
     case dismiss
-    case tabSwitcher
 
     // Drawer toggles (iPhone only)
     case arrowDrawerToggle
@@ -54,9 +53,6 @@ enum KeyDefinition {
 
     // Paste from clipboard
     case paste
-
-    // Voice agent toggle
-    case voiceAgent
 
     // App action buttons
     case toggleFullScreen
@@ -105,13 +101,11 @@ enum KeyDefinition {
         case .semicolon: return ";"
         case .text(let value): return value
         case .dismiss: return "__dismiss__"
-        case .tabSwitcher: return "__tabswitcher__"
         case .arrowDrawerToggle: return "__arrowDrawer__"
         case .extraKeysDrawerToggle: return "__extraDrawer__"
         case .compose: return "__compose__"
         case .toolbarSettings: return "__toolbarSettings__"
         case .paste: return "__paste__"
-        case .voiceAgent: return "__voiceAgent__"
         case .toggleFullScreen: return "__toggleFullScreen__"
         case .toggleTabBar: return "__toggleTabBar__"
         case .newConnection: return "__newConnection__"
@@ -166,7 +160,6 @@ struct KeyboardLayout {
         return KeyboardLayout(
             leftSection: [
                 .dismiss,
-                .tabSwitcher,
                 .esc,
                 .ctrl,
                 .alt,
@@ -203,7 +196,6 @@ struct KeyboardLayout {
         return KeyboardLayout(
             leftSection: [
                 .dismiss,
-                .tabSwitcher,
                 .esc,
                 .ctrl,
                 .compose,

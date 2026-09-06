@@ -232,9 +232,8 @@ struct SSHAuthBannerContentView: View {
 
 /// Minimal selectable-text wrapper. SwiftUI's `.textSelection(.enabled)`
 /// doesn't support click-and-drag selection on Mac Catalyst, so banner text
-/// goes through a UITextView. Deliberately local (not the AIAgent
-/// `SelectableTextView`, which is excluded from the China build) and
-/// deliberately inert: not editable, no data detectors, so server-controlled
+/// goes through a UITextView. Deliberately local and deliberately
+/// inert: not editable, no data detectors, so server-controlled
 /// text can never become a tappable link — URLs get explicit buttons instead.
 private struct SelectableBannerText: UIViewRepresentable {
     let text: String
@@ -280,8 +279,7 @@ private struct SelectableBannerText: UIViewRepresentable {
 extension View {
     /// Applies the banner's platform-appropriate background.
     ///
-    /// - iOS 26+/macOS 26+: liquid glass via `.glassEffect()`
-    /// - Earlier versions: `.ultraThinMaterial` fallback
+    /// - iOS/macOS: liquid glass via `.glassEffect()`
     /// - visionOS: `.regularMaterial` for a proper volumetric appearance
     @ViewBuilder
     func bannerBackground() -> some View {
@@ -291,14 +289,8 @@ extension View {
         self
             .background(.regularMaterial, in: shape)
         #else
-        if #available(iOS 26.0, macOS 26.0, *) {
-            self
-                .glassEffect(.regular, in: shape)
-        } else {
-            self
-                .background(.ultraThinMaterial, in: shape)
-                .shadow(color: .black.opacity(0.1), radius: 4, x: 0, y: 2)
-        }
+        self
+            .glassEffect(.regular, in: shape)
         #endif
     }
 }

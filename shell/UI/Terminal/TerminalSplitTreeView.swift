@@ -17,9 +17,6 @@ struct TerminalSplitTreeView: UIViewRepresentable {
     /// client size.
     var isActive: Bool = true
     let focusedPane: SplitPaneView?
-    /// Whether this rendered tab is eligible for terminal background effects.
-    /// Propagated to terminal leaves so their home-indicator inset follows the
-    /// same policy as MainView's shared effect and ocean layout layers.
     /// True when the visible focused terminal presents OSC 9;4 progress on the
     /// integrated tab edge instead of as a duplicate straight pane-local bar.
     var routesFocusedProgressToIntegratedEdge: Bool = false
@@ -1052,13 +1049,10 @@ extension Notification.Name {
     static let terminalRestorationStateChanged = Notification.Name("dev.chr33s.shell.terminalRestorationStateChanged")
     static let createSplit = Notification.Name("dev.chr33s.shell.createSplit")
     static let navigateSplit = Notification.Name("dev.chr33s.shell.navigateSplit")
-    static let sshHealthMonitoringToggled = Notification.Name("dev.chr33s.shell.sshHealthMonitoringToggled")
-    static let sshHealthProbeIntervalChanged = Notification.Name("dev.chr33s.shell.sshHealthProbeIntervalChanged")
     static let closeSplit = Notification.Name("dev.chr33s.shell.closeSplit")
     static let toggleSplitZoom = Notification.Name("dev.chr33s.shell.toggleSplitZoom")
     static let equalizeSplits = Notification.Name("dev.chr33s.shell.equalizeSplits")
     static let focusSplit = Notification.Name("dev.chr33s.shell.focusSplit")
-    static let resizeSplit = Notification.Name("dev.chr33s.shell.resizeSplit")
     static let newTab = Notification.Name("dev.chr33s.shell.newTab")
     static let newWindow = Notification.Name("dev.chr33s.shell.newWindow")
     static let previousTab = Notification.Name("dev.chr33s.shell.previousTab")
@@ -1082,13 +1076,8 @@ extension Notification.Name {
     static let ghosttySelectionScrollIndicatorActivity = Notification.Name("dev.chr33s.shell.selectionScrollIndicatorActivity")
     static let ghosttyDidReceiveInput = Notification.Name("dev.chr33s.shell.didReceiveInput")
     static let ghosttySessionDidChange = Notification.Name("dev.chr33s.shell.sessionDidChange")
-    static let ghosttyEmbeddedMoshSessionDidChange = Notification.Name("dev.chr33s.shell.embeddedMoshSessionDidChange")
-    static let ghosttyEmbeddedTrzszSessionDidChange = Notification.Name("dev.chr33s.shell.embeddedTrzszSessionDidChange")
-    static let ghosttyAttachmentUploadStateChanged = Notification.Name("dev.chr33s.shell.attachmentUploadStateChanged")
     static let ghosttySearchStateChanged = Notification.Name("dev.chr33s.shell.searchStateChanged")
     static let bellTriggered = Notification.Name("dev.chr33s.shell.bellTriggered")
-    static let toggleAIAgent = Notification.Name("dev.chr33s.shell.toggleAIAgent")
-    static let toggleVoiceAgent = Notification.Name("dev.chr33s.shell.toggleVoiceAgent")
     static let toggleTabBar = Notification.Name("dev.chr33s.shell.toggleTabBar")
     /// Window menu: pull the selected tab out into its own window.
     static let moveTabToNewWindow = Notification.Name("dev.chr33s.shell.moveTabToNewWindow")
@@ -1097,25 +1086,18 @@ extension Notification.Name {
     static let toggleGroupMode = Notification.Name("dev.chr33s.shell.toggleGroupMode")
     static let toggleTransparency = Notification.Name("dev.chr33s.shell.toggleTransparency")
     static let toggleTitleBar = Notification.Name("dev.chr33s.shell.toggleTitleBar")
-    static let toggleAutoRedact = Notification.Name("dev.chr33s.shell.toggleAutoRedact")
-    static let toggleThemePicker = Notification.Name("dev.chr33s.shell.toggleThemePicker")
-    static let toggleClipboardManager = Notification.Name("dev.chr33s.shell.toggleClipboardManager")
-    static let toggleBackgroundEffect = Notification.Name("dev.chr33s.shell.toggleBackgroundEffect")
-    static let toggleBrightnessBoostHUD = Notification.Name("dev.chr33s.shell.toggleBrightnessBoostHUD")
     static let terminalLayoutInvalidation = Notification.Name("dev.chr33s.shell.terminalLayoutInvalidation")
     static let terminalBottomInsetInvalidated = Notification.Name("dev.chr33s.shell.terminalBottomInsetInvalidated")
     static let touchModeChanged = Notification.Name("dev.chr33s.shell.touchModeChanged")
-    static let keyboardToolbarHardwareSettingChanged = Notification.Name("dev.chr33s.shell.keyboardToolbarHardwareSettingChanged")
-    static let showTabSwitcher = Notification.Name("dev.chr33s.shell.showTabSwitcher")
-    static let toggleTabExpose = Notification.Name("dev.chr33s.shell.toggleTabExpose")
     static let previousGroup = Notification.Name("dev.chr33s.shell.previousGroup")
     static let nextGroup = Notification.Name("dev.chr33s.shell.nextGroup")
-    static let tabSwitcherVisibilityChanged = Notification.Name("dev.chr33s.shell.tabSwitcherVisibilityChanged")
     static let ghosttyComposeStateChanged = Notification.Name("dev.chr33s.shell.composeStateChanged")
     static let toggleFullScreen = Notification.Name("dev.chr33s.shell.toggleFullScreen")
     static let showTmuxSessions = Notification.Name("dev.chr33s.shell.showTmuxSessions")
     static let detachOtherClients = Notification.Name("dev.chr33s.shell.detachOtherClients")
     static let showToolbarSettings = Notification.Name("dev.chr33s.shell.showToolbarSettings")
+    /// Posted by `SettingsRefreshHub` on every origin when a live-apply setting
+    /// changes, for consumers that are per-instance rather than a manager.
     static let forceASCIIKeyboardChanged = Notification.Name("dev.chr33s.shell.forceASCIIKeyboardChanged")
-    static let ghosttySessionDiscoveryChanged = Notification.Name("dev.chr33s.shell.sessionDiscoveryChanged")
+    static let keyboardToolbarHardwareSettingChanged = Notification.Name("dev.chr33s.shell.keyboardToolbarHardwareSettingChanged")
 }

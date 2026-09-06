@@ -61,7 +61,6 @@ public nonisolated struct RSAPrivateKey {
     }
 
     /// Generate RSA signature for SSH authentication
-    /// Currently uses SHA-1 for compatibility (TODO: upgrade to SHA-256)
     /// - Parameter message: Data to sign
     /// - Returns: Signature bytes
     public func signature<D: DataProtocol>(for message: D) throws -> Data {

@@ -73,13 +73,6 @@ struct SettingToggle: View {
                 SettingPinTag(key.erased)
             }
         }
-        .disabled(SettingFileLock.isReadOnly(key.name))
         .settingContextMenu(key)
     }
-}
-
-/// No settings are file-bound in this fork; every registered key is editable.
-@MainActor
-enum SettingFileLock {
-    static func isReadOnly(_ key: String) -> Bool { false }
 }

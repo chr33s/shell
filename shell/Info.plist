@@ -25,5 +25,23 @@
 	<true/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
+	<key>UILaunchScreen</key>
+	<dict>
+		<key>UIColorName</key>
+		<string>LaunchScreenBackground</string>
+	</dict>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Shell Tab Transfer</string>
+			<key>UTTypeIdentifier</key>
+			<string>dev.chr33s.shell.tab-transfer</string>
+		</dict>
+	</array>
 </dict>
 </plist>

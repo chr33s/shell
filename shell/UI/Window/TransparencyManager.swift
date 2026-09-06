@@ -11,14 +11,10 @@ import Combine
 final class TransparencyManager {
     static let shared = TransparencyManager()
 
-    /// Toggle for sandbox mode blur implementation
-    /// true  = NSVisualEffectView (App Store safe, no custom radius)
-    /// false = private CGS API (non-sandbox, supports custom radius)
-    #if APPSTORE
-    static let useSandboxBlur = true
-    #else
+    /// Selects the window blur implementation.
+    /// `false` = private CGS API (supports a custom radius)
+    /// `true`  = NSVisualEffectView (no custom radius)
     static let useSandboxBlur = false
-    #endif
 
     /// How the window background behind the terminal is blurred.
     enum BlurStyle: String, CaseIterable, Identifiable {
@@ -46,12 +42,6 @@ final class TransparencyManager {
             case .glassClear: return String(localized: "Clear Glass")
             }
         }
-    }
-
-    /// Liquid Glass needs macOS 26; Catalyst's version tracks macOS 26 exactly.
-    static var isGlassAvailable: Bool {
-        if #available(macCatalyst 26.0, *) { return true }
-        return false
     }
 
     private static let ownedKeys: Set<String> = [
@@ -93,7 +83,7 @@ final class TransparencyManager {
         }
     }
 
-    /// Stored blur style preference. Consumers should read `effectiveBlurStyle`.
+    /// Stored blur style preference.
     var blurStyle: BlurStyle {
         didSet {
             guard blurStyle != oldValue else { return }
@@ -102,12 +92,7 @@ final class TransparencyManager {
         }
     }
 
-    /// `blurStyle` downgraded to `.standard` where glass isn't available.
-    var effectiveBlurStyle: BlurStyle {
-        Self.isGlassAvailable ? blurStyle : .standard
-    }
-
-    var usesGlass: Bool { effectiveBlurStyle != .standard }
+    var usesGlass: Bool { blurStyle != .standard }
 
     /// Whether the pinned vertical tab sidebar uses the window's background
     /// opacity instead of its normal opaque fill.

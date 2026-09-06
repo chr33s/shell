@@ -175,46 +175,14 @@ struct TabGroup: Identifiable, Hashable {
     let tabIDs: [UUID]
 }
 
-/// Stable identity for a Coding Agent project section. The display label is
-/// deliberately not part of the identity: two repositories named "api" on
-/// different hosts/paths must remain separate, while a better probe may refine
-/// how the same section is presented without merging it with a namesake.
-nonisolated struct ProjectGroupID: Hashable, Codable, Sendable, Identifiable {
-    let hostKey: String
-    let path: String
-
-    var id: String { rawValue }
-    var rawValue: String { "\(hostKey)\u{1f}\(path)" }
-
-    static let other = ProjectGroupID(hostKey: "", path: "")
-
-    var isOther: Bool { self == .other }
-
-    init(hostKey: String?, path: String) {
-        self.hostKey = hostKey?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        self.path = (path as NSString).standardizingPath
-    }
-}
-
-nonisolated struct ProjectTabSection: Identifiable, Hashable, Sendable {
-    let id: ProjectGroupID
-    let title: String
-    /// Every tab has exactly one primary section, so section membership stays
-    /// duplicate-free and the active section can safely drive navigation.
-    let tabIDs: [UUID]
-}
-
 nonisolated enum TabOrderMode: Equatable, Sendable {
     case flat
     case userGrouped(TabGroupID?)
-    case projectGrouped
 }
 
 nonisolated struct TabOrderProjection: Equatable, Sendable {
     let mode: TabOrderMode
     let navigationTabIDs: [UUID]
-    let projectSections: [ProjectTabSection]
-    let activeProjectID: ProjectGroupID?
     let activeScopeTitle: String?
 
     var indexByID: [UUID: Int] {
@@ -467,23 +435,6 @@ final class TabModel: Identifiable {
         startObserving(preserveExistingTitle: true)
     }
 
-    private func notificationOriginatesInThisTab(_ notification: Notification) -> Bool {
-        // The TerminalView (Ghostty.Surface) is the object for `.ghosttySessionDidChange`.
-        if let terminal = notification.object as? Ghostty.TerminalView {
-            return splitTree.contains { $0 === terminal }
-        }
-        #if !targetEnvironment(macCatalyst)
-        // For `.ghosttyEmbedded(Mosh|Trzsz)SessionDidChange` the object is the
-        // `LocalShellSession` itself; walk the tree to find the owning terminal.
-        // Embedded mosh/trzsz only run inside the iOS local-shell session, so
-        // this branch is gated to the same target as `LocalShellSession`.
-        if let session = notification.object as? LocalShellSession {
-            return splitTree.contains { $0.asTerminal?.session === session }
-        }
-        #endif
-        return false
-    }
-
     deinit {
         // Cancel Combine subscriptions on deinit. `MainActor.assumeIsolated`
         // is safe here because the class is `@MainActor`-isolated and Swift
@@ -718,8 +669,6 @@ final class TabsModel {
             // Stamp the back-reference so each tab can consult the tab-switch
             // gate. Idempotent; the array is tiny.
             for tab in tabs { tab.tabsModel = self }
-            let liveIDs = Set(tabs.map(\.id))
-            primaryProjectAssignments = primaryProjectAssignments.filter { liveIDs.contains($0.key) }
         }
     }
 
@@ -732,7 +681,7 @@ final class TabsModel {
             guard oldValue != selectedTabID else { return }
             beginTabSwitchAnimationGate()
             if let tab = selectedTab { rememberSelectionScope(of: tab) }
-            if isGroupedModeEnabled, !isProjectGroupingActive,
+            if isGroupedModeEnabled,
                let selectedGroup = effectiveGroupID(for: selectedTab),
                activeGroupID != selectedGroup {
                 activeGroupID = selectedGroup
@@ -752,11 +701,6 @@ final class TabsModel {
     /// follow `selectedTabID` immediately; only the visuals lag.
     var displayedTabID: UUID?
 
-    /// Pane currently checked out for the in-window full-screen takeover
-    /// (PaneFullScreenController). Runtime-only bookkeeping, never
-    /// serialized, so restoration always lands non-full-screen.
-    var fullScreenPaneID: UUID?
-
     /// Invalidates in-flight reveal waiters (first-frame callbacks and the
     /// fail-open timeout) when the selection changes again mid-transition.
     @ObservationIgnored private var displayRevealGeneration = 0
@@ -772,15 +716,6 @@ final class TabsModel {
 
     /// The id of the tab being dragged (used by drag-reorder modifiers).
     var draggingTabID: UUID?
-
-    /// Set by the sidebar while its project hierarchy is active. Project
-    /// sorting remains a sidebar-only organization in flat mode; when the
-    /// user's grouped-mode toggle is also on, the top bar and keyboard
-    /// navigation scope to the selected tab's stable primary project.
-    /// (id=agent-project)
-    /// Project-scoped grouping is not part of this fork: no pane ever carries
-    /// a project identity, so grouped mode always uses plain user groups.
-    let projectScopedInboxEnabled = false
 
     var isGroupedModeEnabled: Bool = false {
         didSet {
@@ -828,32 +763,6 @@ final class TabsModel {
         }
     }
 
-    /// Stable user order for Coding Agent project sections and their tabs.
-    /// Stale section IDs are intentionally retained so asynchronously-resolved
-    /// projects recover their previous position.
-    var projectGroupOrder: [ProjectGroupID] = [] {
-        didSet {
-            guard oldValue != projectGroupOrder else { return }
-            orderRevision &+= 1
-            invalidateNavigationCache()
-        }
-    }
-
-    var projectTabOrders: [ProjectGroupID: [UUID]] = [:] {
-        didSet {
-            guard oldValue != projectTabOrders else { return }
-            orderRevision &+= 1
-            invalidateNavigationCache()
-        }
-    }
-
-    /// Whole-section drag state shared by the vertical and horizontal bars.
-    var draggingProjectGroupID: ProjectGroupID?
-
-    /// A split tab may expose several detected projects. Its first project is
-    /// chosen once and retained while still present, preventing pane-focus or
-    /// attention churn from moving the tab between top-bar sections.
-    @ObservationIgnored private var primaryProjectAssignments: [UUID: ProjectGroupID] = [:]
     @ObservationIgnored private var orderRevision: UInt64 = 0
 
     @ObservationIgnored private var groupingCache: GroupingSnapshot?
@@ -887,10 +796,6 @@ final class TabsModel {
         let isGroupedModeEnabled: Bool
         let activeGroupID: TabGroupID?
         let selectedFallbackID: UUID?
-        let projectScopedInbox: Bool
-        /// Every visible tab's project, so a change to ANY tab's project
-        /// invalidates the cache — not just the selected one's.
-        let projectMembership: [String]
         let orderRevision: UInt64
     }
 
@@ -992,18 +897,11 @@ final class TabsModel {
         // groups into the tab bar until the user toggled grouped mode off/on.
         let resolvedActiveGroupID = activeGroupID.flatMap { grouping.groupTabIDs[$0] != nil ? $0 : nil }
         let usesSelectedFallback = isGroupedModeEnabled && resolvedActiveGroupID == nil
-        let projectMembership: [String] = projectScopedInboxEnabled
-            ? grouping.visibleTabs.map(Self.projectMembershipRevision(for:))
-            : []
-        let anyProject = false
-        let projectGrouping = projectScopedInboxEnabled && isGroupedModeEnabled && anyProject
         let revision = NavigationRevision(
             groupingRevision: grouping.revision,
             isGroupedModeEnabled: isGroupedModeEnabled,
             activeGroupID: activeGroupID,
-            selectedFallbackID: (projectGrouping || usesSelectedFallback) ? selectedTabID : nil,
-            projectScopedInbox: projectGrouping,
-            projectMembership: projectMembership,
+            selectedFallbackID: usesSelectedFallback ? selectedTabID : nil,
             orderRevision: orderRevision
         )
         if let navigationCache, navigationCache.revision == revision {
@@ -1012,47 +910,26 @@ final class TabsModel {
 
         let byID = Dictionary(uniqueKeysWithValues: grouping.visibleTabs.map { ($0.id, $0) })
         let navigationIDs: [UUID]
-        let sections: [ProjectTabSection]
         let mode: TabOrderMode
-        let activeProjectID: ProjectGroupID?
         let activeScopeTitle: String?
-        let allProjectSections = projectScopedInboxEnabled && anyProject
-            ? buildProjectSections(visibleTabs: grouping.visibleTabs)
-            : []
 
-        if projectGrouping {
-            sections = allProjectSections
-            let activeSection = TabOrderRules.activeSectionIndex(
-                containing: selectedTabID,
-                in: sections.map(\.tabIDs)
-            ).map { sections[$0] }
-            navigationIDs = activeSection?.tabIDs ?? grouping.visibleTabs.map(\.id)
-            mode = .projectGrouped
-            activeProjectID = activeSection?.id
-            activeScopeTitle = activeSection?.title
-        } else if isGroupedModeEnabled {
+        if isGroupedModeEnabled {
             let groupID = resolvedActiveGroupID ?? selectedTabID.flatMap { grouping.effectiveIDs[$0] }
             navigationIDs = groupID.flatMap { grouping.groupTabIDs[$0] }
                 ?? grouping.visibleTabs.map(\.id)
-            sections = allProjectSections
             mode = .userGrouped(groupID)
-            activeProjectID = nil
             activeScopeTitle = groupID.flatMap { id in
                 availableGroups.first(where: { $0.id == id })?.title
             }
         } else {
             navigationIDs = grouping.visibleTabs.map(\.id)
-            sections = allProjectSections
             mode = .flat
-            activeProjectID = nil
             activeScopeTitle = nil
         }
         let navigationTabs = navigationIDs.compactMap { byID[$0] }
         let projection = TabOrderProjection(
             mode: mode,
             navigationTabIDs: navigationTabs.map(\.id),
-            projectSections: sections,
-            activeProjectID: activeProjectID,
             activeScopeTitle: activeScopeTitle
         )
 
@@ -1066,97 +943,6 @@ final class TabsModel {
         )
         navigationCache = snapshot
         return snapshot
-    }
-
-    /// Cache identity for every project-bearing pane in a tab. Pane UUIDs are
-    /// included so replacing one agent pane with another invalidates even when
-    /// their labels happen to match.
-    private static func projectMembershipRevision(for tab: TabModel) -> String {
-        ""
-    }
-
-    /// No pane carries a project identity in this fork.
-    private func projectCandidates(for tab: TabModel) -> [(id: ProjectGroupID, label: String)] {
-        []
-    }
-
-    func primaryProjectGroupID(for tab: TabModel) -> ProjectGroupID {
-        let candidates = projectCandidates(for: tab)
-        if let assigned = primaryProjectAssignments[tab.id],
-           candidates.contains(where: { $0.id == assigned }) {
-            return assigned
-        }
-        let next = candidates.first?.id ?? .other
-        primaryProjectAssignments[tab.id] = next
-        return next
-    }
-
-    func projectGroupID(forPane paneID: UUID, in tab: TabModel) -> ProjectGroupID? {
-        nil
-    }
-
-    private func buildProjectSections(visibleTabs: [TabModel]) -> [ProjectTabSection] {
-        var discovered: [ProjectGroupID] = []
-        var labels: [ProjectGroupID: String] = [:]
-        var buckets: [ProjectGroupID: [UUID]] = [:]
-
-        for tab in visibleTabs {
-            for candidate in projectCandidates(for: tab) {
-                if labels[candidate.id] == nil {
-                    discovered.append(candidate.id)
-                    labels[candidate.id] = candidate.label
-                }
-            }
-            let primary = primaryProjectGroupID(for: tab)
-            if primary.isOther, labels[.other] == nil {
-                discovered.append(.other)
-                labels[.other] = String(localized: "Other")
-            }
-            buckets[primary, default: []].append(tab.id)
-        }
-
-        let known = Set(discovered)
-        var orderedIDs = projectGroupOrder.filter { known.contains($0) }
-        let orderedSet = Set(orderedIDs)
-        let newProjects = discovered.filter { !orderedSet.contains($0) && !$0.isOther }
-        let insertionIndex = orderedIDs.firstIndex(where: \.isOther) ?? orderedIDs.endIndex
-        orderedIDs.insert(contentsOf: newProjects, at: insertionIndex)
-        if known.contains(.other), !orderedIDs.contains(.other) {
-            orderedIDs.append(.other)
-        }
-
-        let duplicateIDsByLabel = Dictionary(grouping: orderedIDs.filter { !$0.isOther }) {
-            labels[$0] ?? String(localized: "Project")
-        }
-
-        return orderedIDs.map { id in
-            let rawLabel = labels[id] ?? (id.isOther ? String(localized: "Other") : String(localized: "Project"))
-            let title: String
-            if !id.isOther, let duplicateIDs = duplicateIDsByLabel[rawLabel],
-               duplicateIDs.count > 1 {
-                let sameHostIDs = duplicateIDs.filter { $0.hostKey == id.hostKey }
-                let pathSuffix = TabOrderRules.shortestUniquePathSuffix(
-                    for: id.path,
-                    among: sameHostIDs.map(\.path)
-                )
-                let disambiguator: String
-                if id.hostKey.isEmpty {
-                    disambiguator = pathSuffix
-                } else if sameHostIDs.count > 1 {
-                    disambiguator = "\(id.hostKey) · \(pathSuffix)"
-                } else {
-                    disambiguator = id.hostKey
-                }
-                title = "\(rawLabel) — \(disambiguator)"
-            } else {
-                title = rawLabel
-            }
-            let tabIDs = TabOrderRules.applyingPreferredOrder(
-                projectTabOrders[id] ?? [],
-                to: buckets[id] ?? []
-            )
-            return ProjectTabSection(id: id, title: title, tabIDs: tabIDs)
-        }
     }
 
     /// Convenience: insert a tab and request the scrolling tab bar scroll to it.
@@ -1248,18 +1034,9 @@ final class TabsModel {
 
     /// The single ordering contract consumed by every horizontal-navigation
     /// surface. Only the active scope's `navigationTabIDs` receive shortcut
-    /// positions; `projectSections` supplies the scope switcher and organizer.
+    /// positions.
     var orderProjection: TabOrderProjection {
         navigationSnapshot().projection
-    }
-
-    var projectSections: [ProjectTabSection] {
-        navigationSnapshot().projection.projectSections
-    }
-
-    var isProjectGroupingActive: Bool {
-        if case .projectGrouped = navigationSnapshot().projection.mode { return true }
-        return false
     }
 
     /// Index of a tab within `visibleTabs` (what the user perceives as the
@@ -1273,7 +1050,7 @@ final class TabsModel {
     }
 
     /// Reorder two visible tabs according to the active presentation. Flat
-    /// mode updates canonical order; user/project lenses update only their own
+    /// mode updates canonical order; the user-group lens updates only its own
     /// remembered order so switching modes is lossless.
     @discardableResult
     func moveTabInActiveOrder(movingID: UUID, toTargetID targetID: UUID) -> Bool {
@@ -1305,31 +1082,6 @@ final class TabsModel {
                let toRaw = index(of: targetID) {
                 animatedMove(from: fromRaw, to: toRaw)
             }
-
-        case .projectGrouped:
-            return moveTabInProjectOrder(movingID: movingID, toTargetID: targetID)
-        }
-        return true
-    }
-
-    /// Reorders within the stable primary-project bucket regardless of the
-    /// horizontal presentation mode. The project sidebar uses this directly
-    /// because its project hierarchy can be active while the top bar remains
-    /// flat. Cross-project targets are rejected without touching `tabs`.
-    @discardableResult
-    func moveTabInProjectOrder(movingID: UUID, toTargetID targetID: UUID) -> Bool {
-        guard movingID != targetID,
-              let movingTab = tab(withID: movingID),
-              let targetTab = tab(withID: targetID) else { return false }
-        let sourceProject = primaryProjectGroupID(for: movingTab)
-        guard sourceProject == primaryProjectGroupID(for: targetTab),
-              let ordered = buildProjectSections(visibleTabs: visibleTabs)
-                .first(where: { $0.id == sourceProject })?
-                .tabIDs,
-              let movedOrder = TabOrderRules.moving(movingID, to: targetID, in: ordered)
-        else { return false }
-        withAnimation(.snappy(duration: 0.28, extraBounce: 0.0)) {
-            projectTabOrders[sourceProject] = movedOrder
         }
         return true
     }
@@ -1349,14 +1101,6 @@ final class TabsModel {
         case .userGrouped(let groupID):
             guard let groupID else { return }
             sidebarGroupTabOrders[groupID.rawValue] = normalized
-        case .projectGrouped:
-            guard let first = normalized.first,
-                  let firstTab = tab(withID: first) else { return }
-            let projectID = primaryProjectGroupID(for: firstTab)
-            guard normalized.allSatisfy({
-                tab(withID: $0).map { primaryProjectGroupID(for: $0) == projectID } ?? false
-            }) else { return }
-            projectTabOrders[projectID] = normalized
         }
     }
 
@@ -1392,47 +1136,14 @@ final class TabsModel {
                 let byID = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
                 tabs = rawReplacement.compactMap { byID[$0] }
             }
-        case .projectGrouped:
-            guard let first = orderedIDs.first,
-                  let firstTab = tab(withID: first) else { return }
-            let projectID = primaryProjectGroupID(for: firstTab)
-            guard let fullOrder = projectSections.first(where: { $0.id == projectID })?.tabIDs,
-                  let replacement = TabOrderRules.replacingSubsequence(
-                    orderedIDs,
-                    in: fullOrder
-                  ) else { return }
-            projectTabOrders[projectID] = replacement
         }
     }
 
-    func moveProjectSection(_ movingID: ProjectGroupID, to targetID: ProjectGroupID) {
-        guard movingID != targetID else { return }
-        var ids = buildProjectSections(visibleTabs: visibleTabs).map(\.id)
-        guard let from = ids.firstIndex(of: movingID),
-              let to = ids.firstIndex(of: targetID) else { return }
-        let moved = ids.remove(at: from)
-        ids.insert(moved, at: to)
-        withAnimation(.snappy(duration: 0.22, extraBounce: 0.0)) {
-            projectGroupOrder = TabOrderRules.mergingLivePermutation(
-                ids,
-                into: projectGroupOrder
-            )
-        }
-    }
+    // MARK: - Scope navigation (groups)
 
-    func moveProjectSection(_ id: ProjectGroupID, delta: Int) {
-        let ids = buildProjectSections(visibleTabs: visibleTabs).map(\.id)
-        guard let index = ids.firstIndex(of: id),
-              ids.indices.contains(index + delta) else { return }
-        moveProjectSection(id, to: ids[index + delta])
-    }
-
-    // MARK: - Scope navigation (groups / projects)
-
-    /// A user group or a project section, for per-scope selection memory.
+    /// A user group, for per-scope selection memory.
     nonisolated enum ScopeKey: Hashable {
         case group(TabGroupID)
-        case project(ProjectGroupID)
     }
 
     /// Remembered per scope so returning to a group lands on the tab you
@@ -1441,10 +1152,9 @@ final class TabsModel {
         if let group = effectiveGroupID(for: tab) {
             lastSelectedTabByScope[.group(group)] = tab.id
         }
-        lastSelectedTabByScope[.project(primaryProjectGroupID(for: tab))] = tab.id
     }
 
-    /// First tab a user can land on in a group/section (skips hidden tmux
+    /// First tab a user can land on in a group (skips hidden tmux
     /// windows). Shared by the scope menu and scope navigation.
     func firstNavigableTabID(in tabIDs: [UUID]) -> UUID? {
         tabIDs.first { tab(withID: $0)?.isHiddenTmuxWindow == false }
@@ -1465,23 +1175,17 @@ final class TabsModel {
         preferredTabID(in: group.tabIDs, scope: .group(group.id))
     }
 
-    func preferredTabID(inProjectSection section: ProjectTabSection) -> UUID? {
-        preferredTabID(in: section.tabIDs, scope: .project(section.id))
-    }
-
-    /// A group / project section as the exposé and scope navigation see it.
+    /// A group as scope navigation sees it.
     nonisolated struct ScopeInfo {
         let key: ScopeKey
-        let title: String?
         /// Navigable members (hidden tmux windows excluded), in scope order:
         /// exactly `orderProjection.navigationTabIDs` once this scope is active.
         let tabIDs: [UUID]
     }
 
     /// The scope `offset` steps from the active one, wrapping: user groups
-    /// in sidebar order, or project sections; scopes with no navigable tab
-    /// (hidden-only tmux groups) are skipped. nil in flat mode or when there
-    /// is only one scope.
+    /// in sidebar order; scopes with no navigable tab (hidden-only tmux
+    /// groups) are skipped. nil in flat mode or when there is only one scope.
     func neighborScope(offset: Int) -> ScopeInfo? {
         guard let list = scopeList(), list.scopes.count > 1 else { return nil }
         let count = list.scopes.count
@@ -1501,14 +1205,17 @@ final class TabsModel {
             let visible = Set(groupingSnapshot().visibleTabs.map(\.id))
             scopes = orderedGroups.compactMap { group in
                 let ids = group.tabIDs.filter(visible.contains)
-                return ids.isEmpty ? nil : ScopeInfo(key: .group(group.id), title: group.title, tabIDs: ids)
+                return ids.isEmpty ? nil : ScopeInfo(key: .group(group.id), tabIDs: ids)
             }
-            activeIndex = activeGroupID.flatMap { id in scopes.firstIndex { $0.key == .group(id) } }
-        case .projectGrouped:
-            scopes = projection.projectSections
-                .filter { !$0.tabIDs.isEmpty }
-                .map { ScopeInfo(key: .project($0.id), title: $0.title, tabIDs: $0.tabIDs) }
-            activeIndex = projection.activeProjectID.flatMap { id in scopes.firstIndex { $0.key == .project(id) } }
+            // Mirror `navigationSnapshot()`'s fallback: when `activeGroupID`
+            // has dissolved (its tmux gateway detached, its last tab closed)
+            // the tab bar already scopes to the SELECTED tab's group, so scope
+            // navigation must resolve the same way or it silently no-ops
+            // against a group the user can see.
+            let resolvedGroupID = activeGroupID.flatMap { id in
+                scopes.contains { $0.key == .group(id) } ? id : nil
+            } ?? effectiveGroupID(for: selectedTab)
+            activeIndex = resolvedGroupID.flatMap { id in scopes.firstIndex { $0.key == .group(id) } }
         }
         guard !scopes.isEmpty, let activeIndex else { return nil }
         return (scopes, activeIndex)
@@ -1547,23 +1254,10 @@ final class TabsModel {
         }.map { $0.element }
     }
 
-    /// Neighbor in the active derived order. User and project grouping prefer
-    /// the current scope, then cross a section boundary only when its last tab
+    /// Neighbor in the active derived order. User grouping prefers the
+    /// current scope, then crosses a section boundary only when its last tab
     /// closes.
     func groupedCloseNeighbor(for closingID: UUID) -> UUID? {
-        if isProjectGroupingActive {
-            let ids = orderProjection.navigationTabIDs
-            guard let index = ids.firstIndex(of: closingID) else { return nil }
-            if index + 1 < ids.count { return ids[index + 1] }
-            if index > 0 { return ids[index - 1] }
-
-            let flattened = projectSections.flatMap(\.tabIDs)
-            guard let flattenedIndex = flattened.firstIndex(of: closingID) else { return nil }
-            if flattenedIndex + 1 < flattened.count { return flattened[flattenedIndex + 1] }
-            if flattenedIndex > 0 { return flattened[flattenedIndex - 1] }
-            return nil
-        }
-
         guard isGroupedModeEnabled else { return nil }
         let snapshot = groupingSnapshot()
         guard let groupID = snapshot.effectiveIDs[closingID] else { return nil }
@@ -1701,7 +1395,7 @@ final class TabsModel {
 
     private func normalizeGroupingSelection() {
         clearStaleGroupOverrides()
-        guard isGroupedModeEnabled, !isProjectGroupingActive else { return }
+        guard isGroupedModeEnabled else { return }
         let groups = availableGroups
         if let activeGroupID,
            groups.contains(where: { $0.id == activeGroupID }) {

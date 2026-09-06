@@ -150,6 +150,33 @@ extension SplitTree where ViewType == SplitPaneView {
         return SerializableSplitTree(root: serializedRoot, zoomedPath: zoomedPath)
     }
 
+    /// Rebuild a tree around a restored `root`, re-applying the zoom that
+    /// `serialize()` recorded as `zoomedPath`. The inverse of the
+    /// `pathToNode(zoomed)` capture above, so a pane left zoomed at quit comes
+    /// back zoomed.
+    ///
+    /// The saved path is relative to the SERIALIZED root, and restoration
+    /// rebuilds that same shape node-for-node (a leaf that can't be rebuilt
+    /// fails the whole tab rather than collapsing one branch), so the
+    /// components line up. `node(at:)` returns nil for a path that no longer
+    /// resolves — state written against a different tree shape, or a truncated
+    /// path — and the tree then restores un-zoomed instead of trapping.
+    ///
+    /// An EMPTY path is not "no zoom": it is the root itself zoomed (what
+    /// zooming a sole pane records), which `node(at:)` resolves back to `root`.
+    init(root: Node, restoringZoomedPath zoomedPath: [SerializableSplitTree.PathComponent]?) {
+        let zoomed: Node? = zoomedPath.flatMap { saved in
+            let components = saved.map { component -> Path.Component in
+                switch component {
+                case .left: return .left
+                case .right: return .right
+                }
+            }
+            return root.node(at: Path(path: components))
+        }
+        self.init(root: root, zoomed: zoomed)
+    }
+
     /// Serialize a single node. Returns nil for leaves that cannot be
     /// serialized; a split with one serializable child collapses to that
     /// child.

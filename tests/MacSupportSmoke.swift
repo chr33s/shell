@@ -73,6 +73,34 @@ struct MacSupportSmoke {
         // to attach to — it must report that rather than crash.
         precondition(!bridge.installDockMenu({ [] }), "Dock menu needs an application delegate")
 
+        // Services: declined while there is no main menu, then inserted above the
+        // Hide group, wired to NSApp.servicesMenu, and idempotent across the
+        // rebuilds UIKit performs on the Catalyst main menu. The harness has no
+        // menu of its own, so the application menu is synthesized to pin both the
+        // placement rule and the second install being a no-op.
+        precondition(!bridge.installServicesMenu(title: "Services"), "No main menu means no Services item")
+        let appMenu = NSMenu(title: "shell")
+        appMenu.addItem(withTitle: "About shell", action: nil, keyEquivalent: "")
+        appMenu.addItem(.separator())
+        appMenu.addItem(withTitle: "Hide shell", action: NSSelectorFromString("hide:"), keyEquivalent: "h")
+        appMenu.addItem(withTitle: "Quit shell", action: NSSelectorFromString("terminate:"), keyEquivalent: "q")
+        let appItem = NSMenuItem()
+        appItem.submenu = appMenu
+        let mainMenu = NSMenu()
+        mainMenu.addItem(appItem)
+        NSApp.mainMenu = mainMenu
+        defer { NSApp.mainMenu = nil; NSApp.servicesMenu = nil }
+        precondition(bridge.installServicesMenu(title: "Services"))
+        guard let services = NSApp.servicesMenu,
+              let servicesIndex = appMenu.items.firstIndex(where: { $0.submenu === services }),
+              let hideIndex = appMenu.items.firstIndex(where: { $0.action == NSSelectorFromString("hide:") })
+        else { preconditionFailure("Services item was not installed") }
+        precondition(servicesIndex < hideIndex, "Services belongs above the Hide group")
+        let installedItems = appMenu.numberOfItems
+        precondition(bridge.installServicesMenu(title: "Services"))
+        precondition(appMenu.numberOfItems == installedItems, "A second install must not duplicate the item")
+        precondition(NSApp.servicesMenu === services, "The submenu AppKit fills must survive a reinstall")
+
         try checkShellSpawn(bridge)
         checkInputSources(bridge)
         print("Mac support ABI and window isolation smoke test passed")

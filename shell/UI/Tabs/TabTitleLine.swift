@@ -3,8 +3,7 @@
 //  shell
 //
 //  One-line tab identity: roam/tmux badges, optional attention dot, title,
-//  optional ⌘N hint. Shared by the hidden-tab-bar indicator HUD and the tab
-//  exposé captions so both render a tab the same way.
+//  optional ⌘N hint. Used by the hidden-tab-bar indicator HUD.
 //
 
 import SwiftUI

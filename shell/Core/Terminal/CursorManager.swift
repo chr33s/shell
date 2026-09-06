@@ -243,13 +243,7 @@ class CursorManager {
         self.cursorBlinkMode = store.get(Settings.Cursor.blinkMode)
         self.cursorStyle = store.get(Settings.Cursor.style)
 
-        // Legacy ShaderManager migration only runs when the effect key was never written
-        if UserDefaults.standard.object(forKey: Settings.Cursor.effect.name) != nil {
-            self.cursorEffect = store.get(Settings.Cursor.effect)
-        } else {
-            self.cursorEffect = Self.migrateFromShaderManager() ?? Settings.Cursor.effect.defaultValue
-        }
-
+        self.cursorEffect = store.get(Settings.Cursor.effect)
         self.cursorColor = store.get(Settings.Cursor.color)
         self.cursorTextColor = store.get(Settings.Cursor.textColor)
         self.cursorOpacity = store.get(Settings.Cursor.opacity)
@@ -277,31 +271,6 @@ class CursorManager {
         if keys.contains(Settings.Cursor.opacity.name) { cursorOpacity = store.get(Settings.Cursor.opacity) }
         if keys.contains(Settings.Cursor.thickness.name) { cursorThickness = store.get(Settings.Cursor.thickness) }
         if keys.contains(Settings.Cursor.height.name) { cursorHeight = store.get(Settings.Cursor.height) }
-    }
-
-    // MARK: - Migration
-
-    /// Migrates cursor effect from old ShaderManager storage
-    private static func migrateFromShaderManager() -> CursorEffect? {
-        // Check for old single-select format
-        if let oldID = UserDefaults.standard.string(forKey: "enabledBuiltInShaders") {
-            logger.info("Migrating cursor effect from ShaderManager: \(oldID)")
-            let effect = CursorEffect(rawValue: oldID) ?? .none
-            // Clear old key after migration
-            UserDefaults.standard.removeObject(forKey: "enabledBuiltInShaders")
-            return effect
-        }
-
-        // Check for old array format (from earlier multi-select)
-        if let array = UserDefaults.standard.stringArray(forKey: "enabledBuiltInShaders"),
-           let firstID = array.first {
-            logger.info("Migrating cursor effect from ShaderManager array: \(firstID)")
-            let effect = CursorEffect(rawValue: firstID) ?? .none
-            UserDefaults.standard.removeObject(forKey: "enabledBuiltInShaders")
-            return effect
-        }
-
-        return nil
     }
 
     // MARK: - Path Resolution

@@ -25,8 +25,6 @@ struct NotificationHandlersModifier: ViewModifier {
     private static let toggleTransparencyPublisher = NotificationCenter.default.publisher(for: .toggleTransparency)
     private static let toggleTitleBarPublisher = NotificationCenter.default.publisher(for: .toggleTitleBar)
     #endif
-    private static let toggleAutoRedactPublisher = NotificationCenter.default.publisher(for: .toggleAutoRedact)
-    private static let toggleBackgroundEffectPublisher = NotificationCenter.default.publisher(for: .toggleBackgroundEffect)
     private static let toggleFullScreenPublisher = NotificationCenter.default.publisher(for: .toggleFullScreen)
 
     @Binding var tabBarHidden: Bool

@@ -2,7 +2,7 @@
 //  DraggableHUDContainer.swift
 //  shell
 //
-//  Hosts a floating HUD (search bar, theme picker) over the terminal and drags it
+//  Hosts a floating HUD (the search bar) over the terminal and drags it
 //  with a native UIPanGestureRecognizer instead of a SwiftUI DragGesture.
 //
 //  Why UIKit: a SwiftUI `.gesture(DragGesture())` on a control-laden bar stutters
@@ -31,34 +31,20 @@ struct DraggableHUDContainer<Content: View>: UIViewRepresentable {
     var inset: CGFloat
     var draggable: Bool
     var dismissShortcuts: [HUDKeyShortcut]
-    var forwardsThemePickerToggle: Bool
     var forwardsFindToggle: Bool
-    var forwardsClipboardManagerToggle: Bool
-    /// Handles a forwarded toggle menu action instead of `onDismiss`. Needed by
-    /// the clipboard manager, whose toggle is a 3-state cycle (open → keyboard
-    /// mode → close) rather than a plain dismiss: the HUD's field can hold
-    /// first responder before keyboard mode is on (manual tap), and the toggle
-    /// must then advance the cycle, not close.
-    var onForwardedToggle: (() -> Void)?
     var onDismiss: (() -> Void)?
     var content: () -> Content
 
     init(inset: CGFloat = 12,
          draggable: Bool = true,
          dismissShortcuts: [HUDKeyShortcut] = [],
-         forwardsThemePickerToggle: Bool = false,
          forwardsFindToggle: Bool = false,
-         forwardsClipboardManagerToggle: Bool = false,
-         onForwardedToggle: (() -> Void)? = nil,
          onDismiss: (() -> Void)? = nil,
          @ViewBuilder content: @escaping () -> Content) {
         self.inset = inset
         self.draggable = draggable
         self.dismissShortcuts = dismissShortcuts
-        self.forwardsThemePickerToggle = forwardsThemePickerToggle
         self.forwardsFindToggle = forwardsFindToggle
-        self.forwardsClipboardManagerToggle = forwardsClipboardManagerToggle
-        self.onForwardedToggle = onForwardedToggle
         self.onDismiss = onDismiss
         self.content = content
     }
@@ -68,15 +54,12 @@ struct DraggableHUDContainer<Content: View>: UIViewRepresentable {
         view.inset = inset
         view.isDraggable = draggable
         view.dismissShortcuts = dismissShortcuts
-        view.forwardsThemePickerToggle = forwardsThemePickerToggle
         view.forwardsFindToggle = forwardsFindToggle
-        view.forwardsClipboardManagerToggle = forwardsClipboardManagerToggle
-        view.onForwardedToggle = onForwardedToggle
         view.onDismiss = onDismiss
 
         let host = UIHostingController(rootView: AnyView(content()))
         host.view.backgroundColor = .clear
-        // Self-size to the SwiftUI content (matters for the theme picker's ScrollView).
+        // Self-size to the SwiftUI content instead of filling the host view.
         host.sizingOptions = .intrinsicContentSize
         context.coordinator.host = host
 
@@ -94,10 +77,7 @@ struct DraggableHUDContainer<Content: View>: UIViewRepresentable {
         context.coordinator.host?.rootView = AnyView(content())
         uiView.onDismiss = onDismiss
         uiView.dismissShortcuts = dismissShortcuts
-        uiView.forwardsThemePickerToggle = forwardsThemePickerToggle
         uiView.forwardsFindToggle = forwardsFindToggle
-        uiView.forwardsClipboardManagerToggle = forwardsClipboardManagerToggle
-        uiView.onForwardedToggle = onForwardedToggle
         uiView.setNeedsLayout()
     }
 
@@ -131,10 +111,7 @@ final class DraggableHUDHostView: UIView, UIGestureRecognizerDelegate {
     var inset: CGFloat = 12
     var isDraggable = true
     var dismissShortcuts: [HUDKeyShortcut] = []
-    var forwardsThemePickerToggle = false
     var forwardsFindToggle = false
-    var forwardsClipboardManagerToggle = false
-    var onForwardedToggle: (() -> Void)?
     var onDismiss: (() -> Void)?
 
     /// Once the user drags the HUD we preserve their chosen position. Before
@@ -146,25 +123,15 @@ final class DraggableHUDHostView: UIView, UIGestureRecognizerDelegate {
 
     // MARK: Menu action
 
-    // The app's toggle_theme_picker / start_search menu items (whose shortcuts honor
-    // remaps via DynamicShortcut) fire `sendAction(menuToggleThemePicker:/findInTerminal:,
-    // to: nil)`. While the HUD's search field is first responder the terminal isn't
-    // in the chain, so that action finds no target and no-ops. This host IS in the
-    // chain, so answering the selector lets the existing customizable shortcut dismiss
-    // the HUD. Each is gated so only the matching HUD claims it.
+    // The app's start_search menu item (whose shortcut honors remaps via
+    // DynamicShortcut) fires `sendAction(findInTerminal:, to: nil)`. While the
+    // HUD's search field is first responder the terminal isn't in the chain, so
+    // that action finds no target and no-ops. This host IS in the chain, so
+    // answering the selector lets the existing customizable shortcut dismiss the
+    // HUD. It's gated so only a HUD that opted in claims it.
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
-        if action == #selector(menuToggleThemePicker(_:)) { return forwardsThemePickerToggle }
         if action == #selector(findInTerminal(_:)) { return forwardsFindToggle }
-        if action == #selector(menuToggleClipboardManager(_:)) { return forwardsClipboardManagerToggle }
         return super.canPerformAction(action, withSender: sender)
-    }
-
-    @objc func menuToggleThemePicker(_ sender: Any?) {
-        onDismiss?()
-    }
-
-    @objc func menuToggleClipboardManager(_ sender: Any?) {
-        (onForwardedToggle ?? onDismiss)?()
     }
 
     @objc func findInTerminal(_ sender: Any?) {
@@ -176,9 +143,9 @@ final class DraggableHUDHostView: UIView, UIGestureRecognizerDelegate {
     // For dismiss keys that DON'T collide with an app menu shortcut (e.g. Escape):
     // the host sits in the focused HUD's responder chain, so these fire even while
     // the HUD's text field is focused. Keys that DO collide with a SwiftUI menu item
-    // (Cmd-Shift-T) can't be won here — a menu item beats a responder UIKeyCommand
+    // (Cmd-F) can't be won here — a menu item beats a responder UIKeyCommand
     // even with wantsPriorityOverSystemBehavior — so those go through the menu action
-    // (see canPerformAction / menuToggleThemePicker) instead.
+    // (see canPerformAction / findInTerminal) instead.
     override var keyCommands: [UIKeyCommand]? {
         guard !dismissShortcuts.isEmpty else { return nil }
         return dismissShortcuts.map {

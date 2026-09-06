@@ -15,7 +15,6 @@ nonisolated enum SettingPinState: Sendable, Equatable {
     case none
     case key
     case group
-    case configFile
     case deviceOnly
 }
 
@@ -405,29 +404,7 @@ final class SettingsSyncCoordinator {
         sidecarStore.mutate { $0.accountIdentity = identity }
     }
 
-    // MARK: - Config file overlay
-
-    /// Keys currently bound by the text config file; pinned while present.
-    private(set) var configFileKeys: Set<String> = []
-
-    /// Apply the overlay: file-bound keys take the file's value and become pinned;
-    /// keys that left the file rejoin iCloud (adopting its value when known).
-    func applyConfigFile(values: [String: CodableValue?]) {
-        let newKeys = Set(values.keys)
-        let removed = configFileKeys.subtracting(newKeys)
-        configFileKeys = newKeys
-        pinGeneration += 1
-        var batch: [String: CodableValue?] = [:]
-        for (key, value) in values where store.codableValue(key) != value {
-            batch[key] = value
-        }
-        if !batch.isEmpty {
-            store.applyBatch(batch, origin: .configFile)
-        }
-        if !removed.isEmpty {
-            resolveUnpin(Array(removed), resolution: .adoptCloud)
-        }
-    }
+    // MARK: - Reset
 
     /// Forget push bookkeeping and shadows; keep timestamps and pins.
     func resetSyncState() {
@@ -450,7 +427,6 @@ final class SettingsSyncCoordinator {
         _ = pinGeneration
         guard let def = registry.definition(for: key) else { return .deviceOnly }
         if def.policy == .deviceOnly { return .deviceOnly }
-        if configFileKeys.contains(key) { return .configFile }
         if sidecar.pinnedGroups.contains(def.group) { return .group }
         if isPinned(key) { return .key }
         return .none
@@ -458,7 +434,6 @@ final class SettingsSyncCoordinator {
 
     func isPinned(_ key: String) -> Bool {
         guard let def = registry.definition(for: key), def.policy != .deviceOnly else { return true }
-        if configFileKeys.contains(key) { return true }
         if sidecar.pinnedGroups.contains(def.group) { return true }
         switch def.policy {
         case .synced: return sidecar.pinnedKeys.contains(key)

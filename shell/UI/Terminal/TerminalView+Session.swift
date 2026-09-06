@@ -7,29 +7,7 @@
 //
 
 import UIKit
-import os
 import GhosttyKit
-
-private extension String {
-    /// Escapes characters that remain active inside shell double quotes.
-    var shellEscapedForDoubleQuotes: String {
-        var escaped = ""
-        escaped.reserveCapacity(count)
-
-        for character in self {
-            if character == "\\" || character == "\"" || character == "$" || character == "`" {
-                escaped.append("\\")
-            }
-            escaped.append(character)
-        }
-
-        return escaped
-    }
-}
-
-private func shellEscapeForSingleQuotes(_ string: String) -> String {
-    string.replacingOccurrences(of: "'", with: "'\\''")
-}
 
 // MARK: - Session Setup
 
@@ -193,86 +171,6 @@ extension Ghostty.TerminalView {
     }
 }
 
-// MARK: - Post-Ready Session Behavior
-
-extension Ghostty.TerminalView {
-    /// Records the multiplexer this connection is configured to start, so the
-    /// surface knows one program owns many logical windows.
-    func applyConfiguredMultiplexerBinding() {
-        guard let sshConfig = connectionConfig.sshConfig else { return }
-        guard rawMultiplexer == nil else { return }
-
-        // Auto-connect. Control mode gets its own surface per pane, so only
-        // the plain mode collapses a whole session onto this one.
-        if sshConfig.tmuxAutoEnable, sshConfig.tmuxAutoMode == .regular {
-            bindRawMultiplexer(.tmux, sessionName: sshConfig.tmuxSessionNameForConnection)
-        }
-    }
-
-    /// Binds only multiplexers that own the alternate screen.
-    func bindRawMultiplexer(_ type: MultiplexerType, sessionName: String?) {
-        guard type.ownsAlternateScreen else { return }
-        guard rawMultiplexer == nil else { return }
-        rawMultiplexer = .init(type: type, sessionName: sessionName)
-    }
-
-    /// Maps a configured command to the multiplexer it starts, or nil when it
-    /// starts none. Matches the command word only — an explicit table, never a
-    /// substring search, so an unrelated command mentioning "tmux" is not a
-    /// multiplexer. `tmux -CC` is excluded: control mode is app-driven.
-    static func rawMultiplexerType(launching command: String) -> MultiplexerType? {
-        let words = command.split(whereSeparator: \.isWhitespace).map(String.init)
-        guard let executable = words.first(where: { !$0.contains("=") }) else { return nil }
-        let name = (executable as NSString).lastPathComponent
-
-        switch name {
-        case "tmux":
-            return words.contains("-CC") ? nil : .tmux
-        case "byobu", "byobu-tmux":
-            // byobu is a front-end over tmux (it takes no -CC of its own).
-            // `byobu` can also be screen-backed, so the type is a best
-            // guess: it is sound for suppression, which is all it drives
-            // today, but the out-of-band classification tier must verify the
-            // backend rather than assume tmux commands will work.
-            return .tmux
-        default:
-            return nil
-        }
-    }
-
-    /// Sends tmux auto-connect and/or the configured launch command as terminal input after session ready.
-    /// Re-fires on reconnect (flag is reset by TerminalSessionController).
-    func sendLaunchCommandIfConfigured() {
-        guard !hasSentLaunchCommand else { return }
-        hasSentLaunchCommand = true
-
-        let sshConfig = connectionConfig.sshConfig
-        let multiplexerAutoEnabled = sshConfig?.tmuxAutoEnable ?? false
-        // tmux auto-start rides the SSH exec request, so nothing is typed here.
-        let launchCommand: String? = nil
-
-        if let launchCommand, !launchCommand.isEmpty {
-            let commandWithNewline = launchCommand + "\n"
-            if let data = commandWithNewline.data(using: .utf8) {
-                let charCount = launchCommand.count
-                if multiplexerAutoEnabled {
-                    // Delay to let the multiplexer start before sending launch command
-                    Task { @MainActor [weak self] in
-                        try? await Task.sleep(for: .milliseconds(500))
-                        Ghostty.logger.info("Sending launch command (\(charCount) chars) after multiplexer delay")
-                        self?.invalidateInputDocument()
-                        self?.session?.sendInput(data)
-                    }
-                } else {
-                    Ghostty.logger.info("Sending launch command (\(charCount) chars)")
-                    invalidateInputDocument()
-                    session?.sendInput(data)
-                }
-            }
-        }
-    }
-}
-
 // MARK: - Session Monitoring
 
 extension Ghostty.TerminalView {
@@ -285,13 +183,6 @@ extension Ghostty.TerminalView {
         sessionController.cancelReconnection()
     }
 
-    /// Whether size-report filtering should be active right now for this
-    /// session. The roaming transport that needed it is gone from this fork,
-    /// so nothing filters.
-    func shouldFilterSizeReportsNow(session: TerminalSession) -> Bool {
-        false
-    }
-
     /// Monitors Ghostty's response pipe for terminal responses (e.g., cursor position queries)
     /// and forwards them back to the session for bidirectional terminal communication.
     /// Works with both SSH and Catalyst local shell sessions.
@@ -301,10 +192,5 @@ extension Ghostty.TerminalView {
     /// reducing the chance of queue saturation that can cause main thread deadlocks.
     func startTerminalResponseMonitoring(for session: TerminalSession) {
         sessionController.startTerminalResponseMonitoring(for: session)
-    }
-
-    /// Starts a 2-second timer to track sustained SSH/Mosh connections for history
-    func startConnectionSuccessTimer() {
-        sessionController.startConnectionSuccessTimer(connectionConfig: connectionConfig)
     }
 }

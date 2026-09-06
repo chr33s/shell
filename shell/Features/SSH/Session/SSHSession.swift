@@ -107,8 +107,8 @@ final class SSHSession: SSHTerminalSession {
             username: config.username,
             resolvedIP: resolvedIPAddress,
             connectedAt: startTime,
-            jumpHost: nil,
-            jumpPort: nil,
+            jumpHost: config.jumpHost?.host,
+            jumpPort: config.jumpHost?.port,
             keyExchangeAlgorithm: negotiatedKeyExchange,
             hostKeyAlgorithm: negotiatedHostKey,
             cipherAlgorithm: negotiatedCipher,
@@ -343,11 +343,7 @@ final class SSHSession: SSHTerminalSession {
             SSHCustomAlgorithms.ensureRegistered()
 
             // Log SSH algorithm info for debugging
-            if #available(iOS 26, macOS 26, macCatalyst 26, visionOS 26, *) {
-                Self.logger.info("SSH client algorithms - KEX: mlkem768x25519-sha256 (PQ), sntrup761x25519-sha512 (PQ), diffie-hellman-group14-sha256/sha1, curve25519-sha256, ecdh-sha2-nistp* | Cipher: aes256-gcm, aes128-gcm, aes256-ctr, aes128-ctr | MAC: hmac-sha2-*-etm@openssh.com, hmac-sha2-* | HostKey: mldsa65/87 (PQ), mldsa44-ed25519 (PQ hybrid), ssh-rsa, ed25519, ecdsa")
-            } else {
-                Self.logger.info("SSH client algorithms - KEX: sntrup761x25519-sha512 (PQ), diffie-hellman-group14-sha256/sha1, curve25519-sha256, ecdh-sha2-nistp* | Cipher: aes256-gcm, aes128-gcm, aes256-ctr, aes128-ctr | MAC: hmac-sha2-*-etm@openssh.com, hmac-sha2-* | HostKey: mldsa44-ed25519 (PQ hybrid), ssh-rsa, ed25519, ecdsa")
-            }
+            Self.logger.info("SSH client algorithms - KEX: mlkem768x25519-sha256 (PQ), sntrup761x25519-sha512 (PQ), diffie-hellman-group14-sha256/sha1, curve25519-sha256, ecdh-sha2-nistp* | Cipher: aes256-gcm, aes128-gcm, aes256-ctr, aes128-ctr | MAC: hmac-sha2-*-etm@openssh.com, hmac-sha2-* | HostKey: mldsa65/87 (PQ), mldsa44-ed25519 (PQ hybrid), ssh-rsa, ed25519, ecdsa")
 
             // Create client bootstrap - build config inside closure to avoid capture issues
             // Capture logger for use in @Sendable closure (Logger is Sendable)
@@ -371,16 +367,10 @@ final class SSHSession: SSHTerminalSession {
 
                     // Prepend key exchange algorithms in priority order
                     // PQ hybrid first, then DH for AWS compatibility
-                    if #available(iOS 26, macOS 26, macCatalyst 26, visionOS 26, *) {
-                        clientConfig.keyExchangeAlgorithms.insert(MLKem768X25519Sha256.self, at: 0)
-                        clientConfig.keyExchangeAlgorithms.insert(Sntrup761X25519Sha512.self, at: 1)
-                        clientConfig.keyExchangeAlgorithms.insert(DiffieHellmanGroup14Sha256.self, at: 2)
-                        clientConfig.keyExchangeAlgorithms.insert(DiffieHellmanGroup14Sha1.self, at: 3)
-                    } else {
-                        clientConfig.keyExchangeAlgorithms.insert(Sntrup761X25519Sha512.self, at: 0)
-                        clientConfig.keyExchangeAlgorithms.insert(DiffieHellmanGroup14Sha256.self, at: 1)
-                        clientConfig.keyExchangeAlgorithms.insert(DiffieHellmanGroup14Sha1.self, at: 2)
-                    }
+                    clientConfig.keyExchangeAlgorithms.insert(MLKem768X25519Sha256.self, at: 0)
+                    clientConfig.keyExchangeAlgorithms.insert(Sntrup761X25519Sha512.self, at: 1)
+                    clientConfig.keyExchangeAlgorithms.insert(DiffieHellmanGroup14Sha256.self, at: 2)
+                    clientConfig.keyExchangeAlgorithms.insert(DiffieHellmanGroup14Sha1.self, at: 3)
 
                     // Add CTR ciphers — ETM first (preferred, required by NixOS hardened sshd)
                     clientConfig.transportProtectionSchemes.append(AES256CTR_ETM.self)

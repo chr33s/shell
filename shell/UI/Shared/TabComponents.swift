@@ -2,7 +2,7 @@
 //  TabComponents.swift
 //  shell
 //
-//  Shared tab button and glass effect components used by MainView and AIAgentWindowView
+//  Shared tab button and glass effect components used by MainView.
 //
 
 import SwiftUI
@@ -335,7 +335,6 @@ struct TabButton: View {
         #if os(visionOS)
         return false
         #else
-        guard #available(iOS 26.0, *) else { return false }
         return ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27
         #endif
     }
@@ -595,7 +594,6 @@ struct TabButton: View {
             unselectedBackgroundColor: unselectedBackgroundColor,
             id: id,
             namespace: namespace,
-            isLightTheme: isLightTheme,
             isHovered: isHovered
         ))
         .padding(.horizontal, inset)
@@ -762,70 +760,14 @@ private struct IntegratedTabBackground: View {
 
 // MARK: - Glass Effect Modifiers
 
-/// Pre-iOS 26 glassmorphism fallback for tab backgrounds
-/// Creates a frosted glass appearance with blur, gradient, stroke, and shadow
-struct GlassedCapsule: View {
-    let tintColor: Color
-    let isLightTheme: Bool
-
-    var body: some View {
-        Capsule()
-            // Base blur material
-            .fill(.ultraThinMaterial)
-            // Tint overlay
-            .overlay(
-                Capsule()
-                    .fill(tintColor.opacity(0.35))
-            )
-            // Light refraction gradient
-            .overlay(
-                Capsule()
-                    .fill(
-                        .linearGradient(
-                            colors: [
-                                .white.opacity(isLightTheme ? 0.3 : 0.2),
-                                .white.opacity(isLightTheme ? 0.1 : 0.05),
-                                .clear,
-                                .clear
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-            )
-            // Edge stroke for definition
-            .overlay(
-                Capsule()
-                    .strokeBorder(
-                        .linearGradient(
-                            colors: [
-                                .white.opacity(isLightTheme ? 0.5 : 0.3),
-                                .white.opacity(isLightTheme ? 0.2 : 0.1)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        lineWidth: 0.5
-                    )
-            )
-            // Drop shadow for depth
-            .shadow(
-                color: .black.opacity(isLightTheme ? 0.15 : 0.3),
-                radius: 8,
-                x: 0,
-                y: 4
-            )
-    }
-}
-
-/// Applies glass effect on iOS 26+, falls back to glassmorphism on older versions
+/// Applies Liquid Glass to tab backgrounds; falls back to a flat capsule
+/// under Reduce Transparency / Increase Contrast.
 struct GlassTabBackgroundModifier: ViewModifier {
     let isSelected: Bool
     let selectedBackgroundColor: Color
     let unselectedBackgroundColor: Color
     let id: UUID
     let namespace: Namespace.ID?
-    let isLightTheme: Bool
     let isHovered: Bool
 
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
@@ -891,7 +833,7 @@ struct GlassTabBackgroundModifier: ViewModifier {
                 content
                     .background(inactiveHoverBackground)
             }
-        } else if #available(iOS 26.0, macOS 26.0, *) {
+        } else {
             if isSelected {
                 content
                     .glassEffect(
@@ -906,38 +848,20 @@ struct GlassTabBackgroundModifier: ViewModifier {
                     .background(inactiveHoverBackground)
                     .applyGlassEffectID(id: id, namespace: namespace)
             }
-        } else {
-            // Fallback for pre-iOS 26 - glassmorphism effect
-            if isSelected, let ns = namespace {
-                content
-                    .background(
-                        GlassedCapsule(
-                            tintColor: selectedBackgroundColor,
-                            isLightTheme: isLightTheme
-                        )
-                        .matchedGeometryEffect(id: "selectedTab", in: ns)
-                    )
-            } else {
-                content
-                    .background(inactiveHoverBackground)
-            }
         }
         #endif
     }
 }
 
-/// Wraps content in GlassEffectContainer on iOS 26+, passthrough on older versions
+/// Wraps content in GlassEffectContainer; passthrough on visionOS, where the
+/// container is unavailable.
 struct GlassEffectContainerModifier: ViewModifier {
     func body(content: Content) -> some View {
         #if os(visionOS)
         // GlassEffectContainer is not available on visionOS
         content
         #else
-        if #available(iOS 26.0, macOS 26.0, *) {
-            GlassEffectContainer {
-                content
-            }
-        } else {
+        GlassEffectContainer {
             content
         }
         #endif
@@ -973,7 +897,7 @@ extension View {
         // glassEffectID is not available on visionOS
         self
         #else
-        if #available(iOS 26.0, macOS 26.0, *), let ns = namespace {
+        if let ns = namespace {
             self.glassEffectID("tab-\(id.uuidString)", in: ns)
         } else {
             self
@@ -987,7 +911,7 @@ extension View {
         // glassEffectUnion is not available on visionOS
         self
         #else
-        if #available(iOS 26.0, macOS 26.0, *), let ns = namespace {
+        if let ns = namespace {
             self.glassEffectUnion(id: id, namespace: ns)
         } else {
             self

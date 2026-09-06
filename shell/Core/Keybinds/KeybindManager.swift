@@ -90,7 +90,6 @@ final class KeybindManager: ObservableObject {
             // Clipboard
             Keybind(key: .c, modifiers: .command, action: .copy_to_clipboard),
             Keybind(key: .v, modifiers: .command, action: .paste_from_clipboard),
-            Keybind(key: .c, modifiers: [.command, .shift], action: .toggle_clipboard_manager),
 
             // Tab Management
             Keybind(key: .t, modifiers: .command, action: .new_local_shell),
@@ -136,19 +135,13 @@ final class KeybindManager: ObservableObject {
             Keybind(key: .f, modifiers: .command, action: .start_search),
             Keybind(key: .b, modifiers: [.command, .shift], action: .toggle_tab_bar),
             Keybind(key: .g, modifiers: [.command, .shift], action: .toggle_group_mode),
-            Keybind(key: .backslash, modifiers: [.command, .shift], action: .toggle_tab_switcher),
-            Keybind(key: .a, modifiers: [.command, .shift], action: .toggle_tab_expose),
             Keybind(key: .leftBracket, modifiers: [.command, .option], action: .previous_group),
             Keybind(key: .rightBracket, modifiers: [.command, .option], action: .next_group),
             Keybind(key: .o, modifiers: [.command, .shift], action: .toggle_transparency),
             Keybind(key: .h, modifiers: [.command, .shift], action: .toggle_titlebar),
-            Keybind(key: .r, modifiers: [.command, .control], action: .toggle_auto_redact),
-            Keybind(key: .t, modifiers: [.command, .shift], action: .toggle_theme_picker),
-            Keybind(key: .l, modifiers: [.command, .shift], action: .toggle_background_effect),
             Keybind(key: .k, modifiers: [.command, .shift], action: .toggle_compose),
             Keybind(key: .f, modifiers: [.command, .shift], action: .toggle_full_screen),
             Keybind(key: .m, modifiers: [.command, .shift], action: .toggle_mouse_capture),
-            Keybind(key: .b, modifiers: [.command, .control], action: .brightness_boost),
             Keybind(key: .space, modifiers: [.command, .shift], action: .cycle_input_source),
 
             // Navigation
@@ -165,8 +158,6 @@ final class KeybindManager: ObservableObject {
             Keybind(key: .comma, modifiers: .command, action: .open_settings),
             Keybind(key: .b, modifiers: .command, action: .browse_hosts),
             Keybind(key: .p, modifiers: [.command, .shift], action: .browse_profiles),
-            Keybind(key: .i, modifiers: .command, action: .toggle_ai_agent),
-            Keybind(key: .v, modifiers: [.command, .shift], action: .toggle_voice_agent),
 
             // Control Characters (Ctrl+A-Z defaults to terminal control chars)
             Keybind(key: .a, modifiers: .control, action: .ctrl_a),
@@ -630,18 +621,48 @@ final class KeybindManager: ObservableObject {
         }
     }
 
+    /// Wraps `Keybind` so an entry whose persisted action raw value no longer
+    /// maps to a `KeybindAction` case (an action removed in a later build)
+    /// decodes to `nil` instead of throwing. Element-level failure must drop
+    /// that one entry, never discard the user's entire override set.
+    private struct LenientKeybind: Decodable {
+        let keybind: Keybind?
+
+        init(from decoder: Decoder) throws {
+            keybind = try? Keybind(from: decoder)
+        }
+    }
+
+    /// Decode a persisted user-override array, dropping only the entries this
+    /// build can no longer make sense of.
+    ///
+    /// Extracted from `loadUserOverrides` purely so the tolerance rule can be
+    /// exercised against a `Data` value instead of the live, iCloud-synced
+    /// `Settings.Keybinds.overrides`. Behaviour is unchanged: element-level
+    /// failures drop that one entry, a structural failure of the whole array
+    /// yields an empty set rather than throwing.
+    static func decodeUserOverrides(_ data: Data) -> [Keybind] {
+        do {
+            let decoded = try JSONDecoder().decode([LenientKeybind].self, from: data)
+            let overrides = decoded.compactMap(\.keybind)
+            let dropped = decoded.count - overrides.count
+            if dropped > 0 {
+                logger.warning("Dropped \(dropped) user override(s) with unknown actions")
+            }
+            return overrides
+        } catch {
+            logger.error("Failed to load user overrides: \(error.localizedDescription)")
+            return []
+        }
+    }
+
     private func loadUserOverrides() {
         guard let data = SettingsStore.shared.get(Settings.Keybinds.overrides) else {
             return
         }
 
-        do {
-            userOverrides = try JSONDecoder().decode([Keybind].self, from: data)
-            Self.logger.info("Loaded \(self.userOverrides.count) user overrides")
-        } catch {
-            Self.logger.error("Failed to load user overrides: \(error.localizedDescription)")
-            userOverrides = []
-        }
+        userOverrides = Self.decodeUserOverrides(data)
+        Self.logger.info("Loaded \(self.userOverrides.count) user overrides")
     }
 
     private func saveExternalConfigPath() {

@@ -264,8 +264,6 @@ nonisolated struct SSHKey: Codable, Identifiable, Hashable, Sendable {
         self.userCertificate = nil
     }
 
-    // MARK: - Codable (tolerant of records written by earlier schemas)
-
     enum CodingKeys: String, CodingKey {
         case id, name, keyType, fingerprint, createdDate, hasPassphrase
         case storageLevel, authRequirement, securityModifiedDate, publicKeyBlob
@@ -283,10 +281,10 @@ nonisolated struct SSHKey: Codable, Identifiable, Hashable, Sendable {
         fingerprint = try container.decode(String.self, forKey: .fingerprint)
         createdDate = try container.decode(Date.self, forKey: .createdDate)
         hasPassphrase = try container.decode(Bool.self, forKey: .hasPassphrase)
+        storageLevel = try container.decode(KeyStorageLevel.self, forKey: .storageLevel)
+        authRequirement = try container.decode(KeyAuthRequirement.self, forKey: .authRequirement)
 
-        // Optional fields with backward-compatible defaults
-        storageLevel = try container.decodeIfPresent(KeyStorageLevel.self, forKey: .storageLevel) ?? .backupOnly
-        authRequirement = try container.decodeIfPresent(KeyAuthRequirement.self, forKey: .authRequirement) ?? .none
+        // Optional fields
         securityModifiedDate = try container.decodeIfPresent(Date.self, forKey: .securityModifiedDate)
         publicKeyBlob = try container.decodeIfPresent(Data.self, forKey: .publicKeyBlob)
         secureEnclaveInfo = try container.decodeIfPresent(SecureEnclaveKeyInfo.self, forKey: .secureEnclaveInfo)

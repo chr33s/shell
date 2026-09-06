@@ -81,16 +81,15 @@ struct SSHProfile: Codable, Identifiable, Hashable, SyncableRecord {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
-        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        id = try container.decode(UUID.self, forKey: .id)
         name = try container.decode(String.self, forKey: .name)
         sshConfig = try container.decode(SSHConfig.self, forKey: .sshConfig)
 
-        let now = Date()
-        modifiedAt = try container.decodeIfPresent(Date.self, forKey: .modifiedAt) ?? now
-        isDeleted = try container.decodeIfPresent(Bool.self, forKey: .isDeleted) ?? false
-        createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? now
+        modifiedAt = try container.decode(Date.self, forKey: .modifiedAt)
+        isDeleted = try container.decode(Bool.self, forKey: .isDeleted)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
         lastUsedAt = try container.decodeIfPresent(Date.self, forKey: .lastUsedAt)
-        useCount = try container.decodeIfPresent(Int.self, forKey: .useCount) ?? 0
+        useCount = try container.decode(Int.self, forKey: .useCount)
     }
 
     func encode(to encoder: Encoder) throws {

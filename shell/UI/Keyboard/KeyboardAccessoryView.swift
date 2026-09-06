@@ -45,13 +45,6 @@ class KeyboardAccessoryView: UIInputView {
         }
     }
 
-    /// Callback when tab switcher button is tapped
-    var onTabSwitcherRequested: (() -> Void)? {
-        didSet {
-            toolbarView.onTabSwitcherRequested = onTabSwitcherRequested
-        }
-    }
-
     /// Callback when compose button is tapped
     var onComposeRequested: (() -> Void)? {
         didSet {

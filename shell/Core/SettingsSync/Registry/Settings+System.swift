@@ -2,7 +2,7 @@
 //  Settings+System.swift
 //  shell
 //
-//  Device-only system keys (sync state, debug flags, migrations), prefix
+//  Device-only system keys (sync state, system toggles), prefix
 //  rules, and the area list the registry is assembled from.
 //
 
@@ -36,29 +36,11 @@ nonisolated extension Settings {
         static let cloudKitDeviceID = SettingKey<String?>(
             "cloudKitDeviceID", default: nil, group: .system, policy: .deviceOnly,
             title: String(localized: "Sync Device ID", comment: "Setting title"))
-        static let cloudKitMigratedToCustomZone = SettingKey(
-            "cloudKitMigratedToCustomZone", default: false, group: .system, policy: .deviceOnly,
-            title: String(localized: "Sync Zone Migration", comment: "Setting title"))
         static let cloudKitZoneChangeToken = SettingKey<Data?>(
             "cloudKitZoneChangeToken", default: nil, group: .system, policy: .deviceOnly,
             title: String(localized: "Sync Change Token", comment: "Setting title"))
         static let cloudKitLastSyncDate = AnySettingDefinition.opaque(
             "cloudKitLastSyncDate", title: String(localized: "Last Sync", comment: "Setting title"))
-        static let resumeDebugLogging = SettingKey(
-            "resumeDebugLoggingEnabled", default: false, group: .system, policy: .deviceOnly,
-            title: String(localized: "Resume Debug Logging", comment: "Setting title"))
-        static let lifecycleDebugLogging = SettingKey(
-            "lifecycleDebugLoggingEnabled", default: false, group: .system, policy: .deviceOnly,
-            title: String(localized: "Lifecycle Debug Logging", comment: "Setting title"))
-        static let lifecycleSyncRendererDrain = SettingKey(
-            "lifecycleSyncRendererDrainEnabled", default: false, group: .system, policy: .deviceOnly,
-            title: String(localized: "Synchronous Renderer Drain", comment: "Setting title"))
-        static let sshDebugLogging = SettingKey(
-            "sshDebugLoggingEnabled", default: false, group: .system, policy: .deviceOnly,
-            title: String(localized: "SSH Debug Logging", comment: "Setting title"))
-        static let tmuxDebugLogging = SettingKey(
-            "tmuxDebugLoggingEnabled", default: false, group: .system, policy: .deviceOnly,
-            title: String(localized: "tmux Debug Logging", comment: "Setting title"))
         static let applePressAndHold = SettingKey(
             "ApplePressAndHoldEnabled", default: false, group: .system, policy: .deviceOnly,
             title: String(localized: "Press and Hold (system)", comment: "Setting title"))
@@ -74,9 +56,8 @@ nonisolated extension Settings {
             cloudKitSyncProfiles.erased, cloudKitSyncAppSettings.erased,
             cloudKitSyncIdentityMetadata.erased, syncSoftwareKeys.erased,
             cloudKitDeviceID.erased,
-            cloudKitMigratedToCustomZone.erased, cloudKitZoneChangeToken.erased, cloudKitLastSyncDate,
-            resumeDebugLogging.erased, lifecycleDebugLogging.erased, lifecycleSyncRendererDrain.erased,
-            sshDebugLogging.erased, tmuxDebugLogging.erased, applePressAndHold.erased,
+            cloudKitZoneChangeToken.erased, cloudKitLastSyncDate,
+            applePressAndHold.erased,
         ]
     }
 
