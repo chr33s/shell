@@ -153,6 +153,7 @@ extension LocalShellSession {
 
         // Reset general completion state
         generalCompletionState = .idle
+        invalidateHostCompletionCache()
 
         // Clear ghost text on command submission
         clearGhostText()
@@ -314,7 +315,15 @@ extension LocalShellSession {
             stop()
             onSessionEnd?()
             return
-        } else if lowerCommand == "source" || lowerCommand.hasPrefix("source ") {
+        } else if lowerCommand == "source" || lowerCommand.hasPrefix("source ")
+                    || lowerCommand == "." || lowerCommand.hasPrefix(". ") {
+            // `.` is the POSIX spelling of `source` — ShellBuiltins.lookup maps
+            // "source" and "." to the same builtin, but only "source" was routed
+            // here, so `. ~/.profile` fell through to ios_system (which ships no
+            // `.` command, only `source`) and died with command-not-found while
+            // the spelled-out form worked. Match the exact word and the `". "`
+            // prefix rather than a bare `hasPrefix(".")`, so leading-dot paths
+            // (`./script.sh`, `.hidden/x`) still reach the script route below.
             handleSourceCommand(trimmedCommand)
             return
         } else if lowerCommand == "editrc" {
@@ -645,8 +654,23 @@ extension LocalShellSession {
         }
     }
 
+    /// Drop the cached `ssh <Tab>` host suggestions.
+    ///
+    /// `handleHostTabCompletion` only rebuilds `sshCompletion.suggestions` when
+    /// the cache is empty, so the cache has to be invalidated by every edit that
+    /// changes the destination text it was built from. Only `insertCharacter`
+    /// did that: after completing `ssh al<Tab>` and backspacing back to `ssh `,
+    /// Tab kept offering just the hosts that matched `al` until a character was
+    /// typed. Cursor movement is deliberately excluded — it leaves the text (and
+    /// therefore the cache) valid — as is the Tab handler itself, which must
+    /// keep the cache to cycle through it.
+    func invalidateHostCompletionCache() {
+        sshCompletion.reset()
+    }
+
     private func handleBackspace() {
         generalCompletionState = .idle
+        invalidateHostCompletionCache()
         if lineEditor.deleteBackward() {
             // Update ghost text after deletion
             updateGhostText()
@@ -661,6 +685,7 @@ extension LocalShellSession {
 
     private func handleDelete() {
         generalCompletionState = .idle
+        invalidateHostCompletionCache()
         if lineEditor.deleteForward() {
             // Update ghost text after deletion
             updateGhostText()
@@ -707,6 +732,7 @@ extension LocalShellSession {
 
     private func handleCtrlK() {
         generalCompletionState = .idle
+        invalidateHostCompletionCache()
         let killedText = lineEditor.textAfterCursor
         if lineEditor.deleteToEnd() {
             lineEditorYankBuffer = killedText
@@ -717,6 +743,7 @@ extension LocalShellSession {
 
     private func handleCtrlU() {
         generalCompletionState = .idle
+        invalidateHostCompletionCache()
         let killedText = lineEditor.textBeforeCursor
         if lineEditor.deleteToStart() {
             lineEditorYankBuffer = killedText
@@ -727,6 +754,7 @@ extension LocalShellSession {
 
     private func handleCtrlY() {
         generalCompletionState = .idle
+        invalidateHostCompletionCache()
         guard !lineEditorYankBuffer.isEmpty else { return }
         if lineEditor.insertText(lineEditorYankBuffer) {
             updateGhostText()
@@ -736,6 +764,7 @@ extension LocalShellSession {
 
     private func handleCtrlW() {
         generalCompletionState = .idle
+        invalidateHostCompletionCache()
         if lineEditor.deleteWordBackward() {
             updateGhostText()
             redrawLine()
@@ -836,6 +865,7 @@ extension LocalShellSession {
 
     private func handleArrowUp() {
         generalCompletionState = .idle
+        invalidateHostCompletionCache()
         // Only start navigation if not already navigating
         if !historyManager.isNavigating {
             historyManager.startNavigation(currentBuffer: lineEditor.buffer)
@@ -851,6 +881,7 @@ extension LocalShellSession {
 
     private func handleArrowDown() {
         generalCompletionState = .idle
+        invalidateHostCompletionCache()
         if let command = historyManager.navigateNext() {
             lineEditor.setBuffer(command)
             // Update ghost text for the new buffer content
@@ -883,7 +914,7 @@ extension LocalShellSession {
         generalCompletionState = .idle
 
         // Reset suggestion caches when user types
-        sshCompletion.reset()
+        invalidateHostCompletionCache()
 
         lineEditor.insertText(String(char))
 

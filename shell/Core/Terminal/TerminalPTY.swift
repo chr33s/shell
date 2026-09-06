@@ -1,28 +1,23 @@
 import Foundation
 
-/// Manages a POSIX PTY (pseudo-terminal) pair for terminal I/O
-/// This provides the low-level file descriptors needed for bidirectional communication
-/// between the terminal emulator (Ghostty) and command execution layer (ShellSession/SSHSession)
+/// Wraps the PTY master file descriptor used for terminal I/O
+/// The descriptor is created by the platform owner (Ghostty on iOS, the Catalyst shell helper
+/// on macOS) and adopted through `useExternalFd(_:)`; this type carries the terminal size and
+/// moves bytes across that descriptor for the command execution layer (ShellSession/SSHSession)
 @MainActor
 public final class TerminalPTY {
     /// File descriptor for the PTY master (Swift side for reading input, writing output)
-    /// Can be set externally when using Ghostty's PTY
-    nonisolated(unsafe) var masterFd: Int32 = -1
-
-    /// File descriptor for the PTY slave (passed to Ghostty for terminal emulation)
-    nonisolated(unsafe) private(set) var slaveFd: Int32 = -1
-
-    /// Path to the PTY slave device (e.g., "/dev/ttys001")
-    private(set) var slavePath: String?
+    /// Adopted from its external owner via `useExternalFd(_:)`
+    nonisolated(unsafe) private(set) var masterFd: Int32 = -1
 
     /// Current terminal window size
     var windowSize: TerminalSize = TerminalSize(rows: 24, cols: 80)
 
-    /// Whether this PTY owns the file descriptors (should close them on deinit)
+    /// Whether this PTY owns the file descriptor (should close it on teardown)
     nonisolated(unsafe) private var ownsFds: Bool = true
 
     /// Creates a new uninitialized PTY wrapper
-    /// Use `open(size:)` to create a new PTY, or `useExternalFd(_:)` to wrap an existing FD
+    /// Use `useExternalFd(_:)` to wrap an existing FD
     public init() {}
 
     /// Terminal size structure
@@ -41,124 +36,14 @@ public final class TerminalPTY {
     }
 
     enum PTYError: Error, LocalizedError {
-        case failedToOpenMaster
-        case failedToGrantAccess
-        case failedToUnlock
-        case failedToGetSlaveName
-        case failedToOpenSlave
         case failedToSetWindowSize
-        case failedToSetTerminalAttributes
-        case alreadyOpen
         case notOpen
 
         var errorDescription: String? {
             switch self {
-            case .failedToOpenMaster: return "Failed to open PTY master"
-            case .failedToGrantAccess: return "Failed to grant PTY access"
-            case .failedToUnlock: return "Failed to unlock PTY"
-            case .failedToGetSlaveName: return "Failed to get PTY slave name"
-            case .failedToOpenSlave: return "Failed to open PTY slave"
             case .failedToSetWindowSize: return "Failed to set terminal window size"
-            case .failedToSetTerminalAttributes: return "Failed to set terminal attributes"
-            case .alreadyOpen: return "PTY is already open"
             case .notOpen: return "PTY is not open"
             }
-        }
-    }
-
-    /// Creates and opens a new PTY pair
-    /// - Parameter size: Initial terminal size (default 24x80)
-    /// - Throws: PTYError if PTY creation fails
-    func open(size: TerminalSize = TerminalSize(rows: 24, cols: 80)) throws {
-        guard masterFd == -1 else {
-            throw PTYError.alreadyOpen
-        }
-
-        // 1. Open PTY master
-        masterFd = posix_openpt(O_RDWR | O_NOCTTY)
-        guard masterFd >= 0 else {
-            throw PTYError.failedToOpenMaster
-        }
-
-        // 2. Grant access to slave
-        guard grantpt(masterFd) == 0 else {
-            Darwin.close(masterFd)
-            masterFd = -1
-            throw PTYError.failedToGrantAccess
-        }
-
-        // 3. Unlock the slave
-        guard unlockpt(masterFd) == 0 else {
-            Darwin.close(masterFd)
-            masterFd = -1
-            throw PTYError.failedToUnlock
-        }
-
-        // 4. Get slave device name
-        guard let slaveNamePtr = ptsname(masterFd) else {
-            Darwin.close(masterFd)
-            masterFd = -1
-            throw PTYError.failedToGetSlaveName
-        }
-        slavePath = String(cString: slaveNamePtr)
-
-        // 5. Open slave
-        guard let path = slavePath else {
-            Darwin.close(masterFd)
-            masterFd = -1
-            throw PTYError.failedToGetSlaveName
-        }
-
-        slaveFd = Darwin.open(path, O_RDWR | O_NOCTTY)
-        guard slaveFd >= 0 else {
-            Darwin.close(masterFd)
-            masterFd = -1
-            slavePath = nil
-            throw PTYError.failedToOpenSlave
-        }
-
-        // 6. Configure terminal attributes
-        try setupTerminalAttributes()
-
-        // 7. Set initial window size
-        windowSize = size
-        try setWindowSize(size)
-
-        print("✅ PTY opened: master=\(masterFd), slave=\(slaveFd), path=\(path)")
-    }
-
-    /// Configures terminal attributes (termios) for the PTY
-    private func setupTerminalAttributes() throws {
-        var term = termios()
-
-        // Get current attributes
-        guard tcgetattr(slaveFd, &term) == 0 else {
-            throw PTYError.failedToSetTerminalAttributes
-        }
-
-        // Configure for raw mode with UTF-8 support
-        // Input flags
-        term.c_iflag = tcflag_t(ICRNL | IXON | IXANY | IMAXBEL | IUTF8)
-
-        // Output flags - enable post-processing
-        term.c_oflag = tcflag_t(OPOST | ONLCR)
-
-        // Control flags - 8-bit, enable receiver
-        term.c_cflag = tcflag_t(CS8 | CREAD | HUPCL)
-
-        // Local flags - canonical mode, echo, signals
-        term.c_lflag = tcflag_t(ICANON | ECHO | ECHOE | ECHOK | ECHOCTL | ECHOKE | ISIG | IEXTEN)
-
-        // Control characters
-        term.c_cc.0 = cc_t(VINTR);    term.c_cc.1 = 0x03    // Ctrl-C
-        term.c_cc.2 = cc_t(VQUIT);    term.c_cc.3 = 0x1C    // Ctrl-\
-        term.c_cc.4 = cc_t(VERASE);   term.c_cc.5 = 0x7F    // DEL
-        term.c_cc.6 = cc_t(VKILL);    term.c_cc.7 = 0x15    // Ctrl-U
-        term.c_cc.8 = cc_t(VEOF);     term.c_cc.9 = 0x04    // Ctrl-D
-
-        // Apply attributes
-        guard tcsetattr(slaveFd, TCSANOW, &term) == 0 else {
-            throw PTYError.failedToSetTerminalAttributes
         }
     }
 
@@ -219,43 +104,19 @@ public final class TerminalPTY {
         return write(data)
     }
 
-    /// Closes the PTY pair (only if we own the FDs)
+    /// Closes the PTY master descriptor, unless it belongs to an external owner
+    /// External descriptors are closed by whoever opened them (see CatalystLocalShellSession)
     nonisolated func close() {
-        print("🔒 close() called, ownsFds = \(ownsFds)")
-        guard ownsFds else {
-            print("🔒 PTY not owned, skipping close (external FD)")
-            return
-        }
+        guard ownsFds, masterFd >= 0 else { return }
 
-        print("🔒 Closing PTY (we own the FDs)")
-
-        if slaveFd >= 0 {
-            Darwin.close(slaveFd)
-            // Note: Can't set to -1 in nonisolated context, but that's okay
-            // since this is only called from deinit
-        }
-
-        if masterFd >= 0 {
-            Darwin.close(masterFd)
-        }
-
-        print("🔒 PTY closed")
+        Darwin.close(masterFd)
+        masterFd = -1
     }
 
-    /// Mark this PTY as using external file descriptors (e.g., from Ghostty)
-    /// When using external FDs, this PTY won't close them on deinit
+    /// Mark this PTY as using an external file descriptor (e.g., from Ghostty)
+    /// When using an external FD, this PTY won't close it
     public func useExternalFd(_ fd: Int32) {
-        print("📎 Setting external PTY master FD: \(fd), setting ownsFds = false")
         self.masterFd = fd
         self.ownsFds = false
-        // The helper opened the pair, but the master fd names its slave here too.
-        if let name = ptsname(fd) {
-            slavePath = String(cString: name)
-        }
-        print("📎 ownsFds is now: \(self.ownsFds)")
-    }
-
-    nonisolated deinit {
-        close()
     }
 }

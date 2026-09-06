@@ -5,31 +5,22 @@
 //  Single source of truth for resolving and dispatching a horizontal swipe
 //  on the terminal. The iOS direct-touch handlers in TerminalViewGestures.swift
 //  and the Mac Catalyst trackpad pan handler in TerminalViewScroll.swift both
-//  funnel through `performSwipeBinding(_:)`, so any user customization in
-//  SwipeGestureManager applies identically across platforms.
+//  funnel through `performSwipeBinding(_:)`, so the fixed bindings in
+//  SwipeGestureManager apply identically across platforms.
 //
 
 import Foundation
 import UIKit
 
 extension Ghostty.TerminalView {
-    /// Resolve the user's binding for the given direction and execute it.
+    /// Resolve the binding for the given direction and execute it.
     /// App-action presets post a notification (preserving the legacy tab-switch
-    /// behavior); sequence presets and custom sequences write to the terminal
+    /// behavior); multiplexer presets write their key sequence to the terminal
     /// via the shared `sendSequenceSteps` helper.
     func performSwipeBinding(_ direction: SwipeDirection) {
-        let binding = SwipeGestureManager.shared.binding(for: direction)
-        switch binding {
+        switch SwipeGestureManager.shared.binding(for: direction) {
         case .preset(let preset):
             performPreset(preset)
-        case .sequence(let steps):
-            guard !steps.isEmpty else { return }
-            triggerHapticFeedback()
-            sendSequenceSteps(steps)
-        case .customKeyRef(let id):
-            guard let key = KeyboardToolbarManager.shared.customKey(for: id) else { return }
-            triggerHapticFeedback()
-            sendSequenceSteps(key.sequence)
         }
     }
 

@@ -782,7 +782,6 @@ extension Ghostty.TerminalView: TerminalSurfaceHost {
     }
 
     func surfaceSetupThemeOverrideSubscription() {
-        setupThemeOverrideSubscription()
     }
 
     func surfaceApplyRestoredFontSizeOverrideIfNeeded() {

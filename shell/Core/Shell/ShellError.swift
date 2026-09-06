@@ -43,9 +43,6 @@ enum ShellError: Error {
 
     /// Feature not yet implemented — gives a clear error message.
     case unsupported(String)
-
-    /// I/O error (pipe creation failed, file not found, etc.)
-    case ioError(String)
 }
 
 extension ShellError: LocalizedError {
@@ -75,8 +72,6 @@ extension ShellError: LocalizedError {
             return "${\(content)}: bad substitution"
         case .unsupported(let feature):
             return "not supported: \(feature)"
-        case .ioError(let message):
-            return message
         }
     }
 }

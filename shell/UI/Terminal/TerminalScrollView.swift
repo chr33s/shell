@@ -178,7 +178,6 @@ extension Ghostty {
     private var catalystThemeCancellable: AnyCancellable?
 
     /// Cancellable for observing per-window/per-tab theme override changes.
-    private var catalystThemeOverrideCancellable: AnyCancellable?
     #endif
 
     // MARK: - Initialization
@@ -453,27 +452,13 @@ extension Ghostty {
                 self?.updateCatalystScrollIndicatorStyle()
             }
 
-        catalystThemeOverrideCancellable = ThemeOverrideManager.shared.overridesDidChange
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] change in
-                guard let self else { return }
-                switch change.scope {
-                case .tab:
-                    guard self.terminalView.containingTabID?.uuidString == change.id else { return }
-                case .window:
-                    guard self.terminalView.windowId == change.id else { return }
-                }
-                self.updateCatalystScrollIndicatorStyle()
-            }
     }
 
     private func updateCatalystScrollIndicatorStyle() {
-        let (themeName, _) = ThemeOverrideManager.shared.resolveTheme(
-            tabId: terminalView.containingTabID,
-            windowId: terminalView.windowId
-        )
-        let isLight = ThemeManager.shared.themeInfo(for: themeName)?.isLight
-            ?? ThemeManager.shared.currentThemeInfo?.isLight
+        // Per-tab/per-window theme overrides were removed (model-only: no
+        // setter, no editor), so the global theme is the only source now —
+        // which is what resolveTheme fell through to in every real case.
+        let isLight = ThemeManager.shared.currentThemeInfo?.isLight
             ?? (traitCollection.userInterfaceStyle != .dark)
         scrollView.indicatorStyle = isLight ? .black : .white
     }

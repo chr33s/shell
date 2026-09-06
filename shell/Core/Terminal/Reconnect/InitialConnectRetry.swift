@@ -3,11 +3,7 @@
 //  shell
 //
 //  Bounded exponential-backoff retry for the connection-establishment phase
-//  of SSH bootstraps. Used by interactive SSH sessions, trzsz spawn, and the
-//  VPN tunnel extension's initial connect.
-//
-//  Compiled into BOTH the main app and VPNTunnelExtension targets, so it
-//  imports only types that both targets see (Foundation, Citadel, NIO).
+//  of SSH bootstraps. Used by `CitadelSSHSession`'s initial connect.
 //
 //  Distinct from ReconnectionManager (which handles post-connect drops with
 //  a different schedule).
@@ -40,8 +36,7 @@ enum InitialConnectRetry {
 
         /// Aggressive ramp suitable for non-interactive bootstraps where the
         /// per-attempt timeout doesn't include any UI wait time (no host-key
-        /// approval prompt, no biometric unlock). Used by the VPN extension
-        /// (which validates host keys non-interactively against a pinned key).
+        /// approval prompt, no biometric unlock).
         ///
         /// 9 attempts spread across ~5 minutes. Per-attempt loginTimeout
         /// ramps 3s → 6s → 12s → 20s → 30s, then plateaus. Backoff between
@@ -65,7 +60,7 @@ enum InitialConnectRetry {
         ])
 
         /// Conservative ramp for app-side interactive connects. Used by
-        /// `CitadelSSHSession` and `TrzszSpawnHelper`.
+        /// `CitadelSSHSession`.
         ///
         /// These callers hand the per-attempt `timeout` ONLY to the TCP
         /// connect cap (`min(timeout, tcpConnectTimeoutCap)`) and use it for
@@ -92,12 +87,10 @@ enum InitialConnectRetry {
     ///
     /// - Parameters:
     ///   - config: Schedule of attempts (timeouts + backoffs).
-    ///   - label: Short identifier used in logs (e.g. "ssh:host" or
-    ///     "vpn-bootstrap:host"). Helps distinguish concurrent retries.
+    ///   - label: Short identifier used in logs (e.g. "ssh:host").
+    ///     Helps distinguish concurrent retries.
     ///   - isPermanent: Decides whether an error is retryable. Returning
     ///     true rethrows immediately without further attempts.
-    ///   - onAttempt: Optional hook invoked just before each attempt;
-    ///     useful for emitting "retrying…" UI updates.
     ///   - operation: The work to retry. Receives the 1-based attempt
     ///     number and the per-attempt timeout (in seconds) the caller
     ///     should plumb through to its connect API.
@@ -109,7 +102,6 @@ enum InitialConnectRetry {
         config: Config = .default,
         label: String,
         isPermanent: (Error) -> Bool,
-        onAttempt: ((_ attempt: Int, _ total: Int, _ timeout: TimeAmount, _ backoffBefore: TimeAmount) -> Void)? = nil,
         operation: (_ attempt: Int, _ timeout: TimeAmount) async throws -> T
     ) async throws -> T {
         precondition(!config.attempts.isEmpty, "InitialConnectRetry.Config must have at least one attempt")
@@ -125,7 +117,6 @@ enum InitialConnectRetry {
             }
 
             let attempt = index + 1
-            onAttempt?(attempt, total, policy.timeout, policy.backoffBefore)
 
             do {
                 return try await operation(attempt, policy.timeout)
@@ -153,9 +144,9 @@ enum InitialConnectRetry {
     // MARK: - Permanent-failure classifier (shared base)
 
     /// Decides whether an error is permanent (do not retry).
-    /// Uses only types both the main app and the VPN extension can see.
-    /// Layered classifiers in the main app target add app-only types
-    /// (SSHError, SSHJumpError, TrzszError) on top of this base.
+    /// Covers only Citadel/NIO error types; `isPermanentConnectErrorApp`
+    /// layers the app's own types (HostKeyRejectedError, SSHError,
+    /// SSHJumpError) on top of this base.
     nonisolated static func isPermanentConnectError(_ error: Error) -> Bool {
         if error is CancellationError { return true }
 
@@ -175,9 +166,7 @@ enum InitialConnectRetry {
 
         // Citadel-level host key rejection (InvalidHostKey is from Citadel).
         // The app's own HostKeyRejectedError is added in the app-only
-        // classifier extension. The VPN extension's pinned-key failures are
-        // VPNSSHError, an extension-only type this shared classifier can't
-        // name; its call sites wrap this function to treat them as permanent.
+        // classifier extension.
         if error is InvalidHostKey { return true }
 
         // Everything else (NIOConnectionError, ChannelError, CitadelError.loginTimeout,

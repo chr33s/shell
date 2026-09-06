@@ -1161,10 +1161,6 @@ class KeyboardToolbarView: UIView {
                 button.updateSizes(sizes)
                 continue
             }
-            if let cluster = view as? KeyboardArrowCluster {
-                cluster.updateSizes(sizes)
-                continue
-            }
             #if !os(visionOS)
             if let joystick = view as? KeyboardArrowJoystickButton {
                 joystick.updateSizes(sizes)

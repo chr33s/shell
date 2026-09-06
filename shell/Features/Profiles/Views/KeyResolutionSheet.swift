@@ -33,6 +33,15 @@ struct KeyResolutionSheet: View {
         unresolvedKeys.first { $0.isJumpHost }
     }
 
+    /// The profile's `modifiedAt` at the moment the override is saved, so
+    /// `DeviceKeyOverrideManager.isStale(_:currentSourceModifiedAt:)` can later
+    /// tell the user their pinned key predates an edit to the profile. A
+    /// QuickConnect identity has no source record, so it has no stamp.
+    private var sourceModifiedAt: Date? {
+        guard let profileID else { return nil }
+        return ConnectionProfileManager.shared.profile(for: profileID)?.modifiedAt
+    }
+
     var body: some View {
         NavigationStack {
             Form {
@@ -200,24 +209,30 @@ struct KeyResolutionSheet: View {
             resolved.jumpHost = jumpConfig
         }
 
-        // Save device override if requested
+        // Save device override if requested.
+        //
+        // A saved profile keys the override by UUID. Everything else —
+        // QuickConnect (`ssh me@host`), a deep link, a history entry — has no
+        // UUID, so it keys off the connection's own identity. Falling back to
+        // `config.connectionIdentity` here is what makes the toggle above mean
+        // anything outside the profile case: without it the sheet returned
+        // early and the user got re-prompted on every single connect.
+        // `ConnectionKeyResolver.resolve` derives the same string when it looks
+        // the override back up.
         if saveAsDeviceOverride {
             let target: OverrideTarget
             if let profileID {
                 target = .profile(profileID)
-            } else if let connectionIdentity {
-                target = .connectionIdentity(connectionIdentity)
             } else {
-                // No target to persist override for — just use the key this once
-                onResolved(resolved)
-                return
+                target = .connectionIdentity(connectionIdentity ?? config.connectionIdentity)
             }
 
             let override = DeviceKeyOverride(
                 target: target,
                 targetKeyID: targetKeySelection,
                 jumpHostKeyID: jumpHostKeySelection,
-                createdAt: Date()
+                createdAt: Date(),
+                sourceModifiedAt: sourceModifiedAt
             )
             DeviceKeyOverrideManager.shared.save(override)
         }

@@ -18,12 +18,12 @@ nonisolated enum SyncPolicy: String, Codable, Sendable {
 }
 
 /// Pin granularity. Roughly one group per settings screen or sub-section.
-nonisolated enum SettingGroup: String, Codable, CaseIterable, Sendable {
+nonisolated enum SettingGroup: String, Codable, Sendable {
     case theme, font, cursor, selection, transparency
     case tabs, window, power
     case terminal, scrollback, prompt, locale, sessionRestore
     case keyboard, keyboardToolbar, keybinds, gestures
-    case connections, tmux, hostTrust
+    case connections, tmux
     case system
 
     var title: String {
@@ -47,50 +47,7 @@ nonisolated enum SettingGroup: String, Codable, CaseIterable, Sendable {
         case .gestures: String(localized: "Gestures", comment: "Setting group title")
         case .connections: String(localized: "Connections", comment: "Setting group title")
         case .tmux: String(localized: "tmux", comment: "Setting group title")
-        case .hostTrust: String(localized: "Host Trust", comment: "Setting group title")
         case .system: String(localized: "System", comment: "Setting group title")
-        }
-    }
-
-    var systemImage: String {
-        switch self {
-        case .theme: "paintpalette"
-        case .font: "textformat"
-        case .cursor: "cursorarrow"
-        case .selection: "selection.pin.in.out"
-        case .transparency: "circle.lefthalf.filled"
-        case .tabs: "rectangle.topthird.inset.filled"
-        case .window: "macwindow"
-        case .power: "battery.75percent"
-        case .terminal: "terminal"
-        case .scrollback: "arrow.up.and.down.text.horizontal"
-        case .prompt: "chevron.right"
-        case .locale: "globe"
-        case .sessionRestore: "arrow.counterclockwise"
-        case .keyboard: "keyboard"
-        case .keyboardToolbar: "keyboard.badge.ellipsis"
-        case .keybinds: "command"
-        case .gestures: "hand.draw"
-        case .connections: "network"
-        case .tmux: "square.split.2x2"
-        case .hostTrust: "checkmark.shield"
-        case .system: "gearshape"
-        }
-    }
-
-    /// Top-level settings section this group is edited from.
-    var section: SettingsSection {
-        switch self {
-        case .theme, .font, .cursor, .selection, .transparency, .tabs, .window, .power,
-             .terminal, .scrollback, .prompt, .locale, .sessionRestore,
-             .keyboard, .keyboardToolbar, .keybinds, .gestures:
-            .terminal
-        case .connections, .hostTrust:
-            .ssh
-        case .tmux:
-            .tmux
-        case .system:
-            .sync
         }
     }
 }

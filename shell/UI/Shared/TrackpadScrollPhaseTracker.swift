@@ -38,8 +38,6 @@ final class TrackpadScrollPhaseTracker {
     /// True while trailing momentum events from a just-finished swipe should be dropped.
     var isInInertiaGuard: Bool { CACurrentMediaTime() < guardUntil }
 
-    var isArmed: Bool { endTimer != nil }
-
     /// (Re)arm the inactivity timer without a sample. Arm at begin so a recognizer
     /// that fails before delivering movement still gets its end.
     func arm() {

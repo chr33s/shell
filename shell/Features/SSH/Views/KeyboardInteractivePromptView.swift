@@ -10,11 +10,8 @@ struct KeyboardInteractivePromptView: View {
     let sessionLabel: String
     let onSubmit: ([String]) -> Void
     let onCancel: () -> Void
-    /// Factory for the session's live auth-banner state stream, shown
-    /// display-only above the prompts. The sheet covers the pane's
-    /// auth-banner card on iPhone, so OTP-style banner instructions (and
-    /// their URLs) must appear here too.
 
+    @Environment(\.openURL) private var openURL
     @Environment(\.sheetThemeColors) private var sheetThemeColors
     @State private var responses: [String]
     @FocusState private var focusedIndex: Int?
@@ -55,6 +52,28 @@ struct KeyboardInteractivePromptView: View {
                 } footer: {
                     if !challenge.instruction.isEmpty {
                         Text(challenge.instruction)
+                    }
+                }
+
+                // Auth banners the server sent for this connection, shown
+                // display-only above the prompts. The sheet covers the pane's
+                // auth-banner card on iPhone, so OTP-style banner instructions
+                // (and their enrolment URLs) must appear here too — otherwise
+                // the user is asked for a code while the only text explaining
+                // where to get it sits hidden behind this sheet.
+                if !challenge.authBanners.isEmpty {
+                    Section {
+                        SSHAuthBannerContentView(
+                            state: SSHAuthBannerCardState(
+                                hostLabel: sessionLabel,
+                                items: challenge.authBanners
+                            ),
+                            onOpenURL: { openURL($0) },
+                            onCopyURL: { UIPasteboard.general.string = $0.absoluteString }
+                        )
+                        .themedRow()
+                    } header: {
+                        Text("Server Message")
                     }
                 }
 

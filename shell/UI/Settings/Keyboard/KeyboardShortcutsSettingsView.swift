@@ -237,7 +237,17 @@ struct KeyboardShortcutsSettingsView: View {
     private func handleConfigFileSelection(_ result: Result<URL, Error>) {
         switch result {
         case .success(let url):
-            keybindManager.importExternalConfig(from: url)
+            // Import failures used to be logged inside KeybindManager and
+            // swallowed here, so an unreadable security-scoped URL, a non-UTF-8
+            // file, or a failed copy into ~/.ghostty dismissed the picker with
+            // no alert and no imported config -- indistinguishable from a broken
+            // button. Surface them through the "Config File Error" alert that is
+            // already bound to configFileErrorMessage.
+            do {
+                try keybindManager.importExternalConfig(from: url)
+            } catch {
+                configFileErrorMessage = error.localizedDescription
+            }
 
         case .failure(let error):
             configFileErrorMessage = error.localizedDescription

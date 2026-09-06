@@ -38,12 +38,34 @@ final class ScrollbackEncryptionManager {
             return cached
         }
 
-        // Try loading from Keychain
-        if let keyData = try? KeychainManager.shared.loadScrollbackEncryptionKey() {
+        // Load from Keychain. Only a genuinely absent item may fall through to
+        // key generation. This used to be `try?`, which collapsed
+        // `unexpectedStatus`/`dataConversionFailed` into the same "no key" answer
+        // as `itemNotFound` — and because `saveScrollbackEncryptionKey` upserts
+        // (SecItemAdd -> errSecDuplicateItem -> SecItemUpdate), minting a key
+        // after a read that failed for any *other* reason silently overwrote the
+        // still-present key. Every existing `<uuid>.ansi.enc` then failed
+        // AES.GCM.open and was deleted as "corrupted", unrecoverably. Read
+        // failures of that kind are live here: the item is
+        // AfterFirstUnlockThisDeviceOnly in a named access group, so
+        // errSecInteractionNotAllowed (before first unlock after reboot) and
+        // errSecMissingEntitlement (access-group / provisioning change) both
+        // reach this call. Fail closed instead — callers all skip saving or
+        // restoring on a throw, leaving key and ciphertext intact.
+        do {
+            let keyData = try KeychainManager.shared.loadScrollbackEncryptionKey()
             let key = SymmetricKey(data: keyData)
             cachedKey = key
             Self.logger.debug("Loaded scrollback encryption key from Keychain")
             return key
+        } catch KeychainManager.KeychainError.itemNotFound {
+            // Genuinely no key yet: first run, or a device restore (the item is
+            // ThisDeviceOnly, so it is never present in a backup). Fall through.
+            Self.logger.debug("No scrollback encryption key in Keychain; generating one")
+        } catch {
+            Self.logger.error(
+                "Scrollback encryption key read failed; refusing to rotate: \(error.localizedDescription)")
+            throw error
         }
 
         // Generate new key

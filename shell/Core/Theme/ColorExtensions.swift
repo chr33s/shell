@@ -61,17 +61,6 @@ extension Color {
         self.init(red: r, green: g, blue: b)
     }
 
-    /// Convert Color to hex string (e.g., "#1e1e2e")
-    var hexString: String {
-        let uiColor = UIColor(self)
-        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        uiColor.getRed(&r, green: &g, blue: &b, alpha: &a)
-        let toByte: (CGFloat) -> Int = { component in
-            Int((max(0, min(component, 1)) * 255).rounded())
-        }
-        return String(format: "#%02X%02X%02X", toByte(r), toByte(g), toByte(b))
-    }
-
     /// Blend this color with white by a given amount (0.0 = no change, 1.0 = pure white)
     func blendedWithWhite(_ amount: CGFloat) -> Color {
         // Convert to UIColor to access components

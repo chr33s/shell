@@ -9,7 +9,6 @@ struct PasswordPromptSheet: View {
     let onSubmit: (String, Bool) -> Void  // (password, shouldSave)
     let onCancel: () -> Void
 
-    @Environment(\.sheetThemeColors) private var sheetThemeColors
     @State private var password: String = ""
     @State private var savePassword: Bool = false
     @FocusState private var isPasswordFocused: Bool

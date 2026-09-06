@@ -1818,17 +1818,6 @@ extension Ghostty {
                 MainActor.assumeIsolated { self?.applyTouchMode() }
             }
             cancellables.insert(AnyCancellable { NotificationCenter.default.removeObserver(observer) })
-
-            // Re-apply when the user changes a swipe binding so that .preset(.none)
-            // disables the recognizer (and any non-disabled binding re-enables it).
-            let swipeObserver = NotificationCenter.default.addObserver(
-                forName: SwipeGestureManager.bindingsDidChangeNotification,
-                object: nil,
-                queue: .main
-            ) { [weak self] _ in
-                MainActor.assumeIsolated { self?.applyTouchMode() }
-            }
-            cancellables.insert(AnyCancellable { NotificationCenter.default.removeObserver(swipeObserver) })
         }
         #endif
 
@@ -2902,36 +2891,6 @@ extension Ghostty {
         #endif
 
         /// Set up subscription to theme override changes
-        func setupThemeOverrideSubscription() {
-            ThemeOverrideManager.shared.overridesDidChange
-                .receive(on: DispatchQueue.main)
-                .sink { [weak self] change in
-                    self?.handleThemeOverrideChange(change)
-                }
-                .store(in: &cancellables)
-        }
-
-        /// Handle theme override changes - refresh surface theme if this surface is affected
-        private func handleThemeOverrideChange(_ change: ThemeOverrideManager.ThemeOverrideChange) {
-            guard let surface = self.surface else { return }
-
-            // Check if this change affects us
-            let isAffected: Bool
-            switch change.scope {
-            case .tab:
-                // Tab change affects us if our tab ID matches
-                isAffected = containingTabID?.uuidString == change.id
-            case .window:
-                // Window change affects us if our window ID matches
-                isAffected = windowId == change.id
-            }
-
-            if isAffected {
-                Ghostty.logger.info("Theme override changed for this surface, refreshing theme")
-                ghosttyAppRef?.refreshSurfaceTheme(surface, tabId: containingTabID, windowId: windowId)
-            }
-        }
-
         override func retargetWindow(to newWindowId: String) {
             guard windowId != newWindowId else { return }
             windowId = newWindowId

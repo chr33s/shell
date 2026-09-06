@@ -19,14 +19,6 @@ enum ConnectionInfo: Identifiable, Sendable {
         }
     }
 
-    /// Display name for the connection type
-    var typeName: String {
-        switch self {
-        case .local: return "Local Shell"
-        case .ssh: return "SSH"
-        }
-    }
-
     /// The connection start time
     var connectedAt: Date {
         switch self {

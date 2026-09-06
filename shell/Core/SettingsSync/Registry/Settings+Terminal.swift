@@ -2,15 +2,13 @@
 //  Settings+Terminal.swift
 //  shell
 //
-//  Terminal behavior, scrollback, gestures, locale, and session restore keys.
+//  Terminal behavior, scrollback, gestures, and session restore keys.
 //
 
 import Foundation
 
 #if !targetEnvironment(macCatalyst)
 #endif
-extension LocaleHelper.LocaleMode: SettingValue {}
-extension UserPreferences.ClockFormat: SettingValue {}
 
 nonisolated extension Settings {
     enum Terminal {
@@ -30,18 +28,10 @@ nonisolated extension Settings {
         static let scrollbackLimit = SettingKey(
             "scrollbackLimit", default: 10_000, group: .scrollback, configKey: "scrollback-limit",
             title: String(localized: "Scrollback Lines", comment: "Setting title"))
-        static let paddingXOverride = SettingKey<Int?>(
-            "windowPaddingXOverride", default: nil, group: .terminal, policy: .localByDefault,
-            configKey: "window-padding-x",
-            title: String(localized: "Horizontal Padding", comment: "Setting title"))
-        static let paddingYOverride = SettingKey<Int?>(
-            "windowPaddingYOverride", default: nil, group: .terminal, policy: .localByDefault,
-            configKey: "window-padding-y",
-            title: String(localized: "Vertical Padding", comment: "Setting title"))
 
         static let all: [AnySettingDefinition] = [
             terminalTypeLocal.erased, terminalTypeRemote.erased, localShellCommand.erased,
-            scrollbackLimit.erased, paddingXOverride.erased, paddingYOverride.erased,
+            scrollbackLimit.erased,
         ]
     }
 
@@ -58,9 +48,6 @@ nonisolated extension Settings {
             "rubberBandScrollbackEnabled", default: true, group: .gestures, policy: .localByDefault,
             configKey: "rubber-band-scrollback-enabled",
             title: String(localized: "Rubber Band Scrolling", comment: "Setting title"))
-        static let swipeBindings = SettingKey<Data?>(
-            "swipeGestureBindings", default: nil, group: .gestures,
-            title: String(localized: "Swipe Gestures", comment: "Setting title"))
         static let twoFingerLongPressDuration = SettingKey(
             "twoFingerLongPressDuration", default: 0.5, group: .gestures,
             configKey: "two-finger-long-press-duration",
@@ -68,7 +55,7 @@ nonisolated extension Settings {
 
         static let all: [AnySettingDefinition] = [
             scrollMode.erased, lineScrollback.erased, rubberBandScrollback.erased,
-            twoFingerLongPressDuration.erased, swipeBindings.erased,
+            twoFingerLongPressDuration.erased,
         ]
     }
 
@@ -84,20 +71,6 @@ nonisolated extension Settings {
         static let all: [AnySettingDefinition] = [
             useTransientPrompt.erased, addNewline.erased,
         ]
-    }
-
-    enum Locale {
-        static let mode = SettingKey(
-            "localeMode", default: LocaleHelper.LocaleMode.auto, group: .locale, configKey: "locale-mode",
-            title: String(localized: "Locale", comment: "Setting title"))
-        static let custom = SettingKey(
-            "customLocale", default: "en_US.UTF-8", group: .locale, configKey: "custom-locale",
-            title: String(localized: "Custom Locale", comment: "Setting title"))
-        static let clockFormat = SettingKey(
-            "clockFormat", default: UserPreferences.ClockFormat.system, group: .locale, configKey: "clock-format",
-            title: String(localized: "Clock Format", comment: "Setting title"))
-
-        static let all: [AnySettingDefinition] = [mode.erased, custom.erased, clockFormat.erased]
     }
 
     enum SessionRestore {

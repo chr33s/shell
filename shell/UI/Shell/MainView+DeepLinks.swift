@@ -37,14 +37,41 @@ extension MainView {
         }
 
         var config = profile.sshConfig
-        config.port = components.port
+        // Only a port the URL actually named overrides the profile's. This used
+        // to assign the 22-defaulted `components.port`, so `ssh://host` against a
+        // profile pinned to :2222 dialled :22 and failed, while the same profile
+        // opened from the Connect sheet worked.
+        if let port = components.explicitPort {
+            config.port = port
+        }
         if let username = components.username {
             config.username = username
         }
 
         switch config.authMethod {
         case .key, .savedPassword, .keyboardInteractive:
-            createSSHTab(with: config, sourceProfileID: profile.id)
+            // Pre-flight identity resolution, exactly as `connectToProfile` does
+            // for the Connect sheet. Going straight to `createSSHTab` skipped it,
+            // so a profile synced from another device (whose identity has a
+            // different local UUID) or one carrying a per-profile device key
+            // override hit the exact-UUID lookup in `SSHKeyManager.loadPrivateKey`
+            // and the tab died with key-not-found and no substitute-key prompt.
+            //
+            // `recordUsage` is not idempotent, but this path is disjoint from the
+            // other two recording sites (`MainView.connectToProfile` and
+            // `SSHConnectionView.connect`), so it records a deep-link launch once.
+            ConnectionProfileManager.shared.recordUsage(id: profile.id)
+            switch ConnectionKeyResolver.resolve(config: config, profileID: profile.id) {
+            case .resolved(let resolvedConfig):
+                createSSHTab(with: resolvedConfig, sourceProfileID: profile.id)
+            case .unresolved(let partialConfig, let unresolvedKeys):
+                keyResolutionConfig = partialConfig
+                keyResolutionUnresolvedKeys = unresolvedKeys
+                keyResolutionProfileID = profile.id
+                keyResolutionConnectionIdentity = nil
+                keyResolutionSplitOption = .newTab
+                showKeyResolutionSheet = true
+            }
         case .password, .unknown:
             // A typed password is never persisted, and an auth method from a
             // newer build is not connectable — let the user pick one.

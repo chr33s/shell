@@ -3,8 +3,8 @@
 //  shell
 //
 //  Reusable sheet for picking a key combination (modifiers + key).
-//  Used by both CustomKeyEditorView (toolbar custom keys) and
-//  SwipeGesturesSettingsView (swipe binding sequences).
+//  Used by CustomKeyEditorView (toolbar custom keys). A second consumer,
+//  SwipeGesturesSettingsView, no longer exists in the tree.
 //
 
 import SwiftUI
@@ -13,7 +13,6 @@ struct KeyComboPickerSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.sheetThemeColors) private var sheetThemeColors
 
-    let initialCombo: SequenceStep.KeyCombo?
     let confirmLabel: String
     let onConfirm: (SequenceStep.KeyCombo) -> Void
 
@@ -26,7 +25,6 @@ struct KeyComboPickerSheet: View {
         confirmLabel: String = "Add",
         onConfirm: @escaping (SequenceStep.KeyCombo) -> Void
     ) {
-        self.initialCombo = initialCombo
         self.confirmLabel = confirmLabel
         self.onConfirm = onConfirm
         _selectedModifiers = State(initialValue: initialCombo?.modifiers ?? [])
@@ -37,7 +35,7 @@ struct KeyComboPickerSheet: View {
             switch key {
             case .letter: _activeTab = State(initialValue: .letters)
             case .digit: _activeTab = State(initialValue: .numbers)
-            case .symbol: _activeTab = State(initialValue: .numbers)
+            case .symbol: _activeTab = State(initialValue: .symbols)
             case .special: _activeTab = State(initialValue: .special)
             }
         } else {
@@ -48,12 +46,17 @@ struct KeyComboPickerSheet: View {
     enum KeyTab: String, CaseIterable {
         case letters = "Letters"
         case numbers = "Numbers"
+        // Without this tab `ComboKey.symbol` had no producer at all: the grid
+        // rendered "0123456789" only, so Ctrl+[ or Cmd+- could not be bound even
+        // though `KeyCombo.terminalData()` has always encoded symbols correctly.
+        case symbols = "Symbols"
         case special = "Special"
 
         var displayName: String {
             switch self {
             case .letters: return String(localized: "Letters", comment: "Key tab: letter keys")
             case .numbers: return String(localized: "Numbers", comment: "Key tab: number keys")
+            case .symbols: return String(localized: "Symbols", comment: "Key tab: symbol keys")
             case .special: return String(localized: "Special", comment: "Key tab: special keys")
             }
         }
@@ -127,6 +130,8 @@ struct KeyComboPickerSheet: View {
                             letterGrid
                         case .numbers:
                             numberGrid
+                        case .symbols:
+                            symbolGrid
                         case .special:
                             specialGrid
                         }
@@ -179,6 +184,25 @@ struct KeyComboPickerSheet: View {
                 keyButton(
                     label: String(char),
                     key: .digit(char)
+                )
+            }
+        }
+        .padding(.horizontal)
+    }
+
+    /// Punctuation reachable from a US keyboard, unshifted forms first then
+    /// shifted. Both forms are listed as separate keys because
+    /// `KeyCombo.terminalData()` sends the picked character verbatim and ignores
+    /// Shift for symbols — `-` and `_` are two keys here, not one key plus a
+    /// modifier. Every entry is ASCII, which is what `characterData` encodes.
+    private static let symbolCharacters: [Character] = Array("`-=[]\\;',./~_+{}|:\"<>?!@#$%^&*()")
+
+    private var symbolGrid: some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 10), spacing: 6) {
+            ForEach(Self.symbolCharacters, id: \.self) { char in
+                keyButton(
+                    label: String(char),
+                    key: .symbol(char)
                 )
             }
         }

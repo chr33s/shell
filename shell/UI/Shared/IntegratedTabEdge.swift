@@ -13,7 +13,6 @@
 
 import SwiftUI
 import UIKit
-import GhosttyKit
 
 // MARK: - Metrics
 
@@ -349,10 +348,16 @@ private struct IntegratedOSCProgressLayerView: UIViewRepresentable {
 /// A single stroked layer means `strokeStart` / `strokeEnd` naturally measure
 /// progress across the rule and the longer curved detour around the active tab.
 private final class IntegratedOSCProgressLayerUIView: UIView {
+    private static let bounceAnimationKey = "osc-progress-bounce"
+
     private let progressLayer = CAShapeLayer()
     private var selectedTabID: UUID?
     private var lastPath: CGPath?
-    private var isBouncing = false
+    /// Records only whether the current report *wants* the bounce. It never gates
+    /// re-adding the animation - `startAnimationIfNeeded()` asks the layer for
+    /// that - so it cannot desync from Core Animation the way the old
+    /// `isBouncing` latch did.
+    private var wantsBounce = false
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -365,10 +370,30 @@ private final class IntegratedOSCProgressLayerUIView: UIView {
         progressLayer.lineCap = .butt
         progressLayer.lineJoin = .round
         layer.addSublayer(progressLayer)
+
+        // UIKit strips CAAnimations off layers when the app is backgrounded and
+        // does not restore them on the way back in, and an unchanged report can
+        // skip the next `configure` pass entirely. Without this the bounce would
+        // stay gone for the rest of the report, frozen as a static stub.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleWillEnterForeground),
+            name: UIApplication.willEnterForegroundNotification,
+            object: nil
+        )
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc private func handleWillEnterForeground() {
+        guard wantsBounce else { return }
+        startAnimationIfNeeded()
     }
 
     override func layoutSubviews() {
@@ -435,8 +460,12 @@ private final class IntegratedOSCProgressLayerUIView: UIView {
     }
 
     private func startAnimationIfNeeded() {
-        guard !isBouncing else { return }
-        isBouncing = true
+        wantsBounce = true
+        // Ask the layer whether the animation is still attached instead of
+        // trusting a stored flag: Core Animation can drop it (backgrounding)
+        // with no callback here, and a bool latch then blocks the restart
+        // forever. Re-adding under the same key replaces any live copy.
+        guard progressLayer.animation(forKey: Self.bounceAnimationKey) == nil else { return }
 
         let starts = CAKeyframeAnimation(keyPath: "strokeStart")
         starts.values = [0, 0.75, 0]
@@ -458,11 +487,11 @@ private final class IntegratedOSCProgressLayerUIView: UIView {
         group.animations = [starts, ends]
         group.duration = 2.4
         group.repeatCount = .infinity
-        progressLayer.add(group, forKey: "osc-progress-bounce")
+        progressLayer.add(group, forKey: Self.bounceAnimationKey)
     }
 
     fileprivate func stopAnimation() {
-        progressLayer.removeAnimation(forKey: "osc-progress-bounce")
-        isBouncing = false
+        wantsBounce = false
+        progressLayer.removeAnimation(forKey: Self.bounceAnimationKey)
     }
 }

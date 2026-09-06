@@ -82,6 +82,10 @@ nonisolated extension Settings {
         static let externalConfigOriginalFilename = SettingKey<String?>(
             "externalGhosttyConfigPath_originalFilename", default: nil, group: .keybinds, policy: .deviceOnly,
             title: String(localized: "Imported Config Filename", comment: "Setting title"))
+        /// Security-scoped bookmark for the imported config file. Reached only by
+        /// string interpolation ("\(externalConfigPathKey)_bookmark") in
+        /// KeybindManager, so a symbol search will not find a reference — the
+        /// registration is what declares its .deviceOnly policy. Do not remove.
         static let externalConfigBookmark = SettingKey<Data?>(
             "externalGhosttyConfigPath_bookmark", default: nil, group: .keybinds, policy: .deviceOnly,
             title: String(localized: "Imported Config Bookmark", comment: "Setting title"))

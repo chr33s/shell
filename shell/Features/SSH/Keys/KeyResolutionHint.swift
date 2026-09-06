@@ -31,13 +31,6 @@ struct KeyResolutionHint: Codable, Hashable, Sendable {
         return hint
     }
 
-    /// Creates a hint dict for a single key UUID
-    @MainActor
-    static func hintsDict(forKeyID keyID: UUID) -> [String: KeyResolutionHint] {
-        guard let key = SSHKeyManager.shared.findKey(id: keyID) else { return [:] }
-        return [keyID.uuidString: from(key: key)]
-    }
-
     /// Creates a hint dict for multiple key UUIDs (target + jump host keys)
     @MainActor
     static func hintsDict(forKeyIDs keyIDs: [UUID]) -> [String: KeyResolutionHint] {

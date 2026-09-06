@@ -102,6 +102,7 @@ public class CatalystLocalShellSession: TerminalSession {
 
         let sessionID = self.sessionID
         let masterFD = self.masterFD
+        let writeQueue = self.writeQueue
         let outputDataCallback = self.onOutputData
         let outputCallback = self.onOutput
         let handleExit: @Sendable () -> Void = { [weak self] in
@@ -132,8 +133,18 @@ public class CatalystLocalShellSession: TerminalSession {
             }
         }
 
+        // The master fd is closed HERE, not in cleanup(): DispatchSource.cancel() only
+        // stops *future* event-handler invocations, so a readFromPTY() loop already
+        // running on readQueue keeps using masterFD after cancel() returns. Closing from
+        // cleanup() (on writeQueue) therefore raced that loop: best case EBADF plus a
+        // spurious didExit, worst case the fd number is recycled by the next tab's
+        // duplicateMaster() and the stale loop drains the new session's output.
+        // libdispatch invokes the cancel handler only once the event handler is
+        // guaranteed finished, so this is the only safe place to close. It still hops to
+        // writeQueue so the close stays serialized after any pending writes.
         source.setCancelHandler {
             Ghostty.logger.info("PTY read source canceled for session \(sessionID.uuidString)")
+            writeQueue.async { close(masterFD) }
         }
 
         source.resume()
@@ -286,18 +297,6 @@ public class CatalystLocalShellSession: TerminalSession {
         scheduleResize(rows: size.rows, cols: size.cols)
     }
 
-    /// Interrupts the running command (CTRL-C handler)
-    /// Uses in-band signaling (sends \x03 through PTY) like SSH and macOS Ghostty
-    public func interrupt() {
-        Ghostty.logger.info("Sending CTRL-C to shell")
-
-        // Send CTRL-C (\x03) directly to the PTY
-        // The shell receives it, sends SIGINT to the process, and output stops naturally
-        // The polling read pattern handles this gracefully with no special logic needed
-        let ctrlC = Data([0x03])
-        sendInput(ctrlC)
-    }
-
     /// Resizes the PTY (coalesced during live resizing)
     private func scheduleResize(rows: UInt16, cols: UInt16) {
         guard isRunning else { return }
@@ -372,12 +371,15 @@ public class CatalystLocalShellSession: TerminalSession {
         resizeTask = nil
         pendingGridSize = nil
 
-        // Cancel read source
-        readSource?.cancel()
-        readSource = nil
-
-        // Close master FD
-        if masterFD >= 0, !closeScheduled {
+        // Cancel the read source; its cancel handler owns closing the master fd (see
+        // startMonitoring). cleanup() is re-entrant (terminate() then handleExit()), so
+        // closeScheduled + nilling readSource keeps cancel/close single-shot.
+        if let source = readSource {
+            closeScheduled = true
+            readSource = nil
+            source.cancel()
+        } else if masterFD >= 0, !closeScheduled {
+            // startMonitoring() never ran, so no cancel handler exists to close the fd.
             closeScheduled = true
             let fd = masterFD
             writeQueue.async {

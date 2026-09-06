@@ -34,6 +34,8 @@ struct SSHConnectionView: View {
     /// opens on this config instead of the profile list.
     var initialConfig: SSHConfig?
 
+    var connectionError: String?
+
     /// Connect with an ad-hoc configuration (or `nil` for a local terminal).
     var onConnect: (SSHConfig?, SplitOption) -> Void
 
@@ -60,6 +62,7 @@ struct SSHConnectionView: View {
 
     init(
         initialConfig: SSHConfig? = nil,
+        connectionError: String? = nil,
         onConnect: @escaping (SSHConfig?, SplitOption) -> Void,
         onProfileConnect: ((SSHProfile, SplitOption) -> Void)? = nil,
         preventDismissal: Bool = false,
@@ -67,6 +70,7 @@ struct SSHConnectionView: View {
         initialTab: ConnectionSidebarTab? = nil
     ) {
         self.initialConfig = initialConfig
+        self.connectionError = connectionError
         self.onConnect = onConnect
         self.onProfileConnect = onProfileConnect
         self.preventDismissal = preventDismissal
@@ -156,6 +160,7 @@ struct SSHConnectionView: View {
                 ProfileEditorSheet(
                     profile: editorProfile,
                     initialConfig: editorConfig,
+                    connectionError: connectionError,
                     onConnect: { config in
                         showEditor = false
                         onConnect(config, splitOption)
@@ -198,10 +203,16 @@ struct SSHConnectionView: View {
     }
 
     private func connect(_ profile: SSHProfile) {
-        profileManager.recordUsage(id: profile.id)
+        // Record usage only on the branch this view actually dispatches itself.
+        // `onProfileConnect` handlers (MainView.connectToProfile) already call
+        // `recordUsage`, and it is not idempotent (`useCount += 1`), so calling
+        // it here too double-counted every profile launched from this list and
+        // skewed `ProfileSortOrder` / `getSuggestions` against profiles launched
+        // from other paths. Do not hoist this call back out of the `else`.
         if let onProfileConnect {
             onProfileConnect(profile, splitOption)
         } else {
+            profileManager.recordUsage(id: profile.id)
             onConnect(profile.sshConfig, splitOption)
         }
         close()

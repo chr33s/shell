@@ -54,7 +54,15 @@ nonisolated enum SSHBanner {
         var normalized = raw.replacingOccurrences(of: "\r\n", with: "\n")
         normalized = normalized.replacingOccurrences(of: "\r", with: "\n")
         let lines = normalized.components(separatedBy: "\n").map(sanitizeBannerLine)
-        return lines.joined(separator: "\r\n") + "\r\n"
+        // Close any SGR state the banner left open. The sanitizer deliberately
+        // re-emits safe SGR, which is *latched* terminal state (unlike every
+        // other sequence class it handles), so a server whose banner ends
+        // mid-attribute (e.g. `ESC[31m`, `ESC[7m`, `ESC[8m` with no reset)
+        // would otherwise recolor / reverse / conceal the rest of the session.
+        // Reset once at the end of the whole banner, NOT per line — a per-line
+        // reset would break an MOTD that opens a color on line 1 and closes it
+        // on line 3.
+        return lines.joined(separator: "\r\n") + "\u{1b}[0m\r\n"
     }
 
     /// Sanitizes a server auth banner for native (non-terminal) display, such

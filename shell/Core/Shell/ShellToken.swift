@@ -94,16 +94,4 @@ nonisolated enum RedirectOp: Equatable, Sendable {
     case heredocStripOp     // <<- (strip leading tabs)
 }
 
-/// The set of strings that are shell keywords.
-/// Used by the tokenizer to decide whether a word in command position is a keyword.
-let shellKeywords: Set<String> = [
-    "if", "then", "elif", "else", "fi",
-    "for", "in", "do", "done",
-    "while", "until",
-    "case", "esac",
-    "function",
-    "{", "}",
-    "!"
-]
-
 #endif

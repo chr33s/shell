@@ -50,10 +50,25 @@ final class DeviceKeyOverrideManager {
 
     // MARK: - CRUD
 
-    /// Save or update an override
+    /// Save or update an override.
+    ///
+    /// Updating MERGES into the existing record for the same target rather than replacing it:
+    /// callers (e.g. `KeyResolutionSheet`) only ever construct an override from the pickers that
+    /// were actually on screen, so a field that resolved fine — often because a *previously saved*
+    /// override already fixed it — arrives as nil. Replacing wholesale silently erased the earlier
+    /// "always use this key on this device" choice (and its `id`, invalidating `remove(id:)`).
+    /// nil therefore means "leave as-is"; use `remove(forTarget:)` to forget an override.
     func save(_ override: DeviceKeyOverride) {
         if let index = overrides.firstIndex(where: { $0.target == override.target }) {
-            overrides[index] = override
+            var merged = overrides[index]  // keeps the existing id and target
+            merged.targetKeyID = override.targetKeyID ?? merged.targetKeyID
+            merged.targetFallbackKeyIDs = override.targetFallbackKeyIDs ?? merged.targetFallbackKeyIDs
+            merged.jumpHostKeyID = override.jumpHostKeyID ?? merged.jumpHostKeyID
+            merged.jumpHostFallbackKeyIDs = override.jumpHostFallbackKeyIDs ?? merged.jumpHostFallbackKeyIDs
+            merged.sourceModifiedAt = override.sourceModifiedAt ?? merged.sourceModifiedAt
+            merged.note = override.note ?? merged.note
+            merged.createdAt = override.createdAt
+            overrides[index] = merged
         } else {
             overrides.append(override)
         }

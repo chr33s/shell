@@ -74,7 +74,7 @@ struct SSHKeyDetailView: View {
                 .themedSubSheet(sheetThemeColors)
         }
         .navigationDestination(isPresented: $showingCertImport) {
-            SSHUserCertificateImportView(targetKey: currentKey, embedInNavigationStack: false)
+            SSHUserCertificateImportView(targetKey: currentKey)
         }
         .alert("Remove Certificate", isPresented: $showingCertRemoveConfirmation) {
             Button("Cancel", role: .cancel) {}

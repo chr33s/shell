@@ -102,7 +102,12 @@ struct ConnectionHealth: Equatable, Sendable {
             return .poor
         }
 
-        return quality
+        // Debounce fix: this used to fall through to the raw `quality`, so a single
+        // >= 300ms sample still painted the indicator red — exactly the case the
+        // 2-of-3 rule exists to suppress. Demote an undebounced poor tier to .fair;
+        // .unknown/.excellent/.good/.fair pass through unchanged.
+        let tier = quality
+        return tier == .poor ? .fair : tier
     }
 
     /// Human-readable RTT description
@@ -124,14 +129,6 @@ struct ConnectionHealth: Equatable, Sendable {
             return String(localized: "Measuring...", comment: "Connection health: measuring RTT")
         }
         return "\(rttText) (\(qualityText))"
-    }
-
-    /// Whether the connection appears healthy (low loss, reasonable RTT)
-    var isHealthy: Bool {
-        guard let rtt = rttMilliseconds else {
-            return false
-        }
-        return rtt < 300 && packetLossPercent < 20
     }
 
     /// Create an initial/empty health state

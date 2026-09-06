@@ -17,24 +17,6 @@ enum SelectionAppearanceMode: String, CaseIterable, Codable {
     case themeDefault
     case invertFgBg
     case custom
-
-    var displayName: String {
-        switch self {
-        case .shell: return String(localized: "shell", comment: "Selection mode: shell preset")
-        case .themeDefault: return String(localized: "Theme Default", comment: "Selection mode: use theme colors")
-        case .invertFgBg: return String(localized: "Invert Colors", comment: "Selection mode: swap foreground/background")
-        case .custom: return String(localized: "Custom", comment: "Selection mode: user-chosen colors")
-        }
-    }
-
-    var description: String {
-        switch self {
-        case .shell: return String(localized: "Blackboard selection colors that pair well with most themes", comment: "Selection mode description")
-        case .themeDefault: return String(localized: "Uses the active theme's selection colors", comment: "Selection mode description")
-        case .invertFgBg: return String(localized: "Swaps foreground and background colors for selected text", comment: "Selection mode description")
-        case .custom: return String(localized: "Uses custom foreground and background colors for selected text", comment: "Selection mode description")
-        }
-    }
 }
 
 @MainActor
@@ -101,9 +83,6 @@ class SelectionManager {
         if keys.contains(Settings.Selection.backgroundHex.name) { customBackgroundHex = store.get(Settings.Selection.backgroundHex) }
     }
 
-    // MARK: - Config Generation
-
-    /// Generates the Ghostty config lines for the current selection mode
     // MARK: - Preset Colors
 
     static let selectionForegroundHex = "F8F8F8"

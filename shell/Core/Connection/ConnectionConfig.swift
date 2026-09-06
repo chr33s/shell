@@ -82,12 +82,6 @@ enum ConnectionConfig: Equatable {
 
     // MARK: - Shell-Launched Support
 
-    /// Whether this is a session launched from a local shell
-    var isShellLaunched: Bool {
-        if case .shellLaunchedSSH = self { return true }
-        return false
-    }
-
     /// Extract shell working directory for shell-launched connections
     var shellWorkingDirectory: String? {
         if case .shellLaunchedSSH(_, let cwd) = self { return cwd }

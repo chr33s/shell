@@ -200,6 +200,19 @@ extension LocalShellSession {
                 guard let self else { return (127, "") }
                 return self.captureCommandOutput(command)
             },
+            // Without `streamExternal` the interpreter throws
+            // `unsupported("pipelines with external commands")` for ANY
+            // foreground pipeline containing an external stage (`ls | grep x`),
+            // which unwinds `execute(ast)` and abandons every remaining line of
+            // the rc file. `allowAppCommandRouting: false` matches
+            // `executeRCExternalCommand`: the rc file must never reach an
+            // interactive app handler.
+            streamExternal: { [weak self] command, inputProvider, outputSink -> Int32 in
+                guard let self else { return 127 }
+                return self.streamExternalCommand(command, inputProvider: inputProvider,
+                                                  allowAppCommandRouting: false,
+                                                  outputSink: outputSink)
+            },
             canStreamExternalCommand: { [weak self] command -> Bool in
                 guard let self else { return false }
                 return self.canStreamExternalPipelineCommand(command)

@@ -12,8 +12,6 @@
 import Foundation
 import NIOCore
 import NIOSSH
-import Crypto      // Must import for Insecure namespace
-import Citadel     // Import AFTER Crypto so extensions take precedence
 
 // MARK: - Errors
 
@@ -68,13 +66,6 @@ struct ParsedUserCertificate {
 // MARK: - Parser
 
 enum SSHUserCertificateParser {
-    /// Custom key types serialize their plain public keys under an internal algorithm
-    /// name that differs from the OpenSSH blob type string. Cached `publicKeyBlob`s use
-    /// the OpenSSH name, so normalize before comparing.
-    private static let blobTypeAliases: [String: String] = [
-        "webauthn-sk-ecdsa-sha2-nistp256@openssh.com": "sk-ecdsa-sha2-nistp256@openssh.com",
-    ]
-
     /// Registers the custom key algorithms certificates may embed. Idempotent; needed
     /// because cert parsing can run before any SSH connection has registered them.
     static func ensureAlgorithmsRegistered() {
@@ -156,36 +147,17 @@ enum SSHUserCertificateParser {
         return try NIOSSHCertifiedPublicKey(certificateBlob: buffer)
     }
 
-    /// Serialize the certificate's embedded public key as a full wire blob and normalize
-    /// any internal algorithm-name alias so it compares equal to cached key blobs.
+    /// Serialize the certificate's embedded public key as a full OpenSSH wire blob
+    /// (type string + components) for comparison against cached key blobs.
     static func normalizedEmbeddedBlob(for key: NIOSSHPublicKey) -> Data {
         var buffer = ByteBufferAllocator().buffer(capacity: 1024)
         key.write(to: &buffer)
-        return normalizedRawBlob(buffer)
+        return Data(buffer.readableBytesView)
     }
 
-    /// Normalize a cached key blob the same way (no-op for canonical blobs).
+    /// Counterpart for a cached key blob, which is already in canonical wire form.
     static func normalizedCachedBlob(_ blob: Data) -> Data {
-        var buffer = ByteBufferAllocator().buffer(capacity: blob.count)
-        buffer.writeBytes(blob)
-        return normalizedRawBlob(buffer)
-    }
-
-    private static func normalizedRawBlob(_ buffer: ByteBuffer) -> Data {
-        var copy = buffer
-        guard
-            var typeBuffer = copy.readSSHStringAsCertParserString(),
-            let typeString = typeBuffer.readString(length: typeBuffer.readableBytes),
-            let alias = blobTypeAliases[typeString]
-        else {
-            return Data(buffer.readableBytesView)
-        }
-        // Rebuild with the canonical OpenSSH type string.
-        var rebuilt = ByteBufferAllocator().buffer(capacity: buffer.readableBytes)
-        rebuilt.writeInteger(UInt32(alias.utf8.count))
-        rebuilt.writeString(alias)
-        rebuilt.writeBytes(copy.readableBytesView)
-        return Data(rebuilt.readableBytesView)
+        blob
     }
 
     /// Human-readable description of the embedded key (type + fingerprint) for
@@ -195,19 +167,5 @@ enum SSHUserCertificateParser {
             SSHHostKeyFormatter.keyType(for: certifiedKey.key),
             SSHHostKeyFormatter.fingerprint(for: certifiedKey.key)
         )
-    }
-}
-
-// MARK: - ByteBuffer helper
-
-private extension ByteBuffer {
-    /// Read a length-prefixed SSH string (avoids depending on NIOSSH's internal helper).
-    mutating func readSSHStringAsCertParserString() -> ByteBuffer? {
-        guard let length = getInteger(at: readerIndex, as: UInt32.self),
-              readableBytes >= 4 + Int(length) else {
-            return nil
-        }
-        moveReaderIndex(forwardBy: 4)
-        return readSlice(length: Int(length))
     }
 }

@@ -124,6 +124,14 @@ final class CitadelSSHSession: SSHTerminalSession {
     /// main actor at the `.running` emit site.
     private let authBannerBuffer = AuthBannerBuffer()
 
+    /// Live mirror of `authBannerBuffer` for the per-pane auth-banner card.
+    /// The buffer's own drain reaches scrollback only at `.running`, which is
+    /// too late for a banner that tells the user how to authenticate (a
+    /// Tailscale re-auth URL, an MFA enrolment link). The observer installed in
+    /// `init` feeds this model as each banner arrives; `.reset` from the
+    /// buffer's drain/clear tears the card back down.
+    let authBannerCardModel = SSHAuthBannerCardModel()
+
     func consumeAuthBanners() -> [String] { authBannerBuffer.drain() }
 
     var onOutput: (@Sendable (String) -> Void)? {
@@ -232,19 +240,30 @@ final class CitadelSSHSession: SSHTerminalSession {
         // open on a failed connect would otherwise keep the card indefinitely.
         // Teardown still clears it sooner: stop() clears the buffer (firing
         // .reset), and a replacement session's observer replays nil.
+        // This is that countdown: the auth phase is over, so start retiring the
+        // card, and let a banner that lands after this point restart the clock
+        // (the model re-arms on every later broadcast while latched).
+        switch state {
+        case .failed, .disconnected:
+            authBannerCardModel.scheduleAutoDismiss()
+        default:
+            break
+        }
+
         onStateChange?(state)
     }
-
-    /// Stable per-pane token forwarded as `LC_ROOTSHELL_PANE`, so an
-    /// out-of-band probe on this same connection can tell WHICH remote process
-    /// belongs to this pane. Set before `start()`; nil forwards nothing.
-    /// (id=agent-project)
-    var paneToken: String?
 
     init(pty: TerminalPTY, config: SSHConfig) {
         self.pty = pty
         self.config = config
         wireEscapeFilter()
+        // Must be set before the connection starts (see `setObserver`): banners
+        // arrive during authentication, so an observer installed at `.running`
+        // would miss every one of them. The closure captures only the model's
+        // channel continuation, so this never retains the session.
+        authBannerBuffer.setObserver(
+            authBannerCardModel.makeBufferObserver(hostLabel: "\(config.username)@\(config.host)")
+        )
     }
 
     private func wireEscapeFilter() {
@@ -740,7 +759,7 @@ final class CitadelSSHSession: SSHTerminalSession {
             return
         }
 
-        // Apply OpenSSH-style escape-character filtering (~. ~? ~# ~I ~~).
+        // Apply OpenSSH-style escape-character filtering (~. ~? ~I ~~).
         // Unknown and unsupported escapes fall through as literal bytes.
         let filtered = escapeFilter.filter(data)
         guard !filtered.isEmpty else { return }
@@ -904,7 +923,7 @@ final class CitadelSSHSession: SSHTerminalSession {
                 // Identify the client to the remote host. LC_* is the only namespace
                 // stock ssh_config/sshd_config forward; servers without AcceptEnv LC_*
                 // drop these silently (wantReply: false, so nothing fails).
-                for envVar in TerminalIdentity.forwardedVariables(paneToken: self.paneToken) {
+                for envVar in TerminalIdentity.forwardedVariables {
                     envVars.append(SSHChannelRequestEvent.EnvironmentRequest(wantReply: false, name: envVar.name, value: envVar.value))
                 }
 
@@ -1093,7 +1112,7 @@ final class CitadelSSHSession: SSHTerminalSession {
         try await SSHConnectionHelper.buildAuthMethod(
             for: config,
             sessionName: config.displayName,
-            onKeyboardInteractiveChallenge: onKeyboardInteractiveChallenge
+            onKeyboardInteractiveChallenge: bannerAwareKeyboardInteractiveHandler
         )
     }
 
@@ -1101,8 +1120,30 @@ final class CitadelSSHSession: SSHTerminalSession {
         try await SSHConnectionHelper.buildAuthMethod(
             for: jumpConfig,
             sessionName: "[Jump Host] \(jumpConfig.displayName)",
-            onKeyboardInteractiveChallenge: onKeyboardInteractiveChallenge
+            onKeyboardInteractiveChallenge: bannerAwareKeyboardInteractiveHandler
         )
+    }
+
+    /// `onKeyboardInteractiveChallenge` with this connection's live auth
+    /// banners stamped into every challenge before it reaches the UI.
+    ///
+    /// The prompt sheet covers the pane on iPhone, and with it the pane's
+    /// auth-banner card — precisely when the banner carries the enrolment URL
+    /// or the "approve the push on your phone" instruction the challenge is
+    /// asking about. Snapshotting at raise time is enough: RFC 4252 §5.4
+    /// banners arrive before the auth method that prompts, and each further
+    /// keyboard-interactive round raises a fresh challenge and re-snapshots.
+    private var bannerAwareKeyboardInteractiveHandler: ((KeyboardInteractiveChallenge) async -> [String]?)? {
+        guard let handler = onKeyboardInteractiveChallenge else { return nil }
+        // Capture the model rather than `self`: this closure is retained by the
+        // auth delegate on the NIO event loop, and it has no business keeping a
+        // whole SSH session alive.
+        let model = authBannerCardModel
+        return { challenge in
+            var enriched = challenge
+            enriched.authBanners = await MainActor.run { model.current?.items ?? [] }
+            return await handler(enriched)
+        }
     }
 
     private func buildHostKeyValidator(for host: String, port: Int, label: String?) -> SSHHostKeyValidator {
@@ -1852,4 +1893,14 @@ final class CitadelHostKeyValidatorDelegate: NIOSSHClientServerAuthenticationDel
 
 // MARK: - Auth banner card
 
+/// The pane's live auth-banner card reads through this conformance.
+///
+/// `CitadelSSHSession` is the only session `SSHSessionFactory` builds, so
+/// without it every `as? SSHAuthBannerCardProviding` cast in the tree failed:
+/// `LocalShellSession.updateAuthBannerCardForwarding` cleared its model instead
+/// of relaying, and `TerminalScrollView` never hosted the card. All four
+/// requirements are met by the protocol's own defaults over
+/// `authBannerCardModel`, which the session stores and feeds from
+/// `authBannerBuffer`.
+extension CitadelSSHSession: SSHAuthBannerCardProviding {}
 

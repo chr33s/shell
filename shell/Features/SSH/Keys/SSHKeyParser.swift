@@ -75,14 +75,6 @@ nonisolated final class SSHKeyParser {
         let fingerprint: String
         let isEncrypted: Bool
         let rsaCRTParams: RSACRTParameters?  // CRT parameters for YubiKey import (RSA only)
-        /// The CryptoKit P-256 key when this is an ecdsaP256 software key.
-        /// OpenPubkey needs it to produce ES256 JWS signatures, which
-        /// NIOSSHPrivateKey doesn't expose.
-        let underlyingP256Key: P256.Signing.PrivateKey?
-        /// The Curve25519 key when this is an ed25519 software key. OpenPubkey
-        /// needs it to produce EdDSA JWS signatures, which NIOSSHPrivateKey
-        /// doesn't expose.
-        let underlyingEd25519Key: Curve25519.Signing.PrivateKey?
 
         init(
             nioSSHKey: NIOSSHPrivateKey?,
@@ -90,9 +82,7 @@ nonisolated final class SSHKeyParser {
             keyType: SSHKey.KeyType,
             fingerprint: String,
             isEncrypted: Bool,
-            rsaCRTParams: RSACRTParameters?,
-            underlyingP256Key: P256.Signing.PrivateKey? = nil,
-            underlyingEd25519Key: Curve25519.Signing.PrivateKey? = nil
+            rsaCRTParams: RSACRTParameters?
         ) {
             self.nioSSHKey = nioSSHKey
             self.rsaKey = rsaKey
@@ -100,8 +90,6 @@ nonisolated final class SSHKeyParser {
             self.fingerprint = fingerprint
             self.isEncrypted = isEncrypted
             self.rsaCRTParams = rsaCRTParams
-            self.underlyingP256Key = underlyingP256Key
-            self.underlyingEd25519Key = underlyingEd25519Key
         }
     }
 
@@ -287,8 +275,15 @@ nonisolated final class SSHKeyParser {
         // Create RSA private key
         let rsaPrivateKey = try RSAPrivateKey(n: n, e: e, d: d)
 
-        // Generate fingerprint from public key (e + n)
-        let fingerprint = generateFingerprint(publicKeyData: rsaPrivateKey.publicKeyData())
+        // Generate fingerprint from the public key (e ‖ n).
+        // Was: hashed `rsaPrivateKey.publicKeyData()`, which is the full SSH wire
+        // blob — an "ssh-rsa" type string plus three 4-byte length prefixes.
+        // `parseOpenSSHRSA` hashes the bare mpint payloads of e ‖ n, so one keypair
+        // imported as PKCS#1 and as OpenSSH hashed to two unrelated fingerprints,
+        // defeating import dedup and fingerprint-based key resolution. Keep this in
+        // step with `parseOpenSSHRSA` and the round-trip contract documented at the
+        // top of SSHKeyGenerator.swift.
+        let fingerprint = generateFingerprint(publicKeyData: mpIntPayload(e) + mpIntPayload(n))
 
         // Normalize CRT parameters: pass file's dP/dQ so they're used if no prime swap is needed
         // PKCS#1 files contain correct dP/dQ values that should be trusted when p > q
@@ -428,8 +423,7 @@ nonisolated final class SSHKeyParser {
             keyType: .ed25519,
             fingerprint: fingerprint,
             isEncrypted: false,
-            rsaCRTParams: nil,
-            underlyingEd25519Key: privateKey
+            rsaCRTParams: nil
         )
     }
 
@@ -446,8 +440,7 @@ nonisolated final class SSHKeyParser {
             keyType: .ecdsaP256,
             fingerprint: fingerprint,
             isEncrypted: false,
-            rsaCRTParams: nil,
-            underlyingP256Key: privateKey
+            rsaCRTParams: nil
         )
     }
 
@@ -570,93 +563,10 @@ nonisolated final class SSHKeyParser {
         } else if keyType == "ssh-ed25519" {
             return try parseOpenSSHEd25519Buffer(buffer: &buffer, wasEncrypted: wasEncrypted)
         } else if keyType.hasPrefix("ecdsa-sha2-") {
-            return try parseOpenSSHECDSABuffer(buffer: &buffer, keyType: keyType, wasEncrypted: wasEncrypted)
+            return try parseOpenSSHECDSABuffer(buffer: &buffer, wasEncrypted: wasEncrypted)
         } else {
             throw ParserError.unsupportedKeyType(keyType)
         }
-    }
-
-    private static func parseOpenSSHEd25519(data: Data, offset: Int) throws -> ParsedKey {
-        var currentOffset = offset
-
-        // Read public key
-        let (publicKeyData, pubOffset) = try readSSHData(from: data, offset: currentOffset)
-        currentOffset = pubOffset
-
-        // Read private key (64 bytes: 32 byte seed + 32 byte public key)
-        let (privateKeyData, _) = try readSSHData(from: data, offset: currentOffset)
-
-        guard privateKeyData.count >= 32 else {
-            throw ParserError.parseError("Invalid Ed25519 private key length")
-        }
-
-        let seed = privateKeyData.prefix(32)
-        let privateKey = try Curve25519.Signing.PrivateKey(rawRepresentation: seed)
-        let nioKey = NIOSSHPrivateKey(ed25519Key: privateKey)
-        let fingerprint = generateFingerprint(publicKeyData: publicKeyData)
-
-        return ParsedKey(
-            nioSSHKey: nioKey,
-            rsaKey: nil,
-            keyType: .ed25519,
-            fingerprint: fingerprint,
-            isEncrypted: false,
-            rsaCRTParams: nil,
-            underlyingEd25519Key: privateKey
-        )
-    }
-
-    private static func parseOpenSSHECDSA(data: Data, offset: Int, keyType: String) throws -> ParsedKey {
-        var currentOffset = offset
-
-        // Read curve name
-        let (curveName, curveOffset) = try readSSHString(from: data, offset: currentOffset)
-        currentOffset = curveOffset
-
-        // Read public key point
-        let (publicPoint, pubOffset) = try readSSHData(from: data, offset: currentOffset)
-        currentOffset = pubOffset
-
-        // Read private key scalar
-        let (privateScalarData, _) = try readSSHData(from: data, offset: currentOffset)
-
-        // Determine key type from curve name
-        let sshKeyType: SSHKey.KeyType
-        let nioKey: NIOSSHPrivateKey
-        var p256Key: P256.Signing.PrivateKey?
-
-        switch curveName {
-        case "nistp256":
-            sshKeyType = .ecdsaP256
-            let scalar = Self.normalizeECDSAScalar(privateScalarData, expectedLength: 32)
-            let privateKey = try P256.Signing.PrivateKey(rawRepresentation: scalar)
-            nioKey = NIOSSHPrivateKey(p256Key: privateKey)
-            p256Key = privateKey
-        case "nistp384":
-            sshKeyType = .ecdsaP384
-            let scalar = Self.normalizeECDSAScalar(privateScalarData, expectedLength: 48)
-            let privateKey = try P384.Signing.PrivateKey(rawRepresentation: scalar)
-            nioKey = NIOSSHPrivateKey(p384Key: privateKey)
-        case "nistp521":
-            sshKeyType = .ecdsaP521
-            let scalar = Self.normalizeECDSAScalar(privateScalarData, expectedLength: 66)
-            let privateKey = try P521.Signing.PrivateKey(rawRepresentation: scalar)
-            nioKey = NIOSSHPrivateKey(p521Key: privateKey)
-        default:
-            throw ParserError.unsupportedKeyType(curveName)
-        }
-
-        let fingerprint = generateFingerprint(publicKeyData: publicPoint)
-
-        return ParsedKey(
-            nioSSHKey: nioKey,
-            rsaKey: nil,
-            keyType: sshKeyType,
-            fingerprint: fingerprint,
-            isEncrypted: false,
-            rsaCRTParams: nil,
-            underlyingP256Key: p256Key
-        )
     }
 
     /// OpenSSH writes the ECDSA private scalar as an SSH mpint, which adds
@@ -665,7 +575,7 @@ nonisolated final class SSHKeyParser {
     /// `rawRepresentation` accepts only the canonical fixed-length scalar
     /// (32 bytes for P-256, 48 for P-384, 66 for P-521), so we strip the
     /// sign byte and left-pad short values back to the curve's scalar size.
-    fileprivate static func normalizeECDSAScalar(_ data: Data, expectedLength: Int) -> Data {
+    private static func normalizeECDSAScalar(_ data: Data, expectedLength: Int) -> Data {
         var bytes = Array(data)
         while bytes.count > expectedLength && bytes.first == 0 {
             bytes.removeFirst()
@@ -889,12 +799,11 @@ nonisolated final class SSHKeyParser {
             keyType: .ed25519,
             fingerprint: fingerprint,
             isEncrypted: wasEncrypted,
-            rsaCRTParams: nil,
-            underlyingEd25519Key: privateKey
+            rsaCRTParams: nil
         )
     }
 
-    private static func parseOpenSSHECDSABuffer(buffer: inout ByteBuffer, keyType: String, wasEncrypted: Bool) throws -> ParsedKey {
+    private static func parseOpenSSHECDSABuffer(buffer: inout ByteBuffer, wasEncrypted: Bool) throws -> ParsedKey {
         // Read curve name
         guard let curveName = buffer.readSSHString() else {
             throw ParserError.parseError("Missing ECDSA curve name")
@@ -915,7 +824,6 @@ nonisolated final class SSHKeyParser {
         // Determine key type from curve name
         let sshKeyType: SSHKey.KeyType
         let nioKey: NIOSSHPrivateKey
-        var p256Key: P256.Signing.PrivateKey?
 
         switch curveName {
         case "nistp256":
@@ -923,7 +831,6 @@ nonisolated final class SSHKeyParser {
             let scalar = Self.normalizeECDSAScalar(privateScalarData, expectedLength: 32)
             let privateKey = try P256.Signing.PrivateKey(rawRepresentation: scalar)
             nioKey = NIOSSHPrivateKey(p256Key: privateKey)
-            p256Key = privateKey
         case "nistp384":
             sshKeyType = .ecdsaP384
             let scalar = Self.normalizeECDSAScalar(privateScalarData, expectedLength: 48)
@@ -946,48 +853,31 @@ nonisolated final class SSHKeyParser {
             keyType: sshKeyType,
             fingerprint: fingerprint,
             isEncrypted: wasEncrypted,
-            rsaCRTParams: nil,
-            underlyingP256Key: p256Key
+            rsaCRTParams: nil
         )
     }
 
     // MARK: - Helper Functions
 
-    /// Reads an SSH string (4-byte length + data) from binary data
-    private static func readSSHString(from data: Data, offset: Int) throws -> (String, Int) {
-        let (stringData, newOffset) = try readSSHData(from: data, offset: offset)
-        let string = String(data: stringData, encoding: .utf8) ?? ""
-        return (string, newOffset)
-    }
-
-    /// Reads SSH data (4-byte length + bytes) from binary data
-    private static func readSSHData(from data: Data, offset: Int) throws -> (Data, Int) {
-        guard data.count >= offset + 4 else {
-            throw ParserError.parseError("Truncated SSH data")
-        }
-
-        // Read length safely without alignment issues
-        // Use relative indexing from data's startIndex
-        let lengthStart = data.startIndex.advanced(by: offset)
-        let lengthEnd = lengthStart.advanced(by: 4)
-        let length = data[lengthStart..<lengthEnd].withUnsafeBytes { buffer in
-            buffer.loadUnaligned(fromByteOffset: 0, as: UInt32.self).bigEndian
-        }
-        let newOffset = offset + 4
-
-        guard data.count >= newOffset + Int(length) else {
-            throw ParserError.parseError("Truncated SSH data content")
-        }
-
-        let dataStart = data.startIndex.advanced(by: newOffset)
-        let dataEnd = dataStart.advanced(by: Int(length))
-        let dataContent = data[dataStart..<dataEnd]
-        return (dataContent, newOffset + Int(length))
-    }
-
     /// Generates SHA256 fingerprint from public key data
     private static func generateFingerprint(publicKeyData: Data) -> String {
         let hash = SHA256.hash(data: publicKeyData)
         return hash.compactMap { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Canonical SSH mpint *payload* (no 4-byte length prefix): minimal
+    /// big-endian magnitude, with a single leading 0x00 when the top bit is set.
+    /// DER INTEGERs arrive here already stripped of that sign byte
+    /// (`parseASN1Integer`), while OpenSSH wire bytes carry it — this puts both
+    /// on the byte-identical form the RSA fingerprint is defined over.
+    private static func mpIntPayload(_ data: Data) -> Data {
+        var bytes = Array(data)
+        while bytes.count > 1 && bytes[0] == 0 && (bytes[1] & 0x80) == 0 {
+            bytes.removeFirst()
+        }
+        if let first = bytes.first, (first & 0x80) != 0 {
+            bytes.insert(0, at: 0)
+        }
+        return Data(bytes)
     }
 }

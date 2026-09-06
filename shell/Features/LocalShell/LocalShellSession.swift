@@ -698,6 +698,10 @@ final class LocalShellSession: TerminalSession, EmbeddedConnectionConfigProvidin
                     self.lineEditor.clear()
                     self.historyManager.stopNavigation()
                     self.generalCompletionState = .idle
+                    // Ctrl-C throws the line away, so the cached `ssh <Tab>` host
+                    // suggestions built from it are stale too (see
+                    // invalidateHostCompletionCache).
+                    self.invalidateHostCompletionCache()
                     self.multiLineInputBuffer = nil
                     self.displayPrompt()
                 }

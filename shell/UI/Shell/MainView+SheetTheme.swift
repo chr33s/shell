@@ -50,8 +50,7 @@ extension MainView {
               let derived = ThemeUIColorDerivation.derive(from: themeColors) else {
             return nil
         }
-        let overrides = effectiveThemeName.map { themeUIOverridesManager.overrides(for: $0) } ?? .empty
-        return overrides.sheetAccent.flatMap { Color(hex: $0) } ?? derived.sheetAccent
+        return derived.sheetAccent
     }
 
     var sheetColorSchemeForSheets: ColorScheme? {
@@ -64,7 +63,7 @@ extension MainView {
     /// `applySheetModifiers` previously read sheet theme + accent + color
     /// scheme independently for every `.themedSheet(...)` and modifier —
     /// 8+ attachments × 3 properties = 30+ `effectiveThemeColors` calls per
-    /// body, each walking the themeOverride + themeManager chain. Single
+    /// body, each re-resolving the theme through `themeManager`. Single
     /// resolution, threaded through the modifier chain via
     /// `ResolvedSheetTheme`.
     func resolvedSheetTheme() -> ResolvedSheetTheme {
@@ -73,14 +72,14 @@ extension MainView {
               let derived = ThemeUIColorDerivation.derive(from: themeColors) else {
             return .none
         }
-        let overrides = effectiveThemeName.map { themeUIOverridesManager.overrides(for: $0) } ?? .empty
-        let bg = overrides.sheetBackground.flatMap { Color(hex: $0) } ?? derived.sheetBackground
-        let rowBase = overrides.sheetRowBackground.flatMap { Color(hex: $0) } ?? derived.sheetRowBackground
-        let row = rowBase.opacity(0.92)
-        let accent = overrides.sheetAccent.flatMap { Color(hex: $0) } ?? derived.sheetAccent
+        let row = derived.sheetRowBackground.opacity(0.92)
         return ResolvedSheetTheme(
-            themeColors: SheetThemeColors(background: bg, rowBackground: row, accentColor: accent),
-            accentColor: accent,
+            themeColors: SheetThemeColors(
+                background: derived.sheetBackground,
+                rowBackground: row,
+                accentColor: derived.sheetAccent
+            ),
+            accentColor: derived.sheetAccent,
             colorScheme: derived.isLight ? .light : .dark
         )
     }

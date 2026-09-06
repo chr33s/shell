@@ -2,12 +2,12 @@
 //  TmuxController+Windows.swift
 //  shell
 //
-//  Window administration for tmux control mode: create / rename / kill
-//  windows, and move / link / unlink windows between sessions. All ops ride
-//  the generic reply layer (sendCommandWithReply); topology changes are never
-//  applied locally — the attached session's tabs follow the resulting
-//  %window-add / %window-close reconcile, and other sessions' lists refresh
-//  via noteSessionsChanged().
+//  Window administration for tmux control mode: create / rename windows,
+//  and move windows between sessions. All ops ride the generic reply layer
+//  (sendCommandWithReply); topology changes are never applied locally —
+//  the attached session's tabs follow the resulting %window-add /
+//  %window-close reconcile, and other sessions' lists refresh via
+//  noteSessionsChanged().
 //
 //  Window ids ("@N") are server-global, so source targets never need a
 //  session prefix. Session-scoped targets use the "$N" id form throughout,
@@ -45,40 +45,15 @@ extension TmuxController {
         noteSessionsChanged()
     }
 
-    /// Kill a window in any session. Killing the attached session's LAST
-    /// window ends the session — the caller is responsible for confirming
-    /// and for tolerating `.gatewayEnded` (the detach can outrun the reply),
-    /// mirroring killSession.
-    func killWindow(id windowId: Int) async throws {
-        _ = try await sendCommandWithReply("kill-window -t @\(windowId)")
-        noteSessionsChanged()
-    }
-
     /// Move a window to another session, at the destination's first free
     /// index (a session-only "$N:" target picks the next unused index, which
     /// is append semantics without {end} arithmetic). Moving the attached
-    /// session's last window ends the session, same caveat as killWindow.
+    /// session's last window ends the session, so the caller must tolerate
+    /// `.gatewayEnded` — the detach can outrun the reply — mirroring
+    /// killSession.
     func moveWindow(id windowId: Int, toSession sessionId: Int) async throws {
         _ = try await sendCommandWithReply(
             "move-window -s @\(windowId) -t \"$\(sessionId):\"")
-        noteSessionsChanged()
-    }
-
-    /// Link a window into another session (the window then exists in both;
-    /// #{window_linked} flips on). A duplicate link surfaces as
-    /// `.serverError` ("window already linked...").
-    func linkWindow(id windowId: Int, toSession sessionId: Int) async throws {
-        _ = try await sendCommandWithReply(
-            "link-window -s @\(windowId) -t \"$\(sessionId):\"")
-        noteSessionsChanged()
-    }
-
-    /// Unlink a window from the session it's reached through. Only offered
-    /// when the window is linked into 2+ sessions (isLinked), so it can never
-    /// fail with "only linked to one session"; destruction is killWindow's
-    /// job (no -k here).
-    func unlinkWindow(id windowId: Int) async throws {
-        _ = try await sendCommandWithReply("unlink-window -t @\(windowId)")
         noteSessionsChanged()
     }
 }

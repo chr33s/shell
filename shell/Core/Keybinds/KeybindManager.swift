@@ -390,20 +390,50 @@ final class KeybindManager: ObservableObject {
 
     /// Import an external ghostty config file by copying it to the app's Documents directory.
     /// After import, the app always edits and reloads the canonical ~/.ghostty copy.
-    func importExternalConfig(from pickerURL: URL) {
+    /// Why this throws: every failure here used to be logged and swallowed, so
+    /// picking an unreadable, non-UTF-8 or uncopyable file dismissed the picker
+    /// with no alert and no imported config — indistinguishable from a dead
+    /// button. The Settings screen surfaces these through its "Config File
+    /// Error" alert, so they must actually propagate.
+    func importExternalConfig(from pickerURL: URL) throws {
         Self.logger.info("Importing external config from: \(pickerURL.path)")
 
         guard pickerURL.startAccessingSecurityScopedResource() else {
             Self.logger.error("Cannot access selected file")
-            return
+            throw ImportError.cannotAccessFile
         }
         defer { pickerURL.stopAccessingSecurityScopedResource() }
 
+        let content: String
         do {
-            let content = try String(contentsOf: pickerURL, encoding: .utf8)
-            importExternalConfig(content: content, originalFilename: pickerURL.lastPathComponent)
+            content = try String(contentsOf: pickerURL, encoding: .utf8)
         } catch {
-            Self.logger.error("Failed to import external config: \(error.localizedDescription)")
+            Self.logger.error("Failed to read external config: \(error.localizedDescription)")
+            throw ImportError.unreadableFile(underlying: error)
+        }
+        try importExternalConfig(content: content, originalFilename: pickerURL.lastPathComponent)
+    }
+
+    enum ImportError: LocalizedError {
+        case cannotAccessFile
+        case unreadableFile(underlying: Error)
+        case cannotSave(underlying: Error)
+
+        var errorDescription: String? {
+            switch self {
+            case .cannotAccessFile:
+                return String(
+                    localized: "Could not access the selected file. Try choosing it again.",
+                    comment: "Keybind config import error")
+            case .unreadableFile(let underlying):
+                return String(
+                    localized: "Could not read the config file. It must be UTF-8 text. (\(underlying.localizedDescription))",
+                    comment: "Keybind config import error")
+            case .cannotSave(let underlying):
+                return String(
+                    localized: "Could not save the imported config. (\(underlying.localizedDescription))",
+                    comment: "Keybind config import error")
+            }
         }
     }
 
@@ -411,18 +441,19 @@ final class KeybindManager: ObservableObject {
     /// Used by the migration importer, which resolves `config-file = …` includes
     /// itself and hands the flattened keybind text in here so include-sourced
     /// keybinds don't get silently dropped.
-    func importExternalConfig(content: String, originalFilename: String) {
+    func importExternalConfig(content: String, originalFilename: String) throws {
         do {
             try saveExternalConfigContents(content)
-
-            externalConfigOriginalFileName = originalFilename
-            UserDefaults.standard.set(originalFilename, forKey: externalConfigFileNameKey)
-
-            // Set path to the canonical copy — triggers didSet which calls save + load.
-            externalConfigPath = importedKeybindsURL
         } catch {
             Self.logger.error("Failed to save imported config contents: \(error.localizedDescription)")
+            throw ImportError.cannotSave(underlying: error)
         }
+
+        externalConfigOriginalFileName = originalFilename
+        UserDefaults.standard.set(originalFilename, forKey: externalConfigFileNameKey)
+
+        // Set path to the canonical copy — triggers didSet which calls save + load.
+        externalConfigPath = importedKeybindsURL
     }
 
     /// Load keybinds from external ghostty config file

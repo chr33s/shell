@@ -430,12 +430,6 @@ extension LocalShellSession {
                            let banner = SSHBanner.postConnectionWarning(for: sshTerminalSession) {
                             self.onOutput?(banner)
                         }
-                    case .waitingToReconnect(let attempt, let delay):
-                        self.inlineSpinnerAnimator?.updateMessage("Reconnecting in \(delay)s (attempt \(attempt))...", style: .reconnecting)
-                    case .reconnecting(let attempt):
-                        self.inlineSpinnerAnimator?.updateMessage("Reconnecting (attempt \(attempt))...", style: .reconnecting)
-                    case .reconnectionFailed(let reason):
-                        self.inlineSpinnerAnimator?.updateMessage("Reconnection failed: \(reason)", style: .error)
                     case .disconnected, .failed, .initial:
                         break
                     }

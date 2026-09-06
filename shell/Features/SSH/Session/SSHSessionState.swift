@@ -27,15 +27,6 @@ enum SSHSessionState: Equatable, Sendable {
     /// Session failed with error
     case failed
 
-    /// Waiting to reconnect after unexpected disconnection
-    case waitingToReconnect(attempt: Int, delaySeconds: Int)
-
-    /// Actively attempting to reconnect
-    case reconnecting(attempt: Int)
-
-    /// Reconnection failed after max attempts or due to permanent error
-    case reconnectionFailed(reason: String)
-
     /// Human-readable description for UI status line
     var statusDescription: String {
         switch self {
@@ -55,12 +46,6 @@ enum SSHSessionState: Equatable, Sendable {
             return "Disconnected"
         case .failed:
             return "Connection failed"
-        case .waitingToReconnect(let attempt, let delay):
-            return "Reconnecting in \(delay)s (attempt \(attempt))..."
-        case .reconnecting(let attempt):
-            return "Reconnecting (attempt \(attempt))..."
-        case .reconnectionFailed(let reason):
-            return "Reconnection failed: \(reason)"
         }
     }
 
@@ -73,10 +58,8 @@ enum SSHSessionState: Equatable, Sendable {
             return .authenticating
         case .running:
             return .success
-        case .failed, .reconnectionFailed:
+        case .failed:
             return .error
-        case .waitingToReconnect, .reconnecting:
-            return .reconnecting
         default:
             return .connecting
         }

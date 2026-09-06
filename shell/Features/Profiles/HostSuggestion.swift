@@ -14,31 +14,18 @@ enum MatchingMode {
     case substring   // Match anywhere in the string (double-tab)
 }
 
-/// Where a suggestion came from. Only profiles remain in this fork.
-enum SuggestionSourceType: String, CaseIterable {
-    case profile = "Profiles"
-}
-
 /// A completion candidate for a host argument.
 struct AnyQuickConnectSuggestion: Identifiable, Hashable {
     let id: UUID
-    let sourceType: SuggestionSourceType
     /// Shown in the inline preview.
     let displayString: String
     /// Inserted into the line when the user accepts the completion.
     let completionString: String
-    /// Secondary line under the input.
-    let detailText: String?
-    /// Lower sorts first within a source type.
-    let sortPriority: Int
 
-    init(profile: SSHProfile, sortPriority: Int) {
+    init(profile: SSHProfile) {
         self.id = profile.id
-        self.sourceType = .profile
         self.displayString = profile.displayString
         self.completionString = profile.displayString
-        self.detailText = profile.name
-        self.sortPriority = sortPriority
     }
 
     func matches(_ searchText: String, mode: MatchingMode) -> Bool {
@@ -66,8 +53,7 @@ enum QuickConnectSuggestionProvider {
         limit: Int = 10
     ) -> [AnyQuickConnectSuggestion] {
         ConnectionProfileManager.shared.getSuggestions(matching: "", limit: .max)
-            .enumerated()
-            .map { AnyQuickConnectSuggestion(profile: $0.element, sortPriority: $0.offset) }
+            .map(AnyQuickConnectSuggestion.init(profile:))
             .filter { $0.matches(searchText, mode: mode) }
             .prefix(limit)
             .map { $0 }

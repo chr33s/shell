@@ -11,22 +11,18 @@ final class SpinnerAnimator {
     enum ColorStyle: Sendable {
         case connecting     // Cyan/blue - active connection in progress
         case authenticating // Yellow - waiting for auth
-        case provisioning   // Magenta - creating resources (k8s pods, etc.)
         case success        // Green - operation completed
         case error          // Red - operation failed
         case reconnecting   // Orange - reconnection in progress
-        case custom(rgb: (UInt8, UInt8, UInt8))  // Custom RGB color
 
         /// Default fallback colors for each style (work well in both light/dark)
         var defaultRGB: (UInt8, UInt8, UInt8) {
             switch self {
             case .connecting:     return (80, 200, 220)   // Bright cyan
             case .authenticating: return (230, 190, 80)   // Warm yellow
-            case .provisioning:   return (200, 140, 220)  // Soft magenta
             case .success:        return (120, 220, 120)  // Bright green
             case .error:          return (240, 100, 100)  // Bright red
             case .reconnecting:   return (255, 165, 80)   // Orange (reconnecting)
-            case .custom(let rgb): return rgb
             }
         }
 
@@ -35,11 +31,9 @@ final class SpinnerAnimator {
             switch self {
             case .connecting:     return 6   // Cyan
             case .authenticating: return 3   // Yellow
-            case .provisioning:   return 5   // Magenta
             case .success:        return 2   // Green
             case .error:          return 1   // Red
             case .reconnecting:   return 3   // Yellow (closest ANSI to orange)
-            case .custom:         return 7   // White (fallback)
             }
         }
     }
@@ -202,16 +196,12 @@ final class SpinnerAnimator {
 
     private enum ANSI {
         static let reset = "\u{1B}[0m"
-        static let bold = "\u{1B}[1m"
-        static let dim = "\u{1B}[2m"
 
         // Cursor positioning
         static let cursorHome = "\u{1B}[H"              // CUP - cursor to 1,1 (home)
-        static let carriageReturn = "\r"
 
         // Erase operations
         static let clearToEndOfScreen = "\u{1B}[J"      // ED 0 - clear from cursor to end of screen
-        static let clearToEndOfLine = "\u{1B}[K"        // EL 0 - clear from cursor to end of line
 
         // Synchronized output (Ghostty/modern terminals) - batch updates atomically
         static let syncOutputStart = "\u{1B}[?2026h"    // Begin synchronized update
@@ -224,21 +214,6 @@ final class SpinnerAnimator {
         /// True color (24-bit) foreground
         static func fg(_ r: UInt8, _ g: UInt8, _ b: UInt8) -> String {
             return "\u{1B}[38;2;\(r);\(g);\(b)m"
-        }
-
-        /// True color (24-bit) background
-        static func bg(_ r: UInt8, _ g: UInt8, _ b: UInt8) -> String {
-            return "\u{1B}[48;2;\(r);\(g);\(b)m"
-        }
-
-        /// 256-color foreground (fallback)
-        static func fg256(_ index: Int) -> String {
-            return "\u{1B}[38;5;\(index)m"
-        }
-
-        /// Cursor to specific position (1-indexed)
-        static func cursorTo(row: Int, col: Int) -> String {
-            return "\u{1B}[\(row);\(col)H"
         }
     }
 
@@ -270,12 +245,6 @@ final class SpinnerAnimator {
 
     /// Terminal width in columns (for content fitting and line count calculation)
     private var terminalWidth: Int = 80
-
-    /// Number of lines the previous frame occupied (for multi-line cleanup)
-    private var lastLineCount: Int = 1
-
-    /// Peak line count seen during this animation (for robust cleanup)
-    private var peakLineCount: Int = 1
 
     /// Whether the spinner is currently animating
     var isAnimating: Bool { timer != nil }
@@ -359,8 +328,6 @@ final class SpinnerAnimator {
         onFrame = nil
         startTime = nil
         frameIndex = 0
-        lastLineCount = 1
-        peakLineCount = 1
     }
 
     // MARK: - Private Methods
@@ -430,12 +397,10 @@ extension SpinnerAnimator.ColorStyle: Equatable {
         switch (lhs, rhs) {
         case (.connecting, .connecting),
              (.authenticating, .authenticating),
-             (.provisioning, .provisioning),
              (.success, .success),
-             (.error, .error):
+             (.error, .error),
+             (.reconnecting, .reconnecting):
             return true
-        case (.custom(let lrgb), .custom(let rrgb)):
-            return lrgb == rrgb
         default:
             return false
         }

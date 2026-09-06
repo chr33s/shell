@@ -3296,11 +3296,6 @@ final class TmuxController {
         // Suppressing the gateway covers the panes (they check parentUUID).
         TerminalBellSuppressor.suppress(
             ownerTerminalUUID, for: TerminalBellSuppressor.forcedRedraw)
-        // Agent detection needs the longer window: unlike a detach/reattach,
-        // this rebuild REUSES every pane view, so the monitors survive with
-        // their pre-outage state and would read the recapture's own churn as
-        // a fresh "needs your input".
-        TerminalBellSuppressor.suppressRebuild(ownerTerminalUUID)
         if let preferredWindowId, preferredWindowId >= 0 {
             ghostty_surface_tmux_reset_prioritized(ownerSurface, UInt(preferredWindowId))
         } else {

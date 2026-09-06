@@ -105,22 +105,12 @@ extension SplitTree {
         root == nil
     }
 
-    var isSplit: Bool {
-        if case .split = root { return true } else { return false }
-    }
-
     init() {
         self.init(root: nil, zoomed: nil)
     }
 
     init(view: ViewType) {
         self.init(root: .leaf(view: view), zoomed: nil)
-    }
-
-    /// Checks if the tree contains the specified node.
-    func contains(_ node: Node) -> Bool {
-        guard let root else { return false }
-        return root.path(to: node) != nil
     }
 
     /// Checks if the tree contains the specified view instance.
@@ -135,12 +125,6 @@ extension SplitTree {
         return .init(
             root: try root.insert(view: view, at: at, direction: direction),
             zoomed: nil)
-    }
-
-    /// Find a node containing a view with the specified ID.
-    func find(id: ViewType.ID) -> Node? {
-        guard let root else { return nil }
-        return root.find(id: id)
     }
 
     /// Remove a node from the tree.
@@ -304,20 +288,6 @@ extension SplitTree {
 // MARK: - SplitTree.Node Operations
 
 extension SplitTree.Node {
-    /// Find a node containing a view with the specified ID.
-    func find(id: ViewType.ID) -> SplitTree.Node? {
-        switch self {
-        case .leaf(let view):
-            return view.id == id ? self : nil
-
-        case .split(let split):
-            if let found = split.left.find(id: id) {
-                return found
-            }
-            return split.right.find(id: id)
-        }
-    }
-
     /// Returns the node in the tree that contains the given view.
     func node(view: ViewType) -> SplitTree.Node? {
         switch self {
@@ -768,28 +738,6 @@ extension SplitTree: Collection {
 // MARK: - Structural Identity
 
 extension SplitTree.Node {
-    /// Returns a hashable representation that captures this node's structural identity.
-    var structuralIdentity: StructuralIdentity {
-        StructuralIdentity(self)
-    }
-
-    /// Hashable representation of a node's structural identity.
-    struct StructuralIdentity: Hashable {
-        private let node: SplitTree.Node
-
-        init(_ node: SplitTree.Node) {
-            self.node = node
-        }
-
-        static func == (lhs: Self, rhs: Self) -> Bool {
-            lhs.node.isStructurallyEqual(to: rhs.node)
-        }
-
-        func hash(into hasher: inout Hasher) {
-            node.hashStructure(into: &hasher)
-        }
-    }
-
     /// Checks whether this node is structurally equal to another node.
     fileprivate func isStructurallyEqual(to other: Self) -> Bool {
         switch (self, other) {

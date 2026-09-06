@@ -1,4 +1,3 @@
-import Combine
 import Foundation
 import LocalAuthentication
 import os.log
@@ -12,20 +11,16 @@ import os.log
 /// sign requests arrive for the same key simultaneously, only the first
 /// one triggers a biometric prompt and others wait to share the result.
 @MainActor
-class SSHKeyAuthManager: ObservableObject {
+class SSHKeyAuthManager {
     private nonisolated static let logger = Logger(subsystem: "dev.chr33s.shell", category: "SSHKeyAuthManager")
 
     static let shared = SSHKeyAuthManager()
 
     /// Track authenticated keys with their authentication timestamps
-    @Published private(set) var authenticatedKeys: [UUID: Date] = [:]
+    private(set) var authenticatedKeys: [UUID: Date] = [:]
 
-    /// Session timeout in seconds (default: 1 hour)
-    var sessionTimeout: TimeInterval = 3600
-
-    /// Track in-flight authentication operations to deduplicate concurrent requests
-    /// Key: key UUID, Value: continuation waiters for that key's auth result
-    private var pendingAuthOperations: [UUID: [CheckedContinuation<Data, Error>]] = [:]
+    /// Session timeout in seconds (1 hour)
+    let sessionTimeout: TimeInterval = 3600
 
     /// Track the active auth task for each key
     private var activeAuthTasks: [UUID: Task<Data, Error>] = [:]
@@ -68,24 +63,6 @@ class SSHKeyAuthManager: ObservableObject {
     /// - Parameter keyID: The UUID of the key to clear
     func clearAuthentication(for keyID: UUID) {
         authenticatedKeys.removeValue(forKey: keyID)
-    }
-
-    /// Clear all expired authentications
-    func clearExpired() {
-        let now = Date()
-        authenticatedKeys = authenticatedKeys.filter { _, authTime in
-            now.timeIntervalSince(authTime) <= sessionTimeout
-        }
-        // Drop cached Secure Enclave contexts whose session has expired so
-        // the next load re-authenticates (keeps SE perSession tied to the
-        // same lifecycle as software-key session auth).
-        secureEnclaveContexts = secureEnclaveContexts.filter { authenticatedKeys[$0.key] != nil }
-    }
-
-    /// Clear all authentications (e.g., on app termination)
-    func clearAll() {
-        authenticatedKeys.removeAll()
-        secureEnclaveContexts.removeAll()
     }
 
     // MARK: - LAContext Management
@@ -212,18 +189,7 @@ class SSHKeyAuthManager: ObservableObject {
         }
     }
 
-    /// Check if an auth operation is currently in progress for a key
-    func isAuthInProgress(for keyID: UUID) -> Bool {
-        return activeAuthTasks[keyID] != nil
-    }
-
     // MARK: - Biometric Availability
-
-    /// Check if biometric authentication is available
-    var isBiometricAvailable: Bool {
-        let context = LAContext()
-        return context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)
-    }
 
     /// Get the type of biometric authentication available
     var biometricType: LABiometryType {
@@ -262,33 +228,5 @@ class SSHKeyAuthManager: ObservableObject {
         @unknown default:
             return "lock"
         }
-    }
-
-    // MARK: - Timeout Management
-
-    /// Format the session timeout for display
-    var formattedTimeout: String {
-        let hours = Int(sessionTimeout) / 3600
-        let minutes = (Int(sessionTimeout) % 3600) / 60
-
-        if hours > 0 && minutes > 0 {
-            return "\(hours)h \(minutes)m"
-        } else if hours > 0 {
-            return "\(hours) hour\(hours == 1 ? "" : "s")"
-        } else {
-            return "\(minutes) minute\(minutes == 1 ? "" : "s")"
-        }
-    }
-
-    /// Time remaining until a key's authentication expires
-    /// - Parameter keyID: The UUID of the key
-    /// - Returns: Time remaining in seconds, or nil if not authenticated
-    func timeRemaining(for keyID: UUID) -> TimeInterval? {
-        guard let authTime = authenticatedKeys[keyID] else {
-            return nil
-        }
-        let elapsed = Date().timeIntervalSince(authTime)
-        let remaining = sessionTimeout - elapsed
-        return remaining > 0 ? remaining : nil
     }
 }

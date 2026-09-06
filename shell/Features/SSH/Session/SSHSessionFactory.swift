@@ -15,21 +15,12 @@ enum SSHSessionFactory {
     ///   - pty: The PTY to use for the session
     ///   - config: The SSH configuration
     /// - Returns: A CitadelSSHSession for all SSH connections
-    ///   - paneToken: Stable identifier for the pane this session drives,
-    ///     forwarded as `LC_ROOTSHELL_PANE` so an out-of-band probe can tell
-    ///     which remote process belongs to it.
-    static func createSession(
-        pty: TerminalPTY,
-        config: SSHConfig,
-        paneToken: String? = nil
-    ) -> TerminalSession {
+    static func createSession(pty: TerminalPTY, config: SSHConfig) -> TerminalSession {
         // Always use CitadelSSHSession - it's a higher-level wrapper around NIOSSH
         // that provides consistent behavior for all features including:
         // - Jump host support
         // - Agent forwarding
         // - Connection health monitoring
-        let session = CitadelSSHSession(pty: pty, config: config)
-        session.paneToken = paneToken
-        return session
+        return CitadelSSHSession(pty: pty, config: config)
     }
 }

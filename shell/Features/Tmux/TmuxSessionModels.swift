@@ -64,10 +64,7 @@ nonisolated struct TmuxControlWindow: Identifiable, Equatable, Sendable {
     let id: Int
     let index: Int
     let name: String
-    let paneCount: Int
     let isActive: Bool
-    /// True when the window is linked into more than one session.
-    let isLinked: Bool
 }
 
 // MARK: - Parser
@@ -80,7 +77,7 @@ nonisolated enum TmuxControlModeParser {
 
     /// Format for `list-windows -t "$N"`. Same trailing-name rule.
     static let listWindowsFormat =
-        "#{window_id} #{window_index} #{window_panes} #{window_active} #{window_linked} #{window_name}"
+        "#{window_id} #{window_index} #{window_active} #{window_name}"
 
     /// Split a control-mode block body into lines. The body arrives with CRLF
     /// line endings (the gateway PTY's ONLCR maps tmux's `\n` to `\r\n`), and
@@ -119,22 +116,18 @@ nonisolated enum TmuxControlModeParser {
     static func parseWindows(_ body: String) -> [TmuxControlWindow] {
         var windows: [TmuxControlWindow] = []
         for line in lines(body) {
-            let fields = line.split(separator: " ", maxSplits: 5, omittingEmptySubsequences: false)
-            guard fields.count >= 6,
+            let fields = line.split(separator: " ", maxSplits: 3, omittingEmptySubsequences: false)
+            guard fields.count >= 4,
                   fields[0].hasPrefix("@"),
                   let id = Int(fields[0].dropFirst()),
                   let index = Int(fields[1]),
-                  let panes = Int(fields[2]),
-                  let active = Int(fields[3]),
-                  let linked = Int(fields[4])
+                  let active = Int(fields[2])
             else { continue }
             windows.append(TmuxControlWindow(
                 id: id,
                 index: index,
-                name: String(fields[5]),
-                paneCount: panes,
-                isActive: active != 0,
-                isLinked: linked != 0))
+                name: String(fields[3]),
+                isActive: active != 0))
         }
         return windows
     }

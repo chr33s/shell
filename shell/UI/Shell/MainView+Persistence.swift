@@ -71,9 +71,7 @@ extension MainView {
 
         let serializedTabs = persisted.map { $0.serialized }
 
-        // Collect theme overrides (only for tabs we actually persist).
-        let windowTheme = themeOverrideManager.getWindowTheme(windowId: windowId)
-        var tabThemes: [UUID: String] = [:]
+        // Collect tab-group overrides (only for tabs we actually persist).
         var groupOverrides: [UUID: TabGroupID] = [:]
         let persistedIDs = Set(persisted.map { $0.tab.id })
         let persistedGroupTabOrders = tabsModel.sidebarGroupTabOrders.reduce(into: [String: [UUID]]()) {
@@ -82,9 +80,6 @@ extension MainView {
             if !ids.isEmpty { result[entry.key] = ids }
         }
         for entry in persisted {
-            if let theme = themeOverrideManager.getTabTheme(tabId: entry.tab.id) {
-                tabThemes[entry.tab.id] = theme
-            }
             if let override = tabsModel.tabGroupOverrides[entry.tab.id] {
                 groupOverrides[entry.tab.id] = override
             }
@@ -115,8 +110,6 @@ extension MainView {
             id: windowId,
             tabs: serializedTabs,
             selectedTabIndex: remappedSelectedIndex,
-            themeOverride: windowTheme,
-            tabThemeOverrides: tabThemes,
             tabGroupingEnabled: tabsModel.isGroupedModeEnabled ? true : nil,
             activeTabGroupID: tabsModel.activeGroupID,
             tabGroupOverrides: groupOverrides.filter { persistedIDs.contains($0.key) }.isEmpty
@@ -133,14 +126,6 @@ extension MainView {
 
     /// Restore window state from saved data
     func restoreWindowState(_ state: SerializableWindow) {
-        // Restore theme overrides first
-        if let windowTheme = state.themeOverride {
-            themeOverrideManager.setWindowTheme(windowId: windowId, themeName: windowTheme)
-        }
-        for (tabId, themeName) in state.tabThemeOverrides {
-            themeOverrideManager.setTabTheme(tabId: tabId, themeName: themeName)
-        }
-
         // Restore tabs. The restoration initializer wires up title observation
         // with preserveExistingTitle: true, so no follow-up setupTitleObservation
         // call is needed here.
@@ -271,13 +256,6 @@ extension MainView {
             // flashes in the strip while the gateway resumes; adoption
             // re-derives the flag from the live set. (id=tmux-hidden-windows)
             tab.isHiddenTmuxWindow = savedTab.isHiddenTmuxWindow ?? false
-            // Re-apply any per-tab theme override under the new tab id (the tab
-            // keeps this id through adoption, so the theme survives). Mirrors the
-            // remap in the normal path below, which this early return skips.
-            if let themeName = themeOverrideManager.getTabTheme(tabId: savedTab.id) {
-                themeOverrideManager.clearTabOverride(tabId: savedTab.id)
-                themeOverrideManager.setTabTheme(tabId: tab.id, themeName: themeName)
-            }
             Ghostty.logger.info("Restored tmux window placeholder @\(tmuxWindowId)")
             return tab
         }
@@ -331,12 +309,6 @@ extension MainView {
         // first successful reconcile. (id=tmux-hidden-gateway)
         if savedTab.isHiddenTmuxWindow == true {
             tab.pendingHiddenTmuxGatewayRestore = true
-        }
-
-        // Re-apply tab theme override with new tab ID if there was one for the old ID
-        if let themeName = themeOverrideManager.getTabTheme(tabId: savedTab.id) {
-            themeOverrideManager.clearTabOverride(tabId: savedTab.id)
-            themeOverrideManager.setTabTheme(tabId: tab.id, themeName: themeName)
         }
 
         return tab

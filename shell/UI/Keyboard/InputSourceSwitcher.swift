@@ -22,11 +22,10 @@
 
 import Foundation
 import UIKit
-import os
 
-// On Mac Catalyst, the TIS entry points used below come from
-// InputSourceCarbonShim.swift (the Carbon umbrella header doesn't
-// compile under the current Catalyst SDK).
+// On Mac Catalyst, the TIS entry points used below are reached through
+// `MacSupport.bridge` (ShellMacSupport/NativeKeyboard.swift), which runs in
+// the AppKit bundle where the Carbon input-source APIs are available.
 
 /// A user-selectable input source.
 struct InputSourceDescriptor: Hashable, Identifiable, Sendable {
@@ -41,8 +40,6 @@ struct InputSourceDescriptor: Hashable, Identifiable, Sendable {
 
 @MainActor
 enum InputSourceCatalog {
-    private nonisolated static let logger = Logger(subsystem: "dev.chr33s.shell", category: "InputSources")
-
     /// Input sources the user can pick for a binding.
     static func available() -> [InputSourceDescriptor] {
         #if targetEnvironment(macCatalyst)

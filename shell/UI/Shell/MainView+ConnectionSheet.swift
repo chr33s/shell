@@ -7,9 +7,6 @@
 //
 
 import SwiftUI
-import Combine
-import GhosttyKit
-import os
 
 #if canImport(UIKit)
 import UIKit
@@ -19,28 +16,16 @@ extension MainView {
 
     // MARK: - Connection Sheet Content
 
-    /// iPhone variant: no onClose (shows "Cancel", uses dismiss()).
-    @ViewBuilder
-    var connectionSheetContentForPhone: some View {
-        SSHConnectionView(
-            initialConfig: reconnectConfig,
-            onConnect: { (config: SSHConfig?, splitOption: SSHConnectionView.SplitOption) in
-                handleSSHOrLocalConnection(config: config, splitOption: splitOption)
-            },
-            onProfileConnect: { profile, splitOption in
-                showConnectionSidebar = false
-                connectToProfile(profile, splitOption: splitOption)
-            },
-            preventDismissal: terminals.isEmpty && tabBarHidden,
-            initialTab: connectionSidebarInitialTab
-        )
-    }
-
-    /// iPad/Catalyst/visionOS variant: onClose set (shows "Done").
+    /// The connection sheet, used on every platform. `onClose` is set, so the
+    /// dismiss button reads "Done".
     @ViewBuilder
     var connectionSheetContent: some View {
         SSHConnectionView(
             initialConfig: reconnectConfig,
+            connectionError: reconnectingTabIndex.flatMap { index in
+                guard terminals.indices.contains(index) else { return nil }
+                return terminals[index].focusedTerminal?.error?.localizedDescription
+            },
             onConnect: { (config: SSHConfig?, splitOption: SSHConnectionView.SplitOption) in
                 handleSSHOrLocalConnection(config: config, splitOption: splitOption)
             },
@@ -52,11 +37,32 @@ extension MainView {
             onClose: { showConnectionSidebar = false },
             initialTab: connectionSidebarInitialTab
         )
+        // Reconnect state is one-shot: it belongs to the presentation that armed
+        // it. It used to be cleared only by a *successful* connect, so backing
+        // out of a reconnect sheet left `reconnectConfig`/`reconnectingTabIndex`
+        // armed for the life of the window — the next open of this sheet (⌘T,
+        // Duplicate Tab, Browse Hosts) popped the editor pre-filled with the
+        // failed host, and connecting from it replaced whatever tab now sat at
+        // the stale index instead of opening a new one. Clearing on disappear
+        // covers every dismissal path, including the interactive swipe-down and
+        // the deep-link prefill in `presentPrefilledConnection`, neither of
+        // which routes through `onClose`. Connect handlers run before the sheet
+        // actually disappears, so they still observe the armed state.
+        .onDisappear {
+            reconnectingTabIndex = nil
+            reconnectConfig = nil
+        }
     }
 
     private func handleSSHOrLocalConnection(config: SSHConfig?, splitOption: SSHConnectionView.SplitOption) {
         if let config {
-            if let tabIndex = reconnectingTabIndex {
+            // The index was captured when auth failed; tabs can be closed or
+            // reordered while the sheet is open. A stale index used to be passed
+            // straight to `reconnectTab`, whose bounds `guard` returns silently —
+            // the user pressed Connect and nothing happened at all. Reconnect
+            // only while the index still addresses a live tab; otherwise honour
+            // the placement the user asked for.
+            if let tabIndex = reconnectingTabIndex, terminals.indices.contains(tabIndex) {
                 // Reconnecting an existing tab
                 reconnectTab(at: tabIndex, with: config)
             } else {
@@ -87,6 +93,12 @@ extension MainView {
     // MARK: - Profiles
 
     func connectToProfile(_ profile: SSHProfile, splitOption: SSHConnectionView.SplitOption) {
+        // This is the single usage-recording site for both entry points that
+        // reach a profile connect: the connection sheet (via `onProfileConnect`
+        // above) and the notification/deep-link path. `recordUsage` is not
+        // idempotent (`useCount += 1` plus a profile write), and `useCount` is a
+        // live sort key for `ProfileSortOrder.mostUsed` and `getSuggestions`, so
+        // callers must not record usage again before or after calling this.
         ConnectionProfileManager.shared.recordUsage(id: profile.id)
 
         var config = profile.sshConfig

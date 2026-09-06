@@ -46,18 +46,6 @@ extension LocalShellSession {
         }
     }
 
-    /// Execute a standalone sleep command.
-    /// Uses the shared session environment so variables/functions persist.
-    func executeSleepCommand(_ command: String) {
-        let truncated = String(command.prefix(30))
-        onTitleChange?(truncated)
-
-        sessionMode = .scriptRunning
-        commandQueue.async { [weak self] in
-            self?.runScript(command, name: "sh", arguments: [], useSharedEnvironment: true)
-        }
-    }
-
     // MARK: - Script Runner (runs on commandQueue)
 
     /// Parse and execute a shell script. Runs on commandQueue (blocking).
@@ -163,6 +151,11 @@ extension LocalShellSession {
                     cancellationToken: trapToken,
                     executeExternal: interpreter.executeExternal,
                     captureExternal: interpreter.captureExternal,
+                    // Trap bodies can contain pipelines. Without streamExternal,
+                    // executePipeline throws .unsupported("pipelines with external
+                    // commands") and the `try?` below swallows it, so the trap
+                    // silently never ran. Forward the parent's streaming executor.
+                    streamExternal: interpreter.streamExternal,
                     canStreamExternalCommand: { [weak self] command -> Bool in
                         guard let self else { return false }
                         return self.canStreamExternalPipelineCommand(command)
@@ -190,6 +183,11 @@ extension LocalShellSession {
                     cancellationToken: trapToken,
                     executeExternal: interpreter.executeExternal,
                     captureExternal: interpreter.captureExternal,
+                    // Trap bodies can contain pipelines. Without streamExternal,
+                    // executePipeline throws .unsupported("pipelines with external
+                    // commands") and the `try?` below swallows it, so the trap
+                    // silently never ran. Forward the parent's streaming executor.
+                    streamExternal: interpreter.streamExternal,
                     canStreamExternalCommand: { [weak self] command -> Bool in
                         guard let self else { return false }
                         return self.canStreamExternalPipelineCommand(command)
@@ -210,6 +208,11 @@ extension LocalShellSession {
                     cancellationToken: trapToken,
                     executeExternal: interpreter.executeExternal,
                     captureExternal: interpreter.captureExternal,
+                    // Trap bodies can contain pipelines. Without streamExternal,
+                    // executePipeline throws .unsupported("pipelines with external
+                    // commands") and the `try?` below swallows it, so the trap
+                    // silently never ran. Forward the parent's streaming executor.
+                    streamExternal: interpreter.streamExternal,
                     canStreamExternalCommand: { [weak self] command -> Bool in
                         guard let self else { return false }
                         return self.canStreamExternalPipelineCommand(command)
@@ -237,6 +240,11 @@ extension LocalShellSession {
                     cancellationToken: trapToken,
                     executeExternal: interpreter.executeExternal,
                     captureExternal: interpreter.captureExternal,
+                    // Trap bodies can contain pipelines. Without streamExternal,
+                    // executePipeline throws .unsupported("pipelines with external
+                    // commands") and the `try?` below swallows it, so the trap
+                    // silently never ran. Forward the parent's streaming executor.
+                    streamExternal: interpreter.streamExternal,
                     canStreamExternalCommand: { [weak self] command -> Bool in
                         guard let self else { return false }
                         return self.canStreamExternalPipelineCommand(command)
@@ -422,18 +430,6 @@ extension LocalShellSession {
         return exitCode
     }
 
-    /// Bridge a MainActor-isolated bool check synchronously from commandQueue.
-    nonisolated private func bridgeToMainActorBool(_ check: @escaping @MainActor () -> Bool) -> Bool {
-        let semaphore = DispatchSemaphore(value: 0)
-        nonisolated(unsafe) var result = false
-        Task { @MainActor in
-            result = check()
-            semaphore.signal()
-        }
-        semaphore.wait()
-        return result
-    }
-
     // MARK: - Synchronous External Command Execution
 
     /// Detect unquoted redirection, pipe, sequencing, or logical operators in
@@ -441,19 +437,10 @@ extension LocalShellSession {
     /// app-command interception (which can't implement these operators) and
     /// hand execution to ios_system instead.
     nonisolated static func commandContainsUnquotedShellOperator(_ command: String) -> Bool {
-        commandContainsUnquotedOperator(command, outputOnly: false)
+        commandContainsUnquotedOperator(command)
     }
 
-    /// Detect operators that move stdout/stderr away from their normal terminal
-    /// destinations. Input-only redirects and control operators do not qualify.
-    nonisolated static func commandContainsUnquotedOutputOperator(_ command: String) -> Bool {
-        commandContainsUnquotedOperator(command, outputOnly: true)
-    }
-
-    nonisolated private static func commandContainsUnquotedOperator(
-        _ command: String,
-        outputOnly: Bool
-    ) -> Bool {
+    nonisolated private static func commandContainsUnquotedOperator(_ command: String) -> Bool {
         let scalars = Array(command.unicodeScalars)
         var i = 0
         var inSingleQuote = false
@@ -475,21 +462,6 @@ extension LocalShellSession {
                 continue
             }
             if inSingleQuote || inDoubleQuote {
-                i += 1
-                continue
-            }
-            if outputOnly {
-                if c == ">" {
-                    return true
-                }
-                if c == "|" {
-                    // `||` is control flow, not an output pipe.
-                    if i + 1 < scalars.count, scalars[i + 1] == "|" {
-                        i += 2
-                        continue
-                    }
-                    return true
-                }
                 i += 1
                 continue
             }

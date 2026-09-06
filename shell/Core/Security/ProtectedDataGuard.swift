@@ -39,8 +39,19 @@ enum ProtectedDataGuard {
             return
         }
         logger.warning("Protected data NOT available — deferring initialization")
+        // The observer must stay armed until `action` has actually been handed off.
+        // Previously the token was removed on the utility queue *before* the MainActor
+        // hop, so if the device re-locked between the notification landing and the hop
+        // draining (the process can be suspended in between on a background launch), the
+        // re-check in `runWhenProtectedDataAvailable` failed with nothing left listening
+        // and the deferred work — the app's entire UserDefaults-dependent startup — was
+        // dropped for the life of the process. Deregistering on the MainActor, only once
+        // the action is committed to run, also removes the data race on `token`: this
+        // method is @MainActor and non-suspending, so the assignment below always
+        // completes before any `Task { @MainActor }` body can start.
         final class TokenHolder: @unchecked Sendable {
             var token: NSObjectProtocol?
+            var didRun = false
         }
         let holder = TokenHolder()
         holder.token = NotificationCenter.default.addObserver(
@@ -48,8 +59,19 @@ enum ProtectedDataGuard {
             object: nil,
             queue: protectedDataQueue
         ) { _ in
-            if let token = holder.token { NotificationCenter.default.removeObserver(token) }
             Task { @MainActor in
+                guard UIApplication.shared.isProtectedDataAvailable else {
+                    // Re-locked before this hop drained; stay registered for the next unlock.
+                    logger.warning("Protected data notification fired but protected data is unavailable — still waiting")
+                    return
+                }
+                // Two notifications can queue two hops before the first drains.
+                guard !holder.didRun else { return }
+                holder.didRun = true
+                if let token = holder.token {
+                    NotificationCenter.default.removeObserver(token)
+                    holder.token = nil
+                }
                 runWhenProtectedDataAvailable(action, reason: "unlock")
             }
         }
@@ -65,7 +87,7 @@ enum ProtectedDataGuard {
             return
         }
 
-        logger.info("Protected data available")
+        logger.info("Protected data available (\(reason, privacy: .public))")
 
         DispatchQueue.main.async {
             MainActor.assumeIsolated {

@@ -46,10 +46,13 @@ nonisolated enum ShellBuiltins {
     /// Builtins that must go through the shell interpreter because ios_system
     /// doesn't provide them. Commands like `cd`, `echo`, `export` are handled by
     /// ios_system natively, so they're excluded.
+    /// `unset` is here because ios_system has no `unset` command (only `unsetenv`):
+    /// without it, `unset FOO` typed at the prompt fell through to ios_system,
+    /// reported command-not-found and left the variable set.
     private static let interpreterOnlyBuiltins: Set<String> = [
         "sleep", "printf", "test", "[", "read", "true", "false", ":",
         "local", "return", "break", "continue", "shift", "set",
-        "trap", "eval", "type", "let", "jobs", "wait"
+        "trap", "eval", "type", "let", "jobs", "wait", "unset"
     ]
 
     /// Check if a command name is a builtin that only works through the interpreter
@@ -113,10 +116,6 @@ nonisolated enum ShellBuiltins {
     /// Process C-style escape sequences in a string (index-based so octal/hex
     /// sequences can be scanned with lookahead). Returns the processed text
     /// and whether a `\c` (stop output) was seen.
-    static func processEscapes(_ s: String) -> String {
-        processEscapesWithStop(s).0
-    }
-
     static func processEscapesWithStop(_ s: String) -> (String, Bool) {
         let chars = Array(s)
         var result = ""
@@ -298,15 +297,21 @@ nonisolated enum ShellBuiltins {
             var width = 0
             var hasWidth = false
             if i < chars.count, chars[i] == "*" {
-                width = Int(nextArg()) ?? 0
+                width = min(max(Int(nextArg()) ?? 0, -printfMaxField), printfMaxField)
                 hasWidth = true
                 i += 1
             } else {
-                while i < chars.count, chars[i].isNumber {
-                    width = width * 10 + Int(String(chars[i]))!
+                // `Character.isNumber` is true for every Unicode numeral (superscripts,
+                // Arabic-Indic, CJK…) for which `Int(String(c))` is nil, so the old
+                // force unwrap trapped — and a long digit run overflowed `width * 10`
+                // and trapped too. Either one killed the whole app. Accept ASCII digits
+                // only, and clamp the accumulator.
+                while i < chars.count, let digit = asciiDigit(chars[i]) {
+                    if width <= printfMaxField { width = width * 10 + digit }
                     hasWidth = true
                     i += 1
                 }
+                width = min(width, printfMaxField)
             }
 
             // precision
@@ -314,15 +319,20 @@ nonisolated enum ShellBuiltins {
             if i < chars.count, chars[i] == "." {
                 i += 1
                 if i < chars.count, chars[i] == "*" {
-                    precision = Int(nextArg()) ?? 0
+                    // C (and bash) treat a negative `*` precision as if omitted;
+                    // passing one through reached `s.prefix(precision)` in the `%s`
+                    // case below, which traps on a negative maxLength.
+                    let starPrecision = Int(nextArg()) ?? 0
+                    precision = starPrecision < 0 ? nil : min(starPrecision, printfMaxField)
                     i += 1
                 } else {
+                    // Same ASCII-digit / overflow hazard as the width loop above.
                     var p = 0
-                    while i < chars.count, chars[i].isNumber {
-                        p = p * 10 + Int(String(chars[i]))!
+                    while i < chars.count, let digit = asciiDigit(chars[i]) {
+                        if p <= printfMaxField { p = p * 10 + digit }
                         i += 1
                     }
-                    precision = p
+                    precision = min(p, printfMaxField)
                 }
             }
 
@@ -378,6 +388,21 @@ nonisolated enum ShellBuiltins {
         }
     }
 
+    /// Upper bound for a printf field width / precision. Without a cap,
+    /// `width = width * 10 + digit` traps on Int overflow for a long digit run
+    /// (`printf "%99999999999999999999d"`) and an absurd width makes `pad` /
+    /// `String(format:)` allocate unbounded memory.
+    private static let printfMaxField = 100_000
+
+    /// ASCII `0`–`9` only, as a digit value. Deliberately not `Character.isNumber`
+    /// (true for numerals that `Int(String(c))` cannot parse) and never `asciiValue!`.
+    private static func asciiDigit(_ c: Character) -> Int? {
+        guard let a = c.asciiValue, a >= UInt8(ascii: "0"), a <= UInt8(ascii: "9") else {
+            return nil
+        }
+        return Int(a - UInt8(ascii: "0"))
+    }
+
     private static func parseInt(_ s: String) -> Int {
         // Accept leading quotes for char codes ('A → 65) per POSIX
         if s.hasPrefix("'") || s.hasPrefix("\""), s.count >= 2 {
@@ -422,30 +447,24 @@ nonisolated enum ShellBuiltins {
     static func evaluateTestExpression(_ args: [String]) -> Bool {
         if args.isEmpty { return false }
 
-        // Unary: ! EXPR
-        if args.first == "!" {
-            return !evaluateTestExpression(Array(args.dropFirst()))
-        }
+        // POSIX resolves `test` by ARGUMENT COUNT first, and only falls back to the
+        // `!` / `-a` / `-o` combining forms when the count rules don't apply. This
+        // used to scan the whole argument list for `!`, `-o` and `-a` up front,
+        // which mis-evaluated any operand whose *value* was one of those strings:
+        // `[ -a = -a ]` came out false, `[ -z -o ]` true, `[ -n -a ]` false and
+        // `[ ! = x ]` true — each the opposite of sh/bash. The scans are kept, but
+        // as a fallback *below* the count-based dispatch (`[ x -a y ]` still works).
 
-        // Single arg: true if non-empty
+        // Single arg: true if non-empty (covers `[ ! ]`, `[ -a ]`, `[ -o ]`).
         if args.count == 1 {
             return !args[0].isEmpty
         }
 
-        // Binary with logical operators: EXPR -a EXPR, EXPR -o EXPR
-        if let idx = args.firstIndex(of: "-o") {
-            let left = evaluateTestExpression(Array(args[..<idx]))
-            let right = evaluateTestExpression(Array(args[(idx + 1)...]))
-            return left || right
-        }
-        if let idx = args.firstIndex(of: "-a") {
-            let left = evaluateTestExpression(Array(args[..<idx]))
-            let right = evaluateTestExpression(Array(args[(idx + 1)...]))
-            return left && right
-        }
-
-        // Two args: unary operators
+        // Two args: `! EXPR`, or a unary operator applied to an operand.
         if args.count == 2 {
+            if args[0] == "!" {
+                return !evaluateTestExpression([args[1]])
+            }
             let op = args[0]
             let operand = args[1]
 
@@ -503,8 +522,30 @@ nonisolated enum ShellBuiltins {
             case "-nt": return fileNewer(left, than: right)
             case "-ot": return fileNewer(right, than: left)
 
-            default: return false
+            // Not a binary operator: fall through to `! EXPR EXPR` and then to the
+            // `-a` / `-o` combining scan below.
+            default: break
             }
+
+            if left == "!" {
+                return !evaluateTestExpression(Array(args.dropFirst()))
+            }
+        }
+
+        // Fallback: 3-argument non-operator forms and 4-or-more-argument
+        // expressions — leading negation, then the logical combining operators.
+        if args.first == "!" {
+            return !evaluateTestExpression(Array(args.dropFirst()))
+        }
+        if let idx = args.firstIndex(of: "-o") {
+            let lhs = evaluateTestExpression(Array(args[..<idx]))
+            let rhs = evaluateTestExpression(Array(args[(idx + 1)...]))
+            return lhs || rhs
+        }
+        if let idx = args.firstIndex(of: "-a") {
+            let lhs = evaluateTestExpression(Array(args[..<idx]))
+            let rhs = evaluateTestExpression(Array(args[(idx + 1)...]))
+            return lhs && rhs
         }
 
         return false
@@ -771,7 +812,16 @@ nonisolated enum ShellBuiltins {
             return 1
         }
 
-        let totalMs = Int(seconds * 1000)
+        // `Double("inf")` and huge values pass the `>= 0` guard above, and
+        // `Int(.infinity)` / `Int(1e303)` are unconditional Swift traps that killed
+        // the whole process (every tab, split and live SSH/tmux session). Clamp
+        // instead of converting blindly: the loop below is safe at Int.max because
+        // `remaining` is min(100, totalMs - elapsed), and cancellation is polled
+        // every 100ms so Ctrl-C still ends an unbounded `sleep inf`.
+        let totalMilliseconds = seconds * 1000
+        let totalMs = (totalMilliseconds.isFinite && totalMilliseconds < Double(Int.max))
+            ? Int(totalMilliseconds)
+            : Int.max
         var elapsed = 0
         let checkInterval = 100 // ms
 
@@ -799,7 +849,24 @@ nonisolated enum ShellBuiltins {
         }
 
         if args.count == 1 {
-            // `trap ''` — clear all traps? Or single signal name to reset?
+            // A lone operand is a *condition*, not an action: POSIX ("If the
+            // first operand is an unsigned decimal integer, the shell shall
+            // treat all operands as conditions and reset each to the default")
+            // and bash (`trap [[action] sigspec ...]` — "If action is absent
+            // and there is a single sigspec, each specified signal is reset to
+            // its original disposition") agree. This used to `return 0` without
+            // touching the registry, so `trap INT` reported success and left the
+            // INT handler installed — Ctrl-C kept running it.
+            //
+            // A single operand that is not a signal name (`trap ''`,
+            // `trap 'echo hi'`) is a usage error in bash, exit 2 — not a
+            // trap-everything action. Match that rather than silently
+            // registering or discarding it.
+            guard let sig = TrapRegistry.parseSignal(args[0]) else {
+                interp.writeLine("trap: usage: trap [action] signal_spec ...")
+                return 2
+            }
+            interp.trapRegistry.register(signal: sig, action: nil)
             return 0
         }
 

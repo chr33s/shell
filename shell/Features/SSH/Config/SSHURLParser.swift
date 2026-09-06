@@ -10,21 +10,22 @@ import Foundation
 /// Parsed components from an SSH URL
 struct SSHURLComponents: Sendable {
     let host: String
-    let port: Int
+
+    /// The port the URL actually named, or `nil` when it named none.
+    ///
+    /// Kept distinct from the 22 default: collapsing "no port" into 22 made an
+    /// `ssh://host` deep link indistinguishable from `ssh://host:22`, so the
+    /// deep-link handler overwrote the custom port of the saved profile it
+    /// matched and connected to :22. Callers that merge into an existing
+    /// profile must apply this only when it is non-nil.
+    let explicitPort: Int?
+
     let username: String?
 
-    /// Display string for UI (e.g., "user@host:port")
-    var displayString: String {
-        var result = ""
-        if let username = username {
-            result += "\(username)@"
-        }
-        result += host
-        if port != 22 {
-            result += ":\(port)"
-        }
-        return result
-    }
+    /// The port to connect to, falling back to 22 when the URL named none.
+    /// Correct for a fresh connection; use `explicitPort` when merging into a
+    /// configuration that already has a port.
+    var port: Int { explicitPort ?? 22 }
 }
 
 /// Parser for SSH URL schemes
@@ -49,7 +50,9 @@ enum SSHURLParser {
         if let host = url.host, !host.isEmpty {
             return SSHURLComponents(
                 host: host,
-                port: url.port ?? 22,
+                // Foundation defines no default port for the `ssh` scheme, so a
+                // nil `url.port` means the URL named no port at all.
+                explicitPort: url.port,
                 username: url.user?.isEmpty == false ? url.user : nil
             )
         }
@@ -97,7 +100,9 @@ enum SSHURLParser {
         // Extract port if present (after last :)
         // Be careful with IPv6 addresses (multiple colons)
         var host: String
-        var port: Int = 22
+        // Left nil unless the spec actually names a port, so "no port" stays
+        // distinguishable from an explicit ":22".
+        var explicitPort: Int?
 
         // Check for IPv6 address in brackets: [::1]:port
         if remaining.hasPrefix("[") {
@@ -107,7 +112,7 @@ enum SSHURLParser {
                 if afterBracket < remaining.endIndex {
                     let portPart = String(remaining[afterBracket...])
                     if portPart.hasPrefix(":"), let portNum = Int(portPart.dropFirst()) {
-                        port = portNum
+                        explicitPort = portNum
                     }
                 }
             } else {
@@ -121,7 +126,7 @@ enum SSHURLParser {
                 let potentialPort = String(remaining[remaining.index(after: colonIndex)...])
                 if let portNum = Int(potentialPort), portNum > 0, portNum <= 65535 {
                     host = String(remaining[..<colonIndex])
-                    port = portNum
+                    explicitPort = portNum
                 } else {
                     // Not a valid port number, treat whole thing as host
                     host = remaining
@@ -137,7 +142,7 @@ enum SSHURLParser {
 
         return SSHURLComponents(
             host: host,
-            port: port,
+            explicitPort: explicitPort,
             username: username
         )
     }

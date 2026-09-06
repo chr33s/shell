@@ -423,8 +423,7 @@ final class TerminalSessionController {
             cols: surfaceSize.cols,
             workingDirectory: workingDirectory,
             shell: shell,
-            enableShellIntegration: true,
-            paneToken: host.terminalUUID.uuidString
+            enableShellIntegration: true
         ) { [weak self] result in
             guard let self, let host = self.host else { return }
 
@@ -473,15 +472,14 @@ final class TerminalSessionController {
 
     @discardableResult
     func startDirectSessionIfSupported(connectionConfig: ConnectionConfig) -> Bool {
-        guard let host else { return false }
+        guard host != nil else { return false }
         let newSession: TerminalSession
         let newPTY = TerminalPTY()
         pty = newPTY
 
         switch connectionConfig {
         case .ssh(let sshConfig):
-            let sshSession = SSHSessionFactory.createSession(
-                pty: newPTY, config: sshConfig, paneToken: host.terminalUUID.uuidString)
+            let sshSession = SSHSessionFactory.createSession(pty: newPTY, config: sshConfig)
 
             sshSession.onError = { [weak self] error in
                 Task { @MainActor in
@@ -491,6 +489,7 @@ final class TerminalSessionController {
                          error.localizedDescription.lowercased().contains("authentication"))
 
                     if isAuthError {
+                        host.terminalSetError(error)
                         host.terminalClearProgressAndSpinner()
                         host.terminalRequestAuthentication(sshConfig)
                     } else {
@@ -636,8 +635,7 @@ final class TerminalSessionController {
 
         switch host.terminalConnectionConfig {
         case .ssh(let sshConfig):
-            let sshSession = SSHSessionFactory.createSession(
-                pty: pty, config: sshConfig, paneToken: host.terminalUUID.uuidString)
+            let sshSession = SSHSessionFactory.createSession(pty: pty, config: sshConfig)
             if let sshTerminalSession = sshSession as? SSHTerminalSession {
                 sshTerminalSession.onHostKeyValidation = { [weak self] request in
                     guard let self, let host = self.host else { return .reject }

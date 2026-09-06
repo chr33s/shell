@@ -331,10 +331,8 @@ extension MainView {
             }
         }
 
-        // Show tab indicator overlay when tab bar is hidden, unless the user
-        // selected via the vertical tab sidebar that is already visible.
-        let shouldSuppressIndicator = tabIndicator.consumeSuppressHiddenIndicator()
-        if tabBarHidden && terminals.count > 1 && !shouldSuppressIndicator {
+        // Show tab indicator overlay when tab bar is hidden.
+        if tabBarHidden && terminals.count > 1 {
             tabIndicator.showBriefly()
         }
 

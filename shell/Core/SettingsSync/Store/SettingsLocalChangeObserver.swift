@@ -59,9 +59,17 @@ final class SettingsLocalChangeObserver {
         }
         let removed = Set(before.keys).subtracting(after.keys)
 
-        // A mass disappearance with every sentinel gone is the locked-read
-        // corruption case; never propagate it.
-        if removed.count >= max(10, before.count / 2), SettingsStore.looksCorrupted() {
+        // Any disappearance with every sentinel gone is the locked-read
+        // corruption case; never propagate it. Do NOT reintroduce the old
+        // `removed.count >= max(10, before.count / 2)` floor: `before` holds only
+        // registered keys that have persisted values, so on a device where the
+        // user changed fewer than ten settings the whole domain can vanish and
+        // `n >= max(10, n / 2)` still stays false — the guard was unreachable for
+        // exactly the population it protects, and the wipe went out as a CloudKit
+        // tombstone per key. `looksCorrupted()` is already decisive on its own: it
+        // needs a backup file AND all four sentinels nil, a pair `saveSnapshot`
+        // never lets a fresh install reach.
+        if !removed.isEmpty, SettingsStore.looksCorrupted() {
             Self.logger.fault("Ignoring \(removed.count) simultaneous removals; defaults look unreadable")
             return
         }

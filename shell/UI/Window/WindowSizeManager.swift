@@ -6,14 +6,13 @@
 //
 
 import Foundation
-import Combine
 
 #if targetEnvironment(macCatalyst)
 
 /// Manages window size and position persistence for Mac Catalyst.
 /// New windows open with the geometry of the last focused window.
 @MainActor
-class WindowSizeManager: ObservableObject {
+class WindowSizeManager {
     static let shared = WindowSizeManager()
 
     private static let defaultWidth: CGFloat = 800
@@ -21,11 +20,8 @@ class WindowSizeManager: ObservableObject {
     private static let minWidth: CGFloat = 400
     private static let minHeight: CGFloat = 300
 
-    @Published private(set) var lastWindowSize: CGSize
-    @Published private(set) var lastWindowOrigin: CGPoint?
-
-    /// Publisher that emits when a new window should be sized
-    let windowSizeForNewWindow = PassthroughSubject<CGSize, Never>()
+    private(set) var lastWindowSize: CGSize
+    private(set) var lastWindowOrigin: CGPoint?
 
     private init() {
         let store = SettingsStore.shared
@@ -70,11 +66,6 @@ class WindowSizeManager: ObservableObject {
     /// Stored size and (optional) origin for a new window.
     func frameForNewWindow() -> (origin: CGPoint?, size: CGSize) {
         return (lastWindowOrigin, lastWindowSize)
-    }
-
-    /// Stored size for a new window. Kept for callers that only need size.
-    func sizeForNewWindow() -> CGSize {
-        return lastWindowSize
     }
 }
 

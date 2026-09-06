@@ -2,14 +2,15 @@
 //  MPTCPBootstrap.swift
 //  shell
 //
-//  Network.framework-backed TCP bootstrap for SSH connections, with optional
-//  Multipath TCP. Every SSH TCP connect goes through NIOTSConnectionBootstrap
-//  (NWConnection under the hood) so we get VPN on-demand triggering and
-//  VPN-scoped path evaluation — necessary for Tailscale `.ts.net` and any
-//  other on-demand NetworkExtension VPN where POSIX `connect()` to the
-//  CGNAT IPv4 is racy against WireGuard peer wake-up. The "MPTCP" name is
-//  retained for historical continuity; the user-facing toggle only controls
-//  whether `.withMultipath(.interactive)` is appended.
+//  Network.framework-backed TCP bootstrap for SSH connections. Every SSH TCP
+//  connect goes through NIOTSConnectionBootstrap (NWConnection under the hood)
+//  so we get VPN on-demand triggering and VPN-scoped path evaluation —
+//  necessary for Tailscale `.ts.net` and any other on-demand NetworkExtension
+//  VPN where POSIX `connect()` to the CGNAT IPv4 is racy against WireGuard
+//  peer wake-up. The "MPTCP" name is retained for historical continuity;
+//  Multipath TCP itself is not used, because it requires the `multipath`
+//  entitlement that the minimal entitlement set deliberately drops
+//  (spec section 8).
 //
 
 import Foundation
@@ -26,14 +27,12 @@ enum MPTCPBootstrap {
     ///
     /// `loopCount` is bumped above the default of 1: NIOSSH's
     /// `NIOSSHPrivateKeyProtocol.signature(for:)` is a synchronous API,
-    /// and the YubiKey / Apple-FIDO2 bridges in
-    /// `YubiKeyNIOSSHPrivateKey` and `AppleFIDO2NIOSSHPrivateKey`
-    /// translate that into a `DispatchSemaphore.wait()` while the
-    /// hardware-token / Face-ID prompt is on screen. With a
-    /// single-loop group, that wait stalls the event loop for the
-    /// duration of the prompt, freezing every other live SSH session
-    /// (Citadel keep-alives, in-flight channel reads, the lot).
-    /// Spreading sessions across multiple loops bounds the blast
+    /// and a Secure Enclave key signs inside it via `SecKeyCreateSignature`,
+    /// which blocks until the Face ID / Touch ID / passcode prompt guarding
+    /// the key has been dismissed. With a single-loop group, that wait
+    /// stalls the event loop for the duration of the prompt, freezing every
+    /// other live SSH session (Citadel keep-alives, in-flight channel reads,
+    /// the lot). Spreading sessions across multiple loops bounds the blast
     /// radius: only sessions that happen to land on the blocked loop
     /// stall, others continue to drive their channels normally.
     private static let tsEventLoopGroup: NIOTSEventLoopGroup = {
@@ -41,12 +40,6 @@ enum MPTCPBootstrap {
         let loopCount = max(2, min(cores, 4))
         return NIOTSEventLoopGroup(loopCount: loopCount)
     }()
-
-    /// Multipath TCP is off in this fork: it needs the `multipath` entitlement,
-    /// which the minimal entitlement set deliberately drops (spec section 8).
-    /// The bootstrap is still the single connect path so every session gets a
-    /// raw `Channel` handle.
-    static var isEnabled: Bool { false }
 
     private static var shouldForceIPv4: Bool {
         SettingsStore.shared.value(Settings.Connections.forceIPv4)
@@ -62,9 +55,9 @@ enum MPTCPBootstrap {
     /// Callers are responsible for pre-resolving CGNAT/`.local` hostnames to an
     /// IPv4 literal before invoking this function (see CitadelSSHSession and
     /// SSHConnectionHelper). Passing an IP literal disables NWConnection's
-    /// Happy Eyeballs v2, which is what we want — Mosh's UDP hole-puncher binds
-    /// its local socket to the same address family as the SSH session, so a
-    /// silent IPv6-ULA preference here would regress Mosh-over-Tailscale.
+    /// Happy Eyeballs v2, which is what we want — the connection then uses
+    /// exactly the address the caller resolved, with no silent IPv6-ULA
+    /// preference.
     static func connectPlainChannel(
         host: String,
         port: Int,
@@ -72,13 +65,7 @@ enum MPTCPBootstrap {
     ) async throws -> Channel {
         var bootstrap = NIOTSConnectionBootstrap(group: tsEventLoopGroup)
             .connectTimeout(timeout)
-        let mode: String
-        if isEnabled {
-            bootstrap = bootstrap.withMultipath(.interactive)
-            mode = "niots+multipath"
-        } else {
-            mode = "niots"
-        }
+        let mode = "niots"
         if shouldForceIPv4 && !isIPv6Literal(host) {
             bootstrap = bootstrap.configureNWParameters { parameters in
                 if let ipOptions = parameters.defaultProtocolStack.internetProtocol as? NWProtocolIP.Options {

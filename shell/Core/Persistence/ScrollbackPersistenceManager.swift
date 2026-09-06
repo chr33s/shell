@@ -72,6 +72,50 @@ final class ScrollbackPersistenceManager {
         scrollbackDirectory.appendingPathComponent("\(uuid.uuidString).atprompt.enc")
     }
 
+    // MARK: - Encryption Key Access
+
+    /// The scrollback encryption key for one save/restore, or `nil` when it
+    /// cannot be obtained *without putting the existing key at risk*.
+    ///
+    /// Every path in this file goes through here. `ScrollbackEncryptionManager`
+    /// mints **and upserts** a fresh key whenever the Keychain answers "item not
+    /// found" — and that answer is not exclusive to a first run. The key is
+    /// stored `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`, so while
+    /// protected data is unavailable (before the first unlock after a reboot, or
+    /// shortly after the screen locks) the item is simply invisible to
+    /// `SecItemCopyMatching`, which reports `errSecItemNotFound` —
+    /// indistinguishable from "no key yet". Minting then overwrites the real key
+    /// (`KeychainManager.saveScrollbackEncryptionKey` upserts: `SecItemAdd` ->
+    /// `errSecDuplicateItem` -> `SecItemUpdate`) and permanently orphans every
+    /// existing `<uuid>.ansi.enc`, which the restore path used to delete as
+    /// "corrupted". One transient lock window would have cost the user every
+    /// saved scrollback, silently.
+    ///
+    /// So: never go near the key while protected data is unavailable, and treat
+    /// a key-read failure as "not now", never as "no key". Callers fail closed —
+    /// skip this save/restore, change nothing on disk, and let the next periodic
+    /// tick or the next restore attempt succeed once the device is unlocked.
+    /// This matches the `ProtectedDataGuard.isAvailable` gate used before every
+    /// other protected-data read in the app (`SettingsStore.bootstrap`,
+    /// `SSHKeyManager`, `SSHIdentityMetadataStore.metadata`).
+    private func encryptionKeyIfAvailable(_ reason: String) -> SymmetricKey? {
+        guard ProtectedDataGuard.isAvailable else {
+            Self.logger.warning(
+                "\(reason, privacy: .public): protected data unavailable — skipping, key left untouched")
+            return nil
+        }
+        do {
+            return try ScrollbackEncryptionManager.shared.getKey()
+        } catch {
+            // The manager already refuses to rotate on a failed read and
+            // rethrows; failing closed here is what keeps that promise at the
+            // call site instead of turning it into a deleted file.
+            Self.logger.warning(
+                "\(reason, privacy: .public): scrollback key unavailable — skipping: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
     // MARK: - Init
 
     private init() {
@@ -373,12 +417,9 @@ final class ScrollbackPersistenceManager {
         guard Self.isEnabled else { return }
         let refs = gatherTerminalRefs()
         guard !refs.isEmpty else { return }
-        let key: SymmetricKey
-        do {
-            key = try ScrollbackEncryptionManager.shared.getKey()
-        } catch {
-            let msg = error.localizedDescription
-            Self.logger.warning("periodicSave: key fetch failed, skipping: \(msg)")
+        // Fail closed: no key right now means skip this tick entirely. It must
+        // never mean "mint a new one" — see `encryptionKeyIfAvailable`.
+        guard let key = encryptionKeyIfAvailable("periodicSave") else {
             Self.clearInFlightSurfaces(refs)
             return
         }
@@ -395,6 +436,15 @@ final class ScrollbackPersistenceManager {
         guard let ref = registeredTerminals[uuid],
               let terminal = ref.terminal,
               let surface = terminal.surface else { return }
+
+        // Resolve the key *before* dumping anything. This used to happen
+        // implicitly inside `ScrollbackEncryptionManager.shared.encrypt(_:)`,
+        // where a key-unavailable Keychain read could be read as "first run"
+        // and mint a replacement over the key that still protects the files on
+        // disk. Fail closed instead: skip this save and retry on the next
+        // debounce/periodic tick once protected data is back.
+        // See `encryptionKeyIfAvailable`.
+        guard let key = encryptionKeyIfAvailable("saveScrollback") else { return }
 
         // Check if the local shell is at a prompt (for seamless restore)
         let isAtPrompt: Bool = {
@@ -449,9 +499,9 @@ final class ScrollbackPersistenceManager {
         let encryptedData: Data
         let encryptedAtPromptFlag: Data?
         do {
-            encryptedData = try ScrollbackEncryptionManager.shared.encrypt(data)
+            encryptedData = try ScrollbackEncryptionManager.encrypt(data, using: key)
             encryptedAtPromptFlag = isAtPrompt
-                ? try ScrollbackEncryptionManager.shared.encrypt(Data([1]))
+                ? try ScrollbackEncryptionManager.encrypt(Data([1]), using: key)
                 : nil
         } catch {
             Self.logger.warning("Encryption failed for \(uuid.uuidString.prefix(8)), skipping save: \(error.localizedDescription)")
@@ -536,6 +586,20 @@ final class ScrollbackPersistenceManager {
 
         // Try encrypted file first
         if FileManager.default.fileExists(atPath: encryptedURL.path) {
+            // A key we cannot fetch right now is NOT a corrupt file. Asking for
+            // it here, through the guard, instead of letting `decrypt` fetch it
+            // implicitly: a locked device or a failed Keychain read now aborts
+            // the restore with the ciphertext intact, where before it produced a
+            // freshly minted key, an `AES.GCM` authentication failure, and then
+            // the deletion below — the user's scrollback destroyed by a screen
+            // lock. (A genuine first run can still mint, but there is no key and
+            // nothing decryptable to lose in that case.)
+            guard encryptionKeyIfAvailable("restoreScrollback") != nil else {
+                Self.logger.warning(
+                    "Scrollback key unavailable for \(uuid.uuidString.prefix(8)); keeping saved scrollback for a later restore")
+                return
+            }
+
             do {
                 let combined = try Data(contentsOf: encryptedURL)
                 guard !combined.isEmpty else { return }
@@ -546,6 +610,21 @@ final class ScrollbackPersistenceManager {
                 terminal.outputPipeline.writeDirect(data)
                 return
             } catch {
+                // Only a genuine ciphertext failure earns a delete. The other
+                // errors reachable here are recoverable and must leave the file
+                // alone: `Data(contentsOf:)` throws while the file itself is
+                // still protected (default
+                // `CompleteUntilFirstUserAuthentication`), and a key error would
+                // mean the key — not the data — was the problem. The guard above
+                // already warmed the manager's key cache, so `decrypt` cannot
+                // reach the Keychain again; classifying anyway keeps a future
+                // caching change from turning a key error back into data loss.
+                guard let cryptoError = error as? ScrollbackEncryptionManager.ScrollbackEncryptionError,
+                      case .decryptionFailed = cryptoError else {
+                    Self.logger.warning(
+                        "Scrollback restore failed for \(uuid.uuidString.prefix(8)) without a decryption failure; keeping file: \(error.localizedDescription)")
+                    return
+                }
                 Self.logger.warning("Decryption failed for \(uuid.uuidString.prefix(8)), deleting corrupted file: \(error.localizedDescription)")
                 try? FileManager.default.removeItem(at: encryptedURL)
                 return
@@ -564,11 +643,27 @@ final class ScrollbackPersistenceManager {
         guard let combined = try? Data(contentsOf: url), !combined.isEmpty else {
             return false
         }
-        guard let data = try? ScrollbackEncryptionManager.shared.decrypt(combined) else {
+
+        // Same fail-closed rule as `restoreScrollback`: never let a
+        // key-unavailable moment mint a key or delete the flag. `try?` here used
+        // to collapse "device is locked" into "corrupted", deleting the flag —
+        // and the `decrypt` behind it could rotate the key that still protects
+        // the matching `.ansi.enc`.
+        guard encryptionKeyIfAvailable("wasAtPrompt") != nil else { return false }
+
+        do {
+            let data = try ScrollbackEncryptionManager.shared.decrypt(combined)
+            return data.first == 1
+        } catch {
+            guard let cryptoError = error as? ScrollbackEncryptionManager.ScrollbackEncryptionError,
+                  case .decryptionFailed = cryptoError else {
+                Self.logger.warning(
+                    "At-prompt flag unreadable for \(uuid.uuidString.prefix(8)) without a decryption failure; keeping file: \(error.localizedDescription)")
+                return false
+            }
             try? FileManager.default.removeItem(at: url)
             return false
         }
-        return data.first == 1
     }
 
     // MARK: - Cleanup

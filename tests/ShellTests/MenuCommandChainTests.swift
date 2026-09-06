@@ -116,13 +116,18 @@ final class MenuCommandChainTests: XCTestCase {
     /// Sends `selector` to `UIApplication.shared` and returns every
     /// notification named `name` that arrived while it ran.
     private func notifications(named name: String, whileSending selector: Selector) -> [Notification] {
-        var received: [Notification] = []
+        // `queue: nil` delivers on the posting thread, and the only post here
+        // is the synchronous `perform` two lines down, so the box is only ever
+        // touched from this thread. `Notification` is not `Sendable`, and the
+        // observer block is, so the crossing needs an explicit box.
+        final class Received: @unchecked Sendable { var items: [Notification] = [] }
+        let received = Received()
         let token = NotificationCenter.default.addObserver(
             forName: Notification.Name(name), object: nil, queue: nil
-        ) { received.append($0) }
+        ) { received.items.append($0) }
         defer { NotificationCenter.default.removeObserver(token) }
         UIApplication.shared.perform(selector, with: nil)
-        return received
+        return received.items
     }
 
     // MARK: - The chain, end to end

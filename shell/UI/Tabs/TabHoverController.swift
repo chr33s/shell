@@ -68,6 +68,21 @@ import SwiftUI
         }
     }
 
+    /// Clear the popover immediately, skipping the 150ms hide debounce.
+    ///
+    /// Called when the system dismisses the popover itself (a tap outside it, a
+    /// scene change) rather than the pointer leaving the tab. Routing that
+    /// through `handleHover(isHovered: false)` would leave `hoveredTabId` set
+    /// for another 150ms, and the presentation binding would re-present the
+    /// popover the user just dismissed.
+    func dismiss() {
+        showTask?.cancel()
+        showTask = nil
+        hideTask?.cancel()
+        hideTask = nil
+        hoveredTabId = nil
+    }
+
     deinit {
         showTask?.cancel()
         hideTask?.cancel()

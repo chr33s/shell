@@ -37,13 +37,6 @@ struct Setting<V: SettingValue>: DynamicProperty {
             set: { wrappedValue = $0 }
         )
     }
-
-    /// True when the user has stored a value for this key.
-    var isUserSet: Bool { box.value != nil }
-
-    func reset() {
-        SettingsStore.shared.reset(key)
-    }
 }
 
 @MainActor

@@ -6,8 +6,9 @@ import Foundation
 /// escape byte (default `~`) is only recognized when it appears immediately after a
 /// newline (`\r` or `\n`), or as the very first byte of the session. The filter
 /// transforms the input byte stream and fires side-effect closures for recognized
-/// escapes (`~.`, `~?`, `~#`, `~I`). Unknown escapes (`~x`) pass through literally as
-/// `~x`, matching OpenSSH's default-case behavior.
+/// escapes (`~.`, `~?`, `~I`). Unknown escapes (`~x`) — including `~#`, since the
+/// fork has no port forwarding — pass through literally as `~x`, matching
+/// OpenSSH's default-case behavior.
 ///
 /// In addition to OpenSSH's behavior, the filter recognizes bracketed-paste
 /// boundaries (`ESC[200~` / `ESC[201~`). While inside a paste, escape detection is
@@ -17,9 +18,6 @@ import Foundation
 /// marker determines whether a subsequent `~.` (typed after the paste) triggers.
 @MainActor
 final class SSHEscapeFilter {
-    /// Whether escape processing is active. Disabled filter passes all bytes through.
-    var enabled: Bool = true
-
     /// The escape byte. Defaults to `~` (0x7E).
     var escapeChar: UInt8 = 0x7E
 
@@ -34,10 +32,6 @@ final class SSHEscapeFilter {
     /// Called when the user requested connection info via `~I`. The session should
     /// format its connection details and pass them to `onEcho`.
     var onShowConnectionInfo: (() -> Void)?
-
-    /// Called when the user requested the forwarded-connections list via `~#`.
-    /// The session should echo its forwarding state (or "none") via `onEcho`.
-    var onListForwards: (() -> Void)?
 
     /// `true` when the previous content byte was `\r` or `\n`, making the next byte
     /// a candidate for escape recognition. Paste-marker bytes do not count as
@@ -64,7 +58,6 @@ final class SSHEscapeFilter {
     /// Filter `data` and return the bytes to forward to the remote channel.
     /// Side effects (echo, disconnect) fire synchronously via the closures above.
     func filter(_ data: Data) -> Data {
-        guard enabled else { return data }
         guard !data.isEmpty else { return data }
 
         var out = Data()
@@ -117,15 +110,6 @@ final class SSHEscapeFilter {
         escapePending = false
         pasteState = .idle
     }
-
-    /// Message shown by `~#` when the session has no active port forwards.
-    static func noForwardsMessage() -> String {
-        String(
-            localized: "No forwarded connections.",
-            comment: "Response to the SSH ~# escape when there are no active port forwards"
-        ) + "\r\n"
-    }
-
 
     // MARK: - State machine
 
@@ -240,11 +224,6 @@ final class SSHEscapeFilter {
             onEcho?(Self.helpText(escapeChar: asciiEscapeCharString()))
             return true
 
-        case 0x23: // '#'
-            onEcho?("\(asciiEscapeCharString())#\r\n")
-            onListForwards?()
-            return true
-
         case 0x49: // 'I'
             onEcho?("\(asciiEscapeCharString())I\r\n")
             onShowConnectionInfo?()
@@ -283,10 +262,6 @@ final class SSHEscapeFilter {
             String(
                 localized: "  \(c)?   - this message",
                 comment: "Description of the SSH ~? escape"
-            ),
-            String(
-                localized: "  \(c)#   - list forwarded connections",
-                comment: "Description of the SSH ~# escape"
             ),
             String(
                 localized: "  \(c)I   - connection info",

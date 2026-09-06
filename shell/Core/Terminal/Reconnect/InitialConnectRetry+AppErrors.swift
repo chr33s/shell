@@ -2,10 +2,8 @@
 //  InitialConnectRetry+AppErrors.swift
 //  shell
 //
-//  Main-app-only extension layering app error types (SSHError, SSHJumpError,
-//  onto the shared `isPermanentConnectError` base. Lives in the
-//  main app target only — the VPN extension uses the shared base classifier
-//  directly because it doesn't see these types.
+//  Extension layering app error types (HostKeyRejectedError, SSHError,
+//  SSHJumpError) onto the shared `isPermanentConnectError` base.
 //
 
 import Foundation
@@ -27,11 +25,12 @@ extension InitialConnectRetry {
         if let ssh = error as? SSHError, ssh.isAuthenticationRelated { return true }
 
         if let jump = error as? SSHJumpError {
+            // Exhaustive on purpose, with no `default`: both cases are permanent,
+            // and a new one must be classified deliberately rather than inheriting
+            // "retryable" by omission.
             switch jump {
             case .authenticationFailed, .hostKeyRejected:
                 return true
-            default:
-                return false
             }
         }
 

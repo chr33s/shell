@@ -208,37 +208,3 @@ enum KeybindSource: String, Codable, Sendable {
     /// From external ghostty config file
     case externalConfig = "external_config"
 }
-
-// MARK: - Keybind Set Operations
-
-extension Array where Element == Keybind {
-    /// Find keybind by action
-    func binding(for action: KeybindAction) -> Keybind? {
-        first { $0.action == action }
-    }
-
-    /// Find keybind by sequence
-    func binding(for sequence: KeySequence) -> Keybind? {
-        first { $0.sequence == sequence }
-    }
-
-    /// Find keybind by first trigger (for sequence lookup)
-    func bindings(startingWith trigger: KeyTrigger) -> [Keybind] {
-        filter { $0.sequence.matchesPrefix(trigger) }
-    }
-
-    /// Group bindings by category
-    func grouped() -> [KeybindCategory: [Keybind]] {
-        Dictionary(grouping: self) { $0.action.category }
-    }
-
-    /// Sort by action display name
-    func sortedByName() -> [Keybind] {
-        sorted { $0.action.displayName < $1.action.displayName }
-    }
-
-    /// Filter to show only customizable actions
-    func customizable() -> [Keybind] {
-        filter { KeybindAction.customizableActions.contains($0.action) }
-    }
-}

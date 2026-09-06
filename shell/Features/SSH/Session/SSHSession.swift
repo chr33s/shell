@@ -172,10 +172,6 @@ final class SSHSession: SSHTerminalSession {
             guard let self else { return }
             self.onOutput?(self.formatConnectionInfoForEcho())
         }
-        escapeFilter.onListForwards = { [weak self] in
-            // NIOSSH SSHSession doesn't manage port forwards — always report none.
-            self?.onOutput?(SSHEscapeFilter.noForwardsMessage())
-        }
     }
 
     private func formatConnectionInfoForEcho() -> String {
@@ -623,7 +619,7 @@ final class SSHSession: SSHTerminalSession {
             return
         }
 
-        // Apply OpenSSH-style escape-character filtering (~. ~? ~# ~I ~~).
+        // Apply OpenSSH-style escape-character filtering (~. ~? ~I ~~).
         // Unknown and unsupported escapes fall through as literal bytes.
         let filtered = escapeFilter.filter(data)
         guard !filtered.isEmpty else { return }

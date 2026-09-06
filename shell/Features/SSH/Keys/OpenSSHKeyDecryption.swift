@@ -37,7 +37,6 @@ nonisolated enum OpenSSH {
         case invalidCheck
         case unsupportedCipher(String)
         case unsupportedKDF(String)
-        case encryptedKeysRequireCitadel
 
         var errorDescription: String? {
             switch self {
@@ -53,8 +52,6 @@ nonisolated enum OpenSSH {
                 return "Unsupported cipher: \(cipher)"
             case .unsupportedKDF(let kdf):
                 return "Unsupported KDF: \(kdf)"
-            case .encryptedKeysRequireCitadel:
-                return "Encrypted RSA keys are not yet fully supported. Please use an unencrypted RSA key for now."
             }
         }
     }
@@ -128,6 +125,16 @@ nonisolated enum OpenSSH {
         ) throws -> T {
             switch self {
             case .none:
+                // A "none" KDF only makes sense with a "none" cipher. Callers invoke this
+                // only when `cipher != .none`, so an openssh-key-v1 header claiming e.g.
+                // `aes256-ctr` with kdfname `none` previously handed BoringSSL's
+                // EVP_CipherInit a zero-length key/IV array, making it read 32 key bytes
+                // and 16 IV bytes past a zero-length allocation. OpenSSH rejects that
+                // header combination as invalid; fail closed here instead of deriving no
+                // key material at all.
+                guard cipher == .none else {
+                    throw KeyError.unsupportedKDF("none")
+                }
                 return try perform([], [])
             case .bcrypt(var salt, let iterations):
                 // Ensure bcrypt's SHA512 function pointer is initialized
@@ -166,15 +173,6 @@ nonisolated enum OpenSSH {
                 }
             }
         }
-    }
-
-    /// SSH key type identifiers
-    enum KeyType: String {
-        case sshRSA = "ssh-rsa"
-        case sshED25519 = "ssh-ed25519"
-        case ecdsaSHA2nistp256 = "ecdsa-sha2-nistp256"
-        case ecdsaSHA2nistp384 = "ecdsa-sha2-nistp384"
-        case ecdsaSHA2nistp521 = "ecdsa-sha2-nistp521"
     }
 }
 
@@ -226,20 +224,6 @@ nonisolated extension OpenSSH.KDF {
 
             self = .bcrypt(salt: salt, iterations: iterations)
         }
-    }
-}
-
-nonisolated extension OpenSSH.KeyType {
-    init(consuming buffer: inout ByteBuffer) throws {
-        guard let keyTypeString = buffer.readSSHString() else {
-            throw OpenSSH.KeyError.cryptoError
-        }
-
-        guard let keyType = OpenSSH.KeyType(rawValue: keyTypeString) else {
-            throw OpenSSH.KeyError.cryptoError
-        }
-
-        self = keyType
     }
 }
 

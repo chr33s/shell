@@ -40,7 +40,10 @@ enum ConnectionKeyResolver {
     /// - Parameters:
     ///   - config: The SSH config with potentially unresolvable key UUIDs
     ///   - profileID: Optional profile UUID (for device override lookup)
-    ///   - connectionIdentity: Optional connection identity string (for QuickConnect overrides)
+    ///   - connectionIdentity: Connection identity string to look the device
+    ///     override up under when there is no profile. Defaults to the config's
+    ///     own `connectionIdentity`, so a QuickConnect caller that has nothing
+    ///     but a config still finds the override the key-resolution sheet saved.
     /// - Returns: Resolution result with either a fully-resolved config or unresolved key info
     static func resolve(
         config: SSHConfig,
@@ -52,14 +55,20 @@ enum ConnectionKeyResolver {
         let overrideManager = DeviceKeyOverrideManager.shared
         let keyManager = SSHKeyManager.shared
 
-        // Look up device override
+        // Look up device override. A saved profile keys its override by UUID;
+        // everything else — QuickConnect, deep links, history — has no UUID and
+        // keys off the connection's own identity. Deriving that identity here
+        // when the caller did not supply one is what makes "Always use on this
+        // device" work for `ssh me@host`: the caller only ever has a config,
+        // and the same `config.connectionIdentity` is what `KeyResolutionSheet`
+        // wrote the override under.
         let deviceOverride: DeviceKeyOverride?
         if let profileID {
             deviceOverride = overrideManager.override(forProfile: profileID)
-        } else if let connectionIdentity {
-            deviceOverride = overrideManager.override(forConnectionIdentity: connectionIdentity)
         } else {
-            deviceOverride = nil
+            deviceOverride = overrideManager.override(
+                forConnectionIdentity: connectionIdentity ?? config.connectionIdentity
+            )
         }
 
         // Resolve target key

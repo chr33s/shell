@@ -345,6 +345,15 @@ struct TabBar: View {
     /// @State persists across menu presentations.
     @State private var tmuxDialogs = TmuxTabDialogCoordinator()
 
+    /// Debounced pointer-hover state for the connection-health popover.
+    ///
+    /// Owned here rather than in MainView because this is the only layer that
+    /// can read it: the popover attaches to `TabBarItem`, and the health dot it
+    /// details is drawn by `TabButton`. MainView still receives every hover
+    /// through `onTabHover` (its own controller instance is now write-only and
+    /// can be retired — see the note in the unfinished-features run).
+    @State private var tabHover = TabHoverController()
+
     /// Gates the attention dot on tabs. (id=agent-attention)
 
     // MARK: - Body
@@ -485,13 +494,20 @@ struct TabBar: View {
             style: style,
             tabWidth: tabWidth,
             hasThemeOverride: tabHasThemeOverride(tab.id),
+            // Drives the connection-health popover. Compared in `==` so a hover
+            // that moves between tabs re-renders both the outgoing and the
+            // incoming item; without it the equality short-circuit would leave
+            // the popover attached to the tab the pointer just left.
+            isHealthPopoverPresented: tabHover.hoveredTabId == tab.id,
             onTap: {
                 if !isOnly { onSelectTab(index) }
             },
             onClose: { onCloseTab(index) },
             onHover: { isHovered in
+                tabHover.handleHover(tabId: tab.id, isHovered: isHovered)
                 onTabHover(tab.id, isHovered)
             },
+            onDismissHealthPopover: { tabHover.dismiss() }
         )
     }
 
@@ -763,7 +779,10 @@ struct TabBar: View {
                 availableWidth: max(0, availableWidth - activeScopeMenuWidth),
                 item: sizingItem(for: tab, index: rawIndex, gatewayOwnerIDs: gatewayOwnerIDs),
                 title: tab.title,
-                showHealthIndicator: sshHealthMonitoringEnabled && tab.connectionHealth?.quality == .poor,
+                // `quality` is RTT-derived only, so packet loss never surfaced the dot and the
+                // escalation half of `indicatorQuality` was unreachable. `indicatorQuality`
+                // counts a nil-RTT sample as poor and debounces 2-of-3.
+                showHealthIndicator: sshHealthMonitoringEnabled && tab.connectionHealth?.indicatorQuality == .poor,
                 healthRTTMilliseconds: tab.connectionHealth?.rttMilliseconds
             )
             let resolvedWidth = tabWidth > 0 ? tabWidth : fallbackWidth
@@ -1208,9 +1227,17 @@ struct TabBarItem: View, Equatable {
     let style: TopTabStyle
     let tabWidth: CGFloat
     let hasThemeOverride: Bool
+    /// True while `TabHoverController` has this tab as the hovered one. Gates
+    /// the connection-health popover, which is the only shipping reader of the
+    /// RTT / packet-loss / sample counts `ConnectionHealthMonitor` measures on
+    /// every probe.
+    let isHealthPopoverPresented: Bool
     let onTap: () -> Void
     let onClose: () -> Void
     let onHover: (Bool) -> Void
+    /// The system dismissed the popover (tap outside, scene change) rather than
+    /// the pointer leaving — clear the hover state immediately.
+    let onDismissHealthPopover: () -> Void
 
     // Equality gates *parent-driven* re-evaluation only (a selection change
     // re-runs the whole ForEach and reconstructs every TabBarItem with fresh
@@ -1233,6 +1260,7 @@ struct TabBarItem: View, Equatable {
             && lhs.isOnly == rhs.isOnly
             && lhs.isWiggling == rhs.isWiggling
             && lhs.hasThemeOverride == rhs.hasThemeOverride
+            && lhs.isHealthPopoverPresented == rhs.isHealthPopoverPresented
             && lhs.keyboardShortcut == rhs.keyboardShortcut
             && lhs.sshHealthMonitoringEnabled == rhs.sshHealthMonitoringEnabled
             && lhs.usesTitlebarTabs == rhs.usesTitlebarTabs
@@ -1252,6 +1280,9 @@ struct TabBarItem: View, Equatable {
     }
 
     var body: some View {
+        // Hoisted so the popover and the indicator read the same snapshot. Both
+        // reads register on this instance's Observation scope, as before.
+        let health = tab.connectionHealth
         TabButton(
             id: tab.id,
             title: tab.title,
@@ -1269,9 +1300,9 @@ struct TabBarItem: View, Equatable {
             onTap: onTap,
             onClose: onClose,
             isWiggling: isWiggling,
-            connectionHealth: tab.connectionHealth,
+            connectionHealth: health,
             showHealthIndicator: sshHealthMonitoringEnabled
-                && tab.connectionHealth?.quality == .poor,
+                && health?.indicatorQuality == .poor,
             keyboardShortcut: keyboardShortcut,
             onHoverChange: onHover,
             trackFrame: usesTitlebarTabs,
@@ -1282,5 +1313,29 @@ struct TabBarItem: View, Equatable {
             tabWidth: tabWidth,
             usesTitlebarTabs: usesTitlebarTabs
         )
+        // The presenter the health monitor never had. `ConnectionHealthMonitor`
+        // computes RTT, packet loss, sample counts and the last-reply timestamp
+        // on every probe; before this, the only thing that reached the user was
+        // the red dot at `indicatorQuality == .poor`, and hovering it did
+        // nothing. Gated on the same setting as the dot, and on health data
+        // existing at all, so local-shell tabs never present an empty card.
+        .popover(
+            isPresented: Binding(
+                get: { isHealthPopoverPresented && sshHealthMonitoringEnabled && health != nil },
+                set: { presented in
+                    if !presented { onDismissHealthPopover() }
+                }
+            ),
+            attachmentAnchor: .rect(.bounds),
+            arrowEdge: .bottom
+        ) {
+            if let health {
+                ConnectionHealthPopover(health: health)
+                    // Never let this become a sheet on a compact width: it is a
+                    // pointer affordance, and a modal card over the terminal is
+                    // not what hovering a tab should do.
+                    .presentationCompactAdaptation(.popover)
+            }
+        }
     }
 }

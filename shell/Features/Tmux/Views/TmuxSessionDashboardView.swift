@@ -502,12 +502,28 @@ struct TmuxSessionDashboardView: View {
             return
         }
         expandedSessionIds.insert(session.id)
-        guard windowsBySession[session.id] == nil else { return }
+        // Re-query even when a list is already cached: refresh() only reloads
+        // EXPANDED sessions, so a collapsed row's cache goes stale and used to
+        // be redisplayed as-is on re-expand. The cached list stays on screen
+        // (no spinner flash) until the fresh reply lands.
         Task { @MainActor in
             do {
                 windowsBySession[session.id] = try await controller.listWindows(sessionId: session.id)
+            } catch TmuxCommandError.gatewayEnded {
+                dismiss()
             } catch {
-                windowsBySession[session.id] = []
+                // Never cache a failure as `[]`: that is exactly what a
+                // genuinely empty session produces, so the row rendered "No
+                // windows" with no error, and because windowsBySession is the
+                // only cache the wrong value stuck for the life of the sheet
+                // (re-expanding short-circuited on the non-nil entry). Leave
+                // the key absent so a later expand retries, and surface the
+                // failure the way every other path in this view does.
+                if windowsBySession[session.id] == nil {
+                    // Nothing to show, so don't leave a permanent spinner.
+                    expandedSessionIds.remove(session.id)
+                }
+                errorMessage = error.localizedDescription
             }
         }
     }
@@ -591,7 +607,12 @@ struct TmuxSessionDashboardView: View {
                     windowsBySession.removeValue(forKey: id)
                     continue
                 }
-                windowsBySession[id] = (try? await controller.listWindows(sessionId: id)) ?? []
+                // A transient listWindows failure must not blank an already
+                // good list (`?? []` used to render it as "No windows"); keep
+                // the last known windows until a query actually succeeds.
+                if let windows = try? await controller.listWindows(sessionId: id) {
+                    windowsBySession[id] = windows
+                }
             }
         } catch TmuxCommandError.gatewayEnded {
             dismiss()

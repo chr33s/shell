@@ -58,6 +58,19 @@ struct SyncableFileStore<T: SyncableRecord> {
         return decoder
     }()
 
+    /// How long a soft-deleted record's file is kept before it is removed.
+    ///
+    /// The tombstone is the only thing on this device that says the record is
+    /// gone. Drop it while another device is still offline holding a live copy
+    /// and the next fetch re-adopts that copy as a brand-new record — for
+    /// `known_hosts` that means silently re-trusting a host key the user
+    /// deliberately removed, so the window has to be generous. Ninety days is
+    /// past any plausible period a second device sits unopened (a phone left in
+    /// a drawer for a season) and past CloudKit's own change-token horizon,
+    /// after which a returning device re-fetches the zone from scratch and
+    /// re-learns the deletion from the server copy of the tombstone.
+    nonisolated static var tombstoneRetention: TimeInterval { 90 * 24 * 60 * 60 }
+
     /// Initialize a new file store
     /// - Parameter storeName: Name of the store (used for directory name)
     init(storeName: String) {
@@ -71,6 +84,7 @@ struct SyncableFileStore<T: SyncableRecord> {
 
         createDirectoryIfNeeded()
         loadAllRecords()
+        purgeExpiredTombstones()
     }
 
     // MARK: - Public API
@@ -144,7 +158,11 @@ struct SyncableFileStore<T: SyncableRecord> {
 
         record.isDeleted = true
         record.modifiedAt = Date()
-        try save(record, updateTimestamp: false)
+        // notifySync: false — the explicit .delete notification below is the single
+        // notification for this deletion. Leaving save's default (true) fired an
+        // extra .update for the same tombstone, so one delete issued two concurrent
+        // CloudKit saves of the same record.
+        try save(record, updateTimestamp: false, notifySync: false)
 
         Self.logger.info("Soft deleted record \(id.uuidString) from \(storeName)")
         onLocalChange?(record, .delete)
@@ -177,15 +195,19 @@ struct SyncableFileStore<T: SyncableRecord> {
         var updatedCount = 0
 
         for remote in remoteRecords {
+            // notifySync: false — these records came FROM the remote. Notifying
+            // would push each fetched record straight back to CloudKit, bumping
+            // server change tags and invalidating every other device's zone
+            // change token.
             if let local = records[remote.id] {
                 // Last-write-wins
                 if remote.modifiedAt > local.modifiedAt {
-                    try save(remote, updateTimestamp: false)
+                    try save(remote, updateTimestamp: false, notifySync: false)
                     updatedCount += 1
                 }
             } else {
                 // New record from remote
-                try save(remote, updateTimestamp: false)
+                try save(remote, updateTimestamp: false, notifySync: false)
                 updatedCount += 1
             }
         }
@@ -201,15 +223,46 @@ struct SyncableFileStore<T: SyncableRecord> {
     mutating func purgeTombstones(olderThan date: Date) throws -> Int {
         let storeName = self.storeName
         let toPurge = records.values.filter { $0.isDeleted && $0.modifiedAt < date }
+        guard !toPurge.isEmpty else { return 0 }
         var purgedCount = 0
 
         for record in toPurge {
-            try hardDelete(id: record.id)
-            purgedCount += 1
+            do {
+                try hardDelete(id: record.id)
+                purgedCount += 1
+            } catch {
+                // One file the OS will not unlink (a TCC denial on the
+                // non-sandboxed macOS build, say) must not strand every
+                // later tombstone behind it; the next launch retries.
+                let recordIDString = record.id.uuidString
+                let desc = error.localizedDescription
+                Self.logger.error("Failed to purge tombstone \(storeName)/\(recordIDString): \(desc)")
+            }
         }
 
         Self.logger.info("Purged \(purgedCount) tombstones from \(storeName)")
         return purgedCount
+    }
+
+    /// Drop tombstone files that have outlived `tombstoneRetention`.
+    ///
+    /// Runs once per store at launch, which is where each of the three
+    /// managers builds its store. Without it every profile, known host and
+    /// identity the user has ever deleted stays on disk — and in `allRecords`,
+    /// the set pushed to CloudKit — for the life of the install.
+    ///
+    /// Deliberately local only: the CloudKit copy of the tombstone is left
+    /// alone. It is a few hundred bytes, it is the durable record of the
+    /// deletion, and it is what re-deletes the record on a device that
+    /// reappears after any offline period. Removing it server-side is the one
+    /// change that could resurrect a deleted profile or host key, so a purged
+    /// record that comes back on a full re-fetch comes back as a tombstone and
+    /// is dropped again on the next launch.
+    private mutating func purgeExpiredTombstones() {
+        // A failed listing left `records` empty; there is nothing to purge and
+        // nothing to conclude from the emptiness.
+        guard !lastLoadFailed else { return }
+        _ = try? purgeTombstones(olderThan: Date().addingTimeInterval(-Self.tombstoneRetention))
     }
 
     /// Reload all records from disk
@@ -283,39 +336,23 @@ struct SyncableFileStore<T: SyncableRecord> {
     }
 
     private func writeAtomically(data: Data, to url: URL) throws {
-        let tempURL = url.deletingLastPathComponent()
-            .appendingPathComponent(".\(UUID().uuidString).tmp")
-
-        try data.write(to: tempURL, options: [.atomic])
-
-        // Atomic rename
-        if FileManager.default.fileExists(atPath: url.path) {
-            try FileManager.default.removeItem(at: url)
-        }
-        try FileManager.default.moveItem(at: tempURL, to: url)
+        // `.atomic` writes a sibling temp file and renames it over the
+        // destination in one step. The previous implementation wrote its own
+        // hidden `.<uuid>.tmp`, then removed the destination and moved the temp
+        // into place: a crash (or a throwing move) between the unlink and the
+        // rename left the record on disk only under a hidden name that
+        // loadAllRecords skips, permanently losing a host-key trust entry,
+        // identity metadata or a connection profile. Do not reintroduce the
+        // remove/move dance.
+        try data.write(to: url, options: [.atomic])
     }
 }
 
 // MARK: - Convenience Extensions
 
 extension SyncableFileStore {
-    /// Check if a record exists
-    func contains(id: UUID) -> Bool {
-        records[id] != nil
-    }
-
-    /// Count of all records (including deleted)
-    var totalCount: Int {
-        records.count
-    }
-
     /// Count of active (non-deleted) records
     var activeCount: Int {
         records.values.filter { !$0.isDeleted }.count
-    }
-
-    /// Count of deleted records (tombstones)
-    var tombstoneCount: Int {
-        records.values.filter { $0.isDeleted }.count
     }
 }

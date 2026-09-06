@@ -41,9 +41,6 @@ enum TerminalTypeSettings: Sendable {
         #endif
     }
 
-    nonisolated static let localKey = "terminalTypeLocal"
-    nonisolated static let remoteKey = "terminalTypeRemote"
-
     /// Path to the bundled terminfo database, exported as `TERMINFO` so
     /// `xterm-ghostty` resolves. ncurses searches `TERMINFO` first and then
     /// falls through to the system database, so pointing at a directory that

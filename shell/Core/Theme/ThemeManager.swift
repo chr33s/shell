@@ -23,7 +23,7 @@ final class ThemeManager {
     /// `initializeWithCopy for ThemeManager.ThemeInfo` →
     /// `Array.subscript.read` during a scene-update transaction. Each
     /// `availableThemes[i]` access copied the
-    /// struct (URL + ThemeColors with palette array). Reference semantics
+    /// struct (ThemeColors with its palette array). Reference semantics
     /// reduce per-access cost to a refcount op and remove the bridging
     /// `_ContiguousArrayStorage` paths the crash log captured. All properties
     /// remain `let`, so behavioral semantics are unchanged.
@@ -31,11 +31,8 @@ final class ThemeManager {
         let id: String  // same as name
         let name: String
         let displayName: String
-        let family: String
-        let filePath: URL
         let colors: ThemeColors
         let isLight: Bool  // Pre-computed based on background luminance
-        let isCustom: Bool
 
         /// The stored properties and memberwise init are `nonisolated` so the
         /// background theme parse can build these off the main thread. The
@@ -99,32 +96,13 @@ final class ThemeManager {
         }
 
         /// `nonisolated`: built off the main thread by the background theme parse.
-        nonisolated init(name: String, filePath: URL, colors: ThemeColors, isCustom: Bool = false) {
+        nonisolated init(name: String, colors: ThemeColors) {
             self.id = name
             self.name = name
             self.displayName = name
-            self.family = ThemeInfo.extractFamily(from: name)
-            self.filePath = filePath
             self.colors = colors
-            self.isCustom = isCustom
             // Compute isLight based on background luminance (threshold 0.5)
             self.isLight = Color(hex: colors.background)?.luminance ?? 0 > 0.5
-        }
-
-        /// Extract theme family from name
-        /// Examples: "Blackboard Dark" -> "Blackboard", "Dracula" -> "Dracula"
-        nonisolated static func extractFamily(from name: String) -> String {
-            // Common patterns for theme families
-            let components = name.split(separator: " ")
-
-            // If only one word, that's the family
-            if components.count == 1 {
-                return name
-            }
-
-            // For multi-word names, use first word as family
-            // This handles: "Blackboard Dark", "Blackboard Light", etc.
-            return String(components[0])
         }
 
         static func == (lhs: ThemeInfo, rhs: ThemeInfo) -> Bool {
@@ -149,9 +127,8 @@ final class ThemeManager {
     /// `MainView+TabBarStyling` calls `themeInfo(for:)` per body evaluation.
     @ObservationIgnored private var unresolvableThemeNames: Set<String> = []
 
-    /// Built-in themes from the background load, retained so `reloadThemes()`
-    /// can re-merge custom themes without re-parsing the whole bundle. `nil`
-    /// until that load lands.
+    /// Built-in themes from the background load, retained so the catalog can be
+    /// rebuilt without re-parsing the whole bundle. `nil` until that load lands.
     @ObservationIgnored private var builtInThemes: [ThemeInfo]?
 
     /// The in-flight (or finished) off-main-thread parse. Retained so cold paths
@@ -229,24 +206,17 @@ final class ThemeManager {
             return nil
         }
 
-        let info = ThemeInfo(name: name, filePath: url, colors: colors)
+        let info = ThemeInfo(name: name, colors: colors)
         themesByName[name] = info
         return info
     }
 
-    /// Path for a bundled theme. Names reach us from persisted UserDefaults
-    /// (tab/window overrides), so reject path traversal.
+    /// Path for a bundled theme. Names reach us from the persisted
+    /// `selectedTheme` preference, so reject path traversal.
     private func builtInThemeURL(for name: String) -> URL? {
         guard let themesDirectory, !name.isEmpty, name != "..",
               !name.contains("/"), !name.contains("\\") else { return nil }
         return themesDirectory.appendingPathComponent(name)
-    }
-
-    /// Whether a bundled theme file with this name exists. One `stat`, so callers
-    /// that only need an existence answer don't have to wait for the catalog.
-    func builtInThemeExists(named name: String) -> Bool {
-        guard let url = builtInThemeURL(for: name) else { return false }
-        return FileManager.default.fileExists(atPath: url.path)
     }
 
     /// Await the full catalog. Only the views that render the entire theme list
@@ -256,19 +226,6 @@ final class ThemeManager {
     func ensureThemesLoaded() async {
         guard builtInThemes == nil, let builtInLoad else { return }
         applyLoadedThemes(await builtInLoad.value)
-    }
-
-    /// Reload the built-in theme catalog.
-    func reloadThemes() {
-        // Drop the lazy caches so renamed/edited custom themes aren't served stale.
-        themesByName.removeAll()
-        unresolvableThemeNames.removeAll()
-        guard builtInThemes != nil else {
-            // Still parsing; that load will merge the new custom themes when it lands.
-            Task { await ensureThemesLoaded() }
-            return
-        }
-        rebuildCatalog()
     }
 
     // MARK: - Theme Loading
@@ -329,7 +286,7 @@ final class ThemeManager {
             guard (try? fileURL.resourceValues(forKeys: Set(keys)))?.isRegularFile == true else { continue }
             // The file name is the theme name.
             let colors = parseThemeFile(at: fileURL) ?? .default
-            themes.append(ThemeInfo(name: fileURL.lastPathComponent, filePath: fileURL, colors: colors))
+            themes.append(ThemeInfo(name: fileURL.lastPathComponent, colors: colors))
         }
         return themes
     }
@@ -355,7 +312,7 @@ final class ThemeManager {
         rebuildCatalog()
     }
 
-    /// Merge custom themes over the built-ins and publish the result.
+    /// Sort the built-ins, index them by name and publish the result.
     private func rebuildCatalog() {
         guard let builtIn = builtInThemes else { return }
 

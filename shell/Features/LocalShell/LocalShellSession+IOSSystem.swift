@@ -423,14 +423,6 @@ extension LocalShellSession {
         let sessionPtr = IOSSystemSessionKey.key(for: self.sessionID)
         ios_switchSession(sessionPtr)
 
-        // Refresh custom display username before each command (picks up settings changes)
-        let customUsername = UserPreferences.effectiveUsername
-        if customUsername != NSUserName() {
-            ios_setenv("ROOTSHELL_USERNAME", customUsername, 1)
-        } else {
-            ios_unsetenv("ROOTSHELL_USERNAME")
-        }
-
         // Redirect ios_system I/O to pipes. stdout and stderr get distinct
         // streams so top-level `2>` redirections can actually separate them —
         // both drain into the same batcher, so on-screen output is unchanged.

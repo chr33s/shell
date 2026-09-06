@@ -3,10 +3,10 @@
 //  shell
 //
 //  Shared helpers for deriving display/storage forms from a NIOSSHPublicKey.
-//  Used by both the host-key validation delegate and the host-CA manager so
-//  fingerprints and key blobs are computed identically everywhere (the cert
-//  fallback path compares against stored KnownHost fingerprints, so they must
-//  match byte-for-byte).
+//  Used by CitadelHostKeyValidatorDelegate for host-key validation and by
+//  SSHUserCertificateParser for OpenSSH user certificates, so fingerprints and
+//  key blobs are computed identically everywhere (host-key values are compared
+//  against stored KnownHost fingerprints, so they must match byte-for-byte).
 //
 
 import Foundation

@@ -158,7 +158,18 @@ enum LocalShellBanner {
     /// Built-in shell commands suggested in the banner.
     /// Trailing entries are dropped first when the terminal is too narrow.
     /// The list shrinks all the way to a single command if needed.
-    private static let commandHints = ["help", "ls", "cd", "git", "vim", "grep", "curl", "mtr"]
+    ///
+    /// Every entry MUST be something this fork can actually run: a builtin, `SELF`,
+    /// or a command whose `commandDictionary.plist` entry points at a framework we
+    /// link (awk / files / ios_system / shell / text). The upstream list suggested
+    /// `git`, `vim`, `curl` and `mtr`: git and mtr map to `MAIN` (which needs an
+    /// in-binary `git_main` / `mtr_main`, and this fork has no `@_cdecl` shims),
+    /// vim maps to the unlinked vim.framework and curl to the unlinked
+    /// curl_ios.framework — so four of the eight commands the banner recommended
+    /// failed the moment a user typed them. Re-check the plist against the linked
+    /// frameworks before adding anything here.
+    /// help → builtin, ls → files, cd → SELF, cat/grep → text, find → shell.
+    private static let commandHints = ["help", "ls", "cd", "cat", "grep", "find"]
 
     // MARK: - Small helpers
 

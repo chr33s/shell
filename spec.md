@@ -59,7 +59,7 @@ Keep the existing terminal surface/controller architecture under `Core/Ghostty` 
 - Visor
 - Tab Exposé
 - hover previews
-- grouped/project tabs
+- project tabs
 - elaborate tab sidebar
 - tab carousel animations
 - custom imported fonts
@@ -67,6 +67,20 @@ Keep the existing terminal surface/controller architecture under `Core/Ghostty` 
 - cosmetic terminal effects
 - agent-status decoration
 - screen-sharing tabs
+
+Tab *groups* stay. A tab's group is derived from what it is attached to — local,
+remote host, remote domain, remote network, tmux gateway, or `other`
+(`TabGroupID.Kind`) —
+so there is no project to create, name or manage; the tab context menu can move
+one tab to another group and back to "Automatic", and that is the whole of it.
+Grouped mode is a checkable Tabs-menu toggle, and Tabs ▸ Previous/Next Group
+(⌘⌥[ / ⌘⌥]) steps between groups.
+
+Removing a feature means removing its commands. Nine menu items and keybinds
+outlived their features and stayed installed while silently doing nothing — AI
+Agent, Voice Agent, Vertical Tab Bar, Tab Exposé, Background Effect, Clipboard
+Manager, Theme Picker, Auto-Redact, and brightness boost. They are gone along
+with their `KeybindAction` cases.
 
 #### Minimal UX
 
@@ -115,6 +129,11 @@ Keep:
 - SSH PTY
 - optional jump host / ProxyJump
 - basic SSH key import/generation
+
+A jump host is a whole hop, not a field: it has its own username, its own
+identity or saved password, its own keyboard-interactive prompts (titled
+`[Jump Host]`), and its own known-hosts check against the bastion's key.
+Connection Info reports it alongside the target.
 
 Remove:
 
@@ -179,6 +198,16 @@ enum TmuxMode: String, Codable {
 }
 ```
 
+As built the proposal is split in two. `SSHProfile` carries `id`, `name`, sync
+metadata and usage stats; everything about the endpoint lives in its
+`sshConfig: SSHConfig` — host, port, username, `authMethod`, `jumpHost`,
+`terminalType`, and the tmux selection. The two auth types are nested in
+`SSHConfig` rather than free-standing: `AuthMethod` (`password`, `savedPassword`,
+`key(UUID)`, `keyboardInteractive`, plus an `unknown(rawType:)` case that
+preserves a profile written by a newer version instead of dropping or rewriting
+it) and `JumpHostConfig`. `TmuxMode` is a computed view over the stored
+`tmuxAutoEnable` / `tmuxAutoMode` pair.
+
 ---
 
 ## 4. SSH Identity & Key Storage
@@ -195,6 +224,10 @@ Required:
 - ECDSA P-256
 
 RSA may remain if removing it creates unnecessary work.
+
+As built, `GenerateKeyType` offers seven: Ed25519, ECDSA P-256/P-384/P-521, and RSA
+2048/3072/4096. RSA stayed, and the two larger NIST curves came with P-256.
+`SSHKey.KeyType` adds `secureEnclaveP256` for the hardware-backed identities below.
 
 #### Secure Enclave
 
@@ -391,10 +424,8 @@ tmux -CC new-session -A -s <session>
 
 ### Remove from tmux v1
 
-- hidden-window synchronization
 - Tab Exposé integration
 - elaborate tmux session previews
-- tmux gateway grouping
 - herdr
 - zellij
 - zmx
@@ -403,6 +434,24 @@ tmux -CC new-session -A -s <session>
 - advanced pane/window administration menus
 
 Keep underlying controller functionality if removing individual operations creates more coupling than it saves, but do not expose unnecessary UI.
+
+Two items first listed here were kept, because removing them cost more than it
+saved:
+
+- **Hidden windows.** A tmux window can be hidden rather than killed — the
+  `hideTab` close action and the tmux tab menu both reach it. The window keeps
+  running on the server and the tab strip skips it. The hidden set is stored in
+  the session's `@hidden` user option in the conventional control-mode wire
+  format (`TmuxHiddenWindowsCodec`), so it survives reattach and is shared with
+  other control-mode clients of the same session. tmux emits no notification for
+  a user-option change, so a second client picks it up at its next attach.
+- **Gateway grouping.** A `-CC` gateway and its projected window tabs form one
+  derived tab group, `TabGroupID.tmux(ownerID:)`. That is the derived grouping of
+  §2.1 applied to tmux, not a separate feature.
+
+The remaining session surface is `TmuxSessionDashboardView`: list the server's
+sessions and their windows, switch the gateway's attached session, create,
+rename or kill a session, and detach. No previews, no thumbnails.
 
 ---
 
@@ -474,16 +523,23 @@ deleted
 
 #### AppSetting
 
-Only sync settings that matter to this fork:
+One record per settings key, named by its `UserDefaults` key and carrying a
+self-describing `CodableValue` JSON payload, so adding a setting never changes
+the record schema.
+
+Which keys travel is a property of the setting rather than a list kept here.
+Every key is declared once in `SettingsRegistry` with a `SyncPolicy`:
 
 ```text
-fontSize
-theme
-terminalType
-scrollbackLimit
-tmuxDefaultMode
-tmuxDefaultSession
+synced          syncs unless the user pins it to this device
+localByDefault  syncs, but starts pinned — device-shape or platform specific
+deviceOnly      never leaves the device and has no pin UI
 ```
+
+Of the 115 registered settings, 63 are `synced`, 26 are `localByDefault`, and 26
+are `deviceOnly` (sync state, device ID, change token, restoration counters).
+`tests/ShellTests/SettingsRegistryInventoryTests.swift` holds the inventory, so
+a policy flip that starts pushing a key to iCloud shows up as a diff.
 
 Reuse the existing CloudKit synchronization mechanics where useful, including offline queueing, sync state, conflict handling, and deterministic records, but do not reuse the broad Rootshell production schema.
 
@@ -569,12 +625,15 @@ iCloud container
 App Group, only if genuinely needed
 ```
 
-Example:
+As built (`Configuration/Base.xcconfig`, `shell/Entitlements/Shell.entitlements`):
 
 ```text
-com.example.shell
-iCloud.com.example.shell
+Bundle ID              dev.chr33s.shell
+Keychain access group  $(AppIdentifierPrefix)dev.chr33s.shell
+CloudKit container     iCloud.dev.chr33s.shell
 ```
+
+No App Group: nothing outside the app process needs one.
 
 Minimal entitlements should be approximately:
 
@@ -604,9 +663,191 @@ wifi-info
 
 Remove application groups if no extension/shared process needs them.
 
+### Deployment target
+
+```text
+IPHONEOS_DEPLOYMENT_TARGET = 26.0   iOS, iPadOS, and Mac Catalyst
+XROS_DEPLOYMENT_TARGET     = 26.0   visionOS
+```
+
+Only the current and next OS majors are supported: 26 and 27. There is no
+`[sdk=macosx*]` override, because Catalyst takes its macOS version from
+`IPHONEOS_DEPLOYMENT_TARGET`.
+
+Treat this as an architectural constraint, not a build setting. The pre-26
+availability rail is gone: no `#available` check survives anywhere in the
+sources, they call 26-only API un-gated, and the only `@available` attributes
+left are four `@available(*, unavailable)` `required init?(coder:)` traps.
+Lowering the floor will not compile.
+
 ---
 
-## 9. Source Tree — Keep
+## 9. The Mac Build
+
+The Mac build is Mac Catalyst, not native macOS.
+
+```text
+SUPPORTED_PLATFORMS    = iphoneos iphonesimulator xros xrsimulator
+SUPPORTS_MACCATALYST   = YES
+TARGETED_DEVICE_FAMILY = 1,2,7
+```
+
+Deployment targets are in §8. `UIDesignRequiresCompatibility` appears in no plist,
+xcconfig or project file, so Catalyst runs the Mac idiom rather than scaled iPad.
+Do not set it; it changes control metrics app-wide.
+
+### The AppKit support bundle
+
+`NSApplication`, `NSWindow` and `NSMenu` are unavailable to Catalyst at compile
+time. `ShellMacSupport` is a second target — `SDKROOT = macosx`,
+`MACOSX_DEPLOYMENT_TARGET = 26.0`, product `ShellMacSupport.bundle` — embedded by
+a build phase filtered to `maccatalyst` and loaded on first use through
+`Bundle.principalClass` (`shell/UI/Window/MacSupport.swift`). iOS and visionOS do
+not depend on it. `ShellMacSupport/` and `Shared/` are top-level directories.
+
+`Shared/MacBridge.swift` is the only ABI: the `MacBridge` protocol plus the two
+`@objc` handle protocols it hands back, `MacShellProcess` and `MacMenuEntry`. Every
+call runs on the main thread; AppKit objects stay opaque to Catalyst as `NSObject`.
+It provides window furniture; appearance (glass backdrop, blur, app appearance);
+menus (Dock, Services, and the entries native context menus are built from);
+terminal events (scroll, hover, menu); the local PTY (`createShell` /
+`MacShellProcess`); and Text Input Services. It exists so the app gets typed AppKit
+instead of KVC string
+reflection, which also removes the App Store review risk of KVC into undeclared
+AppKit surface. Add a bridge method, never a reflection site: three
+`NSClassFromString` sites remain, all in `CatalystAppDelegate` and all about other
+subsystems, and the bundle's only undeclared surface is Ghostty's private
+`_cornerRadius`.
+
+Two mechanisms, recorded so nobody re-derives the wrong one. Per-window
+restoration is keyed by scene session id through
+`CatalystSceneDelegate.stateRestorationActivity(for:)`, never
+`NSWindow.restorationClass` — AppKit window restoration is not the mechanism under
+Catalyst, where UIKit scene sessions own it. The Dock menu adds the missing
+`applicationDockMenu(_:)` to the class of the delegate UIKit vends with
+`class_addMethod`, which declines if a future UIKit implements it, so nothing is
+swizzled.
+
+Settings is its own `UIWindowScene` (`shell/UI/Settings/MacSettingsWindow.swift`),
+not a SwiftUI `Settings` scene. About, Close Tab, Close Window and tab navigation
+go through the bridge; File ▸ Open Recent lists saved SSH profiles.
+
+### Native macOS is out of scope
+
+Hard blocker: libghostty ships no native macOS slice.
+`GhosttyKitAppStore.xcframework` carries exactly `ios-arm64`,
+`ios-arm64-simulator`, `ios-arm64_x86_64-maccatalyst`, `xros-arm64` and
+`xros-arm64-simulator`, and `scripts/build-framework.sh` regenerates that same
+three-platform package and audits only for a `-maccatalyst` library. Catalyst
+binaries cannot link into an `SDKROOT = macosx` target, so a native port begins by
+rebuilding and republishing GhosttyKit with a `macos-arm64_x86_64` slice.
+
+Second, the UI layer is a rewrite rather than a port. Counted 2026-09-06 as source
+lines mentioning each symbol across `shell/`, `Shared/`, `ShellMacSupport/` and
+`tests/`; re-run rather than trust:
+
+```text
+375 Swift files, 107 import UIKit (358 / 104 excluding tests/)
+446 targetEnvironment(macCatalyst) across 101 files, 18 Representable bridges
+UIKeyCommand 221  UIView 227 (151 at word boundaries)  UIApplication 181
+UIColor 88  UIWindowScene 66  UIScrollView 55  UIFont 31  UIDevice 29
+UITextInput 27  UIMenu 24  UIPasteboard 22  UIGestureRecognizer 18
+```
+
+The terminal view, key routing, window and scene management, menus, cursor,
+clipboard and every touch affordance would all be replaced: roughly 60 files of new
+AppKit UI, multi-month, blocked on the GhosttyKit rebuild. Weigh that on the whole
+list, not on `UIKeyCommand` alone: its count has fallen substantially, first when
+the pre-26 availability rail of §8 took the below-26 keybind branch with it, then
+again when §2.1's dead command chains took their bindings. Do not add a second
+application target.
+
+### Accepted limitations of Catalyst
+
+The price of the decision above, not open work. Key handling stays `UIKeyCommand`,
+so dead keys, some Option-composed characters and non-Latin input methods stay
+slightly off versus `NSTextInputClient`; text input stays `UITextInput`, so
+input-method candidate handling is an approximation; VoiceOver on the Mac stays
+UIKit-derived.
+
+### Native NSWindow tabs are not adopted
+
+AppKit tabs are one window per tab, and a tab here is not a window's worth of
+content: it owns a `SplitTree` of panes, carries the derived group identity of
+§2.1, and a tmux gateway tab owns child window tabs that must move with it. One
+scene per tab expresses none of that, so adopting native tabs means deleting tab
+groups, tmux window tabs and splits-within-a-tab — a product decision, not a
+refactor. The in-window tab bar stays custom.
+
+The Window menu carries the affordances native tabs would have brought
+(`shell/App/MacApplicationCommands.swift`): the fixed system chords ⌃⇥ / ⌃⇧⇥,
+Previous/Next Tab on ⌘⇧[ / ⌘⇧] beside the rebindable actions in the Tabs menu, Move
+Tab to New Window, and Merge All Windows. No hand-built window list is needed;
+Catalyst's Window menu already lists open windows. Ghostty's `CAMetalLayer` on
+tear-off is unreachable rather than untested — the incompatibility is in the tab
+model, so there is nothing to prototype.
+
+### Menu-bar state
+
+`AppCommands.swift` owns the menu bar outright; there is no `UIMenuBuilder` rail.
+Eight `MenuToggleItem`s are checkable, seven of them on the Mac — Full Screen is
+gated to iPad because AppKit owns Enter Full Screen. Each is a SwiftUI `Toggle`
+reading its own truth in its own body; no bridge surface was added for this and none
+should be, because a title-walk over `NSApp.mainMenu` would match localized titles
+and be wiped by UIKit's menu rebuilds.
+
+Mixed state is inapplicable, not pending. Every toggle resolves to exactly one truth
+and no action fans out — each dispatches `sendAction(_:to:from:for:)` with a nil
+target, the fallback stamps the post with one scene session id, and
+`shouldHandleNotification` filters every other window out — so unknown state
+renders unchecked-and-disabled,
+the correct macOS idiom. Do not reopen this as a task; it becomes reachable only if
+an action starts acting on more than one object. The `-1` encoding in
+`MacMenuEntry.state` stays regardless, because native context menus build entries
+from `UIAction.state`.
+
+### Touch affordances are fenced out of Catalyst
+
+Every touch affordance is fenced with `!targetEnvironment(macCatalyst)`. The
+selection loupe, the selection handles and status-bar styling are whole files behind
+the fence; the pinch and long-press gestures and the general-purpose impact feedback
+are fenced regions. The keyboard accessory and `KeyboardGeometryMonitor` are
+neutered rather than removed — their types still compile on Catalyst and every
+Catalyst path through them returns the empty answer — which is the shape to use
+wherever shared code names the type. Do not add a touch affordance without a
+Catalyst fence. `KeyboardTracker` must not be deleted wholesale: it also owns
+physical modifier handling.
+
+### Unverified
+
+A human review pass on 2026-09-06 exercised the app and found it working. That was a
+general review, not a per-item checklist against the list below: no item on it has a
+recorded outcome, and every one is unresolved rather than failed.
+
+Each needs a running Catalyst app — the AppKit titlebar, the glass backdrop, native
+scroll, the context menu, the Dock menu, and multi-window restore across a quit and
+relaunch; whether File shows both "Close Tab" and SwiftUI's own "Close"; whether a
+Settings window left open at quit comes back; whether the Services item appears at
+all, is enabled rather than greyed (AppKit greys it unless the responder chain
+answers `validRequestor(forSendType:returnType:)`) and survives a menu rebuild;
+whether a SwiftUI `Toggle` in a `CommandGroup` renders an `NSMenuItem` checkmark
+under Catalyst 26 at all, which is the one load-bearing untested assumption behind
+Menu-bar state above; whether `DynamicShortcut` still publishes the key-equivalent
+glyph on a `Toggle`; and whether the checkmarks track focus as it moves between
+panes, tabs and windows.
+
+None of it has a unit-test home. The suite runs on the iOS Simulator (§17), and must:
+13 of the 16 files in `shell/Core/Shell/` and most of `shell/Features/LocalShell/`
+sit behind `#if !targetEnvironment(macCatalyst)`, so it does not compile on a
+Catalyst destination. Catalyst-only behaviour is verified by hand or not at all.
+
+The Catalyst work landed as a six-phase plan chosen over a native port. That plan,
+its estimates, the native-versus-Catalyst deliberation and the dated implementation
+changelog are in git history at `macos-native.md`, and are not repeated here.
+
+---
+
+## 10. Source Tree — Keep
 
 Treat this as the initial retention set, not a guarantee that every file within each directory survives.
 
@@ -669,9 +910,18 @@ SSH/Discovery
 
 unless a specific dependency proves necessary.
 
+As built, `rootshell/` is `shell/`, and the retention set holds with three
+adjustments: `Core/Networking/` did not survive as a directory — the surviving
+helpers are in `Core/Connection/`; `Features/Profiles/` was added for the saved
+profile model and its editor; and `Features/SSH/` contains exactly `Config`,
+`HostTrust`, `Keys`, `Session`, `Settings` and `Views`, with `Agent`,
+`OpenPubkey` and `Discovery` gone. `Core/` has also been subdivided past the list
+above — `Animation`, `Prompt`, `Security`, `Shell`, `Sync`, `System`, `Terminal` and
+`Theme` sit alongside the retained directories.
+
 ---
 
-## 10. Source Tree — Delete
+## 11. Source Tree — Delete
 
 Delete entire feature families for:
 
@@ -726,9 +976,13 @@ wasm
 VimRuntime.bundle
 ```
 
+None of those exist in the tree. Three targets remain: `shell`,
+`ShellMacSupport` (the AppKit bridge bundle Catalyst loads through
+`Shared/MacBridge.swift`), and `ShellTests`.
+
 ---
 
-## 11. Dependency Rule
+## 12. Dependency Rule
 
 After extraction, the desired dependency graph is:
 
@@ -779,7 +1033,7 @@ This is an architectural invariant for the fork.
 
 ---
 
-## 12. Settings
+## 13. Settings
 
 The entire Settings app should collapse to four sections.
 
@@ -788,8 +1042,14 @@ The entire Settings app should collapse to four sections.
 ```text
 Font size
 Theme
-Scrollback
+Scrollback lines
+Session
+  Restore Sessions on Launch
+  Persist Scrollback History
 TERM
+  Local
+  Remote
+Force ASCII Keyboard
 Keyboard shortcuts
 ```
 
@@ -799,6 +1059,13 @@ Keyboard shortcuts
 Profiles
 SSH Identities
 Known Hosts
+Saved Passwords
+
+Auto Reconnect
+Keep SSH Alive in Background
+Force IPv4
+Connection Health Monitoring    [on/off]
+  Probe Interval
 ```
 
 #### SSH Identity detail
@@ -844,15 +1111,24 @@ Sync Identity Metadata      [on/off]
 Sync Software Keys          [on/off]
 
 Last Sync: ...
+Pending Changes: ...
+Sync Now
 ```
 
 Secure Enclave keys must be labelled as device-bound and excluded from private-key synchronization.
 
 No other settings pages.
 
+Settings are edited through these four sections only. The text-configuration
+overlay — a Ghostty-style config file the settings store parsed, merged and
+rewrote — is removed, and so is its `ConfigOverlay` machinery. Keybinds are the
+one exception: they keep their own separate external config file at
+`~/.ghostty/imported_keybinds.conf`, imported from Terminal ▸ Keyboard Shortcuts
+and re-read by the built-in `reloadconfig` command.
+
 ---
 
-## 13. Home / Connection UI
+## 14. Home / Connection UI
 
 Minimal launch screen:
 
@@ -904,17 +1180,24 @@ Nothing else.
 
 ---
 
-## 14. Persistence
+## 15. Persistence
 
 Persist locally:
 
 - tabs
 - split layout
+- split-pane zoom
+- tab grouping state: grouped mode, active group, group order, per-group tab order
 - SSH profile ID associated with each terminal
 - local/SSH session type
 - tmux attachment metadata
 - terminal font size
 - terminal theme
+- window frame, on Mac Catalyst
+- scrollback history, when Persist Scrollback History is on
+
+Restoration as a whole is behind Terminal ▸ Restore Sessions on Launch; with it
+off, nothing above is written or read back.
 
 Do not attempt to restore dead SSH network connections directly.
 
@@ -930,7 +1213,7 @@ tmux is the source of remote session persistence.
 
 ---
 
-## 15. Extraction Strategy
+## 16. Extraction Strategy
 
 Do not begin by deleting hundreds of source files.
 
@@ -1068,17 +1351,30 @@ Only after all four phases work should unused original source directories and Xc
 
 ---
 
-## 16. Definition of Done
+## 17. Definition of Done
+
+All four phases have landed. The app build is green — no errors, no warnings —
+and `./scripts/test.sh` runs the `ShellTests` bundle, 117 tests across 15 test files
+under `tests/ShellTests/` (a sixteenth file, `SourceTree.swift`, is a shared helper),
+green. That script's destination must be the iOS
+Simulator rather than Mac Catalyst: the whole local-shell stack sits behind
+`#if !targetEnvironment(macCatalyst)` and does not exist there.
+`tests/MacSupportSmoke.swift` is a separate standalone AppKit binary, run by hand.
+
+A box below is ticked only where the claim has actually been checked. The
+unticked ones are sign-offs not yet recorded, not known gaps.
 
 ### Terminal
 
-- [ ] launches local shell
-- [ ] typing works
-- [ ] resize works
-- [ ] scrolling works
-- [ ] copy/paste works
-- [ ] tabs work
-- [ ] splits work
+Confirmed by a human running this build on a device.
+
+- [x] launches local shell
+- [x] typing works
+- [x] resize works
+- [x] scrolling works
+- [x] copy/paste works
+- [x] tabs work
+- [x] splits work
 
 ### SSH Identity
 
@@ -1139,24 +1435,37 @@ Only after all four phases work should unused original source directories and Xc
 
 ### Removal
 
-- [ ] no AI code in target
-- [ ] no VNC code
-- [ ] no VPN extension
-- [ ] no Mosh/TSSH
-- [ ] no push target
-- [ ] no widgets
-- [ ] no cloud-provider SDKs
-- [ ] no Kubernetes code
-- [ ] no GPG
-- [ ] no YubiKey/FIDO UI
-- [ ] no OpenPubkey/OIDC
-- [ ] no built-in Git/file-browser/editor tooling
-- [ ] no shader/effect system
-- [ ] no unused entitlements
+Checked against the tree. The project has three targets — `shell`,
+`ShellMacSupport`, `ShellTests` — and links three packages: GhosttyKit, Citadel,
+and ios_system, whose binary targets are `ios_system`, `awk`, `files`, `shell`
+and `text`. No vim, git or editor framework is linked.
+
+- [x] no AI code in target
+- [x] no VNC code
+- [x] no VPN extension
+- [x] no Mosh/TSSH
+- [x] no push target
+- [x] no widgets
+- [x] no cloud-provider SDKs
+- [x] no Kubernetes code
+- [x] no GPG
+- [x] no YubiKey/FIDO UI
+- [ ] no OpenPubkey/OIDC — the feature and its UI are gone, but `KeychainManager`
+      still carries three OpenPubkey secret-blob helpers; only the delete is
+      called, from key deletion
+- [x] no built-in Git/file-browser/editor tooling
+- [x] no shader/effect system — no shader files ship and nothing loads one;
+      `CursorManager` still carries an inert `CursorEffect` setting whose only
+      reader is itself
+- [x] no unused entitlements — sandbox, network client, user-selected files (four
+      `fileImporter` call sites), keychain access group, iCloud/CloudKit
+
+Comments in surviving files still name removed features. They are prose, not
+code; the code is gone.
 
 ---
 
-## 17. Final Target
+## 18. Final Target
 
 The finished product should conceptually be:
 

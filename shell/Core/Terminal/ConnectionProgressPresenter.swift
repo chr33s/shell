@@ -14,27 +14,21 @@ protocol ConnectionProgressHost: AnyObject {
 /// Renders connection-progress UI — the animated `SpinnerAnimator` plus the
 /// OSC 9;4 progress indicator — into the terminal while a session connects.
 ///
-/// This was ~500 lines of choreography duplicated across eight `onStateChange`
-/// blocks in `setupPTYAndShell` (SSH / Kubernetes / Console / EC2 / Mosh /
-/// Trzsz). Each session type's distinct state enum still maps its own cases to
-/// these calls, but the spinner mechanics and the exact escape-sequence writes
-/// now live here in one place. The presenter owns the `SpinnerAnimator`, so the
-/// 68 `spinnerAnimator` touches in the view collapse to this one owner.
+/// Each session type's state enum maps its own cases to these calls, but the
+/// spinner mechanics and the exact escape-sequence writes live here in one
+/// place, and the presenter owns the `SpinnerAnimator`.
 @MainActor
 final class ConnectionProgressPresenter {
 
     /// How a connection phase ends decides which cleanup sequence is written.
-    /// The three modes capture the exact (and subtly different) writes the
-    /// per-session-type blocks used.
+    /// The two modes capture the subtly different writes the SSH and local
+    /// session paths need.
     enum FinishMode {
         /// Always write `progressClear + cleanup`, even when no spinner ran.
-        /// SSH/K8s/Console/EC2 `.running` and `.terminated`/`.disconnected`.
+        /// SSH/local `.running` and `.terminated`/`.disconnected`.
         case clearAlways
-        /// Write `progressClear + cleanup` only if a spinner actually ran.
-        /// Mosh/Trzsz `.running` and `.failed`/`.disconnected`.
-        case clearIfSpinnerRan
         /// Write the spinner cleanup only (no progress-clear), and only if a
-        /// spinner ran. SSH/K8s/Console/EC2 `.failed`.
+        /// spinner ran. SSH/local `.failed`.
         case cleanupOnly
     }
 
@@ -79,8 +73,6 @@ final class ConnectionProgressPresenter {
         switch mode {
         case .clearAlways:
             host.writeProgressOutput(Self.progressClear + cleanup)
-        case .clearIfSpinnerRan:
-            if !cleanup.isEmpty { host.writeProgressOutput(Self.progressClear + cleanup) }
         case .cleanupOnly:
             if !cleanup.isEmpty { host.writeProgressOutput(cleanup) }
         }
@@ -105,16 +97,15 @@ final class ConnectionProgressPresenter {
         return cleanup
     }
 
-    /// Stop and discard the spinner without emitting anything. Was the
-    /// `spinnerAnimator?.stop(); spinnerAnimator = nil` in `cleanup()` and the
-    /// Trzsz-transfer `.running` handler.
+    /// Stop and discard the spinner without emitting anything, for session
+    /// teardown that writes its own output (or none at all).
     func reset() {
         spinner?.stop()
         spinner = nil
     }
 
-    /// Keep the spinner's width in sync with the terminal (for responsive joke
-    /// truncation) while it's animating. No-op when no spinner is running.
+    /// Keep the spinner's width in sync with the terminal (for responsive
+    /// message truncation) while it's animating. No-op when no spinner runs.
     func updateTerminalWidth(_ width: Int) {
         spinner?.updateTerminalWidth(width)
     }

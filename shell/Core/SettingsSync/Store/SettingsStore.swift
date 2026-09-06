@@ -51,7 +51,7 @@ final class SettingsStore {
     /// Only stores nonisolated values, so the singleton can be created off the main actor.
     nonisolated init(registry: SettingsRegistry = .shared) {
         self.registry = registry
-        self.cache = SettingsCache(registry: registry)
+        self.cache = SettingsCache()
     }
 
     // MARK: - Bootstrap

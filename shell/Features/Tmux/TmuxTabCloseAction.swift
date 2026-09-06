@@ -45,30 +45,4 @@ enum TmuxTabCloseAction: String, CaseIterable, Codable, Sendable {
         case .ask: return "Ask Each Time"
         }
     }
-
-    /// Longer explanation shown beneath the title in the picker list.
-    var detail: String {
-        switch self {
-        case .closeWindow:
-            return "Destroy the tmux window on the server. Anything running in it is terminated."
-        case .detachSession:
-            return "Leave the whole tmux session running on the server and return the gateway tab to its shell."
-        case .detachSessionAndCloseGateway:
-            return "Detach the session (it keeps running on the server), then also close the gateway tab."
-        case .hideTab:
-            return "Hide the tab locally. The tmux window keeps running and can be shown again later."
-        case .ask:
-            return "Prompt with these choices every time you close a tmux control-mode tab."
-        }
-    }
-
-    var iconName: String {
-        switch self {
-        case .closeWindow: return "xmark.rectangle"
-        case .detachSession: return "eject"
-        case .detachSessionAndCloseGateway: return "eject.fill"
-        case .hideTab: return "eye.slash"
-        case .ask: return "questionmark.circle"
-        }
-    }
 }

@@ -486,12 +486,26 @@ extension MainView {
         // Pre-fetch encryption key (Keychain read, cached after first call)
         let encryptionKey: SymmetricKey?
         if !terminalRefs.isEmpty {
-            do {
-                encryptionKey = try ScrollbackEncryptionManager.shared.getKey()
-            } catch {
-                Ghostty.logger.warning("Failed to pre-fetch encryption key, scrollback will not be saved: \(error.localizedDescription)")
+            // Never touch the scrollback key while protected data is unavailable.
+            // The Keychain item is kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+            // so a locked device makes it invisible to SecItemCopyMatching and the
+            // read answers errSecItemNotFound — which getKey() reads as "first run"
+            // and satisfies by minting a key that saveScrollbackEncryptionKey then
+            // UPSERTS over the key still protecting every saved scrollback.
+            // Backgrounding is exactly when the screen has just locked, so fail
+            // closed: skip the save and keep the key.
+            if ProtectedDataGuard.isAvailable {
+                do {
+                    encryptionKey = try ScrollbackEncryptionManager.shared.getKey()
+                } catch {
+                    Ghostty.logger.warning("Failed to pre-fetch encryption key, scrollback will not be saved: \(error.localizedDescription)")
+                    encryptionKey = nil
+                    // Release in-flight markers since we won't be saving
+                    ScrollbackPersistenceManager.clearInFlightSurfaces(terminalRefs)
+                }
+            } else {
+                Ghostty.logger.warning("Protected data unavailable while backgrounding; skipping scrollback save (encryption key left untouched)")
                 encryptionKey = nil
-                // Release in-flight markers since we won't be saving
                 ScrollbackPersistenceManager.clearInFlightSurfaces(terminalRefs)
             }
         } else {

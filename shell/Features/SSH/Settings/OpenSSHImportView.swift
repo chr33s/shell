@@ -9,11 +9,8 @@
 
 import SwiftUI
 import UniformTypeIdentifiers
-import os.log
 
 struct OpenSSHImportView: View {
-    private nonisolated static let logger = Logger(subsystem: "dev.chr33s.shell", category: "OpenSSHImport")
-
     @Environment(\.sheetThemeColors) private var sheetThemeColors
     @State private var showFolderPicker = false
     @State private var pickerError: String?

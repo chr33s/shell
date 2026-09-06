@@ -30,13 +30,6 @@ class HistoryManager {
         try? FileManager.default.createDirectory(at: ghosttyDir, withIntermediateDirectories: true)
         historyFilePath = ghosttyDir.appendingPathComponent("shell_history.txt")
 
-        // Migrate from old location if needed
-        let oldPath = documentsPath.appendingPathComponent("shell_history.txt")
-        if FileManager.default.fileExists(atPath: oldPath.path) &&
-           !FileManager.default.fileExists(atPath: historyFilePath.path) {
-            try? FileManager.default.moveItem(at: oldPath, to: historyFilePath)
-        }
-
         loadHistory()
     }
 
@@ -70,14 +63,6 @@ class HistoryManager {
         editBuffer = ""
 
         // Save to disk
-        saveHistory()
-    }
-
-    /// Clear all history
-    func clearHistory() {
-        commands.removeAll()
-        navigationIndex = nil
-        editBuffer = ""
         saveHistory()
     }
 
@@ -136,19 +121,7 @@ class HistoryManager {
         navigationIndex != nil
     }
 
-    // MARK: - Search
-
-    /// Search history for commands containing the search term
-    func search(term: String) -> [String] {
-        guard !term.isEmpty else { return [] }
-
-        return commands.reversed().filter { $0.contains(term) }
-    }
-
-    /// Get all commands (most recent first)
-    var allCommands: [String] {
-        Array(commands.reversed())
-    }
+    // MARK: - Retrieval
 
     /// Get recent commands (most recent first, limited count)
     func recentCommands(limit: Int = 20) -> [String] {
@@ -201,17 +174,5 @@ class HistoryManager {
                 print("Failed to save history: \(error)")
             }
         }
-    }
-
-    // MARK: - Statistics
-
-    /// Total number of commands in history
-    var count: Int {
-        commands.count
-    }
-
-    /// Check if history is empty
-    var isEmpty: Bool {
-        commands.isEmpty
     }
 }

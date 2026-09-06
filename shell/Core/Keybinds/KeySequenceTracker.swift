@@ -8,7 +8,6 @@
 import Foundation
 import Combine
 import os
-import UIKit
 
 /// Result of processing a key press through the sequence tracker
 enum KeySequenceResult: Sendable {
@@ -284,25 +283,5 @@ final class KeySequenceTracker: ObservableObject {
             return nil
         }
         return "\(trigger.symbolDescription) ..."
-    }
-}
-
-// MARK: - Convenience Extensions
-
-extension KeySequenceTracker {
-    /// Process a UIPress event
-    func process(press: UIPress) -> KeySequenceResult {
-        guard let trigger = KeyTrigger(press: press) else {
-            return .passthrough
-        }
-        return process(trigger: trigger)
-    }
-
-    /// Process a UIKeyCommand
-    func process(command: UIKeyCommand) -> KeySequenceResult {
-        guard let trigger = KeyTrigger(uiKeyCommand: command) else {
-            return .passthrough
-        }
-        return process(trigger: trigger)
     }
 }

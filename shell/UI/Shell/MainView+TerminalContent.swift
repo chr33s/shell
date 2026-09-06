@@ -204,6 +204,13 @@ extension MainView {
             // (the tab menus carry their own coordinator).
             TmuxShortcutFailureAlert(windowId: windowId)
 
+            // Launch notice when repeated restore failures quarantined the
+            // saved session, so the empty window is explained.
+            RestorationQuarantineNotice()
+
+            // "Waiting for the second key" HUD for multi-key chords.
+            KeySequencePendingIndicator()
+
             #if os(visionOS)
             // Floating button to toggle keyboard toolbar ornament
             visionOSKeyboardToggle
@@ -419,9 +426,9 @@ extension MainView {
         case .preset(.previousTab):
             return .tabNavigation(previousTab)
         default:
-            // Sequence/custom-key/multiplexer bindings need a live terminal
-            // surface to receive bytes. Leave them disabled on empty placeholders
-            // instead of silently consuming the swipe.
+            // Multiplexer bindings need a live terminal surface to receive
+            // bytes. Leave them disabled on empty placeholders instead of
+            // silently consuming the swipe.
             return .disabled
         }
     }

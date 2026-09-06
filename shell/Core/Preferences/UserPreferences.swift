@@ -111,20 +111,4 @@ nonisolated enum UserPreferences {
         NSUserName()
     }
 
-    // MARK: - Clock Format
-
-    /// Clock display format for prompt themes
-    enum ClockFormat: String, CaseIterable, Sendable {
-        case system = "system"
-        case twelveHour = "twelveHour"
-        case twentyFourHour = "twentyFourHour"
-
-        var displayName: String {
-            switch self {
-            case .system: return String(localized: "System Default", comment: "Clock format: system default")
-            case .twelveHour: return String(localized: "12-Hour", comment: "Clock format: 12-hour")
-            case .twentyFourHour: return String(localized: "24-Hour", comment: "Clock format: 24-hour")
-            }
-        }
-    }
 }

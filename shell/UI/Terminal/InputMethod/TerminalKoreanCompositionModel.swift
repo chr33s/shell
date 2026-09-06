@@ -116,10 +116,6 @@ struct TerminalKoreanCompositionModel {
 
         guard Self.isKoreanCompositionText(normalized) else { return nil }
 
-        if pendingReplacementDelete {
-            return handleInsert(normalized)
-        }
-
         let characters = Array(normalized)
         guard let last = characters.last else { return nil }
 
@@ -157,15 +153,31 @@ struct TerminalKoreanCompositionModel {
         canDropSupersededReplacement = false
         replacementWindowGeneration = nil
 
+        // The non-jamo fallback in `handleCatalystInsert` sets `preeditText`
+        // while leaving `catalystState` empty (the IME delivered a whole
+        // syllable such as U+AC00). Rehydrate the state here, otherwise the
+        // next jamo starts from scratch, overwrites `preeditText` and the
+        // syllable is never committed to the terminal byte stream.
+        loadCatalystStateFromPreeditIfNeeded()
+
+        // A preedit that cannot be rehydrated (conjoining or extended jamo) is
+        // still live text: commit it ahead of the new syllable rather than
+        // letting it disappear.
+        let orphanedPreedit = catalystState.isEmpty ? preeditText : nil
+
+        var result: InsertResult
         if let consonant = Self.modernConsonants[character] {
-            return handleCatalystConsonant(consonant)
+            result = handleCatalystConsonant(consonant)
+        } else if let vowel = Self.modernVowels[character] {
+            result = handleCatalystVowel(vowel)
+        } else {
+            return nil
         }
 
-        if let vowel = Self.modernVowels[character] {
-            return handleCatalystVowel(vowel)
+        if let orphanedPreedit {
+            result.committedText = orphanedPreedit + result.committedText
         }
-
-        return nil
+        return result
     }
 
     private mutating func handleCatalystConsonant(_ consonant: CatalystConsonant) -> InsertResult {

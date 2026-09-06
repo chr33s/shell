@@ -15,6 +15,9 @@ struct ProfileEditorSheet: View {
     /// Pre-filled config for an ad-hoc (unsaved) connection.
     var initialConfig: SSHConfig?
 
+    /// The failed connection's reason, retained while editing its credentials.
+    var connectionError: String? = nil
+
     /// Connect with the edited config without necessarily saving.
     var onConnect: ((SSHConfig) -> Void)?
 
@@ -34,7 +37,7 @@ struct ProfileEditorSheet: View {
     @State private var jumpHost: String = ""
     @State private var jumpPortText: String = "22"
     @State private var jumpUsername: String = ""
-    @State private var jumpAuthType: AuthType = .password
+    @State private var jumpAuthType: AuthType = .savedPassword
     @State private var jumpIdentityID: UUID?
 
     @State private var terminalType: String = ""
@@ -51,6 +54,29 @@ struct ProfileEditorSheet: View {
 
         var id: String { rawValue }
 
+        /// Auth modes a jump hop can actually authenticate with end to end.
+        ///
+        /// `.password` is excluded: the editor has no jump password field, so
+        /// `buildConfig()` could only ever build a hop carrying `.password("")`
+        /// — and `AuthMethod`'s decoder maps a persisted `.password` back to
+        /// `.password("")` regardless, so a jump hop on this method always puts
+        /// an empty credential on the wire. `.savedPassword` is the working
+        /// equivalent: it is resolved from the Keychain before connect
+        /// (`TerminalSessionController` calls `resolvedConfig()` for a jump hop
+        /// on `.savedPassword`), and a failed load degrades into the jump-host
+        /// password prompt instead of a silent auth failure.
+        static let jumpCases: [AuthType] = [.savedPassword, .key, .keyboardInteractive]
+
+        /// `self` when a jump hop supports it, `.savedPassword` otherwise.
+        ///
+        /// Migrates a profile saved by an older build (or synced as the
+        /// `"password"` shape, which `CloudKitSyncable` already decodes to
+        /// `.savedPassword`) onto the working method. Nothing is lost: the
+        /// editor never had a jump password to preserve.
+        var forJumpHost: AuthType {
+            AuthType.jumpCases.contains(self) ? self : .savedPassword
+        }
+
         var displayName: LocalizedStringKey {
             switch self {
             case .password: "Password"
@@ -64,6 +90,16 @@ struct ProfileEditorSheet: View {
     var body: some View {
         NavigationStack {
             Form {
+                if let connectionError {
+                    Section {
+                        Text(connectionError)
+                            .foregroundStyle(.red)
+                            .textSelection(.enabled)
+                    } header: {
+                        Text("Connection Failed")
+                    }
+                }
+
                 Section {
                     LabeledContent("Name") {
                         TextField("production", text: $name)
@@ -128,12 +164,20 @@ struct ProfileEditorSheet: View {
                                 .autocorrectionDisabled()
                                 .textInputAutocapitalization(.never)
                         }
-                        Picker("Authentication", selection: $jumpAuthType) {
-                            ForEach(AuthType.allCases) { type in
+                        // Read through `forJumpHost` so a legacy `.password`
+                        // jump config shows its migrated value instead of
+                        // rendering the picker blank (a SwiftUI `Picker` whose
+                        // selection is absent from its `ForEach` has no row to
+                        // highlight). `buildConfig()` normalizes on the way out.
+                        Picker("Authentication", selection: Binding(
+                            get: { jumpAuthType.forJumpHost },
+                            set: { jumpAuthType = $0 }
+                        )) {
+                            ForEach(AuthType.jumpCases) { type in
                                 Text(type.displayName).tag(type)
                             }
                         }
-                        if jumpAuthType == .key {
+                        if jumpAuthType.forJumpHost == .key {
                             identityPicker(selection: $jumpIdentityID)
                         }
                     }
@@ -246,13 +290,29 @@ struct ProfileEditorSheet: View {
     private func load() {
         let config = profile?.sshConfig ?? initialConfig
         name = profile?.name ?? ""
-        guard let config else { return }
+        // A connection the user has never saved carries no tmux choice of its
+        // own, so it opens on the global default — Settings ▸ tmux ▸ Default
+        // Mode. A saved profile always wins, including a deliberate "Off".
+        let defaultTmuxMode = SettingsStore.shared.value(Settings.Tmux.defaultMode)
+        guard let config else {
+            tmuxMode = defaultTmuxMode
+            return
+        }
 
         host = config.host
         portText = String(config.port)
         username = config.username
         terminalType = config.terminalType ?? ""
-        tmuxMode = config.tmuxMode
+        // An `initialConfig` is not always a blank slate: the reconnect sheet and
+        // the profile-backed deep link both hand one over with `profile == nil`,
+        // and those already carry a tmux choice the user made. Only a connection
+        // with no profile behind it at all — a bare `ssh://` URL — has never
+        // expressed one, so only that opens on the global default. The host /
+        // username test mirrors `handleSSHURL`'s own profile lookup.
+        let isProfileBacked = profile != nil || profileManager.profiles.contains {
+            $0.sshConfig.host == config.host && $0.sshConfig.username == config.username
+        }
+        tmuxMode = (isProfileBacked || config.tmuxMode != .off) ? config.tmuxMode : defaultTmuxMode
         tmuxSessionName = config.tmuxSessionName ?? ""
 
         switch config.authMethod {
@@ -300,6 +360,13 @@ struct ProfileEditorSheet: View {
             errorMessage = String(localized: "Username is required.")
             return nil
         }
+        // Fail closed: "SSH Identity" with no identity selected used to fall through
+        // to `.savedPassword`, silently authenticating with a stored password (or
+        // prompting for one) on a host the user believed was key-authenticated.
+        guard authType != .key || identityID != nil else {
+            errorMessage = String(localized: "Select an SSH identity.")
+            return nil
+        }
 
         var config = SSHConfig(host: host, port: port, username: username)
         config.authMethod = authMethod(authType, identityID: identityID, password: password)
@@ -309,11 +376,19 @@ struct ProfileEditorSheet: View {
                 errorMessage = String(localized: "Jump host port must be between 1 and 65535.")
                 return nil
             }
+            // Same fail-closed rule for the jump hop (see the target-host guard above).
+            let resolvedJumpAuthType = jumpAuthType.forJumpHost
+            guard resolvedJumpAuthType != .key || jumpIdentityID != nil else {
+                errorMessage = String(localized: "Select an SSH identity for the jump host.")
+                return nil
+            }
+            // `password: ""` is unreachable: `forJumpHost` never yields
+            // `.password`, so the empty string is never read.
             config.jumpHost = SSHConfig.JumpHostConfig(
                 host: jumpHost,
                 port: jumpPort,
                 username: jumpUsername,
-                authMethod: authMethod(jumpAuthType, identityID: jumpIdentityID, password: "")
+                authMethod: authMethod(resolvedJumpAuthType, identityID: jumpIdentityID, password: "")
             )
         }
 
@@ -332,7 +407,10 @@ struct ProfileEditorSheet: View {
         case .password: return .password(password)
         case .savedPassword: return .savedPassword
         case .key:
-            guard let identityID else { return .savedPassword }
+            // Unreachable — buildConfig() rejects `.key` with no identity. The
+            // fallback stays unusable on purpose: never downgrade a key profile
+            // to password auth (SSHConfig.resolvedConfig forbids that substitution).
+            guard let identityID else { return .unknown(rawType: "key") }
             return .key(identityID)
         case .keyboardInteractive: return .keyboardInteractive
         }

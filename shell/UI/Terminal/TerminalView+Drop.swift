@@ -9,7 +9,6 @@
 import UIKit
 import UniformTypeIdentifiers
 import os
-import GhosttyKit
 
 // MARK: - UIDropInteractionDelegate
 
@@ -19,7 +18,7 @@ extension Ghostty.TerminalView: UIDropInteractionDelegate {
     /// - File URLs: Paths are shell-escaped and inserted
     /// - URLs: Escaped as-is (useful for curl, wget, etc.)
     /// - Plain text: Inserted without escaping (for commands)
-    /// - Images: Uploaded via SFTP for SSH sessions
+    /// - Images: Written to a temp file, path inserted
     static let acceptedDropTypes: [UTType] = [
         TabTransferCoordinator.dragUTType,
         .fileURL,
@@ -52,9 +51,16 @@ extension Ghostty.TerminalView: UIDropInteractionDelegate {
         _ interaction: UIDropInteraction,
         sessionDidUpdate session: UIDropSession
     ) -> UIDropProposal {
-        if session.hasItemsConforming(toTypeIdentifiers: [TabTransferCoordinator.dragUTType.identifier]),
-           TabTransferCoordinator.shared.canAcceptActiveDrag(in: windowId) {
-            return UIDropProposal(operation: .move)
+        // A tab-transfer session must resolve here and NOT fall through to the
+        // generic .copy proposal: `performDrop` can only ever hand it to
+        // `receiveActiveDrag`, which refuses a same-window drag. Falling through
+        // promised a copy the drop could never perform (preview animated into the
+        // terminal, nothing happened). `.cancel` gives the plain no-drop cursor
+        // and the snap-back animation.
+        if session.hasItemsConforming(toTypeIdentifiers: [TabTransferCoordinator.dragUTType.identifier]) {
+            return UIDropProposal(
+                operation: TabTransferCoordinator.shared.canAcceptActiveDrag(in: windowId) ? .move : .cancel
+            )
         }
         // Use .copy to show the proper drop cursor (green + icon)
         return UIDropProposal(operation: .copy)
@@ -67,9 +73,8 @@ extension Ghostty.TerminalView: UIDropInteractionDelegate {
         // Process items in priority order matching macOS:
         // 1. File URLs (paths escaped individually, joined by space)
         // 2. URLs (escaped as-is)
-        // 3. Image data (e.g. screenshot preview thumbnails) — SSH sessions
-        //    upload via SFTP; other sessions write the image to a temp file and
-        //    insert its path so the running program (e.g. Claude Code) can read it
+        // 3. Image data (e.g. screenshot preview thumbnails) — written to a temp
+        //    file, path inserted so the running program (e.g. Claude Code) can read it
         // 4. Plain text (not escaped)
 
         let itemProviders = session.items.map(\.itemProvider)

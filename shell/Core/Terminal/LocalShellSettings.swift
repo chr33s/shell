@@ -24,7 +24,6 @@ import Foundation
 /// All members are `nonisolated` since session setup reads them off the main actor.
 enum LocalShellSettings: Sendable {
 
-    nonisolated static let commandKey = "localShellCommand"
     nonisolated static let fallbackCommand = "/bin/zsh -f"
 
     /// nil means "use the login shell".

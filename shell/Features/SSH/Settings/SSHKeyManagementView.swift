@@ -9,6 +9,7 @@ struct SSHKeyManagementView: View {
     @State private var keyToDelete: SSHKey?
     @State private var showingError = false
     @State private var errorMessage = ""
+    @State private var overrideManager = DeviceKeyOverrideManager.shared
 
     var body: some View {
         List {
@@ -40,6 +41,23 @@ struct SSHKeyManagementView: View {
                 }
             }
 
+            // Per-device key pins. The sheet that creates them ("Always use on
+            // this device") had no counterpart screen, so an override could be
+            // created but never seen or revoked.
+            Section {
+                NavigationLink {
+                    DeviceKeyOverridesView()
+                } label: {
+                    HStack {
+                        Label("Device Key Overrides", systemImage: "pin")
+                        Spacer()
+                        Text(overrideManager.overrides.count, format: .number).foregroundColor(.secondary)
+                    }
+                }.themedRow()
+            } footer: {
+                Text("Keys pinned to this device when a connection's own key wasn't available.")
+            }
+
             Section { Text("SSH keys are stored securely in the system Keychain").font(.caption).foregroundColor(.secondary).themedRow() }
         }.themedList().refreshable { await sshKeyManager.refreshKeysAsync() }.navigationTitle("SSH Keys").navigationBarTitleDisplayMode(.inline).toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
@@ -59,7 +77,7 @@ struct SSHKeyManagementView: View {
             SSHKeyImportView()
         }
         .navigationDestination(isPresented: $showingCertImportSheet) {
-            SSHUserCertificateImportView(targetKey: nil, embedInNavigationStack: false)
+            SSHUserCertificateImportView(targetKey: nil)
         }
         .navigationDestination(isPresented: $showingGenerate) {
             SSHKeyGenerateView()
@@ -106,13 +124,6 @@ struct SSHKeyRow: View {
 
     /// Fixed width for badge alignment (accommodates "ED25519")
     private static let badgeWidth: CGFloat = 62
-
-    /// Backward-compatible initializer
-    init(key: SSHKey, isDefault: Bool) {
-        self.key = key
-        self.defaultPriority = isDefault ? 0 : nil
-        self.needsUnlock = false
-    }
 
     init(key: SSHKey, defaultPriority: Int?, needsUnlock: Bool = false) {
         self.key = key

@@ -21,7 +21,6 @@ import os
     enum Kind: Equatable {
         case newHost
         case keyChanged
-        case fileOpenFailed
     }
 
     /// The alert currently on screen (nil = none). Writes go through
@@ -32,14 +31,25 @@ import os
     // MARK: - Backing state (one flag per kind)
 
     // Host key validation state
-    @ObservationIgnored var hostKeyValidationContinuation: CheckedContinuation<HostKeyValidationResult, Never>?
+    //
+    // One pending request per concurrent validation, NOT one slot. A window
+    // funnels every terminal's `onHostKeyValidationRequired` into this one
+    // controller, so restoring two tabs on unknown hosts (or opening a second
+    // SSH split while a prompt is up) raises two validations at once. A single
+    // slot overwrote the first continuation — leaving that SSH session
+    // suspended forever — and showed the second host's fingerprint under the
+    // first host's prompt. Each request carries its own continuation and its
+    // own data, and they are answered strictly one at a time.
+    @ObservationIgnored private var pendingHostKeyRequests: [PendingHostKeyRequest] = []
     var showNewHostAlert = false
     var showKeyChangedAlert = false
     var validationData: MainView.ValidationData?
 
-    /// A shared file failed to import.
-    var fileOpenErrorMessage: String?
-    var showFileOpenFailedAlert = false
+    struct PendingHostKeyRequest {
+        let data: MainView.ValidationData
+        let isKeyChanged: Bool
+        let continuation: CheckedContinuation<HostKeyValidationResult, Never>
+    }
 
     // MARK: - Queue mechanics
 
@@ -58,7 +68,6 @@ import os
         switch kind {
         case .newHost: return showNewHostAlert
         case .keyChanged: return showKeyChangedAlert
-        case .fileOpenFailed: return showFileOpenFailedAlert
         }
     }
 
@@ -71,10 +80,6 @@ import os
                 return
             }
         }
-    }
-
-    func dismissActive() {
-        completePresented(clearBackingState: true)
     }
 
     func completePresented(clearBackingState: Bool) {
@@ -96,18 +101,7 @@ import os
             showNewHostAlert = false
         case .keyChanged:
             showKeyChangedAlert = false
-        case .fileOpenFailed:
-            showFileOpenFailedAlert = false
-            fileOpenErrorMessage = nil
         }
-    }
-
-    // MARK: - Shared-File Open Failure
-
-    func handleFileOpenFailure(message: String) {
-        fileOpenErrorMessage = message
-        showFileOpenFailedAlert = true
-        enqueue(.fileOpenFailed)
     }
 
     // MARK: - SSH Host Key Validation
@@ -120,7 +114,7 @@ import os
             let sessionLabel = terminalView.connectionConfig.displayName
             let alertContext = "(\(sessionLabel))"
 
-            validationData = MainView.ValidationData(
+            let data = MainView.ValidationData(
                 alertTitle: request.isKeyChanged
                     ? "⚠️ WARNING: Host Key Changed \(alertContext)"
                     : "New SSH Host \(alertContext)",
@@ -128,29 +122,53 @@ import os
                 isKeyChanged: request.isKeyChanged
             )
 
-            hostKeyValidationContinuation = continuation
+            pendingHostKeyRequests.append(
+                PendingHostKeyRequest(
+                    data: data, isKeyChanged: request.isKeyChanged, continuation: continuation))
 
-            if request.isKeyChanged {
-                showKeyChangedAlert = true
-                enqueue(.keyChanged)
-            } else {
-                showNewHostAlert = true
-                enqueue(.newHost)
+            // Only drive the UI for the head of the queue; the rest are shown
+            // as each one is answered.
+            if pendingHostKeyRequests.count == 1 {
+                presentHeadHostKeyRequest()
             }
         }
     }
 
+    /// Puts the queue head on screen. Every prompt shows the fingerprint of the
+    /// host whose continuation it will resume.
+    private func presentHeadHostKeyRequest() {
+        guard let head = pendingHostKeyRequests.first else { return }
+        validationData = head.data
+        if head.isKeyChanged {
+            showKeyChangedAlert = true
+            enqueue(.keyChanged)
+        } else {
+            showNewHostAlert = true
+            enqueue(.newHost)
+        }
+    }
+
     func respondToHostKeyValidation(with result: HostKeyValidationResult) {
-        hostKeyValidationContinuation?.resume(returning: result)
-        hostKeyValidationContinuation = nil
+        guard !pendingHostKeyRequests.isEmpty else { return }
+        // Resume the HEAD only — the answer belongs to the host on screen.
+        let answered = pendingHostKeyRequests.removeFirst()
+        answered.continuation.resume(returning: result)
+
         showNewHostAlert = false
         showKeyChangedAlert = false
         validationData = nil
         completePresented(clearBackingState: true)
+
+        // Next host, if any, gets its own prompt rather than being dropped.
+        if !pendingHostKeyRequests.isEmpty {
+            DispatchQueue.main.async { [self] in
+                presentHeadHostKeyRequest()
+            }
+        }
     }
 
-    // NOTE: no deinit — `hostKeyValidationContinuation` is non-Sendable and
-    // must not be touched from a nonisolated deinit. A continuation dropped
-    // un-resumed when a window dies mid-prompt matches the previous @State
-    // behavior.
+    // NOTE: no deinit — the continuations in `pendingHostKeyRequests` are
+    // non-Sendable and must not be touched from a nonisolated deinit. Any
+    // still-queued when a window dies mid-prompt are dropped un-resumed, which
+    // matches the previous @State behavior.
 }

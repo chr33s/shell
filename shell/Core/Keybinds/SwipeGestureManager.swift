@@ -2,81 +2,29 @@
 //  SwipeGestureManager.swift
 //  shell
 //
-//  Stores user-customized horizontal-swipe bindings for the terminal.
-//  Single source of truth for both the iOS direct-touch swipe gestures and
-//  the Mac Catalyst trackpad swipe pan gesture.
+//  The horizontal-swipe bindings for the terminal: swipe left for the next
+//  tab, swipe right for the previous one. Single source of truth for both the
+//  iOS direct-touch swipe gestures and the Mac Catalyst trackpad swipe pan
+//  gesture, so the two platforms resolve a swipe identically.
+//
+//  The bindings are fixed. They were briefly persisted under the
+//  `swipeGestureBindings` setting, but no build ever shipped an editor or any
+//  other writer for that key, so it could only ever read back the defaults it
+//  was seeded with. The persistence was removed rather than given an editor.
 //
 
 import Foundation
-import SwiftUI
-import Observation
-import os
 
 @MainActor
-@Observable
 final class SwipeGestureManager {
     static let shared = SwipeGestureManager()
 
-    private nonisolated static let logger = Logger(subsystem: "dev.chr33s.shell", category: "SwipeGestureManager")
+    // MARK: - Bindings
 
-    static let bindingsDidChangeNotification = Notification.Name("SwipeGestureBindingsDidChange")
+    let leftBinding: SwipeGestureBinding = .preset(.nextTab)
+    let rightBinding: SwipeGestureBinding = .preset(.previousTab)
 
-    // MARK: - Defaults
-
-    static let defaultLeftBinding: SwipeGestureBinding = .preset(.nextTab)
-    static let defaultRightBinding: SwipeGestureBinding = .preset(.previousTab)
-
-    // MARK: - Observable Properties
-
-    /// When true, didSet skips `save()` so an externally-driven reload doesn't
-    /// write straight back the values it just read.
-    private var isBatching = false
-
-    private(set) var leftBinding: SwipeGestureBinding {
-        didSet { if !isBatching { save() } }
-    }
-
-    private(set) var rightBinding: SwipeGestureBinding {
-        didSet { if !isBatching { save() } }
-    }
-
-    // MARK: - Init
-
-    private init() {
-        let stored = Self.load()
-        leftBinding = stored?.left ?? Self.defaultLeftBinding
-        rightBinding = stored?.right ?? Self.defaultRightBinding
-
-        SettingsRefreshHub.shared.register(keys: [Settings.Gestures.swipeBindings.name]) { [weak self] keys in
-            self?.reload(keys: keys)
-        }
-
-        // Observe toolbar custom-key changes so we can clear any swipe binding
-        // that referenced a now-deleted custom key. Without this the recognizer
-        // would stay enabled and silently consume the gesture. Singleton lives
-        // for the app's lifetime so we don't track the observer for removal.
-        NotificationCenter.default.addObserver(
-            forName: KeyboardToolbarManager.layoutDidChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.clearOrphanedReferences()
-            }
-        }
-    }
-
-    /// Reset any `customKeyRef` binding whose target has been deleted from
-    /// KeyboardToolbarManager. Called whenever the toolbar layout changes.
-    private func clearOrphanedReferences() {
-        let manager = KeyboardToolbarManager.shared
-        if case .customKeyRef(let id) = leftBinding, manager.customKey(for: id) == nil {
-            leftBinding = .preset(.none)
-        }
-        if case .customKeyRef(let id) = rightBinding, manager.customKey(for: id) == nil {
-            rightBinding = .preset(.none)
-        }
-    }
+    private init() {}
 
     // MARK: - Public API
 
@@ -84,45 +32,6 @@ final class SwipeGestureManager {
         switch direction {
         case .left: return leftBinding
         case .right: return rightBinding
-        }
-    }
-
-    // MARK: - Persistence
-
-    private struct StoredBindings: Codable {
-        let left: SwipeGestureBinding
-        let right: SwipeGestureBinding
-    }
-
-    /// Re-reads owned keys after an external batch (iCloud, restore, config file).
-    func reload(keys: Set<String>) {
-        guard keys.contains(Settings.Gestures.swipeBindings.name) else { return }
-        isBatching = true
-        let stored = Self.load()
-        leftBinding = stored?.left ?? Self.defaultLeftBinding
-        rightBinding = stored?.right ?? Self.defaultRightBinding
-        isBatching = false
-        NotificationCenter.default.post(name: Self.bindingsDidChangeNotification, object: nil)
-    }
-
-    private func save() {
-        let stored = StoredBindings(left: leftBinding, right: rightBinding)
-        do {
-            let data = try JSONEncoder().encode(stored)
-            SettingsStore.shared.set(Settings.Gestures.swipeBindings, data)
-        } catch {
-            Self.logger.error("Failed to save swipe gesture bindings: \(error.localizedDescription)")
-        }
-        NotificationCenter.default.post(name: Self.bindingsDidChangeNotification, object: nil)
-    }
-
-    private static func load() -> StoredBindings? {
-        guard let data = SettingsStore.shared.get(Settings.Gestures.swipeBindings) else { return nil }
-        do {
-            return try JSONDecoder().decode(StoredBindings.self, from: data)
-        } catch {
-            logger.error("Failed to load swipe gesture bindings: \(error.localizedDescription)")
-            return nil
         }
     }
 }

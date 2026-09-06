@@ -10,12 +10,9 @@ final class InlineSpinnerAnimator {
 
     private enum ANSI {
         static let reset = "\u{1B}[0m"
-        static let bold = "\u{1B}[1m"
-        static let dim = "\u{1B}[2m"
 
         // Erase operations
         static let clearToEndOfScreen = "\u{1B}[J"
-        static let clearToEndOfLine = "\u{1B}[K"
 
         // Synchronized output (prevents flicker)
         static let syncOutputStart = "\u{1B}[?2026h"
@@ -71,10 +68,6 @@ final class InlineSpinnerAnimator {
     /// Number of lines in the last emitted frame (for cursor-up positioning)
     private var lastLineCount: Int = 0
 
-    /// Whether output is paused (e.g., when app is backgrounded).
-    /// While paused, emitFrame() is a no-op to prevent cursor corruption.
-    private var isPaused: Bool = false
-
     /// Whether the spinner is currently animating
     var isAnimating: Bool { timer != nil }
 
@@ -84,17 +77,6 @@ final class InlineSpinnerAnimator {
     }
 
     // MARK: - Public API
-
-    /// Pauses output emission. While paused, emitFrame() is a no-op.
-    /// Used to prevent cursor corruption when app enters background.
-    func pauseOutput() {
-        isPaused = true
-    }
-
-    /// Resumes output emission after a pause.
-    func resumeOutput() {
-        isPaused = false
-    }
 
     /// Returns the ANSI sequence needed to clear all spinner content.
     /// Call this before stop() to get valid cleanup.
@@ -172,7 +154,6 @@ final class InlineSpinnerAnimator {
         frameIndex = 0
         isFirstFrame = true
         lastLineCount = 0
-        isPaused = false
     }
 
     // MARK: - Private Methods
@@ -185,9 +166,6 @@ final class InlineSpinnerAnimator {
 
     /// Emits the current frame to the callback with full color formatting.
     private func emitFrame() {
-        // Skip output if paused (e.g., app backgrounded) to prevent cursor corruption
-        guard !isPaused else { return }
-
         let rgb = themeColors.colorFor(style: colorStyle)
         let dimRGB = themeColors.dimmedForeground
         let elapsedString = formatElapsedTime()

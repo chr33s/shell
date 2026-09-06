@@ -63,6 +63,12 @@ final class RestorationHealthTracker {
     // MARK: - Observable State
 
     /// Whether restoration was skipped on this launch due to repeated failures.
+    ///
+    /// Latched rather than posted as a notification: `evaluateRestoration()`
+    /// runs while the very first window is still connecting, long before any
+    /// view exists to receive a post. The flag therefore waits on the tracker
+    /// until a window is on screen and claims it via
+    /// `claimRestorationSkippedNotice()`.
     private(set) var restorationSkipped = false
 
     /// Whether the health check has been performed this launch
@@ -179,6 +185,32 @@ final class RestorationHealthTracker {
         // stale in-progress=true flag on disk, which would be misread as a
         // failed restoration on the next launch.
         defaults.synchronize()
+    }
+
+    /// The user-facing explanation for a quarantined session, claimed by the
+    /// first window able to present it.
+    ///
+    /// Returns non-nil at most once per launch: the flag is cleared as it is
+    /// read, so a second window — or a re-mount of the same window's alert
+    /// host — does not repeat the notice. Returns nil whenever restoration ran
+    /// normally, which is every launch but the one after a restore crash loop.
+    ///
+    /// Wording is deliberately precise about the outcome: `quarantineSavedState()`
+    /// moves the file aside, it does not delete it, and the counter is reset in
+    /// the same breath so the next quit saves and restores as usual.
+    func claimRestorationSkippedNotice() -> String? {
+        guard restorationSkipped else { return nil }
+        restorationSkipped = false
+        Self.logger.info("Presenting restoration-quarantine notice")
+        return String(
+            localized: """
+                Shell repeatedly failed to restore your tabs from the last \
+                session, so it set that saved session aside and started with a \
+                fresh window. The saved session was moved aside, not deleted. \
+                Tabs will be saved and restored as usual from now on.
+                """,
+            comment: "Alert message shown at launch when repeated restoration failures caused the saved session to be quarantined"
+        )
     }
 
     // MARK: - Private Helpers

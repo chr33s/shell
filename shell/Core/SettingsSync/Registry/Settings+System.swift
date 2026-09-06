@@ -65,7 +65,7 @@ nonisolated extension Settings {
     static let allAreas: [[AnySettingDefinition]] = [
         Theme.all, Font.all, Cursor.all, Selection.all, Transparency.all,
         Tabs.all, Window.all, Power.all,
-        Terminal.all, Gestures.all, Prompt.all, Locale.all, SessionRestore.all,
+        Terminal.all, Gestures.all, Prompt.all, SessionRestore.all,
         Keyboard.all, KeyboardToolbar.all, Keybinds.all,
         Connections.all, Tmux.all,
         System.all,

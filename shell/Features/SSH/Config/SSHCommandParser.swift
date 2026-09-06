@@ -146,7 +146,11 @@ struct SSHCommandParser {
         var identityFile: String?
         var jumpHostString: String?
         var sshOptions: [String: String] = [:]
-        var tmuxAutoEnable = false
+        // Settings ▸ tmux ▸ Default Mode seeds every parsed connection; `--tmux`
+        // still forces tmux on when the default is Off.
+        let defaultTmuxMode = SettingsStore.shared.value(Settings.Tmux.defaultMode)
+        var tmuxAutoEnable = defaultTmuxMode.tmuxEnabled
+        var tmuxAutoMode = defaultTmuxMode.autoMode
 
         var i = 1
         while i < tokens.count {
@@ -204,7 +208,10 @@ struct SSHCommandParser {
                     }
 
                 case "--tmux":
-                    // Enable tmux auto-start
+                    // Enable tmux auto-start. When the default was Off the mode
+                    // is meaningless, so normalise it to plain tmux; a default of
+                    // Control Mode is left alone and still launches `-CC`.
+                    if !tmuxAutoEnable { tmuxAutoMode = .regular }
                     tmuxAutoEnable = true
 
                 default:
@@ -309,7 +316,8 @@ struct SSHCommandParser {
                 username: finalUsername,
                 keyID: foundKeyID,
                 jumpHost: jumpHostConfig,
-                tmuxAutoEnable: tmuxAutoEnable
+                tmuxAutoEnable: tmuxAutoEnable,
+                tmuxAutoMode: tmuxAutoMode
             )
             return resultAwaitingJumpPassword(config, jumpNeedsPassword: jumpNeedsPassword)
         }
@@ -323,7 +331,8 @@ struct SSHCommandParser {
                 username: finalUsername,
                 authMethod: .savedPassword,
                 jumpHost: jumpHostConfig,
-                tmuxAutoEnable: tmuxAutoEnable
+                tmuxAutoEnable: tmuxAutoEnable,
+                tmuxAutoMode: tmuxAutoMode
             )
             return resultAwaitingJumpPassword(config, jumpNeedsPassword: jumpNeedsPassword)
         }
@@ -342,7 +351,8 @@ struct SSHCommandParser {
                 keyID: primaryKeyID,
                 fallbackKeyIDs: fallbackIDs.isEmpty ? nil : fallbackIDs,
                 jumpHost: jumpHostConfig,
-                tmuxAutoEnable: tmuxAutoEnable
+                tmuxAutoEnable: tmuxAutoEnable,
+                tmuxAutoMode: tmuxAutoMode
             )
             return resultAwaitingJumpPassword(config, jumpNeedsPassword: jumpNeedsPassword)
         }
@@ -357,6 +367,7 @@ struct SSHCommandParser {
             username: finalUsername,
             jumpHost: jumpHostConfig,
             tmuxAutoEnable: tmuxAutoEnable,
+            tmuxAutoMode: tmuxAutoMode,
         )
         partial.passwordSubject = jumpNeedsPassword ? .jumpHost : .target
 

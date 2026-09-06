@@ -5,6 +5,14 @@ struct KnownHostsView: View {
     @StateObject private var manager = KnownHostsManager.shared
     @State private var showingClearAllAlert = false
     @State private var searchText = ""
+    /// Bumped after every mutation performed from this screen. `KnownHostsManager` is an
+    /// `ObservableObject` whose only state is a plain, non-`@Published` store, so mutating it
+    /// never invalidates this body: the deleted row stayed on screen and the *next* swipe then
+    /// mapped its row index onto the already-shrunk list, removing a different host. Changing
+    /// `@State` always re-evaluates the body, which re-reads `manager.allHosts` fresh.
+    /// (Inbound changes — iCloud sync, a host trusted from a connection prompt while this screen
+    /// is open — still require `objectWillChange.send()` inside `KnownHostsManager` itself.)
+    @State private var listRevision = 0
 
     var body: some View {
         List {
@@ -66,6 +74,7 @@ struct KnownHostsView: View {
             Button("Cancel", role: .cancel) { }
             Button("Clear All", role: .destructive) {
                 manager.removeAll()
+                listRevision &+= 1
             }
         } message: {
             Text("This will remove all trusted SSH host keys. You will need to verify and trust hosts again on your next connection.")
@@ -84,10 +93,16 @@ struct KnownHostsView: View {
     }
 
     private func deleteHosts(at offsets: IndexSet) {
-        let hostsToDelete = offsets.map { filteredHosts[$0] }
+        // `filteredHosts` is computed, so it re-reads the store on every access and shrinks the
+        // instant a host is soft-deleted. Snapshot it once and bounds-check the offsets: indexing
+        // it per offset deleted the wrong host, then trapped with "Index out of range", whenever
+        // the rendered rows were stale. An out-of-range offset now degrades to a no-op.
+        let hosts = filteredHosts
+        let hostsToDelete = offsets.compactMap { hosts.indices.contains($0) ? hosts[$0] : nil }
         for host in hostsToDelete {
             manager.removeHost(hostname: host.hostname, port: host.port)
         }
+        listRevision &+= 1
     }
 }
 

@@ -12,32 +12,22 @@ struct CopyButton: View {
     @Environment(\.sheetThemeColors) private var sheetThemeColors
 
     let text: String
-    let label: String?
-    let isBordered: Bool
+    let label: String
 
     @State private var copied = false
 
-    init(text: String, label: String? = nil, isBordered: Bool = false) {
+    init(text: String, label: String) {
         self.text = text
         self.label = label
-        self.isBordered = isBordered
     }
 
     var body: some View {
-        Group {
-            if isBordered {
-                button
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .tint(accentColor)
-            } else {
-                button
-                    .buttonStyle(.borderless)
-                    .foregroundColor(copied ? accentColor : .secondary)
-            }
-        }
-        .accessibilityLabel(label ?? String(localized: "Copy", comment: "Copy button"))
-        .accessibilityValue(copied ? String(localized: "Copied", comment: "Copy button state: copied") : "")
+        button
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .tint(accentColor)
+            .accessibilityLabel(label)
+            .accessibilityValue(copied ? copiedTitle : "")
     }
 
     private var accentColor: Color {
@@ -50,23 +40,15 @@ struct CopyButton: View {
 
     private var button: some View {
         Button(action: copyToClipboard) {
-            if let label {
-                // Both states stay in layout so the pill keeps the wider width.
-                ZStack {
-                    labelContent(copiedTitle, systemImage: "checkmark")
-                        .opacity(copied ? 1 : 0)
-                    labelContent(label, systemImage: "doc.on.doc")
-                        .opacity(copied ? 0 : 1)
-                }
-                .fixedSize()
-                .animation(.easeInOut(duration: 0.15), value: copied)
-            } else {
-                Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                    .frame(width: 16, height: 16)
-                    .font(.caption)
-                    .contentTransition(.symbolEffect(.replace))
-                    .symbolEffect(.bounce, value: copied)
+            // Both states stay in layout so the pill keeps the wider width.
+            ZStack {
+                labelContent(copiedTitle, systemImage: "checkmark")
+                    .opacity(copied ? 1 : 0)
+                labelContent(label, systemImage: "doc.on.doc")
+                    .opacity(copied ? 0 : 1)
             }
+            .fixedSize()
+            .animation(.easeInOut(duration: 0.15), value: copied)
         }
     }
 
@@ -94,7 +76,7 @@ struct CopyButton: View {
 /// A labeled, read-only value (fingerprint, public key, shell command) with a
 /// copy button in the header and a full-width, wrapping, selectable body.
 /// Long-press the body for a copy context menu as well.
-struct CopyableValueBlock<Accessory: View>: View {
+struct CopyableValueBlock: View {
     @Environment(\.sheetThemeColors) private var sheetThemeColors
 
     let title: String
@@ -102,23 +84,17 @@ struct CopyableValueBlock<Accessory: View>: View {
     /// Text placed on the clipboard; defaults to `value`.
     var copyText: String?
     var isCopyDisabled = false
-    var font: Font = .system(.caption, design: .monospaced)
-    @ViewBuilder var accessory: () -> Accessory
 
     init(
         title: String,
         value: String,
         copyText: String? = nil,
-        isCopyDisabled: Bool = false,
-        font: Font = .system(.caption, design: .monospaced),
-        @ViewBuilder accessory: @escaping () -> Accessory = { EmptyView() }
+        isCopyDisabled: Bool = false
     ) {
         self.title = title
         self.value = value
         self.copyText = copyText
         self.isCopyDisabled = isCopyDisabled
-        self.font = font
-        self.accessory = accessory
     }
 
     private var clipboardText: String { copyText ?? value }
@@ -134,14 +110,13 @@ struct CopyableValueBlock<Accessory: View>: View {
                 Spacer(minLength: 8)
                 CopyButton(
                     text: clipboardText,
-                    label: String(localized: "Copy", comment: "Copy button"),
-                    isBordered: true
+                    label: String(localized: "Copy", comment: "Copy button")
                 )
                 .disabled(isCopyDisabled)
             }
 
             Text(value)
-                .font(font)
+                .font(.system(.caption, design: .monospaced))
                 .lineLimit(nil)
                 .lineSpacing(3)
                 .textSelection(.enabled)
@@ -160,8 +135,6 @@ struct CopyableValueBlock<Accessory: View>: View {
                         }
                     }
                 }
-
-            accessory()
         }
         .padding(.vertical, 4)
     }

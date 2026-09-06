@@ -15,13 +15,8 @@ import Foundation
 /// `codableValue == nil` means "unset" and only `Optional` produces it.
 nonisolated protocol SettingValue: Sendable, Equatable {
     static var valueType: CodableValue.ValueType { get }
-    static var isOptional: Bool { get }
     var codableValue: CodableValue? { get }
     init?(codableValue: CodableValue)
-}
-
-nonisolated extension SettingValue {
-    static var isOptional: Bool { false }
 }
 
 nonisolated extension Bool: SettingValue {
@@ -57,19 +52,6 @@ nonisolated extension Double: SettingValue {
     }
 }
 
-/// Stored as a double on the wire; UserDefaults keeps the float NSNumber.
-nonisolated extension Float: SettingValue {
-    static var valueType: CodableValue.ValueType { .double }
-    var codableValue: CodableValue? { .double(Double(self)) }
-    init?(codableValue: CodableValue) {
-        switch codableValue {
-        case .double(let v): self = Float(v)
-        case .int(let v): self = Float(v)
-        default: return nil
-        }
-    }
-}
-
 nonisolated extension String: SettingValue {
     static var valueType: CodableValue.ValueType { .string }
     var codableValue: CodableValue? { .string(self) }
@@ -99,7 +81,6 @@ nonisolated extension Data: SettingValue {
 
 nonisolated extension Optional: SettingValue where Wrapped: SettingValue {
     static var valueType: CodableValue.ValueType { Wrapped.valueType }
-    static var isOptional: Bool { true }
     var codableValue: CodableValue? { self?.codableValue }
     init?(codableValue: CodableValue) {
         guard let v = Wrapped(codableValue: codableValue) else { return nil }
@@ -221,7 +202,6 @@ nonisolated struct AnySettingDefinition: Sendable, Identifiable {
     let title: String
     /// Nil for opaque device-only keys whose value shape the registry does not model.
     let valueType: CodableValue.ValueType?
-    let isOptional: Bool
     let defaultCodable: CodableValue?
     /// Raw UserDefaults object -> typed value, or nil on mismatch.
     let read: @Sendable (Any) -> CodableValue?
@@ -240,7 +220,6 @@ nonisolated struct AnySettingDefinition: Sendable, Identifiable {
         configKey = key.configKey
         title = key.title
         valueType = V.valueType
-        isOptional = V.isOptional
         defaultCodable = key.defaultValue.codableValue
         read = { raw in
             guard let cv = CodableValue(userDefaultsObject: raw, as: V.valueType),
@@ -261,7 +240,7 @@ nonisolated struct AnySettingDefinition: Sendable, Identifiable {
     ) -> AnySettingDefinition {
         AnySettingDefinition(
             name: name, policy: policy, group: group, configKey: nil, title: title,
-            valueType: valueType, isOptional: true, defaultCodable: nil,
+            valueType: valueType, defaultCodable: nil,
             read: { CodableValue(userDefaultsObject: $0, as: valueType) },
             validate: { $0.valueType == valueType },
             display: { $0?.displayString ?? String(localized: "Not set", comment: "Setting value display when unset") }
@@ -272,7 +251,7 @@ nonisolated struct AnySettingDefinition: Sendable, Identifiable {
     static func opaque(_ name: String, group: SettingGroup = .system, title: String) -> AnySettingDefinition {
         AnySettingDefinition(
             name: name, policy: .deviceOnly, group: group, configKey: nil, title: title,
-            valueType: nil, isOptional: true, defaultCodable: nil,
+            valueType: nil, defaultCodable: nil,
             read: { _ in nil }, validate: { _ in false },
             display: { _ in String(localized: "Device only", comment: "Setting value display for unmodeled device-only keys") }
         )
@@ -280,7 +259,7 @@ nonisolated struct AnySettingDefinition: Sendable, Identifiable {
 
     private init(
         name: String, policy: SyncPolicy, group: SettingGroup, configKey: String?, title: String,
-        valueType: CodableValue.ValueType?, isOptional: Bool, defaultCodable: CodableValue?,
+        valueType: CodableValue.ValueType?, defaultCodable: CodableValue?,
         read: @escaping @Sendable (Any) -> CodableValue?,
         validate: @escaping @Sendable (CodableValue) -> Bool,
         display: @escaping @Sendable (CodableValue?) -> String
@@ -291,7 +270,6 @@ nonisolated struct AnySettingDefinition: Sendable, Identifiable {
         self.configKey = configKey
         self.title = title
         self.valueType = valueType
-        self.isOptional = isOptional
         self.defaultCodable = defaultCodable
         self.read = read
         self.validate = validate

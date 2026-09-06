@@ -83,13 +83,6 @@ extension MainView {
 
 extension MainView {
 
-    // MARK: - Tab Theme Override Helper
-
-    /// Check if a tab has a theme override applied
-    func tabHasThemeOverride(_ tabId: UUID) -> Bool {
-        themeOverrideManager.hasTabOverride(tabId: tabId)
-    }
-
     // MARK: - Tab Keyboard Shortcut Helper
 
     /// Returns keyboard shortcut string for a tab at the given index
@@ -177,8 +170,14 @@ extension MainView {
             onTabHover: { id, isHovered in
                 tabHover.handleHover(tabId: id, isHovered: isHovered)
             },
-            tabHasThemeOverride: { id in tabHasThemeOverride(id) },
-            onClearThemeOverride: { id in themeOverrideManager.clearTabOverride(tabId: id) },
+            // Per-tab / per-window theme overrides were removed: there was no
+            // setter anywhere in the app, so no tab could ever carry one and
+            // the "Clear Theme Override" item could never appear. Reporting
+            // `false` keeps that item hidden; the two parameters themselves
+            // are vestigial and should come out of `TabBar` with the menu item
+            // and the badge slot.
+            tabHasThemeOverride: { _ in false },
+            onClearThemeOverride: { _ in },
             onShowConnectionInfo: { tab in showConnectionInfo(for: tab) },
             onMoveTabToNewWindow: { tab in moveTabToNewWindow(tab) },
             onMoveTabsToNewWindow: { ids in moveTabsToNewWindow(ids) },

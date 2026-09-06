@@ -10,6 +10,7 @@
 //
 
 import UIKit
+import os
 
 extension Ghostty.TerminalView {
 
@@ -49,10 +50,29 @@ extension Ghostty.TerminalView {
         let parking = ensureSwapParkingField()
         // Order: park grabs first responder, then we take it back on the next
         // runloop turn so UIKit has actually surfaced the override.
-        _ = parking.becomeFirstResponder()
+        //
+        // The park can legitimately fail (our own resignFirstResponder() blocks
+        // during the software-keyboard app transition and while the secure-draw
+        // latch is armed), and the result used to be discarded with `_ =`: the
+        // terminal then never resigned, so the deferred re-take was a no-op on a
+        // view that was already first responder and the input source never
+        // changed. Bail out loudly instead of pretending the switch happened.
+        guard parking.becomeFirstResponder() else {
+            Ghostty.logger.warning(
+                "input-source swap: parking field could not take first responder; textInputMode override not refreshed"
+            )
+            return
+        }
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            _ = self.becomeFirstResponder()
+            if !self.becomeFirstResponder() {
+                // becomeFirstResponder() is heavily gated (overlay owns the
+                // keyboard, not logically focused, inactive window, secure
+                // draw). If it refuses we must not strand the keyboard on the
+                // invisible parking field, or keystrokes would vanish into it
+                // until the user taps the terminal.
+                _ = parking.resignFirstResponder()
+            }
         }
         #endif
     }
@@ -123,8 +143,15 @@ extension Ghostty.TerminalView {
         if let existing = inputLanguageSwapParkingField {
             return existing
         }
+        // Parked off-screen at 1x1 rather than hidden: UIKit refuses first
+        // responder to a hidden (or fully transparent) view, so `isHidden = true`
+        // here made every park fail and the input-source swap a no-op. The
+        // off-screen frame is what keeps the field invisible — do not "clean up"
+        // by hiding it or setting alpha to 0.
         let field = UITextField(frame: CGRect(x: -2, y: -2, width: 1, height: 1))
-        field.isHidden = true
+        field.backgroundColor = .clear
+        // No caret blink from the parked field during the swap.
+        field.tintColor = .clear
         field.autocorrectionType = .no
         field.autocapitalizationType = .none
         field.spellCheckingType = .no

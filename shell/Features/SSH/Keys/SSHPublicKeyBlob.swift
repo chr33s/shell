@@ -59,6 +59,44 @@ enum SSHPublicKeyBlob {
         return buffer.getData(at: buffer.readerIndex, length: buffer.readableBytes)
     }
 
+    /// Whether `blob` is a complete wire-format public key for `keyType`.
+    ///
+    /// ``make(from:keyType:)`` writes the key-type string first and only then
+    /// the payload, so a key whose public half cannot be extracted yields a
+    /// truncated blob that still base64-encodes into something key-shaped.
+    /// Any caller that hands the blob to a server — `authorized_keys` export
+    /// above all — must check this first rather than trusting non-emptiness.
+    static func isComplete(_ blob: Data, keyType: SSHKey.KeyType) -> Bool {
+        var buffer = ByteBuffer(data: blob)
+        guard let type = readSSHString(&buffer), type == keyTypeString(keyType) else {
+            return false
+        }
+
+        switch keyType {
+        case .ed25519:
+            // "ssh-ed25519" + the raw 32-byte public key.
+            guard let publicKey = readSSHBuffer(&buffer) else { return false }
+            return publicKey.readableBytes > 0
+
+        case .ecdsaP256, .ecdsaP384, .ecdsaP521, .secureEnclaveP256:
+            // type + curve identifier + the uncompressed point.
+            guard let curve = readSSHString(&buffer),
+                  curve == ecdsaCurveIdentifier(keyType),
+                  let point = readSSHBuffer(&buffer) else {
+                return false
+            }
+            return point.readableBytes > 0
+
+        case .rsa:
+            // "ssh-rsa" + e (mpint) + n (mpint).
+            guard let exponent = readSSHBuffer(&buffer),
+                  let modulus = readSSHBuffer(&buffer) else {
+                return false
+            }
+            return exponent.readableBytes > 0 && modulus.readableBytes > 0
+        }
+    }
+
     // MARK: - SSH wire format helpers
 
     static func keyTypeString(_ keyType: SSHKey.KeyType) -> String {
@@ -71,17 +109,6 @@ enum SSHPublicKeyBlob {
         case .ecdsaP384: return "nistp384"
         case .ecdsaP521: return "nistp521"
         default: return ""
-        }
-    }
-
-    /// Signature algorithm name to advertise for `keyType`.
-    static func signatureAlgorithmName(_ keyType: SSHKey.KeyType) -> String {
-        switch keyType {
-        case .rsa: return "rsa-sha2-256"
-        case .ed25519: return "ssh-ed25519"
-        case .ecdsaP256, .secureEnclaveP256: return "ecdsa-sha2-nistp256"
-        case .ecdsaP384: return "ecdsa-sha2-nistp384"
-        case .ecdsaP521: return "ecdsa-sha2-nistp521"
         }
     }
 

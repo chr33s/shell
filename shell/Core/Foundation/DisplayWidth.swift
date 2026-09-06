@@ -8,10 +8,8 @@ import GhosttyKit
 /// combining marks occupy 0. We consult ghostty's own SIMD width table so widths
 /// match exactly what ghostty draws.
 ///
-/// Unlike `RFWidth` (which is gated to the iOS-only `rf` file browser), this lives
-/// in the shared utilities layer and compiles on every platform — including Mac
-/// Catalyst — because `ghostty_simd_codepoint_width` is a plain C symbol from
-/// GhosttyKit (also used un-gated by the Mosh client).
+/// This compiles on every platform — including Mac Catalyst — because
+/// `ghostty_simd_codepoint_width` is a plain C symbol from GhosttyKit.
 nonisolated enum DisplayWidth {
     /// Display-cell width of a single Unicode scalar (-1 null, 0 zero-width, 1+ cells).
     private static func scalarWidth(_ scalar: UInt32) -> Int {

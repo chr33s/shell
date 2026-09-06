@@ -8,7 +8,6 @@
 import SwiftUI
 
 #if targetEnvironment(macCatalyst)
-import AppKit
 import UIKit
 
 extension View {
@@ -23,11 +22,7 @@ extension View {
 /// SwiftUI shape does not reliably win hit testing over a UIViewRepresentable
 /// terminal beneath it on Catalyst.
 struct CatalystWindowDragRegion: UIViewRepresentable {
-    var tabStyleSelection: Binding<String>?
-
-    init(tabStyleSelection: Binding<String>? = nil) {
-        self.tabStyleSelection = tabStyleSelection
-    }
+    let tabStyleSelection: Binding<String>
 
     func makeCoordinator() -> TabStyleContextMenuCoordinator {
         TabStyleContextMenuCoordinator()
@@ -38,23 +33,19 @@ struct CatalystWindowDragRegion: UIViewRepresentable {
         view.backgroundColor = .clear
         view.isUserInteractionEnabled = true
         view.accessibilityElementsHidden = true
-        if let tabStyleSelection {
-            context.coordinator.update(
-                selectedStyleRawValue: tabStyleSelection,
-                primaryAction: nil
-            )
-            context.coordinator.install(on: view)
-        }
+        context.coordinator.update(
+            selectedStyleRawValue: tabStyleSelection,
+            primaryAction: nil
+        )
+        context.coordinator.install(on: view)
         return view
     }
 
     func updateUIView(_ uiView: UIView, context: Context) {
-        if let tabStyleSelection {
-            context.coordinator.update(
-                selectedStyleRawValue: tabStyleSelection,
-                primaryAction: nil
-            )
-        }
+        context.coordinator.update(
+            selectedStyleRawValue: tabStyleSelection,
+            primaryAction: nil
+        )
     }
 }
 

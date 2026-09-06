@@ -6,7 +6,12 @@
 //  ECDSA P-256/P-384/P-521, RSA 2048/3072/4096). Keys are emitted as
 //  unencrypted OpenSSH PEM so they flow through the existing
 //  SSHKeyParser → SSHKeyManager import path with no algorithm-specific
-//  branching downstream.
+//  branching downstream. The emitted PEM must round-trip through
+//  SSHKeyParser to the byte-identical public key material the parser
+//  fingerprints (Ed25519: the raw public key; ECDSA: the raw x963
+//  point; RSA: the mpint payloads of e ‖ n) — import re-derives the
+//  fingerprint that key dedup compares, so a malformed blob would
+//  silently break dedup.
 //
 
 import Foundation
@@ -37,17 +42,6 @@ enum SSHKeyGenerationError: LocalizedError {
 struct GeneratedSSHKey: Sendable {
     /// Private key in OpenSSH PEM format (for storage)
     let privateKeyPEM: String
-
-    /// Public key in OpenSSH format (for display/copy)
-    let publicKeyOpenSSH: String
-
-    /// SHA256 fingerprint (hex string)
-    let fingerprint: String
-
-    /// The NIO SSH private key (for immediate use). nil for RSA — NIOSSH
-    /// has no RSA private-key wrapper; callers that need an in-memory
-    /// key should re-parse `privateKeyPEM` via SSHKeyParser.
-    let nioSSHPrivateKey: NIOSSHPrivateKey?
 }
 
 /// User-selectable key types for on-device generation.
@@ -160,61 +154,45 @@ nonisolated enum SSHKeyGenerator {
 
     /// Generate a new Ed25519 SSH key pair
     /// - Parameter comment: Optional comment to include in the key (typically key name)
-    /// - Returns: GeneratedSSHKey containing private key PEM, public key, and fingerprint
+    /// - Returns: GeneratedSSHKey containing the private key PEM
     static func generateEd25519(comment: String = "") -> GeneratedSSHKey {
         let privateKey = Curve25519.Signing.PrivateKey()
-        let nioKey = NIOSSHPrivateKey(ed25519Key: privateKey)
-
-        let publicKeyOpenSSH = formatPublicKeyOpenSSH(privateKey.publicKey, comment: comment)
         let privateKeyPEM = formatPrivateKeyOpenSSH(privateKey, comment: comment)
-        let fingerprint = generateFingerprint(publicKey: privateKey.publicKey)
-
-        return GeneratedSSHKey(
-            privateKeyPEM: privateKeyPEM,
-            publicKeyOpenSSH: publicKeyOpenSSH,
-            fingerprint: fingerprint,
-            nioSSHPrivateKey: nioKey
-        )
+        return GeneratedSSHKey(privateKeyPEM: privateKeyPEM)
     }
 
     // MARK: - ECDSA generation
 
     static func generateECDSAP256(comment: String = "") -> GeneratedSSHKey {
         let privateKey = P256.Signing.PrivateKey()
-        let nioKey = NIOSSHPrivateKey(p256Key: privateKey)
         return formatECDSA(
             curveName: "nistp256",
             keyTypeString: "ecdsa-sha2-nistp256",
             publicPoint: Data(privateKey.publicKey.x963Representation),
             privateScalar: privateKey.rawRepresentation,
-            comment: comment,
-            nioKey: nioKey
+            comment: comment
         )
     }
 
     static func generateECDSAP384(comment: String = "") -> GeneratedSSHKey {
         let privateKey = P384.Signing.PrivateKey()
-        let nioKey = NIOSSHPrivateKey(p384Key: privateKey)
         return formatECDSA(
             curveName: "nistp384",
             keyTypeString: "ecdsa-sha2-nistp384",
             publicPoint: Data(privateKey.publicKey.x963Representation),
             privateScalar: privateKey.rawRepresentation,
-            comment: comment,
-            nioKey: nioKey
+            comment: comment
         )
     }
 
     static func generateECDSAP521(comment: String = "") -> GeneratedSSHKey {
         let privateKey = P521.Signing.PrivateKey()
-        let nioKey = NIOSSHPrivateKey(p521Key: privateKey)
         return formatECDSA(
             curveName: "nistp521",
             keyTypeString: "ecdsa-sha2-nistp521",
             publicPoint: Data(privateKey.publicKey.x963Representation),
             privateScalar: privateKey.rawRepresentation,
-            comment: comment,
-            nioKey: nioKey
+            comment: comment
         )
     }
 
@@ -223,19 +201,12 @@ nonisolated enum SSHKeyGenerator {
         keyTypeString: String,
         publicPoint: Data,
         privateScalar: Data,
-        comment: String,
-        nioKey: NIOSSHPrivateKey
+        comment: String
     ) -> GeneratedSSHKey {
         let publicKeyBlob = buildECDSAPublicKeyBlob(
             keyTypeString: keyTypeString,
             curveName: curveName,
             publicPoint: publicPoint
-        )
-
-        let publicKeyOpenSSH = formatOpenSSHPublicKeyLine(
-            keyTypeString: keyTypeString,
-            blob: publicKeyBlob,
-            comment: comment
         )
 
         let privateSection = buildECDSAPrivateSection(
@@ -251,17 +222,7 @@ nonisolated enum SSHKeyGenerator {
             privateSection: privateSection
         )
 
-        // SSHKeyParser fingerprints ECDSA keys over the raw x963 point,
-        // so we do the same here — otherwise the pre-import and
-        // post-import fingerprints wouldn't match.
-        let fingerprint = sha256Hex(of: publicPoint)
-
-        return GeneratedSSHKey(
-            privateKeyPEM: privateKeyPEM,
-            publicKeyOpenSSH: publicKeyOpenSSH,
-            fingerprint: fingerprint,
-            nioSSHPrivateKey: nioKey
-        )
+        return GeneratedSSHKey(privateKeyPEM: privateKeyPEM)
     }
 
     // MARK: - RSA generation
@@ -270,12 +231,6 @@ nonisolated enum SSHKeyGenerator {
         let (n, e, d, p, q, iqmp) = try generateRSAKeyMaterial(bits: bits)
 
         let publicKeyBlob = buildRSAPublicKeyBlob(n: n, e: e)
-
-        let publicKeyOpenSSH = formatOpenSSHPublicKeyLine(
-            keyTypeString: "ssh-rsa",
-            blob: publicKeyBlob,
-            comment: comment
-        )
 
         let privateSection = buildRSAPrivateSection(
             n: n, e: e, d: d, p: p, q: q, iqmp: iqmp,
@@ -287,34 +242,7 @@ nonisolated enum SSHKeyGenerator {
             privateSection: privateSection
         )
 
-        // `SSHKeyParser.parseOpenSSHRSA` fingerprints RSA keys over the
-        // concatenated wire-form mpint payloads of e and n (with leading
-        // 0x00 sign byte when the high bit is set). Match that exactly so
-        // pre-import and post-import fingerprints agree.
-        let fingerprint = sha256Hex(of: mpIntPayload(e) + mpIntPayload(n))
-
-        return GeneratedSSHKey(
-            privateKeyPEM: privateKeyPEM,
-            publicKeyOpenSSH: publicKeyOpenSSH,
-            fingerprint: fingerprint,
-            nioSSHPrivateKey: nil
-        )
-    }
-
-    /// Returns the SSH mpint payload bytes (no length prefix) for a
-    /// big-endian unsigned integer: a leading 0x00 is prepended when the
-    /// high bit of the most-significant byte is set, and actual leading
-    /// zero bytes are stripped (per RFC 4251). Matches what
-    /// `ByteBuffer.writeSSHMPInt` writes after its 4-byte length prefix.
-    private static func mpIntPayload(_ data: Data) -> Data {
-        var bytes = Array(data)
-        while bytes.count > 1 && bytes[0] == 0 && (bytes[1] & 0x80) == 0 {
-            bytes.removeFirst()
-        }
-        if !bytes.isEmpty && (bytes[0] & 0x80) != 0 {
-            bytes.insert(0, at: 0)
-        }
-        return Data(bytes)
+        return GeneratedSSHKey(privateKeyPEM: privateKeyPEM)
     }
 
     /// Generate RSA key material directly with BoringSSL. Citadel's
@@ -374,54 +302,12 @@ nonisolated enum SSHKeyGenerator {
         return Data(bytes)
     }
 
-    // MARK: - Public Key Formatting
-
-    /// Format Ed25519 public key in OpenSSH format
-    /// Format: "ssh-ed25519 BASE64(type-string-length + type-string + key-length + key) [comment]"
-    static func formatPublicKeyOpenSSH(_ publicKey: Curve25519.Signing.PublicKey, comment: String = "") -> String {
-        let keyType = "ssh-ed25519"
-        let keyTypeData = keyType.data(using: .utf8)!
-        let rawKeyData = publicKey.rawRepresentation
-
-        // Build SSH wire format: string(keyType) + string(publicKey)
-        var wireFormat = Data()
-
-        // Write key type as SSH string (4-byte big-endian length + UTF-8 bytes)
-        var keyTypeLength = UInt32(keyTypeData.count).bigEndian
-        wireFormat.append(Data(bytes: &keyTypeLength, count: 4))
-        wireFormat.append(keyTypeData)
-
-        // Write public key as SSH string (4-byte big-endian length + key bytes)
-        var keyLength = UInt32(rawKeyData.count).bigEndian
-        wireFormat.append(Data(bytes: &keyLength, count: 4))
-        wireFormat.append(rawKeyData)
-
-        // Base64 encode the wire format
-        let base64 = wireFormat.base64EncodedString()
-
-        if comment.isEmpty {
-            return "\(keyType) \(base64)"
-        } else {
-            return "\(keyType) \(base64) \(comment)"
-        }
-    }
-
-    /// Format public key from an existing stored key variant
-    /// Works with Ed25519, RSA, and ECDSA keys
-    static func formatPublicKey(from keyVariant: SSHPrivateKeyVariant, keyType: SSHKey.KeyType, comment: String = "") -> String {
-        switch keyVariant {
-        case .nioSSH(let nioKey), .secureEnclaveP256(let nioKey):
-            // Extract public key and format based on type. (Secure Enclave
-            // keys normally export via the cached publicKeyBlob in
-            // SSHPublicKeyFormatter; this is the rarely-hit fallback.)
-            return formatNIOSSHPublicKey(nioKey, keyType: keyType, comment: comment)
-
-        case .rsa(let rsaKey):
-            // RSA public key format: "ssh-rsa BASE64(e + n)"
-            return formatRSAPublicKey(rsaKey, comment: comment)
-
-        }
-    }
+    // Deliberately no public-key formatter here. Export goes through
+    // `SSHPublicKeyFormatter.authorizedKeysLine(for:comment:)`, which derives
+    // the wire-format blob with `SSHPublicKeyBlob` and throws when it cannot.
+    // The two functions that used to live here returned
+    // "# Public key not available…" for every key they were handed, and the
+    // caller pasted that comment line into a server's `authorized_keys`.
 
     // MARK: - Private Key Formatting (OpenSSH Format)
 
@@ -438,26 +324,6 @@ nonisolated enum SSHKeyGenerator {
     /// `OpenSSHContainer` so both paths emit byte-identical layout.
     private static func wrapOpenSSHPrivateKey(publicKeyBlob: ByteBuffer, privateSection: ByteBuffer) -> String {
         OpenSSHContainer.wrapUnencryptedPrivateKey(publicKeyBlob: publicKeyBlob, privateSection: privateSection)
-    }
-
-    /// Format a single-line OpenSSH authorized_keys entry:
-    /// "<type> <base64-blob> <comment>" (comment omitted when empty).
-    private static func formatOpenSSHPublicKeyLine(keyTypeString: String, blob: ByteBuffer, comment: String) -> String {
-        let blobBytes = blob.getBytes(at: blob.readerIndex, length: blob.readableBytes) ?? []
-        let base64 = Data(blobBytes).base64EncodedString()
-        if comment.isEmpty {
-            return "\(keyTypeString) \(base64)"
-        }
-        return "\(keyTypeString) \(base64) \(comment)"
-    }
-
-    /// SHA-256 (hex) of the supplied bytes. The per-key-type call sites
-    /// hash exactly the material `SSHKeyParser.generateFingerprint` would
-    /// hash post-import, so a generated key round-tripped through the
-    /// parser yields the same fingerprint and dedup works.
-    private static func sha256Hex(of data: Data) -> String {
-        let hash = SHA256.hash(data: data)
-        return hash.compactMap { String(format: "%02x", $0) }.joined()
     }
 
     // MARK: - Ed25519 blob/section builders
@@ -569,29 +435,5 @@ nonisolated enum SSHKeyGenerator {
 
         section.writeSSHString(comment)
         return section
-    }
-
-    // MARK: - Fingerprint Generation
-
-    /// SHA-256 (hex) of the raw 32-byte Ed25519 public key — matches
-    /// `SSHKeyParser.parseOpenSSHEd25519Buffer` which fingerprints over
-    /// `privateKey.publicKey.rawRepresentation`.
-    private static func generateFingerprint(publicKey: Curve25519.Signing.PublicKey) -> String {
-        return sha256Hex(of: publicKey.rawRepresentation)
-    }
-
-    // MARK: - NIOSSH Public Key Formatting
-
-    private static func formatNIOSSHPublicKey(_ nioKey: NIOSSHPrivateKey, keyType: SSHKey.KeyType, comment: String) -> String {
-        // NIOSSHPrivateKey doesn't expose the raw public key directly
-        // This is a fallback path - prefer using cached publicKeyBlob from SSHKey
-        // Return a message indicating the key should use cached blob
-        return "# Public key not available. Try reloading the key details."
-    }
-
-    private static func formatRSAPublicKey(_ rsaKey: Insecure.RSA.PrivateKey, comment: String) -> String {
-        // Insecure.RSA.PrivateKey from Citadel doesn't expose public key directly
-        // This is a fallback path - prefer using cached publicKeyBlob from SSHKey
-        return "# RSA public key not available. Try reloading the key details."
     }
 }

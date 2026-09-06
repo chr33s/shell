@@ -8,7 +8,19 @@ final class TerminalReconnectionController {
     private(set) var manager: ReconnectionManager?
     private var reconnectionCountdownTimer: Timer?
     private var reconnectionSpinnerAnimator: InlineSpinnerAnimator?
-    private var disconnectStartTime: Date?
+
+    /// True between `pauseUI()` and `resumeUI()` (i.e. while backgrounded).
+    ///
+    /// Tearing down the timer and the animator in `pauseUI()` was not enough:
+    /// `manager.onStateChange` and `session.onDisconnect` stay wired while
+    /// paused, so a drop arriving in the background built a *fresh*
+    /// `InlineSpinnerAnimator` whose 0.08s timer wrote escape sequences
+    /// straight to the surface — and nothing ever stopped it, because
+    /// `startReconnectionLoop()` bails while the manager is paused, so the
+    /// state machine parks in `.disconnected` until `resumeUI()`. That is
+    /// exactly the cursor corruption `pauseReconnectionUI()` exists to
+    /// prevent. Every direct write path below is gated on this flag.
+    private var isUIPaused = false
 
     init(host: TerminalSessionControllerHost) {
         self.host = host
@@ -106,14 +118,19 @@ final class TerminalReconnectionController {
         }
 
         manager?.pause()
+
+        // Set last: the cleanup write above is the one write that must still
+        // reach the surface.
+        isUIPaused = true
     }
 
     func resumeUI() {
+        // Order matters. `manager.resume()` restarts the loop from
+        // `.disconnected`/`.waitingToReconnect` and repaints synchronously via
+        // `handleStateChange`; clearing the flag afterwards would swallow that
+        // first repaint too.
+        isUIPaused = false
         manager?.resume()
-    }
-
-    func resetUI() {
-        cleanupAnimators()
     }
 
     private func handleStateChange(_ state: ReconnectionManager.State) {
@@ -131,8 +148,13 @@ final class TerminalReconnectionController {
 
         switch state {
         case .disconnected(let reason):
-            disconnectStartTime = Date()
             stopCountdown()
+
+            // Backgrounded: the reconnection loop is paused, so this spinner
+            // would animate until `resumeUI()` with no state change to stop
+            // it. `resumeUI()` clears the flag before `manager.resume()`,
+            // which restarts the loop from `.disconnected` and repaints.
+            guard !isUIPaused else { break }
 
             let message = "Connection lost: \(reason.description)"
             reconnectionSpinnerAnimator = InlineSpinnerAnimator()
@@ -153,7 +175,6 @@ final class TerminalReconnectionController {
             let cleanup = reconnectionSpinnerAnimator?.getCleanupSequence() ?? ""
             reconnectionSpinnerAnimator?.stop()
             reconnectionSpinnerAnimator = nil
-            disconnectStartTime = nil
 
             let maxAttempts = manager?.config.maxAttempts ?? 5
             let themeColors = SpinnerAnimator.ThemeColors.fromThemeManager()
@@ -183,6 +204,10 @@ final class TerminalReconnectionController {
     private func startCountdown(delay: TimeInterval, attempt: Int) {
         guard let host else { return }
         stopCountdown()
+
+        // Backgrounded: neither the spinner nor the 0.1s countdown timer may
+        // write escape sequences. The loop repaints on resume.
+        guard !isUIPaused else { return }
 
         let endTime = Date().addingTimeInterval(delay)
         let maxAttempts = manager?.config.maxAttempts ?? 5
@@ -232,8 +257,6 @@ final class TerminalReconnectionController {
         reconnectionSpinnerAnimator?.stop()
         reconnectionSpinnerAnimator = nil
 
-        disconnectStartTime = nil
-
         if !cleanup.isEmpty {
             host?.terminalWriteToGhostty(cleanup)
         }
@@ -244,21 +267,29 @@ final class TerminalReconnectionController {
         let spinnerCleanup = reconnectionSpinnerAnimator?.getCleanupSequence() ?? ""
         reconnectionSpinnerAnimator?.stop()
         reconnectionSpinnerAnimator = nil
-        disconnectStartTime = nil
 
-        if !spinnerCleanup.isEmpty {
-            host.terminalWriteToGhostty(spinnerCleanup)
+        // Backgrounded: suppress the escape-sequence writes only.
+        // `handlePermanentFailure` is driven from outside the reconnection
+        // loop (SSH auth failure), so it lands here while paused, but
+        // `manager.resume()` does not re-notify from `.failed` — the overlay
+        // and restoration state below must still be set or the user returns
+        // to a dead terminal with no indication of why.
+        if !isUIPaused {
+            if !spinnerCleanup.isEmpty {
+                host.terminalWriteToGhostty(spinnerCleanup)
+            }
+
+            let themeColors = SpinnerAnimator.ThemeColors.fromThemeManager()
+            let dimRGB = themeColors.dimmedForeground
+            let dimColor = "\u{1B}[38;2;\(dimRGB.0);\(dimRGB.1);\(dimRGB.2)m"
+            let reset = "\u{1B}[0m"
+
+            let padding = max(0, (host.terminalReconnectionWidth - reason.count) / 2)
+            let centeredError = String(repeating: " ", count: padding) + reason
+
+            host.terminalWriteToGhostty("\r\n" + dimColor + centeredError + reset + "\r\n\r\n")
         }
 
-        let themeColors = SpinnerAnimator.ThemeColors.fromThemeManager()
-        let dimRGB = themeColors.dimmedForeground
-        let dimColor = "\u{1B}[38;2;\(dimRGB.0);\(dimRGB.1);\(dimRGB.2)m"
-        let reset = "\u{1B}[0m"
-
-        let padding = max(0, (host.terminalReconnectionWidth - reason.count) / 2)
-        let centeredError = String(repeating: " ", count: padding) + reason
-
-        host.terminalWriteToGhostty("\r\n" + dimColor + centeredError + reset + "\r\n\r\n")
         host.terminalIsLiveDisconnectionOverlay = true
         host.terminalRestorationState = .failed(reason)
         host.terminalNotifyRestorationStateChanged()
@@ -275,7 +306,6 @@ final class TerminalReconnectionController {
         stopCountdown()
         reconnectionSpinnerAnimator?.stop()
         reconnectionSpinnerAnimator = nil
-        disconnectStartTime = nil
 
         let themeColors = SpinnerAnimator.ThemeColors.fromThemeManager()
         let successRGB = themeColors.colorFor(style: .success)
@@ -291,7 +321,6 @@ final class TerminalReconnectionController {
         let cleanup = reconnectionSpinnerAnimator?.getCleanupSequence() ?? ""
         reconnectionSpinnerAnimator?.stop()
         reconnectionSpinnerAnimator = nil
-        disconnectStartTime = nil
 
         guard let host else { return }
         host.terminalWriteToGhostty(cleanup)

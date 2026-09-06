@@ -50,11 +50,6 @@ final class CloudKitOfflineQueue {
         pendingChanges.count
     }
 
-    /// Whether there are pending changes
-    var hasPendingChanges: Bool {
-        !pendingChanges.isEmpty
-    }
-
     /// Add a change to the queue
     func enqueue(_ change: PendingChange) {
         // Check for existing change for the same record

@@ -23,7 +23,6 @@ struct SSHUserCertificateImportView: View {
     /// When set, the certificate must certify this key. When nil, the owning
     /// key is located automatically from the embedded public key.
     let targetKey: SSHKey?
-    var embedInNavigationStack = true
 
     @State private var importMethod: ImportMethod = .paste
     @State private var pastedCertText = ""
@@ -50,15 +49,12 @@ struct SSHUserCertificateImportView: View {
     }
 
     var body: some View {
-        if embedInNavigationStack {
-            NavigationStack {
-                content
-            }
-        } else {
-            content
-        }
+        content
     }
 
+    /// Split out of `body` deliberately: inlining this `Form` chain into `body`
+    /// pushes SwiftUI's type checker past its budget in the two call sites that
+    /// present this view. Keep the boundary.
     private var content: some View {
         Form {
             // Import method picker
@@ -156,15 +152,6 @@ struct SSHUserCertificateImportView: View {
         #endif
         .navigationTitle(targetKey == nil ? String(localized: "Import Certificate", comment: "Cert import: global title") : String(localized: "Add Certificate", comment: "Cert import: per-key title"))
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            if embedInNavigationStack {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
-                }
-            }
-        }
         .fileImporter(
             isPresented: $showingFilePicker,
             allowedContentTypes: [.item],
@@ -414,5 +401,7 @@ func certificateStatusRow(for info: SSHUserCertificateInfo) -> some View {
 }
 
 #Preview {
-    SSHUserCertificateImportView(targetKey: nil)
+    NavigationStack {
+        SSHUserCertificateImportView(targetKey: nil)
+    }
 }

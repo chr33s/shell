@@ -34,9 +34,4 @@ struct SSHConnectionInfo: Sendable {
         let hk = (hostKeyAlgorithm ?? "").lowercased()
         return hk.contains("mldsa") || hk.contains("sntrup")
     }
-
-    /// Whether any negotiated algorithm uses post-quantum cryptography.
-    var isPostQuantum: Bool {
-        isPostQuantumKeyExchange || isPostQuantumHostKey
-    }
 }

@@ -49,6 +49,17 @@ struct KeyboardInteractiveChallenge: Sendable {
     let instruction: String
     /// The prompts to present, in order. May be empty (information-only round).
     let prompts: [KeyboardInteractivePrompt]
+    /// Auth banners (`SSH_MSG_USERAUTH_BANNER`) this connection has received so
+    /// far in the current authentication phase, stamped in when the challenge is
+    /// raised.
+    ///
+    /// The prompt sheet covers the pane — and with it the pane's auth-banner
+    /// card — on iPhone, which is exactly the device where an OTP challenge is
+    /// answered. Without carrying the banners into the sheet the user is asked
+    /// for a code while the instructions telling them where to get it (and the
+    /// enrolment URL) sit hidden behind the sheet. Empty for connections that
+    /// received no banner, which is the common case.
+    var authBanners: [SSHAuthBannerItem] = []
 }
 
 /// Thrown to abort keyboard-interactive auth when the user cancels.

@@ -19,8 +19,6 @@ extension MainView {
             return alerts.validationData?.alertTitle ?? String(localized: "New SSH Host", comment: "Host key alert title")
         case .keyChanged:
             return alerts.validationData?.alertTitle ?? String(localized: "⚠️ WARNING: Host Key Changed", comment: "Host key alert title")
-        case .fileOpenFailed:
-            return String(localized: "Couldn't Open File", comment: "Alert title when a shared file fails to import")
         case nil:
             return ""
         }
@@ -37,8 +35,8 @@ extension MainView {
                 switch alerts.presentedKind {
                 case .newHost, .keyChanged:
                     alerts.respondToHostKeyValidation(with: .reject)
-                case .fileOpenFailed, nil:
-                    alerts.completePresented(clearBackingState: true)
+                case nil:
+                    break
                 }
             }
         )
@@ -72,10 +70,6 @@ extension MainView {
                         alerts.respondToHostKeyValidation(with: .accept)
                     }
                     .keyboardShortcut(.defaultAction)
-                case .fileOpenFailed:
-                    Button("OK", role: .cancel) {
-                        alerts.dismissActive()
-                    }
                 case nil:
                     EmptyView()
                 }
@@ -83,10 +77,6 @@ extension MainView {
                 switch alerts.presentedKind {
                 case .newHost, .keyChanged:
                     if let message = alerts.validationData?.message {
-                        Text(message)
-                    }
-                case .fileOpenFailed:
-                    if let message = alerts.fileOpenErrorMessage {
                         Text(message)
                     }
                 case nil:

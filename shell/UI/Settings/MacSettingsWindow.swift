@@ -29,7 +29,6 @@ enum MacSettingsWindow {
 
 final class MacSettingsSceneDelegate: NSObject, UIWindowSceneDelegate {
     var window: UIWindow?
-    private var currentDestination: SettingsDestination?
 
     func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options: UIScene.ConnectionOptions) {
         guard let scene = scene as? UIWindowScene else { return }
@@ -48,7 +47,6 @@ final class MacSettingsSceneDelegate: NSObject, UIWindowSceneDelegate {
     private func present(activity: NSUserActivity?) {
         let destination = (activity?.userInfo?["destination"] as? String).flatMap(SettingsDestination.init(rawValue:))
         if window?.rootViewController != nil, destination == nil { return }
-        currentDestination = destination
         let view = SettingsView(initialDestination: destination, onClose: { [weak self] in
             guard let session = self?.window?.windowScene?.session else { return }
             UIApplication.shared.requestSceneSessionDestruction(session, options: nil)

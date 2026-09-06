@@ -7,7 +7,6 @@
 
 import Foundation
 
-extension ProfileSortOrder: SettingValue {}
 extension KeyAuthRequirement: SettingValue {}
 extension KeyStorageLevel: SettingValue {}
 extension TmuxAutoMode: SettingValue {}
@@ -35,9 +34,6 @@ nonisolated extension Settings {
         static let autoReconnectMaxAttempts = SettingKey(
             "autoReconnectMaxAttempts", default: 5, group: .connections, configKey: "auto-reconnect-max-attempts",
             title: String(localized: "Reconnect Attempts", comment: "Setting title"))
-        static let profilesSortOrder = SettingKey(
-            "profilesSortOrder", default: ProfileSortOrder.name, group: .connections, configKey: "profiles-sort-order",
-            title: String(localized: "Sort Profiles By", comment: "Setting title"))
         static let passwordDefaultAuthRequirement = SettingKey(
             "sshPasswordDefaultAuthRequirement", default: KeyAuthRequirement.none, group: .connections,
             configKey: "ssh-password-default-auth-requirement",
@@ -56,7 +52,7 @@ nonisolated extension Settings {
         static let all: [AnySettingDefinition] = [
             forceIPv4.erased, healthMonitoring.erased, healthProbeInterval.erased,
             backgroundKeepalive.erased, autoReconnectEnabled.erased,
-            autoReconnectMaxAttempts.erased, profilesSortOrder.erased, passwordDefaultAuthRequirement.erased,
+            autoReconnectMaxAttempts.erased, passwordDefaultAuthRequirement.erased,
             passwordDefaultStorageLevel.erased,
             passwordLastUsedDates.erased, defaultKeyIDs.erased,
         ]

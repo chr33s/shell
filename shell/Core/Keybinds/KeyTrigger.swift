@@ -483,6 +483,12 @@ enum KeyCode: String, Codable, CaseIterable, Hashable, Sendable {
         case "minus": self = .minus
         case "equal": self = .equal
         case "plus": self = .plus
+        // ">" MUST be readable by name: `KeySequence.init?(ghosttyFormat:)`
+        // splits on ">" before `KeyTrigger` ever sees the part, so a literal
+        // "cmd+>" is shredded into "cmd+" + "" and parses to nil. This alias is
+        // the read side of `KeyCode.ghosttyFormat`'s `greater_than`; without it
+        // every exported ">" binding is silently dropped on re-import.
+        case "greater_than": self = .greaterThan
         case "bracket_left", "left_bracket": self = .leftBracket
         case "bracket_right", "right_bracket": self = .rightBracket
         case "backslash": self = .backslash
@@ -560,6 +566,18 @@ enum KeyCode: String, Codable, CaseIterable, Hashable, Sendable {
         case .backslash: return "backslash"
         case .quote: return "quote"
         case .grave: return "backquote"
+        // "+" MUST be emitted by name. `KeyTrigger.ghosttyFormat` joins the
+        // modifiers and the key with "+", so a bare "+" serialized as "cmd++",
+        // which neither our own parser nor any "+"-splitting parser can read
+        // back — and since the exported config starts with `keybind = clear`,
+        // an unreadable line is a silently lost binding, not a fallback.
+        case .plus: return "plus"
+        // ">" MUST be emitted by name for the same reason: `KeySequence`
+        // joins/splits triggers on ">", so a bare ">" serialized as "cmd+>",
+        // which the sequence splitter tears apart before `KeyTrigger` can parse
+        // it. Since the exported config starts with `keybind = clear`, that
+        // unreadable line is a silently lost binding, not a fallback.
+        case .greaterThan: return "greater_than"
 
         default:
             return rawValue
@@ -608,11 +626,22 @@ struct KeyTrigger: Codable, Hashable, CustomStringConvertible, Sendable {
 
     /// Parse from ghostty config format: "cmd+shift+d" or "ctrl+a"
     init?(ghosttyFormat: String) {
-        let parts = ghosttyFormat.lowercased().components(separatedBy: "+")
+        let lowered = ghosttyFormat.lowercased()
+
+        // "+" as the KEY ("cmd++", or a lone "+"): splitting on "+" first
+        // yields empty components that never parse, so peel the key off before
+        // splitting. The doubled "++" (or the lone "+") is required so that a
+        // truncated "cmd+" still fails instead of being mis-read as cmd+plus.
+        if lowered == "+" || lowered.hasSuffix("++") {
+            self.key = .plus
+            self.modifiers = KeybindModifiers(ghosttyFormat: String(lowered.dropLast())) ?? []
+            return
+        }
+
+        let parts = lowered.components(separatedBy: "+")
         guard !parts.isEmpty else { return nil }
 
         // Last part is the key (usually)
-        // But we need to handle cases like "cmd++" where + is the key
         var keyPart: String?
         var modParts: [String] = []
 

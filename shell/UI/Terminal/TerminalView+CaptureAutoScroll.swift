@@ -262,25 +262,21 @@ extension Ghostty.TerminalView {
         guard edgeBand > 0 else { return CaptureAutoScrollConstants.fullSpeedOvershoot }
 
         let distanceIntoBand: CGFloat
-        let distanceBeyondEdge: CGFloat
         switch direction {
         case .up:
             distanceIntoBand = geometry.gridTop + edgeBand - point.y
-            distanceBeyondEdge = max(0, geometry.gridTop - point.y)
         case .down:
             distanceIntoBand = point.y - (geometry.gridBottom - edgeBand)
-            distanceBeyondEdge = max(0, point.y - geometry.gridBottom)
         case .none:
             return 0
         }
 
         // UIKit often caps bottom-edge coordinates just inside the drawable, so
         // bottom drags may never accumulate out-of-view overshoot. Drive the
-        // speed curve by edge-band progress first, with true out-of-view
-        // overshoot as an additive bonus when the platform reports it.
+        // speed curve by edge-band progress alone, which already reaches full
+        // speed at the edge itself.
         let bandProgress = min(max(distanceIntoBand / edgeBand, 0), 1)
         return bandProgress * CaptureAutoScrollConstants.fullSpeedOvershoot
-            + distanceBeyondEdge
     }
 
     private func captureAutoScrollPinnedPosition(

@@ -32,6 +32,10 @@ struct CustomKeyEditorView: View {
 
     enum ActiveSheet: Identifiable {
         case addKeyCombo
+        // Distinct from .addKeyCombo so the single-combo "Change" button can prefill the
+        // picker with the existing combo; .addKeyCombo carries no payload and is shared
+        // with the sequence-append call site.
+        case changeKeyCombo(combo: SequenceStep.KeyCombo)
         case editKeyCombo(index: Int, combo: SequenceStep.KeyCombo)
         case addText
         case editText(index: Int, text: String)
@@ -40,6 +44,7 @@ struct CustomKeyEditorView: View {
         var id: String {
             switch self {
             case .addKeyCombo: return "addKeyCombo"
+            case .changeKeyCombo: return "changeKeyCombo"
             case .editKeyCombo(let index, _): return "editKeyCombo-\(index)"
             case .addText: return "addText"
             case .editText(let index, _): return "editText-\(index)"
@@ -189,6 +194,11 @@ struct CustomKeyEditorView: View {
                     }
                 }
                 .themedSubSheet(sheetThemeColors)
+            case .changeKeyCombo(let combo):
+                KeyComboPickerSheet(initialCombo: combo, confirmLabel: "Done") { newCombo in
+                    singleCombo = newCombo
+                }
+                .themedSubSheet(sheetThemeColors)
             case .editKeyCombo(let index, let combo):
                 KeyComboPickerSheet(initialCombo: combo, confirmLabel: "Done") { newCombo in
                     guard index < sequence.count else { return }
@@ -273,7 +283,9 @@ struct CustomKeyEditorView: View {
                         .font(.system(.body, design: .monospaced))
                     Spacer()
                     Button("Change") {
-                        activeSheet = .addKeyCombo
+                        // Was .addKeyCombo, which opened an empty picker labelled "Add";
+                        // prefill with the combo being changed instead.
+                        activeSheet = .changeKeyCombo(combo: combo)
                     }
                     .font(.subheadline)
                 }
@@ -544,7 +556,6 @@ struct CustomKeyEditorView: View {
 
 private struct SFSymbolPickerSheet: View {
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.sheetThemeColors) private var sheetThemeColors
     @Binding var selectedIcon: String?
     @State private var searchText = ""
 

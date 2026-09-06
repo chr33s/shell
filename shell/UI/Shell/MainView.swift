@@ -127,6 +127,15 @@ struct MainView: View {
     /// "Ask Each Time" tmux new-tab (⌘T): the tmux tab whose new-tab choice is
     /// awaiting the user (local shell vs new tmux window). (id=tmux-new-tab-action)
     @State var pendingTmuxNewTabTabID: UUID?
+    /// Reconnect arming for the connection sheet, set by
+    /// `handleAuthenticationRequired` (and, for `reconnectConfig` alone, by the
+    /// `ssh://` deep-link prefill). Both are one-shot state owned by a single
+    /// presentation of the sheet: `handleSSHOrLocalConnection` clears them after
+    /// a connect, and `connectionSheetContent`'s `.onDisappear` clears them on
+    /// every dismissal path. Nothing may leave them armed across presentations —
+    /// a stale `reconnectingTabIndex` makes the next connect replace an
+    /// unrelated live tab, and a stale `reconnectConfig` reopens the sheet
+    /// straight into the editor for a host the user already backed out of.
     @State var reconnectingTabIndex: Int?
     @State var reconnectConfig: SSHConfig?
     /// Source-compat shim around `tabsModel.draggingTabID`.
@@ -154,8 +163,6 @@ struct MainView: View {
     var themeManager = ThemeManager.shared
     var transparencyManager = TransparencyManager.shared
     var keyboardGeometry = KeyboardGeometryMonitor.shared
-    var themeOverrideManager = ThemeOverrideManager.shared
-    var themeUIOverridesManager = ThemeUIOverridesManager.shared
 #if targetEnvironment(macCatalyst)
     var titlebarLayoutManager = TitlebarLayoutManager.shared
 #endif
@@ -484,7 +491,7 @@ struct MainView: View {
         // attachments × 3 properties = 30+ effectiveThemeColors walks per
         // body. Combined with network-driven body invalidations
         // (TabsModel.tabs, KeyboardGeometryMonitor.keyboardStateVersion,
-        // ThemeOverrideManager.tabOverrides), that workload is what
+        // ThemeManager.currentTheme), that workload is what
         // FrontBoard's 10s foreground / 30s background scene-update budget
         // catches in the 52 0x8BADF00D crash IPS files (varying frames; same
         // root cause: MainView.body is too expensive).

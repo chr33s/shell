@@ -77,23 +77,4 @@ nonisolated enum CodableValue: Codable, Equatable, Hashable, Sendable {
         case .stringArray(let v): v
         }
     }
-
-    init?(from value: Any) {
-        switch value {
-        case let v as String:
-            self = .string(v)
-        case let v as Int:
-            self = .int(v)
-        case let v as Double:
-            self = .double(v)
-        case let v as Bool:
-            self = .bool(v)
-        case let v as Data:
-            self = .data(v)
-        case let v as [String]:
-            self = .stringArray(v)
-        default:
-            return nil
-        }
-    }
 }

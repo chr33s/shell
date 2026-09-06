@@ -25,17 +25,8 @@ enum CloudKitSyncError: LocalizedError, Sendable {
     /// Conflict resolution failed
     case conflictResolutionFailed
 
-    /// Schema migration required
-    case migrationRequired
-
     /// Permission denied
     case permissionDenied
-
-    /// Container not found
-    case containerNotFound
-
-    /// Subscription failed
-    case subscriptionFailed(String)
 
     /// Invalid or unreadable pending change payload
     case invalidPayload(String)
@@ -65,14 +56,8 @@ enum CloudKitSyncError: LocalizedError, Sendable {
             return "Server rejected the request: \(reason)"
         case .conflictResolutionFailed:
             return "Failed to resolve sync conflict."
-        case .migrationRequired:
-            return "Data migration required. Please update the app."
         case .permissionDenied:
             return "Permission denied. Check iCloud settings."
-        case .containerNotFound:
-            return "CloudKit container not configured."
-        case .subscriptionFailed(let reason):
-            return "Failed to set up sync notifications: \(reason)"
         case .invalidPayload(let reason):
             return "Invalid sync payload: \(reason)"
         case .unknown(let error):
@@ -96,14 +81,8 @@ enum CloudKitSyncError: LocalizedError, Sendable {
             return "Try again later or contact support if the issue persists."
         case .conflictResolutionFailed:
             return "The sync will retry automatically."
-        case .migrationRequired:
-            return "Update to the latest version of the app."
         case .permissionDenied:
             return "Enable iCloud for this app in Settings."
-        case .containerNotFound:
-            return "This may be a configuration issue. Please contact support."
-        case .subscriptionFailed:
-            return "Sync will work but changes may be delayed."
         case .invalidPayload:
             return "The change will be skipped. Try syncing again."
         case .unknown:
@@ -111,16 +90,32 @@ enum CloudKitSyncError: LocalizedError, Sendable {
         }
     }
 
-    /// Whether this error can be retried
-    var isRetryable: Bool {
-        switch self {
-        case .networkUnavailable, .conflictResolutionFailed, .rateLimited, .unknown:
-            return true
-        case .accountNotAvailable, .quotaExceeded, .serverRejected,
-             .migrationRequired, .permissionDenied, .containerNotFound,
-             .subscriptionFailed, .invalidPayload, .notEnabled:
-            return false
+    /// The diagnosis and its authored next step, as one block of user-facing text.
+    ///
+    /// `errorDescription` says what broke; `recoverySuggestion` says what the
+    /// user has to do about it, and that half is the one that matters — "iCloud
+    /// storage quota exceeded" without "Manage your iCloud storage in
+    /// Settings > Apple Account > iCloud > Manage Storage" leaves a user with a
+    /// diagnosis and no way out. Settings ▸ Sync surfaces errors as one plain
+    /// string, so the two lines are composed here rather than in the view, and
+    /// every `catch` site can hand this whatever it caught: a
+    /// `CloudKitSyncError`, a raw `CKError` (mapped through `from(_:)` so it
+    /// gets a suggestion too), or anything else, which falls back to its own
+    /// description.
+    static func userFacingMessage(for error: Error) -> String {
+        let localized: LocalizedError?
+        if let syncError = error as? CloudKitSyncError {
+            localized = syncError
+        } else if let ckError = error as? CKError {
+            localized = CloudKitSyncError.from(ckError)
+        } else {
+            localized = error as? LocalizedError
         }
+        let message = localized?.errorDescription ?? error.localizedDescription
+        guard let suggestion = localized?.recoverySuggestion, !suggestion.isEmpty else {
+            return message
+        }
+        return "\(message)\n\n\(suggestion)"
     }
 
     /// Create from CKError

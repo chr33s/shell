@@ -10,9 +10,9 @@ struct FlagSpec {
     let flagsWithArg: Set<String>
     /// Short flags that are boolean/standalone (e.g., "-A" in `ssh -A`)
     let booleanFlags: Set<String>
-    /// Long flags that take `=value` or consume next token (e.g., "--predict" in `mosh --predict=adaptive`)
+    /// Long flags that take `=value` or consume next token (e.g., `--option=value`)
     let longFlagsWithArg: Set<String>
-    /// Long flags that are boolean/standalone (e.g., "--no-init" in `mosh --no-init`)
+    /// Long flags that are boolean/standalone (e.g., `--version`)
     let longBooleanFlags: Set<String>
 
     static let ssh = FlagSpec(
@@ -20,47 +20,6 @@ struct FlagSpec {
                         "-L", "-l", "-m", "-O", "-o", "-p", "-Q", "-R", "-S", "-W", "-w"],
         booleanFlags: ["-4", "-6", "-A", "-a", "-C", "-f", "-G", "-g", "-K", "-k",
                        "-M", "-N", "-n", "-q", "-s", "-T", "-t", "-V", "-v", "-X", "-x", "-Y", "-y"],
-        longFlagsWithArg: [],
-        longBooleanFlags: []
-    )
-
-    static let mosh = FlagSpec(
-        flagsWithArg: ["-p", "-a", "-o"],
-        booleanFlags: ["-4", "-6", "-n"],
-        longFlagsWithArg: ["--ssh", "--predict", "--port",
-                           "--bind-server", "--server", "--family"],
-        longBooleanFlags: ["--predict-overwrite", "--no-predict-overwrite",
-                           "--no-init", "--local", "--experimental-remote-ip",
-                           "--help", "--version"]
-    )
-
-    static let trzsz = FlagSpec(
-        flagsWithArg: ["-b", "-c", "-D", "-E", "-e", "-F", "-I", "-i", "-J",
-                        "-L", "-l", "-m", "-O", "-o", "-p", "-Q", "-R", "-S", "-W", "-w"],
-        booleanFlags: ["-4", "-6", "-A", "-a", "-C", "-f", "-G", "-g", "-K", "-k",
-                       "-M", "-N", "-n", "-q", "-s", "-T", "-t", "-V", "-v", "-X", "-x", "-Y", "-y"],
-        longFlagsWithArg: ["--dragfile", "--trzsz-bin-path", "--relay"],
-        longBooleanFlags: ["--quic", "--udp", "--help", "--version"]
-    )
-
-    static let sftp = FlagSpec(
-        flagsWithArg: ["-B", "-b", "-c", "-D", "-F", "-i", "-J", "-l",
-                        "-o", "-P", "-R", "-S", "-s"],
-        booleanFlags: ["-4", "-6", "-a", "-C", "-f", "-N", "-p", "-q", "-r", "-v"],
-        longFlagsWithArg: [],
-        longBooleanFlags: []
-    )
-
-    static let scp = FlagSpec(
-        flagsWithArg: ["-c", "-D", "-F", "-i", "-J", "-l", "-o", "-P", "-S"],
-        booleanFlags: ["-3", "-4", "-6", "-B", "-C", "-O", "-p", "-q", "-r", "-T", "-v"],
-        longFlagsWithArg: [],
-        longBooleanFlags: []
-    )
-
-    static let sshCopyID = FlagSpec(
-        flagsWithArg: ["-i", "-p", "-t", "-o"],
-        booleanFlags: ["-f", "-n", "-s"],
         longFlagsWithArg: [],
         longBooleanFlags: []
     )
@@ -218,7 +177,7 @@ enum CommandArgumentExtractor {
         buffer: String,
         flagSpec: FlagSpec
     ) -> FlagClassification {
-        // Long flags with = (e.g., --predict=adaptive)
+        // Long flags with = (e.g., --option=value)
         if token.hasPrefix("--") && token.contains("=") {
             return .skip(1)
         }
@@ -275,10 +234,10 @@ enum CommandArgumentExtractor {
         return .positional
     }
 
-    // MARK: extractDestination (SSH, SFTP, Mosh, Trzsz, ssh-copy-id)
+    // MARK: extractDestination (SSH)
 
     /// Extract the first positional argument (destination) from a command buffer, skipping flags.
-    /// For single-destination commands like ssh, sftp, mosh, tssh, ssh-copy-id.
+    /// For single-destination commands like ssh.
     ///
     /// Returns `.pastDestination` if a positional has already been fully typed and there are
     /// more tokens or trailing space after it — tab should beep, not append.
@@ -348,83 +307,6 @@ enum CommandArgumentExtractor {
 
         return ExtractionResult(completableText: "", bufferPrefix: buffer, context: .empty)
     }
-
-    // MARK: extractLastPositional (SCP)
-
-    /// Extract the last positional argument from a command buffer, skipping flags.
-    /// For multi-positional commands like scp where we want to complete whichever
-    /// argument the cursor is currently on (source file, remote host, etc.).
-    static func extractLastPositional(
-        buffer: String,
-        commandLength: Int,
-        flagSpec: FlagSpec
-    ) -> ExtractionResult {
-        let afterCommand = String(buffer.dropFirst(commandLength))
-
-        guard !afterCommand.isEmpty else {
-            return ExtractionResult(completableText: "", bufferPrefix: buffer, context: .inDestination)
-        }
-
-        let tokens = tokenize(afterCommand)
-        let endsWithSpace = endsWithArgumentSeparator(afterCommand)
-
-        // Track the last positional token index we've seen
-        var lastPositionalIndex: Int?
-
-        var tokenIndex = 0
-        while tokenIndex < tokens.count {
-            let token = tokens[tokenIndex].text
-            let isLastToken = (tokenIndex == tokens.count - 1)
-
-            switch classifyFlag(token: token, isLastToken: isLastToken,
-                                endsWithSpace: endsWithSpace, buffer: buffer, flagSpec: flagSpec) {
-            case .terminal(let result):
-                return result
-            case .skip(let count):
-                if count == 2 {
-                    let valueIndex = tokenIndex + 1
-                    if valueIndex < tokens.count {
-                        let isValueLast = (valueIndex == tokens.count - 1)
-                        if isValueLast && !endsWithSpace {
-                            return ExtractionResult(
-                                completableText: "", bufferPrefix: buffer, context: .typingFlagValue)
-                        }
-                    }
-                }
-                tokenIndex += count
-                continue
-            case .positional:
-                // Track it and keep going to find the last one
-                lastPositionalIndex = tokenIndex
-                tokenIndex += 1
-            }
-        }
-
-        // Determine result from the last positional seen
-        if let lastIdx = lastPositionalIndex {
-            let lastToken = tokens[lastIdx]
-            let isLastToken = (lastIdx == tokens.count - 1)
-
-            if isLastToken && !endsWithSpace {
-                // Currently typing this positional
-                let prefixEnd = commandLength + lastToken.startOffset
-                let prefix = String(buffer.prefix(prefixEnd))
-                return ExtractionResult(
-                    completableText: lastToken.text, bufferPrefix: prefix, context: .inDestination)
-            } else {
-                // Last positional is complete; ready for a new one
-                return ExtractionResult(
-                    completableText: "", bufferPrefix: buffer, context: .inDestination)
-            }
-        }
-
-        // No positionals found — all flags
-        if endsWithSpace {
-            return ExtractionResult(
-                completableText: "", bufferPrefix: buffer, context: .inDestination)
-        }
-        return ExtractionResult(completableText: "", bufferPrefix: buffer, context: .empty)
-    }
 }
 
 // MARK: - Completion State
@@ -448,10 +330,18 @@ struct HostCompletionState {
                 suggestions = []
                 return true
             }
-        } else {
+        } else if matchingMode != .prefix {
+            // Slow Tab after a substring session: return to prefix matching and
+            // drop the cache so the caller rebuilds it in the new mode.
             matchingMode = .prefix
+            suggestions = []
             suggestionIndex = 0
+            return true
         }
+        // A slow Tab that changes nothing must NOT reset `suggestionIndex`: the
+        // caller only rebuilds `suggestions` when the cache is empty, so zeroing
+        // the index here re-served suggestions[0] on every Tab at normal typing
+        // speed and made cycling past the first host impossible.
         return false
     }
 
@@ -464,18 +354,13 @@ struct HostCompletionState {
     /// Advance to the next suggestion, wrapping around. Returns current before advancing.
     mutating func nextSuggestion() -> AnyQuickConnectSuggestion? {
         guard !suggestions.isEmpty else { return nil }
+        // The index now survives a no-op Tab, so clamp it rather than trusting
+        // every caller to zero it whenever `suggestions` is replaced.
+        if suggestionIndex >= suggestions.count { suggestionIndex = 0 }
         let suggestion = suggestions[suggestionIndex]
         suggestionIndex = (suggestionIndex + 1) % suggestions.count
         return suggestion
     }
-}
-
-/// A single SCP completion suggestion with separate match and insert text.
-/// `matchText` is used for ghost text prefix matching (e.g., "user@host:").
-/// `insertText` is what gets inserted into the buffer (e.g., "-P 2222 user@host:").
-struct SCPCompletionItem {
-    let matchText: String
-    let insertText: String
 }
 
 #endif // !targetEnvironment(macCatalyst)

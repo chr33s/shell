@@ -50,11 +50,7 @@ struct SettingsScreenPinMenu: ToolbarContent {
             if syncManager.isAppSettingsSyncEnabled, groups.contains(where: { SettingGroupPinActions.hasActions(for: $0) }) {
                 Menu {
                     ForEach(groups, id: \.self) { group in
-                        if groups.count > 1 {
-                            Section(group.title) { SettingGroupPinActions(group: group) }
-                        } else {
-                            SettingGroupPinActions(group: group)
-                        }
+                        SettingGroupPinActions(group: group)
                     }
                 } label: {
                     Image(systemName: "pin.circle")

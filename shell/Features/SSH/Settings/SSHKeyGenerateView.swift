@@ -571,6 +571,7 @@ private struct GeneratedSecureEnclaveKeyResultView: View {
     let onDone: () -> Void
 
     @State private var publicKeyLine: String = ""
+    @State private var exportError: String?
     @State private var copied = false
 
     var body: some View {
@@ -613,10 +614,16 @@ private struct GeneratedSecureEnclaveKeyResultView: View {
                             .tint(copied ? .appSuccess : .appAccent)
                             .disabled(publicKeyLine.isEmpty)
                         }
-                        Text(publicKeyLine.isEmpty ? "…" : publicKeyLine)
-                            .font(.system(.caption, design: .monospaced))
-                            .textSelection(.enabled)
-                            .lineLimit(nil)
+                        if let exportError {
+                            Text(exportError)
+                                .font(.caption)
+                                .foregroundStyle(.appDanger)
+                        } else {
+                            Text(publicKeyLine.isEmpty ? "…" : publicKeyLine)
+                                .font(.system(.caption, design: .monospaced))
+                                .textSelection(.enabled)
+                                .lineLimit(nil)
+                        }
                     }
                     .padding(.vertical, 4)
                     .themedRow()
@@ -641,7 +648,15 @@ private struct GeneratedSecureEnclaveKeyResultView: View {
                 }
             }
             .task {
-                publicKeyLine = (try? SSHPublicKeyFormatter.authorizedKeysLine(for: key, comment: key.name)) ?? ""
+                // Never fall back to a placeholder: whatever shows here is what
+                // the user pastes into `authorized_keys`.
+                do {
+                    publicKeyLine = try SSHPublicKeyFormatter.authorizedKeysLine(for: key, comment: key.name)
+                    exportError = nil
+                } catch {
+                    publicKeyLine = ""
+                    exportError = error.localizedDescription
+                }
             }
         }
     }

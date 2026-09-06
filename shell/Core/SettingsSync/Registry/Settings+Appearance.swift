@@ -27,12 +27,8 @@ nonisolated extension Settings {
             "themedUI", default: true, group: .theme, configKey: "themed-ui",
             title: String(localized: "Theme-Aware UI", comment: "Setting title"))
 
-        static let uiOverrides = SettingKey<Data?>(
-            "themeUIOverrides.v1", default: nil, group: .theme,
-            title: String(localized: "Theme UI Color Overrides", comment: "Setting title"))
-
         static let all: [AnySettingDefinition] = [
-            selected.erased, appearanceMode.erased, themedUI.erased, uiOverrides.erased,
+            selected.erased, appearanceMode.erased, themedUI.erased,
         ]
     }
 

@@ -31,18 +31,29 @@ class CompletionProvider {
         }
         #endif
 
-        // Add any built-in shell commands
+        // Add built-in shell commands that ios_system does not list.
+        // Every entry must name something that actually runs on the interactive
+        // path. This list used to advertise "hx", "imgcat", "mosh", "roam",
+        // "tssh", "trzsz" and "ssh-copy-id" — none of which exist as commands —
+        // while omitting "ssh", so `ssh<Tab>` matched only "ssh-copy-id" and
+        // silently rewrote the line to a command that fails. "ssh" belongs here
+        // because the session intercepts it before ios_system is consulted
+        // (LocalShellSession+Input routes "ssh"/"ssh …" to handleSSHCommand), so
+        // it is absent from commandDictionary.plist.
         commands.append(contentsOf: [
-            "cd", "exit", "clear", "reset", "history", "help", "source", "editrc", "reloadconfig",
-            "git", "hx", "imgcat", "imgtext", "mosh", "roam", "tssh",
-            "trzsz", "ssh-copy-id", "bssid", "whatismyip", "whatismyip4", "whatismyip6",
+            "exit", "clear", "reset", "history", "help", "source", "editrc", "reloadconfig",
+            "ssh",
             // Shell interpreter builtins
             "sleep", "printf", "test", "read", "true", "false",
-            "export", "unset", "local", "return", "break", "continue",
-            "shift", "set", "trap", "eval", "type", "let", "pwd"
+            "unset", "local", "return", "break", "continue",
+            "shift", "set", "trap", "eval", "type", "let"
         ])
 
-        return commands.sorted()
+        // De-duplicate. Entries that also ship as ios_system commands (cd, pwd,
+        // export, git, …) previously appeared twice, which turned an exact
+        // single match into a spurious "multiple matches" result — ringing the
+        // bell and listing the command name twice on the second Tab.
+        return Array(Set(commands)).sorted()
     }()
 
     // MARK: - Types
@@ -118,44 +129,6 @@ class CompletionProvider {
             displayNames: displayNames,
             range: context.range
         )
-    }
-
-    /// Get all possible completions for display (e.g., showing available options)
-    /// Returns raw (unescaped) paths for compatibility with SCP completion
-    func getMatches(line: String, cursorPosition: Int, workingDirectory: String? = nil) -> [String] {
-        let context = parseCompletionContext(line: line, cursorPosition: cursorPosition)
-
-        switch context.type {
-        case .command:
-            return completeCommand(prefix: context.matchPrefix)
-        case .path:
-            return completePath(prefix: context.matchPrefix, workingDirectory: workingDirectory).map(\.relativePath)
-        }
-    }
-
-    /// Get path completions with shell-escape / quote handling applied, ready to splice into the buffer.
-    /// `insertText` is the encoded form (escapes spaces, re-closes open quotes, adds trailing space/slash);
-    /// `displayName` is the short filename for UI / ghost text matching; `rawPath` is the unescaped path.
-    /// Returns an empty array for command-position contexts.
-    func getEncodedPathMatches(
-        line: String,
-        cursorPosition: Int,
-        workingDirectory: String? = nil
-    ) -> [(insertText: String, displayName: String, rawPath: String)] {
-        let context = parseCompletionContext(line: line, cursorPosition: cursorPosition)
-        guard context.type == .path else { return [] }
-
-        let matches = completePath(prefix: context.matchPrefix, workingDirectory: workingDirectory)
-        return matches.map { match in
-            let insertText = encodeForInsertion(
-                rawPath: match.relativePath,
-                isDirectory: match.isDirectory,
-                quoteChar: context.quoteChar
-            )
-            let shortName = (match.relativePath as NSString).lastPathComponent
-            let displayName = match.isDirectory ? shortName + "/" : shortName
-            return (insertText: insertText, displayName: displayName, rawPath: match.relativePath)
-        }
     }
 
     // MARK: - Context Parsing
@@ -430,17 +403,5 @@ class CompletionProvider {
         }
 
         return commonPrefix.isEmpty ? nil : commonPrefix
-    }
-
-    /// Check if a path is a directory
-    func isDirectory(path: String) -> Bool {
-        var isDir: ObjCBool = false
-        let exists = FileManager.default.fileExists(atPath: path, isDirectory: &isDir)
-        return exists && isDir.boolValue
-    }
-
-    /// Get available commands for display
-    var commands: [String] {
-        availableCommands
     }
 }

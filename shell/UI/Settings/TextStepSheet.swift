@@ -3,14 +3,13 @@
 //  shell
 //
 //  Reusable sheet for entering a literal text step in a key sequence.
-//  Used by both CustomKeyEditorView and SwipeGesturesSettingsView.
+//  Used by CustomKeyEditorView.
 //
 
 import SwiftUI
 
 struct TextStepSheet: View {
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.sheetThemeColors) private var sheetThemeColors
 
     let confirmLabel: String
     let onConfirm: (String) -> Void

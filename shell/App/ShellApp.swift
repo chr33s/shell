@@ -5,7 +5,6 @@
 
 import SwiftUI
 import Combine
-import GhosttyKit
 
 #if canImport(UIKit)
 import UIKit
@@ -66,10 +65,25 @@ struct ShellApp: App {
                 #if !targetEnvironment(macCatalyst)
                 .onOpenURL { url in
                     guard let components = SSHURLParser.parse(url) else { return }
+                    // Address the open to a single scene, the way Catalyst does.
+                    // The receiver in MainView+Notifications treats an ABSENT
+                    // target key as "meant for me", so posting untargeted made
+                    // every open window connect to the same host: N logins, N
+                    // passphrase/host-key prompts, N auth attempts. Multi-window
+                    // is live here (iPad Split View / Stage Manager, visionOS,
+                    // and the non-Catalyst .newWindow handler). If no scene
+                    // resolves (URL delivered before any scene activates) the
+                    // key is omitted, which at cold launch is a single window.
+                    var userInfo: [AnyHashable: Any] = [
+                        SSHURLPayload.key: SSHURLPayload(components: components)
+                    ]
+                    if let sceneID = UIApplication.shared.ghostty_activeWindowSceneSessionID() {
+                        userInfo[GhosttyCommandRouting.windowSceneSessionIDKey] = sceneID
+                    }
                     NotificationCenter.default.post(
                         name: .sshURLReceived,
                         object: nil,
-                        userInfo: [SSHURLPayload.key: SSHURLPayload(components: components)]
+                        userInfo: userInfo
                     )
                 }
                 #endif

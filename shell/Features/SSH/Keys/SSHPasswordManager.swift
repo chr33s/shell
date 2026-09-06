@@ -245,17 +245,6 @@ class SSHPasswordManager {
         savedPasswords.contains(where: { $0.connectionKey == connectionKey })
     }
 
-    /// Finds saved password metadata for a connection
-    /// - Parameters:
-    ///   - host: The hostname or IP
-    ///   - port: The port (default: 22)
-    ///   - username: The username
-    /// - Returns: The saved password metadata if found
-    func findPassword(host: String, port: Int = 22, username: String) -> SSHSavedPassword? {
-        let connectionKey = SSHSavedPassword.makeConnectionKey(host: host, port: port, username: username)
-        return savedPasswords.first(where: { $0.connectionKey == connectionKey })
-    }
-
     /// Deletes a saved password
     /// - Parameter connectionKey: The connection key to delete
     /// - Throws: Error if deletion fails
@@ -293,18 +282,10 @@ class SSHPasswordManager {
         try deletePassword(connectionKey: savedPassword.connectionKey)
     }
 
-    /// Refreshes the password list from Keychain.
-    /// Fire-and-forget: runs `SecItemCopyMatching` off the main actor so a
-    /// slow securityd cannot block the FrontBoard scene-update transaction
-    /// during foreground resume.
-    func refreshPasswords() {
-        Task {
-            await refreshPasswordsAsync()
-        }
-    }
-
-    /// Awaitable variant of `refreshPasswords()` for callers that want to know
-    /// when the refresh has applied.
+    /// Refreshes the password list from Keychain. Runs `SecItemCopyMatching`
+    /// off the main actor so a slow securityd cannot block the FrontBoard
+    /// scene-update transaction during foreground resume; awaitable so callers
+    /// know when the refresh has applied.
     ///
     /// `shouldApply` is an optional pre-apply guard called after the
     /// detached Keychain read returns, just before the `@Published
@@ -342,12 +323,6 @@ class SSHPasswordManager {
         if oldKeys != newKeys {
             Self.logger.info("SSH passwords refreshed: \(self.savedPasswords.count) passwords")
         }
-    }
-
-    /// Clears the session authentication cache
-    func clearSessionAuthentication() {
-        sessionAuthenticatedPasswords.removeAll()
-        Self.logger.info("Cleared session authentication cache")
     }
 
     // MARK: - Private Methods
@@ -491,7 +466,6 @@ class SSHPasswordManager {
         case authenticationCancelled
         case authenticationFailed
         case keychainError(Error)
-        case duplicateEntry
 
         var errorDescription: String? {
             switch self {
@@ -503,8 +477,6 @@ class SSHPasswordManager {
                 return "Authentication failed. Please try again."
             case .keychainError(let error):
                 return "Keychain error: \(error.localizedDescription)"
-            case .duplicateEntry:
-                return "A password for this connection already exists."
             }
         }
     }

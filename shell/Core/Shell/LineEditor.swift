@@ -11,10 +11,6 @@ class LineEditor {
     /// Cursor position (0 = before first char, buffer.count = after last char)
     private(set) var cursorPosition: Int = 0
 
-    /// Search mode state
-    private var searchMode: Bool = false
-    private var searchBuffer: String = ""
-
     // MARK: - Computed Properties
 
     /// Text before cursor
@@ -29,13 +25,6 @@ class LineEditor {
         guard cursorPosition < buffer.count else { return "" }
         let index = buffer.index(buffer.startIndex, offsetBy: cursorPosition)
         return String(buffer[index...])
-    }
-
-    /// Current line with cursor indicator
-    var lineWithCursor: String {
-        let before = textBeforeCursor
-        let after = textAfterCursor
-        return before + "│" + after  // Using │ to show cursor position
     }
 
     // MARK: - Display Width
@@ -226,16 +215,6 @@ class LineEditor {
 
         let endIndex = buffer.index(buffer.startIndex, offsetBy: cursorPosition)
         buffer.removeSubrange(..<endIndex)
-        cursorPosition = 0
-        return true
-    }
-
-    /// Delete entire line
-    @discardableResult
-    func deleteLine() -> Bool {
-        guard !buffer.isEmpty else { return false }
-
-        buffer = ""
         cursorPosition = 0
         return true
     }

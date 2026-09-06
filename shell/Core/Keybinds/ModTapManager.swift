@@ -418,11 +418,6 @@ enum ModTapSourceKey: String, Codable, CaseIterable, Sendable {
         }
     }
 
-    /// Look up source key from HID usage code
-    static func from(hidUsage: UIKeyboardHIDUsage) -> ModTapSourceKey? {
-        allCases.first { $0.hidUsage == hidUsage }
-    }
-
     static func cases(in category: Category) -> [ModTapSourceKey] {
         allCases.filter { $0.category == category }
     }
@@ -469,10 +464,6 @@ struct ModTapRule: Identifiable, Codable, Hashable, Sendable {
         tapAction: .sendKey(.escape),
         holdAction: .control
     )
-
-    var summaryText: String {
-        "\(sourceKey.displayName) → \(tapAction.displayName) / \(holdAction.displayName)"
-    }
 }
 
 // MARK: - Manager
@@ -499,19 +490,9 @@ class ModTapManager {
         return result
     }
 
-    /// Whether any rules are currently active
-    var hasActiveRules: Bool {
-        rules.contains { $0.isEnabled }
-    }
-
     /// Count of effective active rules (deduplicated by source key)
     var activeRuleCount: Int {
         activeRulesByKey.count
-    }
-
-    /// Whether a source key already has a rule (enabled or not)
-    func hasRule(for sourceKey: ModTapSourceKey) -> Bool {
-        rules.contains { $0.sourceKey == sourceKey }
     }
 
     private init() {

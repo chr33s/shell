@@ -22,6 +22,24 @@ enum UserDefaultsBackup {
         "cloudKitDeviceID",
     ]
 
+    /// Latched for the rest of the process the first time `detectAndRecover()` sees the
+    /// corruption signature (all sentinels nil while a backup exists).
+    ///
+    /// Was missing: `detectAndRecover()` runs before `SettingsStore.bootstrap()` and writes the
+    /// sentinel keys back, so every later attempt to *infer* corruption from live state
+    /// (`SettingsStore.looksCorrupted()`, and the empty-domain check in `bootstrap()`) saw a
+    /// healthy-looking domain and disarmed itself. That silently skipped the bootstrap retry —
+    /// priming the cache from only these four keys and marking the store ready — and disarmed
+    /// `SettingsSyncCoordinator.recordsForInitialPush()`'s identical guard, which then pushed a
+    /// tombstone for every setting that read back nil. The detection must be recorded at the
+    /// moment it happens, not re-derived after the restore has erased the evidence.
+    private nonisolated static let corruptionLatch = OSAllocatedUnfairLock(initialState: false)
+
+    /// True if this launch detected a corrupt (locked-read) defaults plist. Never cleared:
+    /// the restore below repairs only the sentinels, so the rest of the domain stays suspect
+    /// for the life of the process.
+    nonisolated static var detectedCorruptionThisLaunch: Bool { corruptionLatch.withLock { $0 } }
+
     private static var backupURL: URL {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let dir = docs.appendingPathComponent(".ghostty", isDirectory: true)
@@ -72,7 +90,9 @@ enum UserDefaultsBackup {
         // No backup file → fresh install, nothing to recover
         guard FileManager.default.fileExists(atPath: backupURL.path) else { return }
 
-        // All sentinels are nil but we have a backup → corruption detected
+        // All sentinels are nil but we have a backup → corruption detected.
+        // Latch BEFORE restoring: the writes below make this state undetectable afterwards.
+        corruptionLatch.withLock { $0 = true }
         logger.critical("All sentinel keys are nil but backup exists — UserDefaults corruption detected!")
 
         do {

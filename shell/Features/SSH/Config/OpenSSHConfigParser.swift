@@ -10,7 +10,6 @@
 //
 
 import Foundation
-import os.log
 
 /// A single concrete or wildcard `Host` entry from an ssh_config file.
 struct OpenSSHHostEntry: Hashable, Sendable {
@@ -32,10 +31,6 @@ struct OpenSSHHostEntry: Hashable, Sendable {
     var proxyJump: String?
     /// First `ProxyCommand` value, if present.
     var proxyCommand: String?
-    /// First `IdentityAgent` value, if present. May be a socket path (possibly
-    /// `~`-relative), the literal `SSH_AUTH_SOCK`, an `$ENV_VAR` reference, or
-    /// `none`. Kept verbatim; consumers decide how to resolve it.
-    var identityAgent: String?
     /// True if any alias contains a wildcard character (`*`, `?`, `!`).
     var isWildcard: Bool
     /// Source file the entry came from (for diagnostics).
@@ -54,8 +49,6 @@ struct OpenSSHConfigParseResult: Sendable {
 
 /// Parser for OpenSSH `ssh_config` files. Pure functions, no shared state.
 nonisolated enum OpenSSHConfigParser {
-    private nonisolated static let logger = Logger(subsystem: "dev.chr33s.shell", category: "OpenSSHConfigParser")
-
     /// Maximum depth for `Include` directive recursion. Matches OpenSSH's own limit.
     private static let maxIncludeDepth = 16
 
@@ -78,16 +71,6 @@ nonisolated enum OpenSSHConfigParser {
     static func parse(fileURL: URL, sshDirectory: URL) throws -> OpenSSHConfigParseResult {
         var state = ParserState(sshDirectory: sshDirectory)
         try parseInto(state: &state, fileURL: fileURL, depth: 0)
-        state.flushCurrentBlock()
-        return OpenSSHConfigParseResult(entries: state.entries, warnings: state.warnings)
-    }
-
-    /// Parse from a string (useful for tests). `sshDirectory` resolves
-    /// relative `IdentityFile`/`Include` paths.
-    static func parse(text: String, sshDirectory: URL, sourceFile: URL? = nil) -> OpenSSHConfigParseResult {
-        var state = ParserState(sshDirectory: sshDirectory)
-        let source = sourceFile ?? sshDirectory.appendingPathComponent("config")
-        parseLines(state: &state, text: text, sourceFile: source, depth: 0)
         state.flushCurrentBlock()
         return OpenSSHConfigParseResult(entries: state.entries, warnings: state.warnings)
     }
@@ -136,7 +119,13 @@ nonisolated enum OpenSSHConfigParser {
     }
 
     private static func parseLines(state: inout ParserState, text: String, sourceFile: URL, depth: Int) {
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        // In Swift a CRLF pair is ONE Character (extended grapheme cluster), so
+        // splitting on "\n" finds no separator at all in a CRLF config: the whole
+        // file collapsed into a single bogus "line" and the import silently produced
+        // zero hosts. `Character.isNewline` matches the CRLF cluster as well as a
+        // lone \n or \r, so CR-only and mixed files parse and the CR is consumed as
+        // part of the separator instead of leaking into values.
+        let lines = text.split(omittingEmptySubsequences: false, whereSeparator: { $0.isNewline })
         for (index, rawLine) in lines.enumerated() {
             let lineNumber = index + 1
             let trimmed = stripComment(String(rawLine)).trimmingCharacters(in: .whitespaces)
@@ -164,7 +153,6 @@ nonisolated enum OpenSSHConfigParser {
                     identityFilesCleared: false,
                     proxyJump: nil,
                     proxyCommand: nil,
-                    identityAgent: nil,
                     isWildcard: patterns.contains(where: containsWildcard),
                     sourceFile: sourceFile,
                     sourceLine: lineNumber
@@ -240,10 +228,6 @@ nonisolated enum OpenSSHConfigParser {
         case "proxycommand":
             if state.currentBlock?.proxyCommand == nil {
                 state.currentBlock?.proxyCommand = unquote(value)
-            }
-        case "identityagent":
-            if state.currentBlock?.identityAgent == nil {
-                state.currentBlock?.identityAgent = unquote(value)
             }
         case "identitiesonly":
             // Recognized but no action needed — we always honor IdentityFile entries.

@@ -84,7 +84,14 @@ final class EmptyStateView: UIView {
     }
 
     @objc private func handleNewWindow() {
-        NotificationCenter.default.post(name: .newWindow, object: nil)
+        // Was: a raw `.newWindow` post with a nil object and no userInfo. This
+        // view is first responder, so it shadows the UIApplication fallback that
+        // would have stamped the scene id; with two or more terminal windows open
+        // every MainView's `shouldHandleNotification` rejected the untargeted post
+        // and the command silently did nothing. Route through the app-level
+        // fallback so the active window scene session id rides along. Resolves
+        // statically to the UIApplication extension, so there is no recursion.
+        UIApplication.shared.menuNewWindow(nil)
     }
 
     // MARK: - Menu Action Forwarding
@@ -99,6 +106,10 @@ final class EmptyStateView: UIView {
     }
 
     @objc func menuNewWindow(_ sender: Any?) {
-        NotificationCenter.default.post(name: .newWindow, object: nil)
+        // Same untargeted-post bug as `handleNewWindow`: this responder-chain
+        // entry point intercepts File > New Window ahead of the UIApplication
+        // fallback, so it must do the scene stamping itself. Forwarding keeps a
+        // single source of truth for that routing.
+        UIApplication.shared.menuNewWindow(sender)
     }
 }

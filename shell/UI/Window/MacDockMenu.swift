@@ -24,6 +24,13 @@ enum MacDockMenu {
         }
     }
 
+    /// True while a Dock action is parked for a window that has not appeared
+    /// yet. `MainView.handleOnAppear` reads this BEFORE it would open a default
+    /// tab: the parked action opens this window's first tab when it is drained
+    /// at the end of the same handler, so creating one here too spawned a
+    /// duplicate (a stray extra local shell alongside the requested tab).
+    static var hasPendingAction: Bool { pendingAction != nil }
+
     /// Run whatever a Dock menu click parked while no window was open. Called
     /// from `MainView.handleOnAppear`, after its notification observers exist.
     static func drainPendingAction() {

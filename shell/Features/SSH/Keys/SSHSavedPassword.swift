@@ -74,11 +74,6 @@ nonisolated struct SSHSavedPassword: Codable, Identifiable, Hashable, Sendable {
         return "\(username)@\(host):\(port)"
     }
 
-    /// Short display name showing just the host
-    var shortDisplayName: String {
-        host
-    }
-
     // MARK: - Codable (backward compatible)
 
     enum CodingKeys: String, CodingKey {

@@ -17,11 +17,6 @@ nonisolated final class SettingsCache: Sendable {
     }
 
     private let state = OSAllocatedUnfairLock(initialState: State())
-    private let registry: SettingsRegistry
-
-    init(registry: SettingsRegistry) {
-        self.registry = registry
-    }
 
     var isPrimed: Bool { state.withLock { $0.primed } }
 

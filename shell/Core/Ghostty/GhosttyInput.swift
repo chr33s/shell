@@ -190,10 +190,6 @@ extension Ghostty.Input {
             self.rawValue = value
         }
 
-        init(rawValue: Int32) {
-            self.rawValue = rawValue
-        }
-
         var cMods: ghostty_input_scroll_mods_t {
             rawValue
         }

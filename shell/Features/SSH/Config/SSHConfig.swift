@@ -339,6 +339,22 @@ struct SSHConfig: Codable, Hashable {
         SSHSavedPassword.makeConnectionKey(host: host, port: port, username: username)
     }
 
+    /// Stable identity for a connection that has no saved profile behind it —
+    /// QuickConnect (`ssh me@host`), a deep link, or a history entry. This is
+    /// the string `OverrideTarget.connectionIdentity` is keyed by, so both the
+    /// writer (`KeyResolutionSheet`) and the reader (`ConnectionKeyResolver`)
+    /// must derive it from here and nowhere else, or a saved "always use on
+    /// this device" choice never matches on the next connect.
+    ///
+    /// Host is lowercased (DNS is case-insensitive, so `Host` and `host` are
+    /// the same machine); the username is not (POSIX accounts are case
+    /// sensitive). The port is always explicit so `:22` and the default form
+    /// collapse to one key. No auth material appears here — this string is
+    /// persisted to `device_key_overrides.json` in the clear.
+    var connectionIdentity: String {
+        "ssh:\(username)@\(host.lowercased()):\(port)"
+    }
+
     /// Resolves the auth method by loading a saved password if needed.
     /// - Returns: A copy of this config with the password resolved from the Keychain.
     /// - Throws: If the saved password cannot be loaded. Never falls back to

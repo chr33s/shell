@@ -105,13 +105,6 @@ final class ConnectionHealthMonitor {
         pingTask = nil
     }
 
-    /// Reset the measurement window (e.g., after network change)
-    func resetWindow() {
-        pingHistory.removeAll()
-        // Immediately publish empty/initial state
-        onHealthUpdate?(.initial)
-    }
-
     // MARK: - Private Methods
 
     private func runPingLoop() async {

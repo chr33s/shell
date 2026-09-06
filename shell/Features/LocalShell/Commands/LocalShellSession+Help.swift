@@ -7,7 +7,6 @@ extension LocalShellSession {
     func displayHelp() {
         let header = String(localized: "Available commands:", comment: "Help: main header")
         let fileOpsHeader = String(localized: "File Operations:", comment: "Help: file operations section header")
-        let textEditorsHeader = String(localized: "Text Editors:", comment: "Help: text editors section header")
         let textProcHeader = String(localized: "Text Processing:", comment: "Help: text processing section header")
         let archivesHeader = String(localized: "Archives & Compression:", comment: "Help: archives section header")
         let networkHeader = String(localized: "Network:", comment: "Help: network section header")
@@ -35,8 +34,14 @@ extension LocalShellSession {
         let tabDesc = String(localized: "Auto-complete commands and paths", comment: "Help: Tab description")
         let arrowDesc = String(localized: "Navigate command history", comment: "Help: Up/Down description")
         let footer = String(localized: "For command-specific help, try: <command> --help or <command> -h", comment: "Help: footer tip")
-        let vimDesc = String(localized: "Full-featured text editor", comment: "Help: vim description")
 
+        // Only commands that actually resolve at runtime belong here. The app
+        // bundles exactly five ios_system frameworks (ios_system, awk, files,
+        // shell, text); this list used to advertise vim/vi, tar/cpio/unzip/bsdcat,
+        // xz/unxz/xzcat, curl and the network_ios tools, whose frameworks are not
+        // bundled, plus traceroute/whatismyip* (mapped to MAIN, which needs a
+        // `*_main` symbol the app binary does not export) and ping6 (in no
+        // command dictionary at all). All of them printed "command not found".
         let helpText = """
 \(header)
 
@@ -44,19 +49,14 @@ extension LocalShellSession {
   ls, pwd, cd, cat, cp, mv, rm, ln, mkdir, rmdir, touch, find, du, stat,
   chmod, chown, chflags, readlink
 
-\(textEditorsHeader)
-  vim, vi   - \(vimDesc)
-
 \(textProcHeader)
   grep, egrep, fgrep, sed, awk, wc, sort, uniq, diff, head, tail, tr, md5
 
 \(archivesHeader)
-  tar, cpio, unzip, bsdcat, gzip, gunzip, compress, uncompress, xz, unxz, xzcat
+  gzip, gunzip, compress, uncompress
 
 \(networkHeader)
-  curl, ssh, ping, ping6, traceroute, traceroute6,
-  nc, dig, host, nslookup, whois, ifconfig,
-  whatismyip, whatismyip4, whatismyip6
+  ssh
 
 \(shellUtilHeader)
   echo, env, printenv, setenv, export, unsetenv, date, uname, whoami, tee,
@@ -171,8 +171,13 @@ Use this after editing the file from a local shell or through a symlink in your 
         let keystoreNoKey = String(localized: "If no key specified, uses default key or prompts for password", comment: "SSH help: no key note")
         let examplesHeader = String(localized: "Examples:", comment: "Command help: examples section header")
 
+        // SSHCommandParser stops at the destination and drops the rest of the
+        // line (it opens an interactive session, never a remote command), so the
+        // usage string, the "command" destination entry and the two
+        // `ssh user@host <cmd>` examples that used to be here documented a
+        // contract this fork does not honour.
         let helpText = """
-usage: ssh [-p port] [-l user] [-i identity] [-J jumphost] [--tmux] [-o option] destination [command]
+usage: ssh [-p port] [-l user] [-i identity] [-J jumphost] [--tmux] [-o option] destination
 
 \(optionsHeader)
   -p port       \(String(localized: "Connect to this port (default: 22)", comment: "SSH help: -p option"))
@@ -185,7 +190,6 @@ usage: ssh [-p port] [-l user] [-i identity] [-J jumphost] [--tmux] [-o option] 
 \(destHeader)
   [user@]host[:port]    \(String(localized: "Standard format", comment: "SSH help: standard destination format"))
   [IPv6]:port           \(String(localized: "IPv6 with port", comment: "SSH help: IPv6 destination format"))
-  command               \(String(localized: "Execute command on remote host instead of interactive shell", comment: "SSH help: remote command description"))
 
 \(keystoreHeader)
   \(keystoreManaged)
@@ -199,8 +203,6 @@ usage: ssh [-p port] [-l user] [-i identity] [-J jumphost] [--tmux] [-o option] 
   ssh -i mykey user@host
   ssh -J bastion user@internal
   ssh --tmux user@host
-  ssh user@host ls -la /tmp
-  ssh user@host "echo hello"
 
 """
         Task { @MainActor [weak self] in

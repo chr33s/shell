@@ -72,6 +72,19 @@ final class SettingsSyncCoordinator {
 
     var sidecar: SettingsSyncSidecar { sidecarStore.sidecar }
 
+    /// Whether the one-time first-enable merge has already run for the Apple
+    /// Account this device is signed into.
+    ///
+    /// That merge is destructive by design — one side wins wholesale — and it
+    /// exists only because neither side has per-key timestamps to compare the
+    /// first time a device joins a settings zone. Once it has run the sidecar
+    /// carries a `modifiedAt` and `deviceID` for every key this device has
+    /// touched, so the ordinary resolver settles each key on its own.
+    /// `CloudKitSyncManager.setAppSettingsSyncEnabled` reads this to decide
+    /// whether the merge question is still worth asking; `completeInitialMerge`
+    /// reads it to refuse a second wholesale overwrite either way.
+    var hasCompletedInitialMerge: Bool { sidecar.initialMergeCompleted }
+
     init(store: SettingsStore = .shared, registry: SettingsRegistry = .shared) {
         self.store = store
         self.registry = registry
@@ -221,7 +234,6 @@ final class SettingsSyncCoordinator {
             for record in records {
                 var meta = sidecar.meta[record.key] ?? SettingSyncMeta()
                 meta.lastPushedHash = record.contentHash
-                meta.lastPushedModifiedAt = record.modifiedAt
                 sidecar.meta[record.key] = meta
             }
         }
@@ -278,7 +290,6 @@ final class SettingsSyncCoordinator {
                 sidecarStore.mutate { sidecar in
                     var m = sidecar.meta[key] ?? SettingSyncMeta()
                     m.lastPushedHash = record.contentHash
-                    m.lastPushedModifiedAt = record.modifiedAt
                     if m.modifiedAt == nil { m.modifiedAt = record.modifiedAt; m.deviceID = record.deviceID }
                     sidecar.meta[key] = m
                 }
@@ -293,7 +304,6 @@ final class SettingsSyncCoordinator {
                     meta.modifiedAt = record.modifiedAt
                     meta.deviceID = record.deviceID
                     meta.lastPushedHash = record.contentHash
-                    meta.lastPushedModifiedAt = record.modifiedAt
                     meta.shadowCloud = nil
                     sidecar.meta[record.key] = meta
                 }
@@ -348,7 +358,14 @@ final class SettingsSyncCoordinator {
     }
 
     /// Resolve the first-enable merge. Returns the records this device must push.
+    ///
+    /// Runs at most once per account. A device that has already merged goes
+    /// through `resumeMerge` instead, whatever `choice` says: turning iCloud
+    /// Sync off and back on used to re-run this from scratch, and a `.useCloud`
+    /// pass then overwrote every local setting with whatever the zone happened
+    /// to hold — every time.
     func completeInitialMerge(cloud: [AppSettingRecord], choice: SettingsMergeChoice) -> [AppSettingRecord] {
+        guard !sidecar.initialMergeCompleted else { return resumeMerge(cloud: cloud) }
         let now = Date()
         let cloudByKey = Dictionary(cloud.map { ($0.key, $0) }, uniquingKeysWith: { $1 })
         switch choice {
@@ -368,7 +385,6 @@ final class SettingsSyncCoordinator {
                     meta.modifiedAt = record.modifiedAt
                     meta.deviceID = record.deviceID
                     meta.lastPushedHash = record.contentHash
-                    meta.lastPushedModifiedAt = record.modifiedAt
                     sidecar.meta[record.key] = meta
                 }
                 sidecar.initialMergeCompleted = true
@@ -400,23 +416,58 @@ final class SettingsSyncCoordinator {
         }
     }
 
+    /// Re-enable settings sync on a device that has already merged with this
+    /// account: run the ordinary per-key merge instead of the wholesale one.
+    ///
+    /// `resetSyncState()` clears push bookkeeping but deliberately keeps every
+    /// key's `modifiedAt`, which is exactly what the resolver needs — so each
+    /// key can be settled on its own and neither side is overwritten. The
+    /// returned records carry their real timestamps rather than being stamped
+    /// `now`, so `saveRecords`' conditional save keeps whichever side is newer.
+    private func resumeMerge(cloud: [AppSettingRecord]) -> [AppSettingRecord] {
+        applyRemote(cloud)
+        // Anything the cloud just won (or that already matches) now has a
+        // matching `lastPushedHash`; pushing it again would only burn a write.
+        let toPush = recordsForInitialPush().filter {
+            sidecar.meta[$0.key]?.lastPushedHash != $0.contentHash
+        }
+        Self.logger.info(
+            "Settings sync re-enabled after an earlier merge: per-key merge over \(cloud.count) cloud records, \(toPush.count) to push"
+        )
+        return toPush
+    }
+
     func setAccountIdentity(_ identity: String) {
-        sidecarStore.mutate { $0.accountIdentity = identity }
+        sidecarStore.mutate { sidecar in
+            // A different Apple Account is a different settings zone, and this
+            // device has never reconciled against it — the one-time merge has
+            // to be offered again. This is the only place the flag is cleared;
+            // `resetSyncState()` deliberately keeps it, because disabling sync
+            // does not un-merge anything.
+            if let previous = sidecar.accountIdentity, previous != identity {
+                sidecar.initialMergeCompleted = false
+            }
+            sidecar.accountIdentity = identity
+        }
     }
 
     // MARK: - Reset
 
-    /// Forget push bookkeeping and shadows; keep timestamps and pins.
+    /// Forget push bookkeeping and shadows; keep timestamps, pins, and the
+    /// mark that this device has already merged with the account.
     func resetSyncState() {
         outgoingTask?.cancel()
         outgoing = []
         sidecarStore.mutate { sidecar in
             for key in sidecar.meta.keys {
                 sidecar.meta[key]?.lastPushedHash = nil
-                sidecar.meta[key]?.lastPushedModifiedAt = nil
                 sidecar.meta[key]?.shadowCloud = nil
             }
-            sidecar.initialMergeCompleted = false
+            // `initialMergeCompleted` is NOT cleared here. Turning sync off
+            // does not un-merge this device from the account, and clearing it
+            // is what made a later re-enable replay the destructive
+            // first-enable merge. Only an account switch clears it, in
+            // `setAccountIdentity`.
             sidecar.deferredRemote = [:]
         }
     }

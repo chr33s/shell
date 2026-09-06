@@ -1,7 +1,7 @@
 //
 //  LocaleHelper.swift
 //
-//  Provides locale formatting utilities for SSH/Mosh sessions
+//  Provides locale formatting utilities for SSH and local shell sessions
 //
 //  iOS `Locale.current.identifier` can include regional modifiers like `en_US@rg=dezzzz`
 //  which don't exist as valid POSIX locales on Linux servers. This helper extracts
@@ -10,7 +10,7 @@
 
 import Foundation
 
-/// Provides locale formatting utilities for SSH/Mosh sessions
+/// Provides locale formatting utilities for SSH and local shell sessions
 ///
 /// iOS `Locale.current.identifier` can include regional modifiers like `en_US@rg=dezzzz`
 /// which don't exist as valid POSIX locales on Linux servers. This helper extracts
@@ -20,57 +20,25 @@ import Foundation
 /// are thread-safe and this helper is used from NIO event loop contexts.
 enum LocaleHelper: Sendable {
 
-    // MARK: - Locale Override Mode
+    // MARK: - Forwarded Locale
 
-    /// How locale forwarding should behave
-    enum LocaleMode: String, Sendable {
-        /// Use the iOS system locale (default)
-        case auto = "auto"
-        /// Don't send any locale to remote servers
-        case none = "none"
-        /// Use a user-specified custom locale string
-        case custom = "custom"
-    }
-
-    /// The currently configured locale mode
-    nonisolated static var localeMode: LocaleMode {
-        SettingsStore.shared.value(Settings.Locale.mode)
-    }
-
-    /// The user-specified custom locale string (only used when mode is `.custom`)
-    nonisolated static var customLocale: String {
-        SettingsStore.shared.value(Settings.Locale.custom)
-    }
-
-    // MARK: - Effective Locale (respects override)
-
-    /// Returns the effective locale to send to remote servers, or nil if locale forwarding is disabled.
+    /// The locale forwarded to shells as `LANG`, or nil to leave `LANG` unset.
     ///
-    /// - `.auto`: returns the system POSIX locale
-    /// - `.none`: returns nil (don't send LANG/LANGUAGE)
-    /// - `.custom`: returns the user-specified locale string
+    /// The fork always forwards the device's own POSIX locale: there is no
+    /// locale override, so every spawn path — the iOS built-in shell, the
+    /// Catalyst PTY, the SSH PTY and the Citadel environment request — sends
+    /// what `posixLocale` reports.
     nonisolated static var effectiveLocale: String? {
-        switch localeMode {
-        case .auto:
-            return posixLocale
-        case .none:
-            return nil
-        case .custom:
-            let value = customLocale
-            return value.isEmpty ? nil : value
-        }
+        posixLocale
     }
 
-    /// Returns the effective LANGUAGE value, or nil when locale is overridden or disabled.
-    ///
-    /// LANGUAGE is only meaningful when using the system locale (auto mode).
-    /// In custom/none modes, we skip it entirely.
+    /// The `LANGUAGE` value forwarded alongside `effectiveLocale`, or nil when
+    /// the device reports no preferred language that maps to a server locale.
     nonisolated static var effectivePreferredLanguages: String? {
-        guard localeMode == .auto else { return nil }
-        return preferredLanguages
+        preferredLanguages
     }
 
-    // MARK: - System Locale (always returns system value)
+    // MARK: - System Locale
 
     /// Returns the system locale in POSIX format (e.g., "en_US.UTF-8")
     ///
@@ -96,28 +64,6 @@ enum LocaleHelper: Sendable {
         return posix
     }
 
-    /// The raw device locale when it isn't one any server supports
-    /// (e.g. "en_MX", or "zh-Hant-CN" when the script forced a substitute),
-    /// or nil when the device locale is sent as-is.
-    /// Used by settings UI to explain why a substitute locale is shown.
-    nonisolated static var unsupportedDevicePair: String? {
-        guard let firstPreferred = Locale.preferredLanguages.first,
-              let (lang, script, region) = parseTag(firstPreferred) else {
-            return nil
-        }
-        let naivePair = region.map { "\(lang)_\($0)" } ?? lang
-        guard let resolved = serverCompatiblePosix(from: firstPreferred) else {
-            return naivePair
-        }
-        let resolvedBase = String(resolved.prefix { $0 != "." })
-        if resolvedBase == naivePair { return nil }
-        if let script, let region, GlibcLocales.supportedPairs.contains(naivePair) {
-            // The pair itself exists; the script subtag forced the change.
-            return "\(lang)-\(script)-\(region)"
-        }
-        return naivePair
-    }
-
     /// Returns the LANGUAGE environment variable value for gettext
     ///
     /// macOS/iOS has a concept of preferred languages separate from the system locale.
@@ -136,90 +82,6 @@ enum LocaleHelper: Sendable {
         guard !formatted.isEmpty else { return nil }
 
         return formatted.joined(separator: ":")
-    }
-
-    // MARK: - Validation
-
-    /// Validation result for a custom locale string
-    enum LocaleValidation: Equatable, Sendable {
-        /// Locale looks valid (e.g. "en_US.UTF-8", "C.UTF-8")
-        case valid
-        /// Locale is empty
-        case empty
-        /// Looks like BCP-47 format with hyphens instead of underscores (e.g. "en-US.UTF-8")
-        case bcp47Format
-        /// Missing .UTF-8 suffix — terminal apps typically need UTF-8
-        case missingUTF8
-        /// Doesn't match any recognized locale pattern
-        case invalidFormat
-        /// Well-formed, but the language+region pair isn't in glibc's locale set
-        case unknownServerLocale
-
-        var warning: String? {
-            switch self {
-            case .valid, .empty:
-                return nil
-            case .bcp47Format:
-                return "Use underscores instead of hyphens (e.g. en_US.UTF-8, not en-US.UTF-8)."
-            case .missingUTF8:
-                return "Missing .UTF-8 suffix. Terminal apps typically require a UTF-8 locale."
-            case .invalidFormat:
-                return "This doesn't look like a valid POSIX locale. Expected format: en_US.UTF-8"
-            case .unknownServerLocale:
-                return "Most servers don't have this locale. Consider en_US.UTF-8 or C.UTF-8."
-            }
-        }
-    }
-
-    /// Validates a custom locale string
-    ///
-    /// Checks for common issues:
-    /// - BCP-47 hyphens instead of POSIX underscores
-    /// - Missing .UTF-8 (or other codeset) suffix
-    /// - Unrecognizable format
-    nonisolated static func validate(_ locale: String) -> LocaleValidation {
-        let trimmed = locale.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return .empty }
-
-        // Special locales: C, C.UTF-8, POSIX
-        if trimmed == "C" || trimmed == "POSIX" {
-            return .missingUTF8
-        }
-        if trimmed == "C.UTF-8" {
-            return .valid
-        }
-
-        // Check for BCP-47 hyphens (e.g. "en-US.UTF-8" or "en-US")
-        // A locale with a hyphen between the language and region is BCP-47, not POSIX
-        if trimmed.range(of: #"^[a-zA-Z]{2,3}-[a-zA-Z]{2}"#, options: .regularExpression) != nil {
-            return .bcp47Format
-        }
-
-        // Standard POSIX pattern: lang[_REGION][.codeset][@modifier]
-        // lang: 2-3 lowercase letters
-        // REGION: 2 uppercase letters or 3 digits
-        // codeset: e.g. UTF-8, ISO-8859-1
-        let posixPattern = #"^[a-zA-Z]{2,3}(_[a-zA-Z]{2,3})?(\.[a-zA-Z0-9._-]+)?(@[a-zA-Z]+)?$"#
-        guard trimmed.range(of: posixPattern, options: .regularExpression) != nil else {
-            return .invalidFormat
-        }
-
-        // Warn if no codeset suffix (no dot) — terminal apps need UTF-8
-        if !trimmed.contains(".") {
-            return .missingUTF8
-        }
-
-        // Warn when the pair can't exist on servers (glibc has no data for it)
-        let base = String(trimmed.prefix { $0 != "." && $0 != "@" })
-        if base.contains("_") {
-            if !GlibcLocales.supportedPairs.contains(base) {
-                return .unknownServerLocale
-            }
-        } else if !GlibcLocales.languageOnly.contains(base) {
-            return .unknownServerLocale
-        }
-
-        return .valid
     }
 
     /// Converts a BCP-47 language tag to a POSIX locale that servers can

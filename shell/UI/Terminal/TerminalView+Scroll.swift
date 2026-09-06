@@ -260,7 +260,6 @@ extension Ghostty.TerminalView {
     private static var trackpadScrollAxisKey: UInt8 = 0
     private static var trackpadScrollAxisResetTimerKey: UInt8 = 0
     private static var trackpadTabSwipePhaseKey: UInt8 = 0
-    private static var trackpadSwipeBindingObserverKey: UInt8 = 0
 
     /// Multiplier applied to capture-mode trackpad translation before tab-swipe
     /// accumulation, compensating for the [.discrete,.continuous] attenuation so the
@@ -311,12 +310,7 @@ extension Ghostty.TerminalView {
         return tracker
     }
 
-    private var trackpadSwipeBindingObserver: NSObjectProtocol? {
-        get { objc_getAssociatedObject(self, &Self.trackpadSwipeBindingObserverKey) as? NSObjectProtocol }
-        set { objc_setAssociatedObject(self, &Self.trackpadSwipeBindingObserverKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
-    }
-
-    /// True when the user has disabled both left and right swipe bindings.
+    /// True when both the left and right swipe bindings are disabled.
     private var trackpadSwipeBindingsAllDisabled: Bool {
         SwipeGestureManager.shared.binding(for: .left).isDisabled
             && SwipeGestureManager.shared.binding(for: .right).isDisabled
@@ -336,7 +330,7 @@ extension Ghostty.TerminalView {
         #endif
     }
 
-    /// Install the trackpad horizontal-swipe gesture and its binding observer.
+    /// Install the trackpad horizontal-swipe gesture.
     /// Called from both setupCatalystScrollHandling() and setupIOSScrollHandling().
     func setupTrackpadTabSwipe() {
         let gesture = UIPanGestureRecognizer(target: self, action: #selector(handleTrackpadTabSwipeGesture))
@@ -354,17 +348,6 @@ extension Ghostty.TerminalView {
         addGestureRecognizer(gesture)
         trackpadTabSwipeGesture = gesture
         #endif
-
-        trackpadSwipeBindingObserver = NotificationCenter.default.addObserver(
-            forName: SwipeGestureManager.bindingsDidChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                self.trackpadTabSwipeGesture?.isEnabled = self.trackpadTabSwipeEnabled
-            }
-        }
     }
 
     #if targetEnvironment(macCatalyst)
@@ -459,10 +442,6 @@ extension Ghostty.TerminalView {
         }
         trackpadTabSwipeGesture = nil
         #endif
-        if let obs = trackpadSwipeBindingObserver {
-            NotificationCenter.default.removeObserver(obs)
-            trackpadSwipeBindingObserver = nil
-        }
         trackpadTabSwipePhase.reset()
         trackpadAppTabSwipeDirection = nil
         trackpadScrollAxisResetTimer?.invalidate()

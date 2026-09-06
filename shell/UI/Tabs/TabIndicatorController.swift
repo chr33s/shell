@@ -3,9 +3,9 @@
 //  shell
 //
 //  Tab-indicator overlay state (shown briefly on tab switch while the tab
-//  bar is hidden) plus the one-shot suppression flags, extracted from
-//  MainView @State into an owned @Observable controller. One instance per
-//  window (owned via @State).
+//  bar is hidden) plus the one-shot selection-animation suppression flag,
+//  extracted from MainView @State into an owned @Observable controller. One
+//  instance per window (owned via @State).
 //
 
 import SwiftUI
@@ -13,10 +13,6 @@ import SwiftUI
 @MainActor @Observable final class TabIndicatorController {
     /// Whether the indicator overlay is currently visible.
     private(set) var isShowing = false
-
-    /// One-shot: skip the next hidden-tab-bar indicator (set when the user
-    /// selects via the vertical tab sidebar that is already visible).
-    var suppressNextHiddenIndicator = false
 
     /// One-shot: skip the tab bar's selection animation for the next
     /// selection change (set around app-tab swipes so the bar doesn't
@@ -50,13 +46,6 @@ import SwiftUI
     func hideImmediately() {
         hideTask?.cancel()
         isShowing = false
-    }
-
-    /// Read-and-clear the one-shot hidden-indicator suppression flag.
-    func consumeSuppressHiddenIndicator() -> Bool {
-        let suppressed = suppressNextHiddenIndicator
-        suppressNextHiddenIndicator = false
-        return suppressed
     }
 
     deinit {

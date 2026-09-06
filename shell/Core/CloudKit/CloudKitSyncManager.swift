@@ -265,10 +265,21 @@ final class CloudKitSyncManager {
             let preview = coordinator.mergePreview(cloud: cloud)
 
             // A cloud holding only resets still conflicts with local values.
-            if (preview.cloudCount > 0 || preview.resetCount > 0) && preview.localCount > 0 {
+            //
+            // Asked at most once per account. The merge question exists only
+            // because a device joining a settings zone for the first time has
+            // no per-key timestamps to compare, so one side has to win
+            // wholesale. A device that has already merged does have them, and
+            // `completeInitialMerge` routes it to the ordinary per-key resolver
+            // instead — re-asking there would offer the user a destructive
+            // overwrite of settings that are already reconciled.
+            if !coordinator.hasCompletedInitialMerge,
+               preview.cloudCount > 0 || preview.resetCount > 0,
+               preview.localCount > 0 {
                 syncState = .idle
                 return .needsMergeChoice(preview)
             }
+            // Ignored once the merge has run; see `completeInitialMerge`.
             let choice: SettingsMergeChoice = preview.cloudCount > 0 ? .useCloud : .uploadLocal
             try await completeAppSettingsSyncEnable(preview: preview, choice: choice)
             return .enabled
