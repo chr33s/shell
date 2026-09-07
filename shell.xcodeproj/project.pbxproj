@@ -29,9 +29,22 @@
 		AC00000000000000000067 /* ShellMacSupport/NativeTerminalEvents.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC00000000000000000066 /* ShellMacSupport/NativeTerminalEvents.swift */; };
 		AC00000000000000000069 /* ShellMacSupport/NativeWindowMaterial.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC00000000000000000068 /* ShellMacSupport/NativeWindowMaterial.swift */; };
 		AC0000000000000000006B /* ShellMacSupport/NativeDockMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC0000000000000000006A /* ShellMacSupport/NativeDockMenu.swift */; };
+		AE00000000000000000061 /* ShellControlProtocol in Frameworks */ = {isa = PBXBuildFile; productRef = AE00000000000000000051 /* ShellControlProtocol */; };
+		AE00000000000000000062 /* ShellControlSecurity in Frameworks */ = {isa = PBXBuildFile; productRef = AE00000000000000000052 /* ShellControlSecurity */; };
+		AE00000000000000000063 /* ShellControlClient in Frameworks */ = {isa = PBXBuildFile; productRef = AE00000000000000000053 /* ShellControlClient */; };
+		AE00000000000000000071 /* ShellControlProtocol in Frameworks */ = {isa = PBXBuildFile; productRef = AE00000000000000000054 /* ShellControlProtocol */; };
+		AE00000000000000000072 /* ShellControlSecurity in Frameworks */ = {isa = PBXBuildFile; productRef = AE00000000000000000055 /* ShellControlSecurity */; };
+		AE00000000000000000073 /* ShellControlClient in Frameworks */ = {isa = PBXBuildFile; productRef = AE00000000000000000056 /* ShellControlClient */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		AF00000000000000000010 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = AB00000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = AE00000000000000000030;
+			remoteInfo = ShellWatch;
+		};
 		DD487733304D036B00C44C5F /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = AB00000000000000000001 /* Project object */;
@@ -99,6 +112,9 @@
 		AC00000000000000000068 /* ShellMacSupport/NativeWindowMaterial.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellMacSupport/NativeWindowMaterial.swift; sourceTree = SOURCE_ROOT; };
 		AC0000000000000000006A /* ShellMacSupport/NativeDockMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellMacSupport/NativeDockMenu.swift; sourceTree = SOURCE_ROOT; };
 		AD00000000000000000003 /* ShellTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ShellTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		AE00000000000000000003 /* ShellWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ShellWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AE00000000000000000010 /* Watch.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Watch.xcconfig; sourceTree = "<group>"; };
+		AF00000000000000000003 /* ShellWatchTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ShellWatchTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -108,6 +124,13 @@
 				Info.plist,
 			);
 			target = AB00000000000000000002 /* shell */;
+		};
+		AE00000000000000000005 /* Exceptions for "ShellWatch" folder in "ShellWatch" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = AE00000000000000000030 /* ShellWatch */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
@@ -125,6 +148,19 @@
 			path = tests/ShellTests;
 			sourceTree = "<group>";
 		};
+		AE00000000000000000004 /* ShellWatch */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				AE00000000000000000005 /* Exceptions for "ShellWatch" folder in "ShellWatch" target */,
+			);
+			path = ShellWatch;
+			sourceTree = "<group>";
+		};
+		AF00000000000000000004 /* ShellWatchTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = ShellWatchTests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -135,12 +171,32 @@
 				AB00000000000000000028 /* GhosttyKitAppStore in Frameworks */,
 				AB00000000000000000029 /* Citadel in Frameworks */,
 				AB0000000000000000002A /* ios_system in Frameworks */,
+				AE00000000000000000071 /* ShellControlProtocol in Frameworks */,
+				AE00000000000000000072 /* ShellControlSecurity in Frameworks */,
+				AE00000000000000000073 /* ShellControlClient in Frameworks */,
 				AB00000000000000000026 /* Metal.framework in Frameworks */,
 				AB00000000000000000027 /* libc++.tbd in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		AD00000000000000000022 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AE00000000000000000032 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AE00000000000000000061 /* ShellControlProtocol in Frameworks */,
+				AE00000000000000000062 /* ShellControlSecurity in Frameworks */,
+				AE00000000000000000063 /* ShellControlClient in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AF00000000000000000032 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -163,6 +219,8 @@
 				AC0000000000000000006A /* ShellMacSupport/NativeDockMenu.swift */,
 				AC00000000000000000013 /* ShellMacSupport/TitlebarDragViews.swift */,
 				AB00000000000000000004 /* shell */,
+				AE00000000000000000004 /* ShellWatch */,
+				AF00000000000000000004 /* ShellWatchTests */,
 				AD00000000000000000004 /* tests/ShellTests */,
 				AB00000000000000000009 /* Configuration */,
 				AB0000000000000000000A /* Resources */,
@@ -177,6 +235,8 @@
 			isa = PBXGroup;
 			children = (
 				AB00000000000000000003 /* Shell.app */,
+				AE00000000000000000003 /* ShellWatch.app */,
+				AF00000000000000000003 /* ShellWatchTests.xctest */,
 				AC00000000000000000014 /* ShellMacSupport.bundle */,
 				AD00000000000000000003 /* ShellTests.xctest */,
 			);
@@ -198,6 +258,7 @@
 				AB00000000000000000010 /* Base.xcconfig */,
 				AB00000000000000000011 /* Debug.xcconfig */,
 				AB00000000000000000012 /* Release.xcconfig */,
+				AE00000000000000000010 /* Watch.xcconfig */,
 			);
 			path = Configuration;
 			sourceTree = "<group>";
@@ -239,6 +300,9 @@
 				AB00000000000000000053 /* GhosttyKitAppStore */,
 				AB00000000000000000054 /* Citadel */,
 				AB00000000000000000055 /* ios_system */,
+				AE00000000000000000054 /* ShellControlProtocol */,
+				AE00000000000000000055 /* ShellControlSecurity */,
+				AE00000000000000000056 /* ShellControlClient */,
 			);
 			productName = shell;
 			productReference = AB00000000000000000003 /* Shell.app */;
@@ -279,6 +343,51 @@
 			productReference = AD00000000000000000003 /* ShellTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		AE00000000000000000030 /* ShellWatch */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AE00000000000000000040 /* Build configuration list for PBXNativeTarget "ShellWatch" */;
+			buildPhases = (
+				AE00000000000000000031 /* Sources */,
+				AE00000000000000000032 /* Frameworks */,
+				AE00000000000000000033 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				AE00000000000000000004 /* ShellWatch */,
+			);
+			name = ShellWatch;
+			packageProductDependencies = (
+				AE00000000000000000051 /* ShellControlProtocol */,
+				AE00000000000000000052 /* ShellControlSecurity */,
+				AE00000000000000000053 /* ShellControlClient */,
+			);
+			productName = ShellWatch;
+			productReference = AE00000000000000000003 /* ShellWatch.app */;
+			productType = "com.apple.product-type.application";
+		};
+		AF00000000000000000030 /* ShellWatchTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AF00000000000000000040 /* Build configuration list for PBXNativeTarget "ShellWatchTests" */;
+			buildPhases = (
+				AF00000000000000000031 /* Sources */,
+				AF00000000000000000032 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				AF00000000000000000011 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				AF00000000000000000004 /* ShellWatchTests */,
+			);
+			name = ShellWatchTests;
+			productName = ShellWatchTests;
+			productReference = AF00000000000000000003 /* ShellWatchTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -296,6 +405,13 @@
 						CreatedOnToolsVersion = 26.0;
 						TestTargetID = AB00000000000000000002;
 					};
+					AE00000000000000000030 = {
+						CreatedOnToolsVersion = 26.0;
+					};
+					AF00000000000000000030 = {
+						CreatedOnToolsVersion = 26.0;
+						TestTargetID = AE00000000000000000030;
+					};
 				};
 			};
 			buildConfigurationList = AB00000000000000000044 /* Build configuration list for PBXProject "shell" */;
@@ -311,6 +427,7 @@
 				AB00000000000000000050 /* XCRemoteSwiftPackageReference "ghosttykit-rootshell" */,
 				AB00000000000000000051 /* XCRemoteSwiftPackageReference "Citadel-rootshell" */,
 				AB00000000000000000052 /* XCRemoteSwiftPackageReference "ios_system-rootshell" */,
+				AE00000000000000000050 /* XCLocalSwiftPackageReference "Packages/ShellControlCore" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = AB00000000000000000007 /* Products */;
@@ -319,6 +436,8 @@
 			targets = (
 				AC00000000000000000030 /* ShellMacSupport */,
 				AB00000000000000000002 /* shell */,
+				AE00000000000000000030 /* ShellWatch */,
+				AF00000000000000000030 /* ShellWatchTests */,
 				AD00000000000000000030 /* ShellTests */,
 			);
 		};
@@ -331,6 +450,13 @@
 			files = (
 				AB00000000000000000021 /* AppIcon.icon in Resources */,
 				AB00000000000000000020 /* Localizable.xcstrings in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AE00000000000000000033 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -368,6 +494,20 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		AE00000000000000000031 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AF00000000000000000031 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -381,6 +521,11 @@
 			isa = PBXTargetDependency;
 			target = AB00000000000000000002 /* shell */;
 			targetProxy = DD487734304D036B00C44C5F /* PBXContainerItemProxy */;
+		};
+		AF00000000000000000011 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = AE00000000000000000030 /* ShellWatch */;
+			targetProxy = AF00000000000000000010 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -544,6 +689,58 @@
 			};
 			name = Release;
 		};
+		AE00000000000000000041 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = AE00000000000000000010 /* Watch.xcconfig */;
+			buildSettings = {
+				ENABLE_TESTABILITY = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SHELL_CONTROL_BROKER_URL = "http://localhost:8443";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		AE00000000000000000042 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = AE00000000000000000010 /* Watch.xcconfig */;
+			buildSettings = {
+			};
+			name = Release;
+		};
+		AF00000000000000000041 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = AE00000000000000000010 /* Watch.xcconfig */;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_ENTITLEMENTS = "";
+				INFOPLIST_FILE = "";
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.chr33s.shell.watchkitapp.tests;
+				PRODUCT_NAME = ShellWatchTests;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ShellWatch.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/ShellWatch";
+				TEST_TARGET_NAME = ShellWatch;
+			};
+			name = Debug;
+		};
+		AF00000000000000000042 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = AE00000000000000000010 /* Watch.xcconfig */;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_ENTITLEMENTS = "";
+				INFOPLIST_FILE = "";
+				PRODUCT_BUNDLE_IDENTIFIER = dev.chr33s.shell.watchkitapp.tests;
+				PRODUCT_NAME = ShellWatchTests;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ShellWatch.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/ShellWatch";
+				TEST_TARGET_NAME = ShellWatch;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -583,7 +780,32 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		AE00000000000000000040 /* Build configuration list for PBXNativeTarget "ShellWatch" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AE00000000000000000041 /* Debug */,
+				AE00000000000000000042 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AF00000000000000000040 /* Build configuration list for PBXNativeTarget "ShellWatchTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AF00000000000000000041 /* Debug */,
+				AF00000000000000000042 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		AE00000000000000000050 /* XCLocalSwiftPackageReference "Packages/ShellControlCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/ShellControlCore;
+		};
+/* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
 		AB00000000000000000050 /* XCRemoteSwiftPackageReference "ghosttykit-rootshell" */ = {
@@ -627,6 +849,30 @@
 			isa = XCSwiftPackageProductDependency;
 			package = AB00000000000000000052 /* XCRemoteSwiftPackageReference "ios_system-rootshell" */;
 			productName = ios_system;
+		};
+		AE00000000000000000051 /* ShellControlProtocol */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ShellControlProtocol;
+		};
+		AE00000000000000000052 /* ShellControlSecurity */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ShellControlSecurity;
+		};
+		AE00000000000000000053 /* ShellControlClient */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ShellControlClient;
+		};
+		AE00000000000000000054 /* ShellControlProtocol */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ShellControlProtocol;
+		};
+		AE00000000000000000055 /* ShellControlSecurity */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ShellControlSecurity;
+		};
+		AE00000000000000000056 /* ShellControlClient */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ShellControlClient;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

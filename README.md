@@ -32,7 +32,17 @@ The design rule the fork is held to:
 > make SSH connect, make tmux work, or make those configurations sync, it does not
 > belong in the fork.
 
-See [spec.md](spec.md) for the full extraction spec this fork implements.
+**Amendment: the optional control companion.** That rule is extended, once and
+explicitly, to allow **Shell Watch** — an independent watchOS app for reviewing
+and answering permission requests raised by programs running on a host, plus the
+broker and host service it needs. It does not restore the upstream AI or push
+feature set: there is no terminal on the Watch, no SSH client, no stored SSH
+identity, no unrestricted remote input, and no automatic or bulk approval. The
+companion is optional at every layer — the terminal app builds and runs exactly
+as before without a broker configured.
+
+See [spec.md](spec.md) for the extraction spec this fork implements, and
+[spec.watch.md](spec.watch.md) for the control companion.
 
 ## Requirements
 
@@ -76,6 +86,67 @@ is built against the macOS SDK, embedded only in the Catalyst build, and reached
 through the `@objc MacBridge` protocol: window and titlebar configuration, the glass
 backdrop, the Dock and Services menus, input sources, and the native PTY. iOS and
 visionOS builds do not contain it.
+
+### Control companion
+
+```text
+Watch  --HTTPS-->  Shell Control broker  <--HTTPS--  shell-controld  --IPC-->  adapter
+        APNs alert                                        (execution host)
+```
+
+The Watch owns its own P-256 key, APNs registration, and HTTPS client, and
+enrols independently over OAuth device authorization: it works with the iPhone
+app absent. A decision is a JWS (`ES256`, JCS payload) that commits to one
+request digest and the versions the reviewer saw; the host claims that decision
+exactly once and reports a receipt saying what it actually applied. A push
+notification is a hint — the ledger is the snapshot and change stream.
+
+```text
+Packages/ShellControlCore/   portable protocol, security, and client code
+ShellWatch/                  the watchOS app
+ShellWatchTests/             its unit tests, hosted by ShellWatch.app
+shell/Features/Control/      optional phone setup, larger review, handoff
+services/shell-control/      the broker: durable store, HTTP front end, APNs outbox
+cmd/                         shell-controld (host service) and shell-control (CLI)
+adapters/                    example blocking-hook integrations
+protocol/                    published schemas and interoperability fixtures
+```
+
+`ShellControlCore` links no UIKit, Ghostty, Citadel, SSH, or CloudKit code, and
+the Watch target does not inherit the iOS bridging header, bundle identity, or
+Ghostty linker flags. Configuration lives in `Configuration/Watch.xcconfig`,
+which deliberately does not include `Base.xcconfig`.
+
+### Trying the companion locally
+
+Debug builds of the Watch app point at `http://localhost:8443`, which is what
+`./scripts/run-broker.sh` serves — so Xcode's Run button works against a local
+broker with no extra setup. Release builds carry the placeholder
+`https://control.invalid`, which the app recognises as "not configured" and says
+so rather than dialling it, so nothing ships pointing at a laptop.
+
+```sh
+./scripts/run-broker.sh                 # dev broker on http://localhost:8443
+./scripts/run-watch.sh                  # build + install + launch, pointed at it
+./scripts/dev-confirm.sh <USER-CODE>    # confirm the code the Watch shows
+```
+
+`run-broker.sh` generates an account id, an admin secret, and a cursor secret
+into `.derivedData/dev-broker.env` on first run. The simulator shares the Mac's
+network stack, and loopback is the one case the client accepts without TLS.
+
+Enrollment is confirmed by an account administrator, not by the enrolling
+device: open the printed verification URI in a browser, check the key
+fingerprint against the one on the Watch, and approve. `dev-confirm.sh` does the
+same thing from the shell.
+
+For a persistent address, create `Configuration/Local.xcconfig` (untracked):
+
+```text
+SHELL_CONTROL_BROKER_URL = https:/$()/control.example
+```
+
+The `$()` splits the `//`, which xcconfig would otherwise read as a comment.
 
 ### Source layout
 
@@ -145,8 +216,17 @@ synced.
 
 ```sh
 ./scripts/build.sh          # build for the iOS Simulator, print a de-duplicated error summary
-./scripts/test.sh           # run the ShellTests bundle (117 tests) on the iOS Simulator
+./scripts/test.sh           # run the ShellTests bundle (124 tests) on the iOS Simulator
+./scripts/build-watch.sh    # build ShellWatch for the watchOS Simulator
+./scripts/test-watch.sh     # run the ShellWatchTests bundle (16 tests) on the watchOS Simulator
+./scripts/test-control.sh   # run the control packages: core (44), broker (34), host (9)
 ```
+
+The Watch target is built separately from the iOS target on purpose: they share
+no configuration file, and the control packages are plain SwiftPM packages that
+test on the Mac toolchain without a simulator. `ShellWatchTests` is hosted by
+`ShellWatch.app` and, like `ShellTests`, is a synchronized file-system group, so
+a new file under `ShellWatchTests/` needs no project edit.
 
 `ShellTests` is a hosted unit-test target whose sources are a synchronized file-system
 group, so a new file under `tests/ShellTests/` needs no project edit. It runs on the iOS

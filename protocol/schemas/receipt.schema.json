@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://chr33s.dev/shell-control/1/receipt.schema.json",
+  "title": "shell-control/1 receipt",
+  "description": "What an origin actually applied. A rejection receipt carries no consume_id, because rejection grants no execution permission. `unknown` means the host cannot safely tell, and is never a licence to rerun.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["receipt_id", "run_id", "result", "reason_code", "occurred_at"],
+  "properties": {
+    "receipt_id": { "$ref": "approval-spec.schema.json#/$defs/uuid" },
+    "decision_id": { "$ref": "approval-spec.schema.json#/$defs/uuid" },
+    "consume_id": { "$ref": "approval-spec.schema.json#/$defs/uuid" },
+    "command_id": { "$ref": "approval-spec.schema.json#/$defs/uuid" },
+    "request_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "job_id": { "$ref": "approval-spec.schema.json#/$defs/uuid" },
+    "run_id": { "$ref": "approval-spec.schema.json#/$defs/uuid" },
+    "result": { "enum": ["applied", "not_applied", "unknown"] },
+    "reason_code": { "type": "string", "maxLength": 64 },
+    "occurred_at": { "$ref": "approval-spec.schema.json#/$defs/timestamp" },
+    "job_state": { "enum": ["running", "cancellation_requested", "cancelled", "completed", "failed"] }
+  }
+}

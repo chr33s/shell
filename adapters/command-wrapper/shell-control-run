@@ -1,0 +1,79 @@
+#!/bin/sh
+# Shell Control adapter: explicit command wrapper.
+#
+# Runs one command only after a Watch approval for that exact argument vector.
+# The wrapper owns the full dispatch journal and the precondition check; it
+# never treats an exit code as permanent permission
+# (spec.watch.md section 17).
+set -eu
+
+[ $# -ge 1 ] || { echo "usage: shell-control-run /absolute/path [args...]" >&2; exit 64; }
+executable="$1"
+case "$executable" in
+    /*) ;;
+    *) echo "shell-control-run: the executable must be an absolute path" >&2; exit 64 ;;
+esac
+
+cwd="$(pwd)"
+context="$(printf '%s\n' \
+    "exe=$(shasum -a 256 "$executable" | cut -d' ' -f1)" \
+    "uid=$(id -u)" \
+    "cwd=${cwd}" \
+    "path=${PATH}" | shasum -a 256 | cut -d' ' -f1)"
+
+request="$(mktemp)"
+result="$(mktemp)"
+trap 'rm -f "$request" "$result" 2>/dev/null || true' EXIT
+
+# argv is written exactly as it will be executed; the reviewer sees the same
+# vector, one argument per line, on the Watch.
+/usr/bin/python3 - "$request" "$cwd" "$context" "$@" <<'PY'
+import json, sys
+out, cwd, context = sys.argv[1], sys.argv[2], sys.argv[3]
+argv = sys.argv[4:]
+json.dump({
+    "adapter": "command-wrapper",
+    "job_label": " ".join(argv)[:120],
+    "summary": " ".join(argv)[:200],
+    "capabilities": ["consume.v1"],
+    "operation": {
+        "schema": "exec.v1",
+        "argv": argv,
+        "cwd": cwd,
+        "context_sha256": context,
+    },
+}, open(out, "w"))
+PY
+
+set +e
+shell-control request --spec-file "$request" --wait --timeout 300 > "$result"
+status=$?
+set -e
+[ "$status" -eq 0 ] || { echo "shell-control-run: not approved (status ${status})" >&2; exit "$status"; }
+
+capability="$(/usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["run_capability"])' "$result")"
+request_id="$(/usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["request_id"])' "$result")"
+
+# Re-check the precondition immediately before dispatch: the hash bound what
+# was requested, it does not keep the world still.
+recheck="$(printf '%s\n' \
+    "exe=$(shasum -a 256 "$executable" | cut -d' ' -f1)" \
+    "uid=$(id -u)" \
+    "cwd=$(pwd)" \
+    "path=${PATH}" | shasum -a 256 | cut -d' ' -f1)"
+if [ "$recheck" != "$context" ]; then
+    shell-control receipt --run-capability "$capability" --request "$request_id" \
+        --result not_applied --reason "context_changed_before_dispatch" > /dev/null
+    echo "shell-control-run: the local context changed after review" >&2
+    exit 1
+fi
+
+# Everything past this point may have produced an external effect, so a failure
+# to observe the result is reported as unknown rather than retried.
+set +e
+"$@"
+command_status=$?
+set -e
+shell-control receipt --run-capability "$capability" --request "$request_id" \
+    --result applied --reason "wrapper_dispatched_command" > /dev/null
+exit "$command_status"

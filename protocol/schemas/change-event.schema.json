@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://chr33s.dev/shell-control/1/change-event.schema.json",
+  "title": "shell-control/1 change event",
+  "description": "One ordered delta. Delivery is at least once: deduplicate by event_id and ignore stale resource_version values. A scoped stream may skip sequence values because of filtering.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["v", "event_id", "sequence", "type", "resource_id", "resource_version", "server_time", "projection"],
+  "properties": {
+    "v": { "const": 1 },
+    "event_id": { "$ref": "approval-spec.schema.json#/$defs/uuid" },
+    "sequence": { "type": "string", "pattern": "^(0|[1-9][0-9]*)$" },
+    "type": {
+      "enum": [
+        "approval.created",
+        "approval.resolved",
+        "approval.dispatch_updated",
+        "notification.created",
+        "notification.acknowledged",
+        "job.updated",
+        "origin.presence_changed"
+      ]
+    },
+    "resource_id": { "$ref": "approval-spec.schema.json#/$defs/uuid" },
+    "resource_version": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+    "server_time": { "$ref": "approval-spec.schema.json#/$defs/timestamp" },
+    "projection": { "type": "object" }
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "description": "RFC 8785 vectors the request digest depends on. Each case gives the parsed value and its exact JCS encoding.",
+  "cases": [
+    {
+      "name": "member-ordering-utf16",
+      "input": {"\u20ac": "euro", "\u00e9": "e", "a": 1},
+      "canonical": "{\"a\":1,\"\u00e9\":\"e\",\"\u20ac\":\"euro\"}"
+    },
+    {
+      "name": "non-bmp-names-sort-by-utf16",
+      "input": {"\ud83d\ude00": 1, "\uff01": 2},
+      "canonical": "{\"\ud83d\ude00\":1,\"\uff01\":2}"
+    },
+    {
+      "name": "minimal-string-escaping",
+      "input": {"s": "line\nquote\"tab\ttext\u0007"},
+      "canonical": "{\"s\":\"line\\nquote\\\"tab\\ttext\\u0007\"}"
+    },
+    {
+      "name": "safe-integer",
+      "input": {"n": 9007199254740991},
+      "canonical": "{\"n\":9007199254740991}"
+    },
+    {
+      "name": "integral-double-has-no-fraction",
+      "input": {"n": 1.0},
+      "canonical": "{\"n\":1}"
+    }
+  ],
+  "must_reject": [
+    {"name": "duplicate-name", "text": "{\"a\":1,\"a\":2}"},
+    {"name": "lone-surrogate", "text": "{\"a\":\"\\ud800\"}"},
+    {"name": "trailing-data", "text": "{} {}"}
+  ]
+}

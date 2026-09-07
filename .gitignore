@@ -7,3 +7,9 @@ releases
 /tools/
 .derivedData/
 .DS_Store
+
+# Swift packages
+.swiftpm/
+
+# Local build overrides
+Configuration/Local.xcconfig

@@ -4462,8 +4462,12 @@ extension Ghostty.TerminalView: GhosttyActionDelegate {
     }
 
     func handleDesktopNotification(title: String?, body: String?) {
-        // OSC 9 / OSC 777 desktop notifications are not surfaced in this fork.
-        Ghostty.logger.debug("Ignoring desktop notification: title=\(title ?? "nil")")
+        // OSC 9 / OSC 777 text is program output. It may feed an informational
+        // local alert and nothing else: it never mints approval authority, and
+        // it never becomes a signed host claim or a permission request
+        // (spec.watch.md sections 2 and 14).
+        Ghostty.logger.debug("Terminal desktop notification: title=\(title ?? "nil")")
+        ControlNotifications.postLocalTerminalAlert(title: title, body: body)
     }
 
     func handleScrollbar(total: UInt64, offset: UInt64, len: UInt64) {

@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://chr33s.dev/shell-control/1/approval-spec.schema.json",
+  "title": "shell-control/1 approval.request",
+  "description": "The immutable permission question. Changing any member requires a new request id; the digest is sha256 over the RFC 8785 encoding of the whole document.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "v", "type", "request_id", "origin_id", "job_id", "run_id",
+    "created_at", "expires_at", "summary", "operation",
+    "minimum_review", "allowed_decisions", "required_features"
+  ],
+  "properties": {
+    "v": { "const": 1 },
+    "type": { "const": "approval.request" },
+    "request_id": { "$ref": "#/$defs/uuid" },
+    "origin_id": { "$ref": "#/$defs/uuid" },
+    "job_id": { "$ref": "#/$defs/uuid" },
+    "run_id": { "$ref": "#/$defs/uuid" },
+    "created_at": { "$ref": "#/$defs/timestamp" },
+    "expires_at": { "$ref": "#/$defs/timestamp" },
+    "summary": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "operation": { "$ref": "#/$defs/operation" },
+    "minimum_review": { "enum": ["watch", "full"] },
+    "allowed_decisions": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 2,
+      "uniqueItems": true,
+      "items": { "enum": ["approve", "reject"] }
+    },
+    "required_features": {
+      "type": "array",
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": { "type": "string", "maxLength": 64 }
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "operation": {
+      "description": "Only negotiated schemas are approvable on a Watch; an unknown schema is carried but requires fuller review.",
+      "oneOf": [{ "$ref": "#/$defs/execOperation" }]
+    },
+    "execOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "argv", "cwd", "context_sha256"],
+      "properties": {
+        "schema": { "const": "exec.v1" },
+        "argv": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "items": { "type": "string", "maxLength": 4096 },
+          "prefixItems": [{ "type": "string", "pattern": "^/" }]
+        },
+        "cwd": { "type": "string", "pattern": "^/", "maxLength": 4096 },
+        "context_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    }
+  }
+}

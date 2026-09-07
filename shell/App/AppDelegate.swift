@@ -9,9 +9,10 @@
 import AppIntents
 import AVFoundation
 import UIKit
+import UserNotifications
 import os.log
 
-class AppDelegate: UIResponder, UIApplicationDelegate {
+class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     private static let logger = Logger(subsystem: "dev.chr33s.shell", category: "AppDelegate")
     private let protectedDataNotificationQueue: OperationQueue = {
         let queue = OperationQueue()
@@ -26,6 +27,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // This is safe before unlock — `register(defaults:)` only writes to the volatile
         // registration domain and never touches disk.
         LaunchDefaults.registerVolatileDefaults()
+
+        // Control-companion notification categories and the response handler are
+        // installed before any scene or view is constructed, so a notification
+        // that arrives during a background launch still has its actions and a
+        // delegate to route them (spec.watch.md section 2). This runs outside
+        // the protected-data gate because it touches no UserDefaults and no
+        // Keychain item, and it does not disturb the CloudKit push path below.
+        ControlNotifications.registerCategories()
+        UNUserNotificationCenter.current().delegate = self
 
         installLifecycleObservers()
 
@@ -102,6 +112,34 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             await CloudKitSyncManager.shared.handleRemoteNotification()
             completionHandler(.newData)
         }
+    }
+
+    // MARK: - Control companion
+
+    /// Routes a notification response into the review flow. The response
+    /// selects an intent; it never authorizes anything from the payload
+    /// (spec.watch.md section 6).
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        let intent = ControlNotifications.intent(
+            actionIdentifier: response.actionIdentifier,
+            userInfo: response.notification.request.content.userInfo
+        )
+        Task { @MainActor in
+            ControlNotifications.pendingIntent = intent
+            completionHandler()
+        }
+    }
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .sound])
     }
 
     /// Subscribe to OS notifications that may correlate with watchdog wedges:

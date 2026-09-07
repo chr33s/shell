@@ -1,0 +1,15 @@
+{
+  "v": 1,
+  "type": "approval.decide",
+  "command_id": "50000000-0000-4000-8000-000000000001",
+  "device_id": "60000000-0000-4000-8000-000000000001",
+  "aud": "shell-control:70000000-0000-4000-8000-000000000001",
+  "request_id": "10000000-0000-4000-8000-000000000001",
+  "request_hash": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "expected_state_version": 1,
+  "policy_version": 3,
+  "decision": "approve",
+  "challenge_id": "server-issued-256-bit-base64url-value",
+  "issued_at": "2026-09-07T09:00:20Z",
+  "not_after": "2026-09-07T09:01:00Z"
+}

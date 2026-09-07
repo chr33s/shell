@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://chr33s.dev/shell-control/1/control-command.schema.json",
+  "title": "shell-control/1 signed device command",
+  "description": "The JWS payload a device signs. Payload bytes are the RFC 8785 encoding of this document; the JWS uses alg=ES256, kid=<device_id>, typ=shell-control+jws.",
+  "oneOf": [
+    { "$ref": "#/$defs/approvalDecide" },
+    { "$ref": "#/$defs/notificationAck" },
+    { "$ref": "#/$defs/jobCancel" },
+    { "$ref": "#/$defs/handoffRequest" }
+  ],
+  "$defs": {
+    "envelope": {
+      "type": "object",
+      "required": ["v", "type", "command_id", "device_id", "aud", "issued_at", "not_after"],
+      "properties": {
+        "v": { "const": 1 },
+        "command_id": { "$ref": "approval-spec.schema.json#/$defs/uuid" },
+        "device_id": { "$ref": "approval-spec.schema.json#/$defs/uuid" },
+        "aud": { "type": "string", "pattern": "^shell-control:", "maxLength": 128 },
+        "issued_at": { "$ref": "approval-spec.schema.json#/$defs/timestamp" },
+        "not_after": { "$ref": "approval-spec.schema.json#/$defs/timestamp" }
+      }
+    },
+    "approvalDecide": {
+      "allOf": [{ "$ref": "#/$defs/envelope" }],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v", "type", "command_id", "device_id", "aud", "issued_at", "not_after",
+        "request_id", "request_hash", "expected_state_version", "policy_version",
+        "decision", "challenge_id"
+      ],
+      "properties": {
+        "v": { "const": 1 },
+        "type": { "const": "approval.decide" },
+        "command_id": { "$ref": "approval-spec.schema.json#/$defs/uuid" },
+        "device_id": { "$ref": "approval-spec.schema.json#/$defs/uuid" },
+        "aud": { "type": "string" },
+        "issued_at": { "type": "string" },
+        "not_after": { "type": "string" },
+        "request_id": { "$ref": "approval-spec.schema.json#/$defs/uuid" },
+        "request_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "expected_state_version": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "policy_version": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "decision": { "enum": ["approve", "reject"] },
+        "challenge_id": { "type": "string", "minLength": 1, "maxLength": 128 }
+      }
+    },
+    "notificationAck": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["v", "type", "command_id", "device_id", "aud", "issued_at", "not_after", "notification_id"],
+      "properties": {
+        "v": { "const": 1 },
+        "type": { "const": "notification.ack" },
+        "command_id": { "$ref": "approval-spec.schema.json#/$defs/uuid" },
+        "device_id": { "$ref": "approval-spec.schema.json#/$defs/uuid" },
+        "aud": { "type": "string" },
+        "issued_at": { "type": "string" },
+        "not_after": { "type": "string" },
+        "notification_id": { "$ref": "approval-spec.schema.json#/$defs/uuid" }
+      }
+    },
+    "jobCancel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "v", "type", "command_id", "device_id", "aud", "issued_at", "not_after",
+        "job_id", "run_id", "expected_job_version", "mode", "challenge_id"
+      ],
+      "properties": {
+        "v": { "const": 1 },
+        "type": { "const": "job.cancel" },
+        "command_id": { "$ref": "approval-spec.schema.json#/$defs/uuid" },
+        "device_id": { "$ref": "approval-spec.schema.json#/$defs/uuid" },
+        "aud": { "type": "string" },
+        "issued_at": { "type": "string" },
+        "not_after": { "type": "string" },
+        "job_id": { "$ref": "approval-spec.schema.json#/$defs/uuid" },
+        "run_id": { "$ref": "approval-spec.schema.json#/$defs/uuid" },
+        "expected_job_version": { "type": "integer", "minimum": 0 },
+        "mode": { "const": "cooperative" },
+        "challenge_id": { "type": "string", "minLength": 1, "maxLength": 128 }
+      }
+    },
+    "handoffRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["v", "type", "command_id", "device_id", "aud", "issued_at", "not_after"],
+      "properties": {
+        "v": { "const": 1 },
+        "type": { "const": "handoff.request" },
+        "command_id": { "$ref": "approval-spec.schema.json#/$defs/uuid" },
+        "device_id": { "$ref": "approval-spec.schema.json#/$defs/uuid" },
+        "aud": { "type": "string" },
+        "issued_at": { "type": "string" },
+        "not_after": { "type": "string" },
+        "request_id": { "$ref": "approval-spec.schema.json#/$defs/uuid" },
+        "job_id": { "$ref": "approval-spec.schema.json#/$defs/uuid" }
+      }
+    }
+  }
+}

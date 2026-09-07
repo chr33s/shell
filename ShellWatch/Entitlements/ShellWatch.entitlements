@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- The Watch registers for APNs directly and owns its own device token. -->
+	<key>aps-environment</key>
+	<string>development</string>
+	<!-- Watch credentials live in their own access group, never shared with
+	     the phone app's SSH or CloudKit items. -->
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)dev.chr33s.shell.watchkitapp</string>
+	</array>
+</dict>
+</plist>

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Runtime configuration the app reads back at launch. Xcode merges the
+	     generated Info.plist keys into this file, so only the settings that
+	     have no INFOPLIST_KEY_ equivalent live here. -->
+	<!-- Shell Watch is a standalone watchOS app, not one embedded in the
+	     iPhone app's bundle: it enrols and runs with the phone app absent
+	     (spec.watch.md section 1). Watch-only is what says so to the
+	     installer, and it is why there is no WKCompanionAppBundleIdentifier. -->
+	<key>WKWatchOnly</key>
+	<true/>
+	<key>SHELLControlBrokerURL</key>
+	<string>$(SHELL_CONTROL_BROKER_URL)</string>
+	<key>SHELLWatchKeychainAccessGroup</key>
+	<string>$(SHELL_WATCH_KEYCHAIN_ACCESS_GROUP)</string>
+</dict>
+</plist>

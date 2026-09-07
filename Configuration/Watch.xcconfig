@@ -1,0 +1,94 @@
+// Watch.xcconfig - settings for the Shell Watch companion.
+//
+// This file deliberately does NOT include Base.xcconfig. The base
+// configuration carries iOS/visionOS platforms, the iOS bridging header,
+// Ghostty linker settings, and the Shell bundle identity, none of which a
+// watchOS target may inherit (spec.watch.md sections 1 and 18).
+
+// Development Team
+DEVELOPMENT_TEAM = D97ZME3ET2
+
+// Swift Settings — genuinely platform-neutral only.
+SWIFT_VERSION = 5.0
+SWIFT_APPROACHABLE_CONCURRENCY = YES
+SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor
+SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES
+
+// Platform. The spec proposes watchOS 11 as a floor; this fork already builds
+// every other target at 26.0 and calls 26-only API without availability gates,
+// so the Watch target follows the repository's floor rather than the lower one.
+SDKROOT = watchos
+SUPPORTED_PLATFORMS = watchos watchsimulator
+WATCHOS_DEPLOYMENT_TARGET = 26.0
+TARGETED_DEVICE_FAMILY = 4
+SUPPORTS_MACCATALYST = NO
+
+// Identity — distinct from the phone app, with independent execution.
+PRODUCT_NAME = ShellWatch
+PRODUCT_BUNDLE_IDENTIFIER = dev.chr33s.shell.watchkitapp
+INFOPLIST_KEY_CFBundleDisplayName = Shell
+INFOPLIST_KEY_WKApplication = YES
+GENERATE_INFOPLIST_FILE = YES
+
+// The Watch keeps its credentials in its own access group.
+SHELL_WATCH_KEYCHAIN_ACCESS_GROUP = $(AppIdentifierPrefix)dev.chr33s.shell.watchkitapp
+
+// Runtime configuration the app reads back from its own Info.plist. Set
+// SHELL_CONTROL_BROKER_URL for a real deployment; the placeholder below is
+// recognised by the app as "no broker configured" rather than being dialled.
+// `INFOPLIST_KEY_<name>` only emits Apple-defined keys, so these two live in
+// ShellWatch/Info.plist and are substituted from here.
+//
+// The placeholder below is recognised by the app as "no broker configured", so
+// a Release build never ships pointing at somebody's laptop. The ShellWatch
+// target's Debug configuration overrides it with http://localhost:8443, which
+// is what ./scripts/run-broker.sh serves — so Xcode's Run button works against
+// a local broker with no extra setup.
+//
+// Point a build at a different service either on the command line:
+//
+//     xcodebuild ... SHELL_CONTROL_BROKER_URL='https:/$()/control.example'
+//
+// or, for a persistent local value, by creating Configuration/Local.xcconfig
+// (untracked) with that same assignment — it is included at the end of this
+// file, so it wins.
+//
+// The `$()` breaks up the `//`, which xcconfig would otherwise treat as the
+// start of a comment and truncate the URL to "https:".
+SHELL_CONTROL_BROKER_URL = https:/$()/control.invalid
+// App icon. The phone and Mac apps use AppIcon.icon (Icon Composer), whose
+// square artwork loses its corners under the Watch's circular mask, so the
+// Watch gets its own asset catalog built from the same icon.svg by
+// scripts/generate-watch-icon.sh.
+ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon
+
+CODE_SIGN_ENTITLEMENTS = ShellWatch/Entitlements/ShellWatch.entitlements
+CODE_SIGN_STYLE = Automatic
+
+// Versioning
+CURRENT_PROJECT_VERSION = 1
+MARKETING_VERSION = 0.1.0
+
+// Explicitly clear the project-level iOS settings this target must not
+// inherit: the project's build configurations include Base.xcconfig, and an
+// unset value there would otherwise leak into the Watch build.
+SWIFT_OBJC_BRIDGING_HEADER =
+INFOPLIST_FILE = ShellWatch/Info.plist
+OTHER_LDFLAGS =
+EXCLUDED_SOURCE_FILE_NAMES =
+INFOPLIST_KEY_UIApplicationSceneManifest_Generation = NO
+INFOPLIST_KEY_UILaunchScreen_Generation = NO
+INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone =
+INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad =
+INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents =
+INFOPLIST_KEY_LSApplicationCategoryType =
+ENABLE_APP_SANDBOX = NO
+LD_RUNPATH_SEARCH_PATHS = $(inherited) @executable_path/Frameworks
+
+// Misc
+ENABLE_PREVIEWS = YES
+SWIFT_EMIT_LOC_STRINGS = YES
+
+// An untracked local override, if the developer has one. `#include?` is the
+// optional form: the build works without the file.
+#include? "Local.xcconfig"

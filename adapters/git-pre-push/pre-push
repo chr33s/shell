@@ -1,0 +1,96 @@
+#!/bin/sh
+# Shell Control adapter: Git pre-push hook.
+#
+# Git calls this hook before any object is transferred and aborts the push on a
+# nonzero exit, which is exactly the documented blocking pre-execution hook the
+# protocol requires (spec.watch.md section 3).
+#
+# Install: copy to .git/hooks/pre-push and make it executable.
+set -eu
+
+remote="$1"
+remote_url="$2"
+repository="$(git rev-parse --show-toplevel)"
+git_binary="$(command -v git)"
+
+# Read the refs Git is about to push, so the request commits to the exact
+# object ids rather than to a branch name that could move.
+refs=""
+while read -r local_ref local_sha remote_ref remote_sha; do
+    [ "$local_sha" = "0000000000000000000000000000000000000000" ] && continue
+    refs="${refs}${remote_ref}=${local_sha} "
+done
+
+# Nothing to push: nothing to ask about.
+[ -z "$refs" ] && exit 0
+
+# The context commitment: executable identity, effective user, repository, the
+# remote being written to, and the exact object ids.
+context="$(printf '%s\n' \
+    "git=$(shasum -a 256 "$git_binary" | cut -d' ' -f1)" \
+    "uid=$(id -u)" \
+    "repo=${repository}" \
+    "remote=${remote} ${remote_url}" \
+    "refs=${refs}" | shasum -a 256 | cut -d' ' -f1)"
+
+request="$(mktemp)"
+result="$(mktemp)"
+trap 'rm -f "$request" "$result" 2>/dev/null || true' EXIT
+
+# The request document is serialised by a JSON encoder, never by shell
+# interpolation: a remote name or repository path containing a quote or
+# backslash would otherwise break the document, or inject a sibling field and
+# make the argument vector shown on the Watch differ from what this hook then
+# allows.
+/usr/bin/python3 - "$request" "$git_binary" "$remote" "$repository" "$context" <<'PY'
+import json, sys
+out, git_binary, remote, repository, context = sys.argv[1:6]
+json.dump({
+    "adapter": "git-pre-push",
+    "job_label": ("git push " + remote)[:120],
+    "summary": ("Push to " + remote)[:200],
+    "capabilities": ["consume.v1"],
+    "operation": {
+        "schema": "exec.v1",
+        "argv": [git_binary, "push", remote],
+        "cwd": repository,
+        "context_sha256": context,
+    },
+}, open(out, "w"))
+PY
+
+set +e
+shell-control request --spec-file "$request" --wait --timeout 300 > "$result"
+status=$?
+set -e
+
+case "$status" in
+    0) ;;
+    10) echo "shell-control: rejected on your watch" >&2; exit 1 ;;
+    11) echo "shell-control: the approval request expired" >&2; exit 1 ;;
+    12) echo "shell-control: the job was cancelled" >&2; exit 1 ;;
+    *)  echo "shell-control: no usable approval (status ${status})" >&2; exit 1 ;;
+esac
+
+# The structured result is validated too: the exit code alone never authorizes.
+read_field() {
+    /usr/bin/python3 -c 'import json,sys
+document = json.load(open(sys.argv[1]))
+for key in sys.argv[2:]:
+    document = document[key]
+print(document)' "$@"
+}
+capability="$(read_field "$result" run_capability)"
+request_id="$(read_field "$result" request_id)"
+outcome="$(read_field "$result" result outcome)"
+[ "$outcome" = "approved" ] || { echo "shell-control: outcome was ${outcome}" >&2; exit 1; }
+
+# Git performs the push itself when this hook exits zero, so the receipt says
+# the approval reached the gate, not that the push succeeded — that is a
+# separate operation-completed event.
+shell-control receipt \
+    --run-capability "$capability" \
+    --request "$request_id" \
+    --result applied \
+    --reason "pre_push_hook_allowed_push" > /dev/null
+exit 0
