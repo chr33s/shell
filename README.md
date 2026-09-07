@@ -222,6 +222,13 @@ synced.
 ./scripts/test-control.sh   # run the control packages: core (44), broker (34), host (9)
 ```
 
+Xcode 26 or newer is required. The 26.0 deployment target aside, Citadel's
+post-quantum key exchange uses CryptoKit's `MLDSA65`, `MLDSA87` and `MLKEM768`,
+which exist only in the 26 SDKs; an older toolchain fails with `no type named
+'MLKEM768' in module 'CryptoKit'`, which points at CryptoKit rather than at the
+toolchain that is actually at fault. Xcode Cloud workflows must therefore pin
+Xcode 26 or "Latest Release", never an older fixed version.
+
 The Watch target is built separately from the iOS target on purpose: they share
 no configuration file, and the control packages are plain SwiftPM packages that
 test on the Mac toolchain without a simulator. `ShellWatchTests` is hosted by
@@ -250,6 +257,78 @@ xcframeworks once and build against a local override instead:
 ./scripts/build.sh
 ./scripts/use-local-frameworks.sh off   # restore the upstream packages before committing
 ```
+
+## Releasing
+
+CI and TestFlight distribution run on **Xcode Cloud**. Its workflows are defined
+in App Store Connect (or Xcode's Report navigator), not in this repository — what
+the repository provides is the shared schemes those workflows build and the
+`ci_scripts/` hooks Xcode Cloud invokes by name:
+
+| Script | When | What it does |
+| --- | --- | --- |
+| `ci_scripts/ci_post_clone.sh` | after clone | Writes `Configuration/Local.xcconfig` from the `SHELL_CONTROL_BROKER_URL` environment variable, so Release Watch builds reach a real broker instead of the `control.invalid` placeholder |
+| `ci_scripts/ci_pre_xcodebuild.sh` | before build | Stamps `CI_BUILD_NUMBER` into `CURRENT_PROJECT_VERSION` in `Configuration/Base.xcconfig` and `Configuration/Watch.xcconfig` |
+| `ci_scripts/ci_post_xcodebuild.sh` | after build | Runs `./scripts/test-control.sh` on test actions — the control packages are plain SwiftPM packages that no Xcode scheme covers |
+
+`MARKETING_VERSION` stays under version control and is bumped by hand; the build
+number comes from Xcode Cloud.
+
+### Workflows to configure
+
+Both schemes are shared (`shell.xcodeproj/xcshareddata/xcschemes/`), which is
+what makes them selectable in Xcode Cloud.
+
+**CI** — start condition: pull requests targeting `main`, plus branch changes on
+`main`. Actions: Test the `shell` scheme on an iOS simulator, and Test the
+`ShellWatch` scheme on a watchOS simulator. The SwiftPM control packages come
+along via `ci_post_xcodebuild.sh`.
+
+**TestFlight** — start condition: branch changes on `main`. Put the same two Test
+actions *before* the archives in the same workflow: Xcode Cloud runs a workflow's
+actions in order and stops on failure, which is how a red build is kept from
+reaching testers. Then three Archive actions, all with the TestFlight (Internal
+Testing) post-action:
+
+| Archive action | Scheme | Platform |
+| --- | --- | --- |
+| iOS and iPadOS | `shell` | iOS |
+| visionOS | `shell` | visionOS |
+| Mac Catalyst | `shell` | macOS (Mac Catalyst) |
+
+iPhone and iPad share one archive because Shell targets device families 1 and 2.
+The Watch app has no archive of its own: the `shell` target's "Embed Watch
+Content" phase copies `ShellWatch.app` into `Shell.app/Watch`, so it ships with
+the iOS build under one App Store Connect record, and testers get it when they
+install from TestFlight. That build file and the target dependency both carry
+`platformFilter = ios`, because a Mac Catalyst or visionOS app cannot contain
+watch content. Those two reuse `dev.chr33s.shell`, which works by universal
+purchase once the platforms are enabled on the app record.
+
+Embedding is a distribution choice and does not weaken the independence
+spec.watch.md requires: `WKRunsIndependentlyOfCompanionApp` in
+`ShellWatch/Info.plist` keeps the Watch app usable with the phone app absent.
+The cost is a version lock — an embedded watch app must carry the same
+`MARKETING_VERSION` as its host, so `Configuration/Base.xcconfig` and
+`Configuration/Watch.xcconfig` have to be bumped together.
+
+Signing and upload are Xcode Cloud's own — there are no certificates, API keys,
+or repository secrets to manage. The one setting worth adding is the environment
+variable `SHELL_CONTROL_BROKER_URL` on the TestFlight workflow (mark it secret if
+the endpoint is not public).
+
+### Archiving by hand
+
+`scripts/archive.sh` does the same archive and export locally, for a build that
+should not go through Xcode Cloud. It signs with an App Store Connect API key:
+
+```sh
+export ASC_KEY_ID=... ASC_ISSUER_ID=... ASC_KEY_PATH=~/private_keys/AuthKey_....p8
+./scripts/archive.sh ios            # or ipados, visionos, maccatalyst
+```
+
+The key needs App Manager access, since `-allowProvisioningUpdates` creates
+provisioning profiles with it.
 
 ## Open Source
 

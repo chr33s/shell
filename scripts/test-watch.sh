@@ -4,8 +4,10 @@
 #
 # Usage: ./scripts/test-watch.sh [log-path]
 #
-# ShellWatchTests is hosted by ShellWatch.app, which is a Watch-only app
-# (WKWatchOnly), so it installs and runs without a paired iPhone app.
+# ShellWatchTests is hosted by ShellWatch.app and runs from the shared
+# ShellWatch scheme, whose test action covers the bundle. ShellWatch.app is
+# embedded in the iPhone app but runs independently of it
+# (WKRunsIndependentlyOfCompanionApp), so it installs without one.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -14,7 +16,7 @@ mkdir -p "$(dirname "$LOG")"
 
 xcodebuild \
     -project "$ROOT/shell.xcodeproj" \
-    -scheme ShellWatchTests \
+    -scheme ShellWatch \
     -configuration Debug \
     -destination 'platform=watchOS Simulator,name=Apple Watch Series 11 (46mm)' \
     -derivedDataPath "$ROOT/.derivedData" \
@@ -31,6 +33,6 @@ grep "error:" "$LOG" \
     | head -60
 echo "--- error count: $(grep -c 'error:' "$LOG") ---"
 
-grep -E "^Test case .* (passed|failed) on" "$LOG" | sort | uniq | head -200
-echo "--- passed: $(grep -cE "^Test case .* passed on" "$LOG") failed: $(grep -cE "^Test case .* failed on" "$LOG") ---"
+grep -iE "test case .* (passed|failed)( on| \()" "$LOG" | sort | uniq | head -200
+echo "--- passed: $(grep -ciE "test case .* passed( on| \()" "$LOG") failed: $(grep -ciE "test case .* failed( on| \()" "$LOG") ---"
 exit $status

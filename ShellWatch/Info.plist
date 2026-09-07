@@ -5,11 +5,14 @@
 	<!-- Runtime configuration the app reads back at launch. Xcode merges the
 	     generated Info.plist keys into this file, so only the settings that
 	     have no INFOPLIST_KEY_ equivalent live here. -->
-	<!-- Shell Watch is a standalone watchOS app, not one embedded in the
-	     iPhone app's bundle: it enrols and runs with the phone app absent
-	     (spec.watch.md section 1). Watch-only is what says so to the
-	     installer, and it is why there is no WKCompanionAppBundleIdentifier. -->
-	<key>WKWatchOnly</key>
+	<!-- Shell Watch ships inside the iPhone app's bundle but runs
+	     independently of it: it enrols and operates with the phone app absent
+	     (spec.watch.md section 1). Embedding is a distribution choice — one App
+	     Store record, one archive — and the independence the spec requires is
+	     WKRunsIndependentlyOfCompanionApp, not a separate bundle. -->
+	<key>WKCompanionAppBundleIdentifier</key>
+	<string>dev.chr33s.shell</string>
+	<key>WKRunsIndependentlyOfCompanionApp</key>
 	<true/>
 	<key>SHELLControlBrokerURL</key>
 	<string>$(SHELL_CONTROL_BROKER_URL)</string>

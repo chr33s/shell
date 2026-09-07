@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 import PackageDescription
 
 // The Shell Control broker: enrollment, authorization policy, immutable request
@@ -6,7 +6,7 @@ import PackageDescription
 // records, audit data, and the APNs outbox (spec.watch.md section 3).
 let package = Package(
     name: "shell-control",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v26)],
     products: [
         .library(name: "ShellControlBroker", targets: ["ShellControlBroker"]),
         .executable(name: "shell-control-broker", targets: ["shell-control-broker"]),

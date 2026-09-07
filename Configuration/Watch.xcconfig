@@ -24,6 +24,13 @@ TARGETED_DEVICE_FAMILY = 4
 SUPPORTS_MACCATALYST = NO
 
 // Identity — distinct from the phone app, with independent execution.
+// ShellWatch.app is embedded in Shell.app by the iOS build ("Embed Watch
+// Content"), which is why the bundle identifier must stay prefixed by the phone
+// app's, and why MARKETING_VERSION below must match the one in Base.xcconfig:
+// the installer rejects an embedded watch app whose short version differs from
+// its host. Embedding is only how it ships — WKRunsIndependentlyOfCompanionApp
+// in ShellWatch/Info.plist is what keeps it usable with the phone app absent
+// (spec.watch.md section 1).
 PRODUCT_NAME = ShellWatch
 PRODUCT_BUNDLE_IDENTIFIER = dev.chr33s.shell.watchkitapp
 INFOPLIST_KEY_CFBundleDisplayName = Shell

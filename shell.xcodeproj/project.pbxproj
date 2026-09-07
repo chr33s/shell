@@ -29,6 +29,7 @@
 		AC00000000000000000067 /* ShellMacSupport/NativeTerminalEvents.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC00000000000000000066 /* ShellMacSupport/NativeTerminalEvents.swift */; };
 		AC00000000000000000069 /* ShellMacSupport/NativeWindowMaterial.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC00000000000000000068 /* ShellMacSupport/NativeWindowMaterial.swift */; };
 		AC0000000000000000006B /* ShellMacSupport/NativeDockMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC0000000000000000006A /* ShellMacSupport/NativeDockMenu.swift */; };
+		AE00000000000000000021 /* ShellWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = AE00000000000000000003 /* ShellWatch.app */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		AE00000000000000000061 /* ShellControlProtocol in Frameworks */ = {isa = PBXBuildFile; productRef = AE00000000000000000051 /* ShellControlProtocol */; };
 		AE00000000000000000062 /* ShellControlSecurity in Frameworks */ = {isa = PBXBuildFile; productRef = AE00000000000000000052 /* ShellControlSecurity */; };
 		AE00000000000000000063 /* ShellControlClient in Frameworks */ = {isa = PBXBuildFile; productRef = AE00000000000000000053 /* ShellControlClient */; };
@@ -38,6 +39,13 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		AE00000000000000000023 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = AB00000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = AE00000000000000000030;
+			remoteInfo = ShellWatch;
+		};
 		AF00000000000000000010 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = AB00000000000000000001 /* Project object */;
@@ -84,6 +92,17 @@
 				AC00000000000000000005 /* ShellMacSupport.bundle in Embed Mac Support */,
 			);
 			name = "Embed Mac Support";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AE00000000000000000022 /* Embed Watch Content */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
+			dstSubfolderSpec = 16;
+			files = (
+				AE00000000000000000021 /* ShellWatch.app in Embed Watch Content */,
+			);
+			name = "Embed Watch Content";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
@@ -286,11 +305,13 @@
 				AB00000000000000000032 /* Resources */,
 				AB00000000000000000033 /* CopyFiles */,
 				AC00000000000000000020 /* Embed Mac Support */,
+				AE00000000000000000022 /* Embed Watch Content */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 				AC00000000000000000031 /* PBXTargetDependency */,
+				AE00000000000000000024 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				AB00000000000000000004 /* shell */,
@@ -522,6 +543,12 @@
 			target = AB00000000000000000002 /* shell */;
 			targetProxy = DD487734304D036B00C44C5F /* PBXContainerItemProxy */;
 		};
+		AE00000000000000000024 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			platformFilter = ios;
+			target = AE00000000000000000030 /* ShellWatch */;
+			targetProxy = AE00000000000000000023 /* PBXContainerItemProxy */;
+		};
 		AF00000000000000000011 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = AE00000000000000000030 /* ShellWatch */;
@@ -538,6 +565,7 @@
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ENABLE_OBJC_WEAK = YES;
 				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				DEVELOPMENT_TEAM = D97ZME3ET2;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -554,6 +582,7 @@
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ENABLE_OBJC_WEAK = YES;
 				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				DEVELOPMENT_TEAM = D97ZME3ET2;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				GCC_NO_COMMON_BLOCKS = YES;
 				SDKROOT = iphoneos;
@@ -580,6 +609,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = "";
+				DEVELOPMENT_TEAM = 72KB9YQR7B;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = ShellMacSupport/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -603,6 +633,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = "";
+				DEVELOPMENT_TEAM = 72KB9YQR7B;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = ShellMacSupport/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -627,7 +658,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = D97ZME3ET2;
+				DEVELOPMENT_TEAM = 72KB9YQR7B;
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					"DEBUG=1",
@@ -664,7 +695,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = D97ZME3ET2;
+				DEVELOPMENT_TEAM = 72KB9YQR7B;
 				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
@@ -693,6 +724,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = AE00000000000000000010 /* Watch.xcconfig */;
 			buildSettings = {
+				DEVELOPMENT_TEAM = 72KB9YQR7B;
 				ENABLE_TESTABILITY = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SHELL_CONTROL_BROKER_URL = "http://localhost:8443";
@@ -705,6 +737,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = AE00000000000000000010 /* Watch.xcconfig */;
 			buildSettings = {
+				DEVELOPMENT_TEAM = 72KB9YQR7B;
 			};
 			name = Release;
 		};
@@ -714,6 +747,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_ENTITLEMENTS = "";
+				DEVELOPMENT_TEAM = 72KB9YQR7B;
 				INFOPLIST_FILE = "";
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.chr33s.shell.watchkitapp.tests;
@@ -732,6 +766,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_ENTITLEMENTS = "";
+				DEVELOPMENT_TEAM = 72KB9YQR7B;
 				INFOPLIST_FILE = "";
 				PRODUCT_BUNDLE_IDENTIFIER = dev.chr33s.shell.watchkitapp.tests;
 				PRODUCT_NAME = ShellWatchTests;

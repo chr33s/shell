@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 import PackageDescription
 
 // The host side: `shell-controld` runs on the actual execution host as a
@@ -6,7 +6,7 @@ import PackageDescription
 // (spec.watch.md sections 3 and 17).
 let package = Package(
     name: "shell-control-host",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v26)],
     products: [
         .library(name: "ShellControlDaemon", targets: ["ShellControlDaemon"]),
         .executable(name: "shell-controld", targets: ["shell-controld"]),

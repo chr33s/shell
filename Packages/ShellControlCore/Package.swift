@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 import PackageDescription
 
 // ShellControlCore is portable Swift: no UIKit, Ghostty, Citadel, terminal
@@ -6,10 +6,10 @@ import PackageDescription
 let package = Package(
     name: "ShellControlCore",
     platforms: [
-        .macOS(.v14),
-        .iOS(.v17),
-        .watchOS(.v10),
-        .visionOS(.v1),
+        .macOS(.v26),
+        .iOS(.v26),
+        .watchOS(.v26),
+        .visionOS(.v26),
     ],
     products: [
         .library(name: "ShellControlProtocol", targets: ["ShellControlProtocol"]),
