@@ -319,7 +319,7 @@ struct ToolbarLayoutConfig: Equatable, Sendable {
 
     // MARK: - Defaults
 
-    static let currentVersion = 13
+    static let currentVersion = 14
 
     static func defaultConfig(for idiom: UIUserInterfaceIdiom) -> ToolbarLayoutConfig {
         switch idiom {
@@ -386,17 +386,11 @@ struct ToolbarLayoutConfig: Equatable, Sendable {
 
     static let iPadDefault = ToolbarLayoutConfig(
         version: currentVersion,
-        mainRow: [
-            .builtIn(.dismiss),
-            .builtIn(.esc),
-            .builtIn(.ctrl),
+        // Keep the initial keys in the same order on both devices, including
+        // narrow iPad windows where the remaining keys overflow into the drawer.
+        mainRow: iPhoneDefault.mainRow + [
             .builtIn(.alt),
-            .builtIn(.shift),
             .builtIn(.cmd),
-            .builtIn(.tab),
-            .builtIn(.arrowDrawerToggle),
-            .builtIn(.drawerToggle),
-            .builtIn(.toolbarSettings),
             .builtIn(.backtick),
             .builtIn(.dash),
             .builtIn(.slash),
@@ -447,6 +441,19 @@ struct ToolbarLayoutConfig: Equatable, Sendable {
         guard saved.version < currentVersion else { return saved }
 
         let defaults = defaultConfig(for: idiom)
+
+        // An untouched v13 iPad layout adopts the new key order. Reconstruct
+        // the order shipped through v13 and compare the complete layout so
+        // user-customized placements stay intact.
+        if idiom == .pad, saved.version == 13 {
+            var previousDefaults = defaults
+            previousDefaults.version = saved.version
+            previousDefaults.mainRow.removeAll { $0 == .builtIn(.alt) || $0 == .builtIn(.cmd) }
+            previousDefaults.mainRow.insert(.builtIn(.alt), at: 3)
+            previousDefaults.mainRow.insert(.builtIn(.cmd), at: 5)
+            if saved == previousDefaults { return defaults }
+        }
+
         var migrated = saved
         if migrated.drawerRows.isEmpty { migrated.drawerRows = [[]] }
 

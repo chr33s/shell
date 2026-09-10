@@ -5,8 +5,10 @@ import Foundation
 final class CatalystKeyboardLayout {
     static let shared = CatalystKeyboardLayout()
     var isAvailable: Bool { MacSupport.bridge != nil }
-    func translateKey(cgKeyCode: UInt16, shift: Bool) -> String? {
-        MacSupport.bridge?.translateKey(cgKeyCode, shift: shift)
+    /// `command` selects the layout's Command-specific mapping so shortcuts
+    /// resolve to the logical key on non-US layouts.
+    func translateKey(cgKeyCode: UInt16, shift: Bool, command: Bool = false) -> String? {
+        MacSupport.bridge?.translateKey(cgKeyCode, shift: shift, command: command)
     }
 }
 #endif

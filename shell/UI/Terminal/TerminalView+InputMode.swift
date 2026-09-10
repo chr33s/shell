@@ -15,6 +15,9 @@ import os
 extension Ghostty.TerminalView {
 
     override var textInputMode: UITextInputMode? {
+        // Emoji search is owned by UIKit even when the terminal remains the
+        // text-input responder. A saved language must not mask that mode.
+        if isSystemEmojiInputActive { return super.textInputMode }
         guard let target = preferredInputLanguage else { return super.textInputMode }
 
         if let exact = UITextInputMode.activeInputModes.first(where: { $0.primaryLanguage == target }) {
@@ -24,6 +27,54 @@ extension Ghostty.TerminalView {
             return prefix
         }
         return super.textInputMode
+    }
+
+    /// Read the system mode, not our preferred-language override. Hardware
+    /// search keys belong to the emoji keyboard; only its committed text
+    /// should reach insertText and the terminal session.
+    var isSystemEmojiInputActive: Bool {
+        #if targetEnvironment(macCatalyst)
+        return false
+        #else
+        return super.textInputMode?.primaryLanguage == "emoji"
+        #endif
+    }
+
+    /// iPad's hardware emoji popover keeps the terminal as first responder and
+    /// reports the normal language (for example en-US), even during search.
+    /// Yield only while its search field is visible. This compatibility check
+    /// uses an observed UIKit class name; recheck it when updating iPadOS.
+    var shouldYieldHardwareInputToEmojiUI: Bool {
+        if isSystemEmojiInputActive { return true }
+        #if os(iOS) && !targetEnvironment(macCatalyst)
+        guard isFirstResponder, let hostWindow = window,
+              let scene = hostWindow.windowScene,
+              scene.activationState == .foregroundActive else { return false }
+
+        func containsVisibleEmojiSearch(_ view: UIView) -> Bool {
+            guard !view.isHidden, view.alpha > 0 else { return false }
+            if NSStringFromClass(type(of: view)) == "TUIEmojiSearchTextField" {
+                return !view.bounds.isEmpty
+            }
+            return view.subviews.contains(where: containsVisibleEmojiSearch)
+        }
+
+        var windows = scene.windows
+        // UIKit's auxiliary text-effects window may only be in the legacy
+        // inventory. Restrict it to this scene so other windows cannot divert
+        // this terminal's keys. Never retain the result across events.
+        for candidate in UIApplication.shared.windows
+            where candidate.windowScene === scene && !windows.contains(where: { $0 === candidate }) {
+            windows.append(candidate)
+        }
+        return windows.contains { candidate in
+            candidate !== hostWindow
+                && candidate.windowLevel > hostWindow.windowLevel
+                && containsVisibleEmojiSearch(candidate)
+        }
+        #else
+        return false
+        #endif
     }
 
     /// Switch the hardware-keyboard input source for this terminal.
@@ -40,6 +91,9 @@ extension Ghostty.TerminalView {
         // so no in-app overlay is needed here.
         InputSourceCatalog.catalystSwitch(toPrimaryLanguage: target)
         #else
+        // This preference (and our textInputMode override) reflects a request,
+        // not the source UIKit selected through Globe or its language picker.
+        // Reapply explicit requests even when the stored preference matches.
         preferredInputLanguage = target
         showInputModeOverlay(displayName(forPrimaryLanguage: target))
 

@@ -24,7 +24,7 @@ public protocol MacBridge: NSObjectProtocol {
     func currentInputSourceID() -> String?
     func currentInputSourceLanguages() -> [String]
     func selectInputSource(_ id: String) -> Bool
-    func translateKey(_ code: UInt16, shift: Bool) -> String?
+    func translateKey(_ code: UInt16, shift: Bool, command: Bool) -> String?
     func showAbout()
     func closeKeyWindow()
     func stopShells()

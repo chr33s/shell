@@ -848,7 +848,7 @@
 			repositoryURL = "https://github.com/kitknox/ghosttykit-rootshell.git";
 			requirement = {
 				kind = exactVersion;
-				version = 0.2.8;
+				version = 0.2.12;
 			};
 		};
 		AB00000000000000000051 /* XCRemoteSwiftPackageReference "Citadel-rootshell" */ = {
@@ -856,7 +856,7 @@
 			repositoryURL = "https://github.com/kitknox/Citadel-rootshell.git";
 			requirement = {
 				kind = exactVersion;
-				version = 0.12.3;
+				version = 0.12.4;
 			};
 		};
 		AB00000000000000000052 /* XCRemoteSwiftPackageReference "ios_system-rootshell" */ = {

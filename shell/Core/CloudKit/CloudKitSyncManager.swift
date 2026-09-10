@@ -1116,24 +1116,24 @@ final class CloudKitSyncManager {
             case SSHIdentityMetadata.recordType:
                 guard isIdentityMetadataSyncEnabled else { continue }
                 if let entry = SSHIdentityMetadata.from(record) {
-                    await applyRemoteRecords([entry], type: SSHIdentityMetadata.self)
+                    applyRemoteRecords([entry], type: SSHIdentityMetadata.self)
                 }
             case KnownHost.recordType:
                 guard isKnownHostsSyncEnabled else { continue }
                 if let host = KnownHost.from(record) {
-                    await applyRemoteRecords([host], type: KnownHost.self)
+                    applyRemoteRecords([host], type: KnownHost.self)
                 }
             case ConnectionProfile.recordType:
                 guard isProfilesSyncEnabled else { continue }
                 if let profile = ConnectionProfile.from(record) {
-                    await applyRemoteRecords([profile], type: ConnectionProfile.self)
+                    applyRemoteRecords([profile], type: ConnectionProfile.self)
                 }
             default:
                 Self.logger.warning("Unknown record type: \(record.recordType)")
             }
         }
         if !settingRecords.isEmpty {
-            await applyRemoteRecords(settingRecords, type: AppSettingRecord.self)
+            applyRemoteRecords(settingRecords, type: AppSettingRecord.self)
         }
     }
 
@@ -1188,7 +1188,12 @@ final class CloudKitSyncManager {
     }
 
     /// Apply remote records to local stores
-    private func applyRemoteRecords<T: CloudKitSyncable>(_ records: [T], type: T.Type) async {
+    private func applyRemoteRecords<T: CloudKitSyncable>(_ records: [T], type: T.Type) {
+        // Restore whatever state the caller was in: this is also reached from
+        // the standalone push path's conflict resolution, which manages no
+        // sync state of its own and would otherwise stay on "Applying changes".
+        let previousState = syncState
+        defer { syncState = previousState }
         syncState = .applyingChanges
 
         switch T.recordType {
@@ -1285,7 +1290,7 @@ final class CloudKitSyncManager {
             }
         } else {
             // Server is newer - accept server record and update local store
-            await applyRemoteRecords([serverModel], type: T.self)
+            applyRemoteRecords([serverModel], type: T.self)
         }
     }
 

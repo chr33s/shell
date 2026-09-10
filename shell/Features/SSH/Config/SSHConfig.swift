@@ -128,7 +128,9 @@ struct SSHConfig: Codable, Hashable {
         let linux = remoteExecLinuxPathEntries.joined(separator: " ")
         let list = "\(words(remoteExecToolPathEntries)) $_rsl \(words(remoteExecSystemPathEntries))"
         // Absolute path: the incoming PATH is exactly what this snippet fixes.
-        return "_rsl=; [ \"$(uname -s)\" = Linux ] && _rsl='\(linux)'; "
+        // Double quotes only: this prelude is embedded inside a single-quoted
+        // `sh -c '...'` wrapper, so a single quote here would end that wrapper.
+        return "_rsl=; [ \"$(/usr/bin/uname -s 2>/dev/null)\" = Linux ] && _rsl=\"\(linux)\"; "
             + "_p=; for _d in \(list); do [ -d \"$_d\" ] && _p=\"$_p:$_d\"; done; "
             + "PATH=\"${_p#:}${PATH:+:$PATH}\"; export PATH; unset _d _p _rsl; "
     }()

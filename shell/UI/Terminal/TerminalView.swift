@@ -2817,6 +2817,14 @@ extension Ghostty {
                 clearCursorRegistration()
                 #endif
                 resetKeyboardInteractionState(sendSyntheticKeyReleases: true)
+                #if targetEnvironment(macCatalyst)
+                // The character palette temporarily deactivates the window.
+                // Keep its text-input destination installed: resigning here
+                // leaves UIKit with no responder when the palette commits.
+                // Ghostty focus was cleared above; real pane/overlay handoffs
+                // still resign through their own focus paths.
+                if isLogicallyFocused && !windowActive { return }
+                #endif
                 if isFirstResponder {
                     _ = resignFirstResponder()
                 }
@@ -2918,6 +2926,10 @@ extension Ghostty {
 
             let newLang = textInputMode?.primaryLanguage
             guard newLang != lastInputModePrimaryLanguage else { return }
+            if newLang == "emoji" || lastInputModePrimaryLanguage == "emoji" {
+                resetKeyboardInteractionState(sendSyntheticKeyReleases: true)
+                keyboardAccessory?.toolbarView.clearOneShotModifiers()
+            }
             lastInputModePrimaryLanguage = newLang
 
             // Skip the first change — it fires when the view becomes first responder

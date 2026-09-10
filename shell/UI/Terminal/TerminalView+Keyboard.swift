@@ -312,6 +312,7 @@ extension Ghostty.TerminalView {
     // Register key commands for dynamic keybindings
     // Uses cached array to avoid 26+ allocations per keystroke
     override var keyCommands: [UIKeyCommand]? {
+        guard !shouldYieldHardwareInputToEmojiUI else { return nil }
         #if targetEnvironment(macCatalyst)
         let shouldSuppressControlShortcuts = false
         #else
@@ -338,6 +339,12 @@ extension Ghostty.TerminalView {
         lastHardwareTextInputTime = ProcessInfo.processInfo.systemUptime
         lastDictationActivityAt = nil
         invalidateInputDocument()
+
+        if shouldYieldHardwareInputToEmojiUI {
+            resetKeyboardInteractionState(sendSyntheticKeyReleases: true)
+            super.pressesBegan(presses, with: event)
+            return
+        }
 
         var handled = false
         var shouldSkipSuper = false
@@ -391,6 +398,8 @@ extension Ghostty.TerminalView {
     /// Returns whether the press was handled and whether super should be skipped.
     @discardableResult
     func processKeyPress(_ press: UIPress, virtualModifier: ModTapModifier?) -> (handled: Bool, skipSuper: Bool) {
+        // Also cover deferred mod-tap replays, which bypass pressesBegan.
+        guard !shouldYieldHardwareInputToEmojiUI else { return (false, false) }
         lastHardwareTextInputTime = ProcessInfo.processInfo.systemUptime
         lastDictationActivityAt = nil
         invalidateInputDocument()
@@ -425,11 +434,11 @@ extension Ghostty.TerminalView {
             virtualModifier: virtualModifier
         )
 
-        // On iPadOS, certain reserved shortcuts can arrive with Command stripped
-        // from UIKey.modifierFlags even though the key is physically held.
-        // Recover only that missing Command bit, and only when the GCKeyboard
-        // snapshot is trustworthy after any prior focus loss.
-        effectiveModifiers = mergeHardwareCommandModifierFromGCKeyboard(
+        // Changing input language during a focus handoff can strip the entire
+        // chord from UIKit events until the modifiers are released. Recover it
+        // from live hardware transitions shared across terminal responders.
+        let modifiersBeforeHardwareRecovery = effectiveModifiers
+        effectiveModifiers = mergeHardwareCommandChordFromGCKeyboard(
             into: effectiveModifiers,
             hardwareModifiers: hardwareModifiers
         )
@@ -438,6 +447,7 @@ extension Ghostty.TerminalView {
         heldHardwareModifiers = ghosttyInputMods(from: effectiveModifiers, virtualModifier: virtualModifier)
 
         let hasOption = effectiveModifiers.contains(.alternate)
+        lazy var logicalKey = KeyCode(uiKey: key, modifiers: effectiveModifiers)
 
         // The reserved Cmd+Period system-cancel chord can arrive translated as
         // plain Escape. Give a cmd+period binding first refusal; a twin of a
@@ -462,8 +472,8 @@ extension Ghostty.TerminalView {
         let isTranslatedCancelChord = key.keyCode != .keyboardEscape
             && KeyCode.sentinelKey(for: key.characters) == .escape
         if isTranslatedCancelChord
-            || (key.keyCode == .keyboardPeriod
-                && KeybindModifiers(uiModifierFlags: effectiveModifiers) == .command) {
+            || (KeybindModifiers(uiModifierFlags: effectiveModifiers) == .command
+                && logicalKey == .period) {
             // Translation only happens with Command physically down, so the
             // snapshot is live again.
             if isTranslatedCancelChord {
@@ -524,13 +534,31 @@ extension Ghostty.TerminalView {
 
         commitKoreanCompositionIfNeeded(external: true)
 
+        let hardwareTrigger = logicalKey.map {
+            KeyTrigger(key: $0, modifiers: KeybindModifiers(uiModifierFlags: effectiveModifiers))
+        }
+        let bindingTrigger = hardwareTrigger.map { trigger in
+            guard effectiveModifiers != modifiersBeforeHardwareRecovery,
+                  effectiveModifiers.contains(.command),
+                  let symbolTrigger = trigger.shiftedSymbolEquivalent else { return trigger }
+            let manager = KeybindManager.shared
+            let pending = KeySequenceTracker.shared
+            @MainActor
+            func isClaimed(_ candidate: KeyTrigger) -> Bool {
+                if pending.isAwaitingSecondKey {
+                    return pending.possibleBindings.contains { $0.sequence.triggers.last == candidate }
+                }
+                return manager.keybind(for: candidate) != nil || manager.isSequencePrefix(candidate)
+            }
+            // Explicit base-key bindings take precedence over symbol aliases.
+            return !isClaimed(trigger) && isClaimed(symbolTrigger) ? symbolTrigger : trigger
+        }
+
         // Early custom binding check: if the user has a non-default binding for this
         // key combo (from external config or in-app override), execute it immediately.
         // This takes priority over all hardcoded special-case handlers below (Cmd+arrow,
         // modified Return, Cmd+backspace, etc.) so that custom keybindings always win.
-        if let keyCode = KeyCode(hidUsage: key.keyCode) {
-            let trigger = KeyTrigger(key: keyCode, modifiers: KeybindModifiers(uiModifierFlags: effectiveModifiers))
-
+        if let trigger = bindingTrigger {
             // Let KeySequenceTracker claim the press first so the second key of a
             // pending sequence (which may itself be an unmodified letter that
             // would otherwise reach the terminal) gets captured.
@@ -696,8 +724,6 @@ extension Ghostty.TerminalView {
             }
         }
 
-        // FAST PATH: Handle Ctrl+A-Z directly without KeybindManager lookup
-        // This avoids object creation and linear search overhead
         // Ctrl+key fast path: send raw control bytes for legacy terminal mode.
         // When Shift or Alt is also held, skip this path and let the Ghostty
         // encoder handle it (for correct CSI u / Kitty protocol encoding).
@@ -712,10 +738,7 @@ extension Ghostty.TerminalView {
             }
             #endif
 
-            // Check if this is a letter key (A-Z) or Ctrl+symbol
-            let keyCode = key.keyCode
-
-            if let controlByte = controlCharacterByte(for: keyCode) {
+            if let controlByte = logicalKey?.controlCharacterByte {
                 let controlData = Data([controlByte])
 
                 // Handle Ctrl-C for local shell interrupt (non-Catalyst only)
@@ -759,13 +782,11 @@ extension Ghostty.TerminalView {
         }
 
         // Handle other key combinations via KeybindManager
-        // Note: Ctrl+A-Z are handled via GCKeyboard in KeyboardTracker on all platforms
-        if let keyCode = KeyCode(hidUsage: key.keyCode),
-           let keybind = KeybindManager.shared.keybind(
-            for: KeyTrigger(key: keyCode, modifiers: KeybindModifiers(uiModifierFlags: effectiveModifiers))
-           ) {
+        // Ctrl+A-Z use the fast path above or UIKeyCommand on Catalyst.
+        if let trigger = bindingTrigger,
+           let keybind = KeybindManager.shared.keybind(for: trigger) {
 
-            // Skip control characters - handled by fast path above (iOS) or GCKeyboard (all platforms)
+            // Skip control characters - handled by the fast path or Catalyst UIKeyCommands.
             if keybind.action.isControlCharacter {
                 return (false, false)
             }
@@ -977,6 +998,11 @@ extension Ghostty.TerminalView {
     }
 
     override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        if shouldYieldHardwareInputToEmojiUI {
+            resetKeyboardInteractionState(sendSyntheticKeyReleases: true)
+            super.pressesEnded(presses, with: event)
+            return
+        }
         // Reset OPTION key flag on key release
         didHandleOptionKey = false
 
@@ -989,8 +1015,9 @@ extension Ghostty.TerminalView {
 
             guard let key = press.key else { continue }
             // A translated Cmd+Period press can be tracked as Escape by the
-            // Escape handler but released as physical Period.
-            if key.keyCode == .keyboardPeriod {
+            // Escape handler but released at the layout's Period position.
+            if keysConsumedByOverlayAction.contains(.keyboardEscape),
+               KeyCode(uiKey: key, modifiers: .command) == .period {
                 keysConsumedByOverlayAction.remove(.keyboardEscape)
             }
             keyRepeatManager.stopIfMatches(key.keyCode)
@@ -1294,8 +1321,9 @@ extension Ghostty.TerminalView {
 
     /// iPadOS can strip the Command modifier from certain reserved shortcuts
     /// (for example Cmd+. "cancel") before the key reaches pressesBegan.
-    /// Recover only that missing Command bit from GCKeyboard, and only when
-    /// the GameController snapshot is trustworthy. On Mac Catalyst, do not use
+    /// Recover the whole Command chord when current GC state agrees with live
+    /// modifier transitions; otherwise retain the existing Command-only fallback
+    /// when the per-view GameController snapshot is trustworthy. On Mac Catalyst, do not use
     /// GCKeyboard for modifier recovery: its state can remain latched after
     /// system shortcuts like Cmd+H, causing false Command-modified input.
     ///
@@ -1303,13 +1331,27 @@ extension Ghostty.TerminalView {
     /// a fresh key event whose UIKit modifiers overlap with the GCKeyboard state.
     /// That overlap tells us the snapshot is live again rather than a stale
     /// latched modifier from before deactivation.
-    func mergeHardwareCommandModifierFromGCKeyboard(
+    func mergeHardwareCommandChordFromGCKeyboard(
         into modifiers: UIKeyModifierFlags,
         hardwareModifiers: UIKeyModifierFlags
     ) -> UIKeyModifierFlags {
         #if os(visionOS) || targetEnvironment(macCatalyst)
         return modifiers
         #else
+        if window?.windowScene?.activationState == .foregroundActive {
+            // Both a down callback in this activation and a current physical
+            // snapshot must agree. A tab switch resets per-view trust, but does
+            // not invalidate these app-level transitions. Never use this on
+            // Catalyst, where system shortcuts can leave GC state latched.
+            let liveModifiers = KeyboardTracker.shared.shortcutRecoveryModifierFlags
+                .intersection(currentModifierFlagsFromGCKeyboard(input: GCKeyboard.coalesced?.keyboardInput))
+            if liveModifiers.contains(.command) {
+                return normalizedHardwareModifierFlags(
+                    modifiers.union(liveModifiers), virtualModifier: virtualModTapModifier
+                )
+            }
+        }
+
         guard !modifiers.contains(.command),
               let input = GCKeyboard.coalesced?.keyboardInput else {
             return modifiers
@@ -1507,54 +1549,6 @@ extension Ghostty.TerminalView {
         }
 
         return 0
-    }
-
-    /// Fast lookup: Convert UIKeyboardHIDUsage to control character byte (0-31)
-    /// Returns nil if not a recognized control key
-    func controlCharacterByte(for keyCode: UIKeyboardHIDUsage) -> UInt8? {
-        switch keyCode {
-        case .keyboardSpacebar: return 0       // Ctrl+Space = NUL
-        case .keyboardA: return 1
-        case .keyboardB: return 2
-        case .keyboardC: return 3
-        case .keyboardD: return 4
-        case .keyboardE: return 5
-        case .keyboardF: return 6
-        case .keyboardG: return 7
-        case .keyboardH: return 8
-        case .keyboardI: return 9
-        case .keyboardJ: return 10
-        case .keyboardK: return 11
-        case .keyboardL: return 12
-        case .keyboardM: return 13
-        case .keyboardN: return 14
-        case .keyboardO: return 15
-        case .keyboardP: return 16
-        case .keyboardQ: return 17
-        case .keyboardR: return 18
-        case .keyboardS: return 19
-        case .keyboardT: return 20
-        case .keyboardU: return 21
-        case .keyboardV: return 22
-        case .keyboardW: return 23
-        case .keyboardX: return 24
-        case .keyboardY: return 25
-        case .keyboardZ: return 26
-        case .keyboardOpenBracket: return 27   // Ctrl+[ = ESC
-        case .keyboardBackslash: return 28     // Ctrl+\ = FS
-        case .keyboardCloseBracket: return 29  // Ctrl+] = GS
-        case .keyboard2: return 0              // Ctrl+2 = NUL
-        case .keyboard3: return 27             // Ctrl+3 = ESC
-        case .keyboard4: return 28             // Ctrl+4 = FS
-        case .keyboard5: return 29             // Ctrl+5 = GS
-        case .keyboard6: return 30             // Ctrl+6 = RS
-        case .keyboard7: return 31             // Ctrl+7 = US
-        case .keyboard8: return 127            // Ctrl+8 = DEL
-        case .keyboardHyphen: return 31        // Ctrl+- = US
-        case .keyboardSlash: return 31         // Ctrl+/ = US
-        case .keyboardGraveAccentAndTilde: return 0  // Ctrl+` = NUL
-        default: return nil
-        }
     }
 }
 

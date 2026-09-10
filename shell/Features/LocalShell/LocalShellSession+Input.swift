@@ -1405,7 +1405,7 @@ extension LocalShellSession {
     /// to inherit. Leading aliases are pre-expanded only for this set so
     /// self-referential ios_system aliases (`ls='ls --color'`) still expand
     /// exactly once inside ios_system.
-    private static let aliasPreExpansionCommandNames: Set<String> = ["ssh"]
+    private static let aliasPreExpansionCommandNames: Set<String> = ["clear", "exit", "logout", "ssh"]
 
     /// If `argv` is a `bash`/`sh -c <body> [name [args…]]` invocation, return
     /// the script body. Skips POSIX flag bundles (`-eu`, `-l`, etc.) up to the

@@ -284,7 +284,98 @@ enum KeyCode: String, Codable, CaseIterable, Hashable, Sendable {
         KeyCode.isUIKeyInputSentinel(uiKeyInput) ? nil : uiKeyInput
     }
 
-    /// Initialize from UIKeyboardHIDUsage
+    /// Resolve a shortcut while retaining layout changes caused by Command
+    /// (for example Dvorak–QWERTY ⌘). Ctrl input still uses unmodified text.
+    @MainActor
+    init?(uiKey: UIKey, modifiers: UIKeyModifierFlags? = nil) {
+        let physicalKey = KeyCode(hidUsage: uiKey.keyCode)
+        guard physicalKey?.isPrintable == true
+                || uiKey.keyCode == .keyboardNonUSPound
+                || uiKey.keyCode == .keyboardNonUSBackslash else {
+            // Special and modifier-only keys need no layout translation.
+            guard let physicalKey else { return nil }
+            self = physicalKey
+            return
+        }
+
+        let modifiers = modifiers ?? uiKey.modifierFlags
+        var logicalKey = Self.printableKey(for: uiKey.charactersIgnoringModifiers)
+        if modifiers.contains(.command) {
+            // UIKey.characters preserves Command, but can also contain an
+            // Option-composed character or a Control byte. Use it only when
+            // those modifiers are absent. Shifted letters normalize safely;
+            // shifted punctuation needs a Command-only layout translation.
+            // UIKit has no API for removing just Shift/Option/Control, so if
+            // Carbon is unavailable these chords retain the base-layout
+            // fallback; do not guess a US key from a composed character.
+            let characters = uiKey.characters
+            if modifiers.intersection([.control, .alternate]).isEmpty,
+               let characterKey = Self.printableKey(for: characters),
+               !modifiers.contains(.shift) || characters.first?.isLetter == true {
+                logicalKey = characterKey
+            }
+
+            #if targetEnvironment(macCatalyst)
+            // Ask the active layout for Command alone, dropping Shift/Option/
+            // Control without losing its Command-specific key map. This also
+            // handles virtual Command from mod-tap and combined modifiers.
+            let layout = CatalystKeyboardLayout.shared
+            if layout.isAvailable,
+               let nativeKeyCode = Ghostty.Input.nativeKeyCode(for: uiKey.keyCode),
+               let translated = layout.translateKey(
+                   cgKeyCode: UInt16(nativeKeyCode), shift: false, command: true
+               ), let translatedKey = Self.printableKey(for: translated) {
+                // An unusable translation must not discard valid UIKit text.
+                logicalKey = translatedKey
+            }
+            #endif
+        }
+        guard let resolvedKey = logicalKey ?? physicalKey else { return nil }
+        self = resolvedKey
+    }
+
+    private var isPrintable: Bool {
+        switch self {
+        case .tab, .escape, .enter, .backspace, .delete,
+             .up, .down, .left, .right, .home, .end, .pageUp, .pageDown,
+             .f1, .f2, .f3, .f4, .f5, .f6, .f7, .f8, .f9, .f10, .f11, .f12:
+            return false
+        default: return true
+        }
+    }
+
+    /// A translation is usable only when it names a supported printable key.
+    /// In particular, non-ASCII, multi-scalar, and sentinel text cannot replace
+    /// a valid key that was already resolved from another source.
+    private static func printableKey(for text: String) -> KeyCode? {
+        guard text.utf8.count == 1,
+              let ascii = text.utf8.first,
+              (0x20..<0x7F).contains(ascii) else { return nil }
+        return KeyCode(uiKeyInput: text)
+    }
+
+    /// Legacy terminal Ctrl encoding for a resolved logical key. Do not retry
+    /// with the physical key when this returns nil: Colemak's semicolon, for
+    /// example, occupies QWERTY's P position but must never emit Ctrl-P.
+    var controlCharacterByte: UInt8? {
+        if rawValue.utf8.count == 1,
+           let ascii = rawValue.utf8.first,
+           (97...122).contains(ascii) {
+            return ascii - 96
+        }
+        switch self {
+        case .space, .digit2, .grave: return 0
+        case .leftBracket, .digit3: return 27
+        case .backslash, .digit4: return 28
+        case .rightBracket, .digit5: return 29
+        case .digit6: return 30
+        case .minus, .underscore, .slash, .digit7: return 31
+        case .questionMark, .digit8: return 127
+        default: return nil
+        }
+    }
+
+    /// Initialize a physical key identity from UIKeyboardHIDUsage.
     init?(hidUsage: UIKeyboardHIDUsage) {
         switch hidUsage {
         case .keyboardA: self = .a
@@ -624,6 +715,29 @@ struct KeyTrigger: Codable, Hashable, CustomStringConvertible, Sendable {
         self.modifiers = modifiers
     }
 
+    /// Symbol alias for a shifted base-key trigger using the existing US shift
+    /// pairs. Menu bindings can spell Shift+[ as "{". The base key has already
+    /// been resolved from the layout; composed IME text is not a shortcut alias.
+    var shiftedSymbolEquivalent: KeyTrigger? {
+        guard modifiers.contains(.shift) else { return nil }
+        let symbol: KeyCode
+        switch key {
+        case .equal: symbol = .plus
+        case .minus: symbol = .underscore
+        case .leftBracket: symbol = .leftBrace
+        case .rightBracket: symbol = .rightBrace
+        case .backslash: symbol = .pipe
+        case .semicolon: symbol = .colon
+        case .quote: symbol = .doubleQuote
+        case .comma: symbol = .lessThan
+        case .period: symbol = .greaterThan
+        case .slash: symbol = .questionMark
+        case .grave: symbol = .tilde
+        default: return nil
+        }
+        return KeyTrigger(key: symbol, modifiers: modifiers.subtracting(.shift))
+    }
+
     /// Parse from ghostty config format: "cmd+shift+d" or "ctrl+a"
     init?(ghosttyFormat: String) {
         let lowered = ghosttyFormat.lowercased()
@@ -715,9 +829,10 @@ struct KeyTrigger: Codable, Hashable, CustomStringConvertible, Sendable {
     }
 
     /// Create from UIPress
+    @MainActor
     init?(press: UIPress) {
         guard let uiKey = press.key,
-              let key = KeyCode(hidUsage: uiKey.keyCode) else {
+              let key = KeyCode(uiKey: uiKey) else {
             return nil
         }
         self.key = key

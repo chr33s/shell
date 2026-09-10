@@ -502,7 +502,8 @@ class ShortcutCaptureUIView: UIView {
             // Command stripped or as a translated Escape. Normalize either
             // representation so the chord is recordable; the twin keyCommands
             // delivery dedups via duplicateDeliveryWindow since both produce
-            // the identical trigger.
+            // the identical trigger. For stripped events, use the physical
+            // chord proven by GCKeyboard; layout text has lost Command too.
             if (key.keyCode != .keyboardEscape && KeyCode.sentinelKey(for: key.characters) == .escape)
                 || ((key.keyCode == .keyboardPeriod || key.keyCode == .keyboardEscape)
                     && KeyboardTracker.isSystemCancelChordPhysicallyDown()) {
