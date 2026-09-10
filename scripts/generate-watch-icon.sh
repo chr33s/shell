@@ -20,8 +20,8 @@ trap 'rm -rf "$WORK"' EXIT
 # sits at radius 546 of a 1024 canvas, so it needs at most 512/546 to clear the
 # circular mask; the value below leaves a little margin beyond that.
 SCALE=0.86
-# The artwork's own background blue, extended to the full square.
-BACKDROP="#236DF1"
+# The artwork's own Blackboard background, extended to the full square.
+BACKDROP="#0C1021"
 
 python3 - "$SOURCE" "$WORK/watch.svg" "$SCALE" "$BACKDROP" <<'PY'
 import re, sys
