@@ -6,7 +6,7 @@
 // watchOS target may inherit (spec.watch.md sections 1 and 18).
 
 // Development Team
-DEVELOPMENT_TEAM = D97ZME3ET2
+DEVELOPMENT_TEAM = 72KB9YQR7B
 
 // Swift Settings — genuinely platform-neutral only.
 SWIFT_VERSION = 5.0
@@ -71,6 +71,12 @@ ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon
 
 CODE_SIGN_ENTITLEMENTS = ShellWatch/Entitlements/ShellWatch.entitlements
 CODE_SIGN_STYLE = Automatic
+
+// ShellWatch ships only inside Shell.app/Watch (see "Embed Watch Content"
+// above). Without SKIP_INSTALL the archive also installs a second copy at
+// Products/Applications/ShellWatch.app; two top-level apps make Xcode treat
+// the archive as generic and list it under "Other Items" in Organizer.
+SKIP_INSTALL = YES
 
 // Versioning
 CURRENT_PROJECT_VERSION = 1

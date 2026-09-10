@@ -249,6 +249,136 @@ final class StreamAndEnrollmentTests: XCTestCase {
         }
     }
 
+    func testEnrollmentHonorsAdministratorGrantRestrictions() async throws {
+        let harness = BrokerHarness()
+        try await harness.bootstrap()
+        let key = InMemoryDeviceKey()
+        let enrollment = try await harness.store.createEnrollment(publicJWK: key.publicJWK, platform: .watchOS, label: "Watch")
+        let authorization = try await harness.store.startDeviceAuthorization(
+            scope: "control.enroll:\(enrollment.enrollmentID.rawValue)",
+            verificationURI: "https://example.test/activate"
+        )
+        try await harness.store.approveDeviceAuthorization(
+            userCode: try XCTUnwrap(authorization["user_code"]?.stringValue),
+            principal: .admin(accountID: harness.accountID),
+            grants: [.notificationsRead]
+        )
+        let token = try await harness.store.pollDeviceToken(
+            deviceCode: try XCTUnwrap(authorization["device_code"]?.stringValue)
+        )
+        let signature = try key.signature(for: try XCTUnwrap(Base64URL.decode(enrollment.challenge)))
+        let session = try await harness.store.completeEnrollment(
+            enrollmentID: enrollment.enrollmentID,
+            enrollmentToken: try XCTUnwrap(token["access_token"]?.stringValue),
+            challengeSignature: Base64URL.encode(signature)
+        )
+        XCTAssertEqual(session.grants, [.notificationsRead])
+        XCTAssertFalse(session.grants.contains(.approvalsDecide))
+    }
+
+    func testDeviceAuthorizationIsUniquePerEnrollment() async throws {
+        let harness = BrokerHarness()
+        try await harness.bootstrap()
+        let key = InMemoryDeviceKey()
+        let enrollment = try await harness.store.createEnrollment(publicJWK: key.publicJWK, platform: .watchOS, label: "Watch")
+        let scope = "control.enroll:\(enrollment.enrollmentID.rawValue)"
+        let first = try await harness.store.startDeviceAuthorization(
+            scope: scope,
+            verificationURI: "https://example.test/activate"
+        )
+        let second = try await harness.store.startDeviceAuthorization(
+            scope: scope,
+            verificationURI: "https://example.test/activate"
+        )
+        XCTAssertEqual(first["device_code"]?.stringValue, second["device_code"]?.stringValue)
+        XCTAssertEqual(first["user_code"]?.stringValue, second["user_code"]?.stringValue)
+        let count = await harness.store.liveDeviceAuthorizationCount(for: enrollment.enrollmentID)
+        XCTAssertEqual(count, 1)
+
+        try await harness.store.approveDeviceAuthorization(
+            userCode: try XCTUnwrap(first["user_code"]?.stringValue),
+            principal: .admin(accountID: harness.accountID),
+            grants: [.notificationsRead]
+        )
+        let token = try await harness.store.pollDeviceToken(
+            deviceCode: try XCTUnwrap(first["device_code"]?.stringValue)
+        )
+        let signature = try key.signature(for: try XCTUnwrap(Base64URL.decode(enrollment.challenge)))
+        let session = try await harness.store.completeEnrollment(
+            enrollmentID: enrollment.enrollmentID,
+            enrollmentToken: try XCTUnwrap(token["access_token"]?.stringValue),
+            challengeSignature: Base64URL.encode(signature)
+        )
+        XCTAssertEqual(session.grants, [.notificationsRead])
+    }
+
+    func testDecoyDeviceAuthorizationCannotEscalateGrants() async throws {
+        let harness = BrokerHarness()
+        try await harness.bootstrap()
+        let key = InMemoryDeviceKey()
+        let enrollment = try await harness.store.createEnrollment(publicJWK: key.publicJWK, platform: .watchOS, label: "Watch")
+        let authorization = try await harness.store.startDeviceAuthorization(
+            scope: "control.enroll:\(enrollment.enrollmentID.rawValue)",
+            verificationURI: "https://example.test/activate"
+        )
+        let deviceCode = try XCTUnwrap(authorization["device_code"]?.stringValue)
+        let userCode = try XCTUnwrap(authorization["user_code"]?.stringValue)
+
+        // Insert a decoy that would win an unbound `values.first` lookup and
+        // carry watchDefault, including approvals.decide.
+        let decoy = DeviceAuthorizationRecord(
+            deviceCode: "0-decoy-\(UUID().uuidString)",
+            userCode: "DECO-Y000",
+            scope: "control.enroll:\(enrollment.enrollmentID.rawValue)",
+            enrollmentID: enrollment.enrollmentID,
+            expiresAt: enrollment.expiresAt,
+            interval: 5
+        )
+        XCTAssertTrue(decoy.grants.contains(.approvalsDecide))
+        await harness.store.insertDeviceAuthorization(decoy)
+
+        try await harness.store.approveDeviceAuthorization(
+            userCode: userCode,
+            principal: .admin(accountID: harness.accountID),
+            grants: [.notificationsRead]
+        )
+        let token = try await harness.store.pollDeviceToken(deviceCode: deviceCode)
+        let signature = try key.signature(for: try XCTUnwrap(Base64URL.decode(enrollment.challenge)))
+        let session = try await harness.store.completeEnrollment(
+            enrollmentID: enrollment.enrollmentID,
+            enrollmentToken: try XCTUnwrap(token["access_token"]?.stringValue),
+            challengeSignature: Base64URL.encode(signature)
+        )
+        XCTAssertEqual(session.grants, [.notificationsRead])
+        XCTAssertFalse(session.grants.contains(.approvalsDecide))
+    }
+
+    func testCompleteEnrollmentFailsClosedWithoutBoundAuthorization() async throws {
+        let harness = BrokerHarness()
+        try await harness.bootstrap()
+        let key = InMemoryDeviceKey()
+        let enrollment = try await harness.store.createEnrollment(publicJWK: key.publicJWK, platform: .watchOS, label: "Watch")
+        let authorization = try await harness.store.startDeviceAuthorization(
+            scope: "control.enroll:\(enrollment.enrollmentID.rawValue)",
+            verificationURI: "https://example.test/activate"
+        )
+        let deviceCode = try XCTUnwrap(authorization["device_code"]?.stringValue)
+        try await harness.store.approveDeviceAuthorization(
+            userCode: try XCTUnwrap(authorization["user_code"]?.stringValue),
+            principal: .admin(accountID: harness.accountID)
+        )
+        let token = try await harness.store.pollDeviceToken(deviceCode: deviceCode)
+        await harness.store.removeDeviceAuthorization(deviceCode)
+        let signature = try key.signature(for: try XCTUnwrap(Base64URL.decode(enrollment.challenge)))
+        await assertControlError(.notAuthorized) {
+            _ = try await harness.store.completeEnrollment(
+                enrollmentID: enrollment.enrollmentID,
+                enrollmentToken: try XCTUnwrap(token["access_token"]?.stringValue),
+                challengeSignature: Base64URL.encode(signature)
+            )
+        }
+    }
+
     func testWrongChallengeSignatureIsRefused() async throws {
         let harness = BrokerHarness()
         try await harness.bootstrap()
@@ -321,6 +451,48 @@ final class StreamAndEnrollmentTests: XCTestCase {
                 request: ConsumeRequest(consumeID: .random(), decisionID: decisionID, requestHash: record.requestHash, runID: runID)
             )
         }
+    }
+
+    func testRestoredEnrollmentTokenKeepsAuthorizationBinding() async throws {
+        let url = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("shell-control-tests-\(UUID().uuidString)")
+            .appendingPathComponent("broker.json")
+        let persistence = try FileBrokerPersistence(url: url)
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        let harness = BrokerHarness(persistence: persistence)
+        try await harness.bootstrap()
+        let key = InMemoryDeviceKey()
+        let enrollment = try await harness.store.createEnrollment(publicJWK: key.publicJWK, platform: .watchOS, label: "Watch")
+        let authorization = try await harness.store.startDeviceAuthorization(
+            scope: "control.enroll:\(enrollment.enrollmentID.rawValue)",
+            verificationURI: "https://example.test/activate"
+        )
+        try await harness.store.approveDeviceAuthorization(
+            userCode: try XCTUnwrap(authorization["user_code"]?.stringValue),
+            principal: .admin(accountID: harness.accountID),
+            grants: [.notificationsRead]
+        )
+        let token = try await harness.store.pollDeviceToken(
+            deviceCode: try XCTUnwrap(authorization["device_code"]?.stringValue)
+        )
+
+        let clock = harness.clock
+        let restored = BrokerStore(
+            serviceIdentity: "test-broker",
+            cursorSecret: Data(repeating: 7, count: 32),
+            persistence: persistence,
+            now: { clock.now }
+        )
+        try await restored.restore()
+        let signature = try key.signature(for: try XCTUnwrap(Base64URL.decode(enrollment.challenge)))
+        let session = try await restored.completeEnrollment(
+            enrollmentID: enrollment.enrollmentID,
+            enrollmentToken: try XCTUnwrap(token["access_token"]?.stringValue),
+            challengeSignature: Base64URL.encode(signature)
+        )
+        XCTAssertEqual(session.grants, [.notificationsRead])
+        XCTAssertFalse(session.grants.contains(.approvalsDecide))
     }
 
     // MARK: Acknowledgement

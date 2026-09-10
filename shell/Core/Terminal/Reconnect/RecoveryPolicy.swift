@@ -100,7 +100,7 @@ struct RecoveryPolicy: Equatable, Sendable {
 
     init() {}
 
-    static let `default` = RecoveryPolicy()
+    nonisolated static let `default` = RecoveryPolicy()
 
     // MARK: - Derived schedule
 

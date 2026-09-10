@@ -5495,6 +5495,17 @@
         }
       }
     },
+    "%@ (%@ ago)" : {
+      "comment" : "Connection health: RTT with the age of the measurement",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ (%2$@ ago)"
+          }
+        }
+      }
+    },
     "%@ (%@)" : {
       "localizations" : {
         "ar" : {
@@ -72580,6 +72591,9 @@
         }
       }
     },
+    "Attaching…" : {
+      "comment" : "Recovery status: attaching"
+    },
     "Attachment" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -72889,6 +72903,12 @@
           }
         }
       }
+    },
+    "Attempts continue at a slower rate." : {
+      "comment" : "Recovery detail: cooldown pace"
+    },
+    "Attempts per Recovery Burst" : {
+      "comment" : "Setting title"
     },
     "Attention & Notifications" : {
       "extractionState" : "stale",
@@ -73510,6 +73530,9 @@
           }
         }
       }
+    },
+    "Authenticate" : {
+      "comment" : "Recovery action: complete authentication"
     },
     "Authenticate every time this key is used for a connection." : {
       "comment" : "Key auth requirement description: every use",
@@ -75064,6 +75087,9 @@
         }
       }
     },
+    "Authentication required" : {
+      "comment" : "Recovery status: auth\nRecovery status: auth cancelled"
+    },
     "Authentication Services creates WebAuthn credentials using ECDSA P-256, which OpenSSH exposes as an sk-ecdsa key." : {
       "extractionState" : "stale",
       "localizations" : {
@@ -76149,6 +76175,9 @@
           }
         }
       }
+    },
+    "Auto Reconnect is off." : {
+      "comment" : "Recovery detail: master gate disabled"
     },
     "Auto-approve" : {
       "comment" : "GPG agent approval: auto-approve\nMCP approval mode: automatically approve\nSSH agent approval: auto-approve",
@@ -78480,6 +78509,9 @@
           }
         }
       }
+    },
+    "Automatic reconnection stopped." : {
+      "comment" : "Restoration overlay: automatic recovery halted"
     },
     "Automatically approve all requests" : {
       "comment" : "MCP approval mode description: auto-approve",
@@ -105525,6 +105557,9 @@
         }
       }
     },
+    "Checking connection…" : {
+      "comment" : "Recovery status: validating transport"
+    },
     "Checking iCloud…" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -106145,6 +106180,9 @@
           }
         }
       }
+    },
+    "Choose a session to attach to, or open a new shell." : {
+      "comment" : "Recovery detail: explicit selection required"
     },
     "Choose External File…" : {
       "extractionState" : "stale",
@@ -107544,6 +107582,9 @@
           }
         }
       }
+    },
+    "Choose Session" : {
+      "comment" : "Recovery action: pick a tmux session"
     },
     "Choose what to do with this tmux control-mode tab." : {
       "localizations" : {
@@ -131796,7 +131837,7 @@
       }
     },
     "Connecting…" : {
-      "extractionState" : "stale",
+      "comment" : "Recovery status: dialing",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
@@ -132572,6 +132613,7 @@
     },
     "Connection Health Monitoring" : {
       "comment" : "Setting title",
+      "extractionState" : "stale",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
@@ -133502,6 +133544,9 @@
         }
       }
     },
+    "Connection lost. Command outcome unknown." : {
+      "comment" : "Recovery status: one-shot command dispatch uncertain"
+    },
     "Connection Mode" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -133656,6 +133701,9 @@
           }
         }
       }
+    },
+    "Connection not responding" : {
+      "comment" : "Recovery status: keepalive went unanswered"
     },
     "Connection Profile" : {
       "extractionState" : "stale",
@@ -151075,6 +151123,9 @@
           }
         }
       }
+    },
+    "Credentials unavailable" : {
+      "comment" : "Recovery status: no usable credential"
     },
     "Credits" : {
       "comment" : "Copilot usage quota label",
@@ -180338,7 +180389,7 @@
       }
     },
     "Disconnected" : {
-      "comment" : "Cloud console status\nEC2 console status\nKubernetes node shell status\nTunnel event status: disconnected\nVPN event status: disconnected\nVPN status: not connected",
+      "comment" : "Recovery status: auto-reconnect off",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
@@ -182829,8 +182880,7 @@
       }
     },
     "Dismiss" : {
-      "comment" : "Hardware key overlay: dismiss button",
-      "extractionState" : "stale",
+      "comment" : "Recovery action: dismiss the status strip",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
@@ -250518,10 +250568,6 @@
         }
       }
     },
-    "Health monitoring measures round-trip time on live SSH sessions with periodic keepalives, and marks a tab when the link degrades. Both settings apply to sessions that are already connected." : {
-      "comment" : "A description of the health monitoring feature.",
-      "isCommentAutoGenerated" : true
-    },
     "Health Status" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -257664,6 +257710,9 @@
     "Host is required." : {
       "comment" : "Error message displayed when the user has not entered a host.",
       "isCommentAutoGenerated" : true
+    },
+    "Host key changed" : {
+      "comment" : "Recovery status: host trust"
     },
     "Host Key Changed" : {
       "extractionState" : "stale",
@@ -277088,6 +277137,9 @@
         }
       }
     },
+    "Input paused" : {
+      "comment" : "Recovery status: pending-input budget is full"
+    },
     "Input Prompts" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -290314,6 +290366,7 @@
     },
     "Keep SSH Alive in Background" : {
       "comment" : "Setting title",
+      "extractionState" : "stale",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
@@ -306466,6 +306519,9 @@
           }
         }
       }
+    },
+    "Last verified activity %@ ago" : {
+      "comment" : "Recovery detail: age of last confirmed activity"
     },
     "Last verified: %@" : {
       "localizations" : {
@@ -369657,6 +369713,9 @@
         }
       }
     },
+    "Not verified" : {
+      "comment" : "Connection health: no confirmed round trip"
+    },
     "Not Yet Valid" : {
       "comment" : "Cert status",
       "localizations" : {
@@ -379127,6 +379186,9 @@
         }
       }
     },
+    "Open New Shell" : {
+      "comment" : "Recovery action: start a fresh remote shell"
+    },
     "Open Recent" : {
       "comment" : "A menu title for opening a recently-used SSH profile.",
       "isCommentAutoGenerated" : true
@@ -387686,10 +387748,6 @@
         }
       }
     },
-    "Packet loss" : {
-      "comment" : "A label displayed in a connection-health popover.",
-      "isCommentAutoGenerated" : true
-    },
     "Page Down" : {
       "comment" : "Mod-tap key action: page down",
       "localizations" : {
@@ -394991,7 +395049,7 @@
       }
     },
     "Paused" : {
-      "extractionState" : "stale",
+      "comment" : "Recovery status: app suspended",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
@@ -397161,6 +397219,13 @@
           }
         }
       }
+    },
+    "Periodic checks measure round-trip time on live SSH sessions with regular keepalives, and mark a tab when the link degrades. Turning them off does not disable reconnection: a single check still runs when the app returns to the foreground, the network path changes, or a connection errors. Auto Reconnect sets how many attempts each rapid recovery burst makes; after a burst, attempts continue at a slower rate. Background continuity is best-effort within the limits iOS allows and is never guaranteed." : {
+      "comment" : "A description of the SSH connection health checks.",
+      "isCommentAutoGenerated" : true
+    },
+    "Periodic Connection Health Checks" : {
+      "comment" : "Setting title"
     },
     "Periodically pings the SSH server to track round-trip time and packet loss. Shorter intervals react faster to network changes but use more data." : {
       "extractionState" : "stale",
@@ -425582,6 +425647,9 @@
         }
       }
     },
+    "Reattaching to session %@" : {
+      "comment" : "Recovery status: reattaching to a named tmux session"
+    },
     "Reattaching to the existing remote session." : {
       "extractionState" : "stale",
       "localizations" : {
@@ -427444,6 +427512,7 @@
     },
     "Reconnect Attempts" : {
       "comment" : "Setting title",
+      "extractionState" : "stale",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
@@ -427754,8 +427823,7 @@
       }
     },
     "Reconnecting" : {
-      "comment" : "Tunnel event status: reconnecting\nVPN event status: reconnecting\nVPN status: re-establishing connection",
-      "extractionState" : "stale",
+      "comment" : "Recovery status: scheduled retry",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
@@ -428684,6 +428752,9 @@
         }
       }
     },
+    "Reconnection failed" : {
+      "comment" : "Recovery status: generic failure"
+    },
     "Reconnection Failed" : {
       "comment" : "Reconnection overlay: failed",
       "localizations" : {
@@ -429457,6 +429528,9 @@
           }
         }
       }
+    },
+    "Recovery stopped" : {
+      "comment" : "Recovery status: user stopped"
     },
     "Recursively copy directories" : {
       "comment" : "SCP help: -r option",
@@ -449030,6 +449104,9 @@
         }
       }
     },
+    "Restoring terminal state…" : {
+      "comment" : "Recovery status: syncing panes"
+    },
     "Restoring..." : {
       "extractionState" : "stale",
       "localizations" : {
@@ -451376,6 +451453,9 @@
         }
       }
     },
+    "Retry Now" : {
+      "comment" : "Recovery action: retry immediately"
+    },
     "retry shortly" : {
       "comment" : "Agent usage rate-limit retry time",
       "extractionState" : "stale",
@@ -451686,6 +451766,9 @@
           }
         }
       }
+    },
+    "Retrying in %llds" : {
+      "comment" : "Recovery status: countdown to next attempt"
     },
     "Return" : {
       "comment" : "Mod-tap key action: return",
@@ -452776,6 +452859,9 @@
     "Review" : {
       "comment" : "Text for a notification action that opens a review flow.",
       "isCommentAutoGenerated" : true
+    },
+    "Review Draft" : {
+      "comment" : "Recovery action: review composed input"
     },
     "Review Import" : {
       "localizations" : {
@@ -456977,6 +457063,9 @@
           }
         }
       }
+    },
+    "Round trip unverified" : {
+      "comment" : "Connection health: probe deadline expired"
     },
     "Route Exclusions" : {
       "extractionState" : "stale",
@@ -486600,6 +486689,9 @@
           }
         }
       }
+    },
+    "Session-preserving recovery requires tmux." : {
+      "comment" : "Recovery detail: plain SSH limitation"
     },
     "Session:" : {
       "extractionState" : "stale",
@@ -522542,7 +522634,7 @@
       }
     },
     "Stale" : {
-      "comment" : "Badge: the profile changed after this key override was saved"
+      "comment" : "Badge: the profile changed after this key override was saved\nRecovery strip badge: retained screen is not current"
     },
     "Standard" : {
       "comment" : "Split border style: standard border",
@@ -525651,6 +525743,9 @@
         }
       }
     },
+    "Still trying to reconnect" : {
+      "comment" : "Recovery status: cooldown\nRecovery status: retrying at the slower cooldown rate"
+    },
     "Stop" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -526115,6 +526210,9 @@
           }
         }
       }
+    },
+    "Stop Recovery" : {
+      "comment" : "Recovery action: stop reconnecting"
     },
     "Stop Tunnel" : {
       "extractionState" : "stale",
@@ -552044,6 +552142,12 @@
         }
       }
     },
+    "The command was not run again." : {
+      "comment" : "Recovery detail: no automatic re-dispatch"
+    },
+    "The connection has not accepted the pending input yet." : {
+      "comment" : "Recovery detail: producer backpressure"
+    },
     "The current font does not expose any stylistic set or alternate glyph features." : {
       "extractionState" : "stale",
       "localizations" : {
@@ -554841,6 +554945,9 @@
         }
       }
     },
+    "The last screen is kept. Session-preserving recovery requires tmux." : {
+      "comment" : "Recovery detail: plain SSH cannot resume"
+    },
     "The linked AWS account no longer exists. Pick another account or unlink Bedrock." : {
       "extractionState" : "stale",
       "localizations" : {
@@ -556080,6 +556187,9 @@
           }
         }
       }
+    },
+    "The previous session is unavailable" : {
+      "comment" : "Recovery status: tmux session cannot be verified"
     },
     "The private key is generated inside the Secure Enclave and can never be read, exported, backed up, or synced — not even by this app. P-256 only." : {
       "localizations" : {
@@ -568799,6 +568909,9 @@
           }
         }
       }
+    },
+    "This session can't be restored" : {
+      "comment" : "Recovery status: unsupported"
     },
     "This session is attached elsewhere. All attached clients mirror the same windows." : {
       "localizations" : {
@@ -588835,6 +588948,9 @@
         }
       }
     },
+    "Try to Keep SSH Alive in Background" : {
+      "comment" : "Setting title"
+    },
     "tssh" : {
       "localizations" : {
         "ar" : {
@@ -594730,6 +594846,10 @@
           }
         }
       }
+    },
+    "Unanswered probes" : {
+      "comment" : "A label displayed in a connection-health popover.",
+      "isCommentAutoGenerated" : true
     },
     "Unauthorized - please check your credentials" : {
       "comment" : "Cloud provider API error",
@@ -626448,6 +626568,9 @@
           }
         }
       }
+    },
+    "Waiting for network" : {
+      "comment" : "Recovery status: no usable route"
     },
     "Waiting for pod to start..." : {
       "comment" : "Kubernetes node shell status",

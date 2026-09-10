@@ -110,7 +110,7 @@ private final class RecoveryDeadlineBox<Value: Sendable>: @unchecked Sendable {
     }
     let lock = OSAllocatedUnfairLock<State>(initialState: State())
 
-    func install(_ continuation: CheckedContinuation<RecoveryDeadlineOutcome<Value>, Never>) {
+    nonisolated func install(_ continuation: CheckedContinuation<RecoveryDeadlineOutcome<Value>, Never>) {
         let immediate = lock.withLock { state -> RecoveryDeadlineOutcome<Value>? in
             if let pending = state.pendingOutcome {
                 state.settled = true
@@ -124,7 +124,7 @@ private final class RecoveryDeadlineBox<Value: Sendable>: @unchecked Sendable {
 
     /// Resolve once. Returns true if this caller was the one that did it.
     @discardableResult
-    func resolve(_ outcome: RecoveryDeadlineOutcome<Value>) -> Bool {
+    nonisolated func resolve(_ outcome: RecoveryDeadlineOutcome<Value>) -> Bool {
         let action = lock.withLock { state -> (CheckedContinuation<RecoveryDeadlineOutcome<Value>, Never>?, Bool) in
             if state.settled || state.pendingOutcome != nil { return (nil, false) }
             if let continuation = state.continuation {

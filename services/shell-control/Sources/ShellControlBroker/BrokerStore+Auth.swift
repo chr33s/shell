@@ -38,6 +38,10 @@ struct TokenRecord: Sendable {
     let isRefresh: Bool
     /// Enrollment tokens carry the `control.enroll:<id>` scope and nothing else.
     let enrollmentID: ControlID?
+    /// The device authorization that issued this enrollment token. Access and
+    /// refresh tokens leave this nil. Completing enrollment reads grants from
+    /// this record, never from an unbound `enrollmentID` lookup.
+    let deviceCode: String?
     var revoked = false
 }
 
@@ -67,6 +71,11 @@ extension BrokerStore {
 
     /// Starts the device grant for `control.enroll:<enrollment_id>`, a Shell
     /// extension scope rather than a standard OAuth permission.
+    ///
+    /// There is at most one live authorization per enrollment. A second record
+    /// would let `completeEnrollment` pick grants by dictionary order, which is
+    /// how an unapproved `watchDefault` decoy can shadow an administrator's
+    /// restricted grant set.
     public func startDeviceAuthorization(scope: String, verificationURI: String) throws -> JSONValue {
         let prefix = "control.enroll:"
         guard scope.hasPrefix(prefix), let enrollmentID = ControlID(String(scope.dropFirst(prefix.count))),
@@ -74,6 +83,24 @@ extension BrokerStore {
               timestamp < enrollment.expiresAt
         else {
             throw ControlError(code: .invalidPayload, message: "unknown or expired enrollment scope")
+        }
+        var live: [(deviceCode: String, record: DeviceAuthorizationRecord)] = []
+        var mutated = false
+        for (deviceCode, record) in deviceAuthorizations where record.enrollmentID == enrollmentID {
+            if record.deniedAt != nil || timestamp >= record.expiresAt {
+                deviceAuthorizations.removeValue(forKey: deviceCode)
+                mutated = true
+                continue
+            }
+            live.append((deviceCode, record))
+        }
+        if let kept = live.first(where: { $0.record.approvedAccountID != nil }) ?? live.first {
+            for extra in live where extra.deviceCode != kept.deviceCode {
+                deviceAuthorizations.removeValue(forKey: extra.deviceCode)
+                mutated = true
+            }
+            if mutated { try commit() }
+            return deviceAuthorizationResponse(kept.record, verificationURI: verificationURI)
         }
         let record = DeviceAuthorizationRecord(
             deviceCode: Base64URL.encode(BrokerStore.randomBytes(32)),
@@ -85,7 +112,11 @@ extension BrokerStore {
         )
         deviceAuthorizations[record.deviceCode] = record
         try commit()
-        return .object([
+        return deviceAuthorizationResponse(record, verificationURI: verificationURI)
+    }
+
+    func deviceAuthorizationResponse(_ record: DeviceAuthorizationRecord, verificationURI: String) -> JSONValue {
+        .object([
             "device_code": .string(record.deviceCode),
             "user_code": .string(record.userCode),
             "verification_uri": .string(verificationURI),
@@ -166,7 +197,8 @@ extension BrokerStore {
             accountID: accountID,
             expiresAt: record.expiresAt,
             isRefresh: false,
-            enrollmentID: record.enrollmentID
+            enrollmentID: record.enrollmentID,
+            deviceCode: deviceCode
         )
         try commit()
         return .object([
@@ -200,7 +232,17 @@ extension BrokerStore {
         else {
             throw ControlError(code: .notAuthorized, message: "challenge signature rejected")
         }
-        let grants = deviceAuthorizations.values.first { $0.enrollmentID == enrollmentID }?.grants ?? DeviceGrant.watchDefault
+        // Grants come from the authorization that issued this token, never from
+        // an unbound enrollment lookup and never from a watchDefault fallback.
+        guard let deviceCode = tokenRecord.deviceCode,
+              let authorization = deviceAuthorizations[deviceCode],
+              authorization.enrollmentID == enrollmentID,
+              authorization.approvedAccountID == tokenRecord.accountID,
+              authorization.deniedAt == nil
+        else {
+            throw ControlError(code: .notAuthorized, message: "enrollment is not bound to an approved authorization")
+        }
+        let grants = authorization.grants
         let deviceID = try enrollDevice(
             accountID: tokenRecord.accountID,
             publicJWK: enrollment.publicJWK,
@@ -234,7 +276,8 @@ extension BrokerStore {
             accountID: device.accountID,
             expiresAt: accessExpiry,
             isRefresh: false,
-            enrollmentID: nil
+            enrollmentID: nil,
+            deviceCode: nil
         )
         refreshTokens[BrokerStore.verifier(for: refresh)] = TokenRecord(
             verifier: BrokerStore.verifier(for: refresh),
@@ -242,7 +285,8 @@ extension BrokerStore {
             accountID: device.accountID,
             expiresAt: timestamp.adding(30 * 24 * 60 * 60),
             isRefresh: true,
-            enrollmentID: nil
+            enrollmentID: nil,
+            deviceCode: nil
         )
         return DeviceSession(
             deviceID: device.deviceID,

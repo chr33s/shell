@@ -29,6 +29,7 @@ protocol RecoverySleeper: Sendable {
 }
 
 struct SystemRecoverySleeper: RecoverySleeper {
+    nonisolated init() {}
     func sleep(seconds: TimeInterval) async throws {
         guard seconds > 0 else { return }
         try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
@@ -638,13 +639,16 @@ final class RecoveryCoordinator {
         // of the loop that replaced it, orphaning a running loop that nothing
         // can cancel and letting a later disconnect start a second one
         // dialling the same target (CON-01).
-        var started: Task<Void, Never>?
-        started = Task { @MainActor [weak self] in
+        final class TaskBox: @unchecked Sendable {
+            var task: Task<Void, Never>?
+        }
+        let box = TaskBox()
+        box.task = Task { @MainActor [weak self, box] in
             guard let self else { return }
             await self.runLoop()
-            if self.loopTask == started { self.loopTask = nil }
+            if self.loopTask == box.task { self.loopTask = nil }
         }
-        loopTask = started
+        loopTask = box.task
     }
 
     private func cancelLoop() {

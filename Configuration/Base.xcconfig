@@ -1,7 +1,7 @@
 // Base.xcconfig - Shared settings for all Shell builds
 
 // Development Team
-DEVELOPMENT_TEAM = D97ZME3ET2
+DEVELOPMENT_TEAM = 72KB9YQR7B
 
 // Swift Settings
 SWIFT_VERSION = 5.0

@@ -264,6 +264,7 @@ public enum BrokerSnapshotCodec {
             "expires_at": JSONValue(record.expiresAt),
             "is_refresh": .bool(record.isRefresh),
             "enrollment_id": record.enrollmentID.map { JSONValue($0) },
+            "device_code": record.deviceCode.map { .string($0) },
             "revoked": .bool(record.revoked),
         ])
     }
@@ -276,7 +277,8 @@ public enum BrokerSnapshotCodec {
             accountID: try reader.id("account_id"),
             expiresAt: try reader.timestamp("expires_at"),
             isRefresh: try reader.bool("is_refresh"),
-            enrollmentID: try reader.optionalID("enrollment_id")
+            enrollmentID: try reader.optionalID("enrollment_id"),
+            deviceCode: try reader.optionalString("device_code", maxLength: 128)
         )
         record.revoked = try reader.optionalBool("revoked") ?? false
         return record

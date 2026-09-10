@@ -194,3 +194,17 @@ func assertControlError(
         XCTFail("expected \(expected.rawValue), got \(error)", file: file, line: line)
     }
 }
+
+extension BrokerStore {
+    func liveDeviceAuthorizationCount(for enrollmentID: ControlID) -> Int {
+        deviceAuthorizations.values.filter { $0.enrollmentID == enrollmentID }.count
+    }
+
+    func insertDeviceAuthorization(_ record: DeviceAuthorizationRecord) {
+        deviceAuthorizations[record.deviceCode] = record
+    }
+
+    func removeDeviceAuthorization(_ deviceCode: String) {
+        deviceAuthorizations.removeValue(forKey: deviceCode)
+    }
+}

@@ -91,7 +91,7 @@ cat > "$OUT/ExportOptions.plist" <<'PLIST'
     <key>destination</key>
     <string>export</string>
     <key>teamID</key>
-    <string>D97ZME3ET2</string>
+    <string>72KB9YQR7B</string>
     <key>uploadSymbols</key>
     <true/>
     <key>manageAppVersionAndBuildNumber</key>

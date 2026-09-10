@@ -48,7 +48,7 @@ nonisolated enum TmuxRecoveryIdentity {
     /// Parse one `display-message -p` / `list-sessions` line in
     /// `continuityFormat`. Server-derived text is untrusted: it is parsed into
     /// typed fields and never interpreted as an instruction.
-    static func parseContinuity(_ body: String) -> TmuxContinuityEvidence? {
+    @MainActor static func parseContinuity(_ body: String) -> TmuxContinuityEvidence? {
         guard let line = body.split(whereSeparator: \.isNewline).first else { return nil }
         let fields = line.split(separator: "\t", maxSplits: 5, omittingEmptySubsequences: false)
         guard fields.count >= 6 else { return nil }
@@ -68,7 +68,7 @@ nonisolated enum TmuxRecoveryIdentity {
     ///
     /// `discovered` is what the server reports for the session id we intended
     /// to reattach to; `nil` means that id is not present.
-    static func verify(
+    @MainActor static func verify(
         stored: TmuxContinuityEvidence?,
         discovered: TmuxContinuityEvidence?
     ) -> TmuxContinuityVerdict {
@@ -169,7 +169,7 @@ nonisolated enum TmuxRecoveryIdentity {
     }
 
     /// Parse a multi-line `list-sessions` reply in `continuityFormat`.
-    static func parseContinuityList(_ body: String) -> [TmuxContinuityEvidence] {
+    @MainActor static func parseContinuityList(_ body: String) -> [TmuxContinuityEvidence] {
         body.split(whereSeparator: \.isNewline).compactMap { parseContinuity(String($0)) }
     }
 }
