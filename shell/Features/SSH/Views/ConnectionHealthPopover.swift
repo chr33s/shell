@@ -44,12 +44,15 @@ struct ConnectionHealthPopover: View {
                 Divider()
 
                 metricRow(
-                    Text("Packet loss"),
-                    value: Text(String(format: "%.1f%%", health.packetLossPercent)),
+                    // Not "packet loss": these are SSH keepalive round trips
+                    // that went unanswered. Shell cannot see IP datagrams
+                    // (spec.connectivity.md §8.1).
+                    Text("Unanswered probes"),
+                    value: Text(String(format: "%.1f%%", health.probeFailurePercent)),
                     // The indicator turns red at 2-of-3 poor samples; call out
-                    // loss on the same side of "this link is bad" so the two
-                    // readouts cannot disagree.
-                    valueColor: health.packetLossPercent > 10 ? .appDanger : .primary
+                    // failures on the same side of "this link is bad" so the
+                    // two readouts cannot disagree.
+                    valueColor: health.probeFailurePercent > 10 ? .appDanger : .primary
                 )
 
                 metricRow(
@@ -110,7 +113,7 @@ struct ConnectionHealthIndicator: View {
 #Preview("Health Popover - Excellent") {
     ConnectionHealthPopover(health: ConnectionHealth(
         rttMilliseconds: 23,
-        packetLossPercent: 0,
+        probeFailurePercent: 0,
         successfulPings: 10,
         totalPings: 10,
         lastSuccessfulPing: Date(),
@@ -122,7 +125,7 @@ struct ConnectionHealthIndicator: View {
 #Preview("Health Popover - Fair with Loss") {
     ConnectionHealthPopover(health: ConnectionHealth(
         rttMilliseconds: 185,
-        packetLossPercent: 13.3,
+        probeFailurePercent: 13.3,
         successfulPings: 13,
         totalPings: 15,
         lastSuccessfulPing: Date().addingTimeInterval(-45),
@@ -140,7 +143,7 @@ struct ConnectionHealthIndicator: View {
     HStack(spacing: 20) {
         ConnectionHealthIndicator(health: ConnectionHealth(
             rttMilliseconds: 23,
-            packetLossPercent: 0,
+            probeFailurePercent: 0,
             successfulPings: 10,
             totalPings: 10,
             lastSuccessfulPing: Date(),
@@ -149,7 +152,7 @@ struct ConnectionHealthIndicator: View {
 
         ConnectionHealthIndicator(health: ConnectionHealth(
             rttMilliseconds: 150,
-            packetLossPercent: 5,
+            probeFailurePercent: 5,
             successfulPings: 9,
             totalPings: 10,
             lastSuccessfulPing: Date(),

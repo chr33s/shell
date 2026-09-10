@@ -183,6 +183,12 @@ extension Ghostty.TerminalView {
         sessionController.cancelReconnection()
     }
 
+    /// Handle a button on the native recovery strip. Recovery actions are
+    /// always user-initiated: nothing here fires on its own.
+    func performRecoveryAction(_ action: RecoveryStatusAction) {
+        sessionController.performRecoveryAction(action)
+    }
+
     /// Monitors Ghostty's response pipe for terminal responses (e.g., cursor position queries)
     /// and forwards them back to the session for bidirectional terminal communication.
     /// Works with both SSH and Catalyst local shell sessions.

@@ -123,6 +123,10 @@ final class TerminalSessionController {
         reconnectionController.manualReconnect()
     }
 
+    func performRecoveryAction(_ action: RecoveryStatusAction) {
+        reconnectionController.performRecoveryAction(action)
+    }
+
     func cancelReconnection() {
         reconnectionController.cancelReconnection()
     }
@@ -547,6 +551,30 @@ final class TerminalSessionController {
                             self?.host?.terminalApplyConnectionHealth(health)
                         }
                     }
+
+                    citadelSession.onProbeDeadlineExpired = { [weak self] in
+                        Task { @MainActor in
+                            self?.reconnectionController.noteProbeDeadlineExpired()
+                        }
+                    }
+
+                    citadelSession.onRoundTripConfirmed = { [weak self] rtt in
+                        Task { @MainActor in
+                            self?.reconnectionController.noteConfirmedRoundTrip(milliseconds: rtt)
+                        }
+                    }
+
+                    citadelSession.onTargetActivityResumed = { [weak self] in
+                        Task { @MainActor in
+                            self?.reconnectionController.noteTargetActivity()
+                        }
+                    }
+
+                    citadelSession.onInputRejected = { [weak self] decision in
+                        Task { @MainActor in
+                            self?.reconnectionController.noteInputRejected(decision)
+                        }
+                    }
                 }
             }
 
@@ -609,12 +637,38 @@ final class TerminalSessionController {
         // reconnect attempt, and the old subscription points at the replaced
         // session.
         host.terminalNotifySessionDidChange()
-        try await newSession.start()
+
+        // Readiness is armed BEFORE start(), because a fast session can
+        // become ready inside start() and a gate installed afterwards would
+        // wait for an event that already fired.
+        let ready = awaitTerminalReadiness(for: newSession)
+        do {
+            try await newSession.start()
+        } catch {
+            // The gate holds a 30s deadline timer and, on expiry, writes the
+            // original handlers back onto a session that is already gone.
+            // Cancel it on the failure path too, not only the cancelled one.
+            ready.cancel()
+            throw error
+        }
 
         // Cancellation is cooperative: "Cancel Recovery" (or pause on
         // backgrounding) during start() can't abort it. The manager will
         // discard this attempt's success — don't leave a live session
         // running behind a cancelled-looking UI. Tear it down instead.
+        if Task.isCancelled {
+            ready.cancel()
+            newSession.stop()
+            throw CancellationError()
+        }
+
+        // `start()` returning means the transport was established. It does
+        // NOT mean a terminal exists: PTY allocation and the shell/exec
+        // request proceed asynchronously, so reporting success here would be
+        // the invented readiness CON-03 forbids. Wait for the real signal,
+        // under its own deadline.
+        try await ready.value
+
         if Task.isCancelled {
             newSession.stop()
             throw CancellationError()
@@ -622,7 +676,39 @@ final class TerminalSessionController {
 
         responsePipeline.start(for: newSession)
 
-        Ghostty.logger.info("Reconnection successful")
+        Ghostty.logger.info("Reconnection ready")
+    }
+
+    /// Arm a one-shot terminal-readiness gate for `session`.
+    ///
+    /// The session's own `onReady` still reaches the host: this wraps it
+    /// rather than replacing it, so the view's normal ready handling is
+    /// unaffected. The gate resolves on readiness, on session end, or when
+    /// its deadline expires — never on a timer that simply declares success.
+    private func awaitTerminalReadiness(for session: TerminalSession) -> Task<Void, Error> {
+        let deadline = RecoveryPolicy.default.stageOverallDeadline
+        let existingReady = session.onReady
+        let existingEnd = session.onSessionEnd
+
+        let box = TerminalReadinessGate()
+        session.onReady = { [weak self] in
+            existingReady?()
+            _ = self
+            box.resolve(.success(()))
+        }
+        session.onSessionEnd = {
+            existingEnd?()
+            box.resolve(.failure(ReconnectionError.endedBeforeReady))
+        }
+
+        return Task { @MainActor in
+            defer {
+                // Restore the plain handlers: the gate is one-shot.
+                session.onReady = existingReady
+                session.onSessionEnd = existingEnd
+            }
+            try await box.wait(seconds: deadline)
+        }
     }
 
     private func createReconnectSession() throws -> TerminalSession {
@@ -634,7 +720,8 @@ final class TerminalSessionController {
         }
 
         switch host.terminalConnectionConfig {
-        case .ssh(let sshConfig):
+        case .ssh(let baseConfig):
+            let sshConfig = try recoveryConfig(from: baseConfig)
             let sshSession = SSHSessionFactory.createSession(pty: pty, config: sshConfig)
             if let sshTerminalSession = sshSession as? SSHTerminalSession {
                 sshTerminalSession.onHostKeyValidation = { [weak self] request in
@@ -649,6 +736,12 @@ final class TerminalSessionController {
                 }
 
                 if let citadelSession = sshSession as? CitadelSSHSession {
+                    // The recovery coordinator owns the retry budget, so the
+                    // session's own startup loop is reduced to one dial. A
+                    // three-attempt loop inside each coordinator attempt would
+                    // multiply out to nine dials the user never asked for (§7.1).
+                    citadelSession.startupRetryPolicy = .singleAttempt
+
                     citadelSession.onKeyboardInteractiveChallenge = { [weak self] challenge in
                         guard let self, let host = self.host else { return nil }
                         return await host.terminalHandleKeyboardInteractive(challenge)
@@ -657,6 +750,30 @@ final class TerminalSessionController {
                     citadelSession.onHealthUpdate = { [weak self] health in
                         Task { @MainActor in
                             self?.host?.terminalApplyConnectionHealth(health)
+                        }
+                    }
+
+                    citadelSession.onProbeDeadlineExpired = { [weak self] in
+                        Task { @MainActor in
+                            self?.reconnectionController.noteProbeDeadlineExpired()
+                        }
+                    }
+
+                    citadelSession.onRoundTripConfirmed = { [weak self] rtt in
+                        Task { @MainActor in
+                            self?.reconnectionController.noteConfirmedRoundTrip(milliseconds: rtt)
+                        }
+                    }
+
+                    citadelSession.onTargetActivityResumed = { [weak self] in
+                        Task { @MainActor in
+                            self?.reconnectionController.noteTargetActivity()
+                        }
+                    }
+
+                    citadelSession.onInputRejected = { [weak self] decision in
+                        Task { @MainActor in
+                            self?.reconnectionController.noteInputRejected(decision)
                         }
                     }
                 }
@@ -676,6 +793,46 @@ final class TerminalSessionController {
         case .local, .shellLaunchedSSH:
             throw ReconnectionError.unsupportedSessionType
         }
+    }
+
+    /// Build the config a recovery attempt connects with.
+    ///
+    /// For a tmux profile this replaces the connect-time `new-session -A`
+    /// launcher with an attach-by-id command derived from verified continuity
+    /// evidence. When that evidence is missing the attempt fails as
+    /// `sessionMissing` rather than connecting: creating a fresh session and
+    /// presenting it as the user's restored one is the failure mode CON-05
+    /// exists to prevent, and the safe fallback is explicit selection.
+    private func recoveryConfig(from config: SSHConfig) throws -> SSHConfig {
+        guard config.tmuxAutoEnable else { return config }
+
+        var recoveryConfig = config
+
+        if config.tmuxAutoMode == .control {
+            // Control mode can prove identity, so it must: attach by session
+            // id, backed by evidence gathered while the session was provably
+            // the right one.
+            let key = TmuxGatewaySessionStore.connectionKey(
+                host: config.host, port: config.port, username: config.username)
+            guard let evidence = TmuxContinuityRegistry.shared.evidence(forConnection: key),
+                  let attachCommand = config.tmuxRecoveryAttachCommand(
+                    sessionID: evidence.sessionID, socketPath: evidence.socketPath)
+            else {
+                throw ReconnectionError.tmuxSessionUnverified
+            }
+            recoveryConfig.recoveryExecCommandOverride = attachCommand
+            return recoveryConfig
+        }
+
+        // Regular mode has no control channel and so no evidence. Attaching by
+        // name cannot prove continuity — and is not reported as if it did —
+        // but dropping `-A` still means a missing session fails rather than
+        // being silently created (§9.2).
+        guard let attachByName = config.tmuxRecoveryAttachByNameCommand() else {
+            throw ReconnectionError.tmuxSessionUnverified
+        }
+        recoveryConfig.recoveryExecCommandOverride = attachByName
+        return recoveryConfig
     }
 
     private func handleSSHStateChangeDuringReconnect(_ state: SSHSessionState) {
@@ -798,6 +955,16 @@ final class TerminalSessionController {
     enum ReconnectionError: LocalizedError {
         case noPTY
         case unsupportedSessionType
+        /// The transport came up but the session ended before a terminal
+        /// existed. Reporting success here would claim a terminal that never
+        /// opened.
+        case endedBeforeReady
+        /// The readiness stage ran out of time. Not a claim that the remote
+        /// is dead — just that readiness was never proved.
+        case readinessTimedOut
+        /// The intended tmux session cannot be identified with evidence strong
+        /// enough to reattach to it. Requires explicit selection.
+        case tmuxSessionUnverified
 
         var errorDescription: String? {
             switch self {
@@ -805,6 +972,12 @@ final class TerminalSessionController {
                 return "No PTY available for reconnection"
             case .unsupportedSessionType:
                 return "This session type does not support reconnection"
+            case .endedBeforeReady:
+                return "The session ended before the terminal was ready"
+            case .readinessTimedOut:
+                return "The terminal did not become ready in time"
+            case .tmuxSessionUnverified:
+                return "The previous tmux session could not be verified"
             }
         }
     }

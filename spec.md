@@ -1062,11 +1062,20 @@ Known Hosts
 Saved Passwords
 
 Auto Reconnect
-Keep SSH Alive in Background
+  Attempts per Recovery Burst
+Try to Keep SSH Alive in Background
 Force IPv4
-Connection Health Monitoring    [on/off]
+Periodic Connection Health Checks    [on/off]
   Probe Interval
 ```
+
+"Attempts per Recovery Burst" is per burst, not per session: once a burst is
+exhausted the intent survives and attempts continue at a slower cooldown rate.
+Turning periodic health checks off stops the probe loop, not recovery — a
+bounded single check still runs on foreground activation, a network path
+change, or a transport error. Background keepalive is best-effort within the
+finite allowance iOS grants; there is no guaranteed background connection.
+See [spec.connectivity.md](spec.connectivity.md).
 
 #### SSH Identity detail
 
@@ -1205,11 +1214,30 @@ On app relaunch:
 
 ```text
 Local session -> create new shell
-SSH session   -> reconnect
-tmux -CC      -> reconnect SSH and reattach tmux
+SSH session   -> offer a new remote shell
+tmux -CC      -> reconnect SSH and reattach the verified existing session
 ```
 
 tmux is the source of remote session persistence.
+
+Relaunch restores *intent*, never a transport, a task, or an assumption of
+readiness. Three outcomes are distinguished and never conflated:
+
+| Outcome | Meaning |
+| --- | --- |
+| Session restored | The intended existing tmux session was verified and reattached. |
+| New shell opened | A new remote shell was explicitly requested. The old one was not resumed. |
+| Command outcome unknown | A connection failed around a remote action whose completion cannot be established. It was not rerun. |
+
+Plain SSH has no session continuity: a replacement transport is a new shell,
+and Shell says so rather than calling it a resumed session. Reattachment uses
+`attach-session` against a verified session id — never `new-session -A` — so a
+missing or unverifiable session asks the user to choose instead of silently
+creating one. A one-shot command whose dispatch may have happened is never
+re-executed, including after relaunch: there is no exactly-once execution
+promise. Recovery status is drawn natively, outside the terminal byte stream.
+
+The full contract is [spec.connectivity.md](spec.connectivity.md).
 
 ---
 

@@ -59,6 +59,17 @@ enum InitialConnectRetry {
             AttemptPolicy(timeout: .seconds(30), backoffBefore: .seconds(30)),
         ])
 
+        /// Exactly one attempt, with the standard TCP connect cap.
+        ///
+        /// Recovery uses this. The coordinator owns post-disconnection retry
+        /// policy, and a three-attempt loop *inside* each of its attempts
+        /// multiplies out to nine or fifteen dials while the user sees "one"
+        /// — the nested retry the spec calls out (§7.1). Initial,
+        /// user-initiated connects keep their own bounded startup ramp below.
+        nonisolated static let singleAttempt = Config(attempts: [
+            AttemptPolicy(timeout: .seconds(30), backoffBefore: .zero),
+        ])
+
         /// Conservative ramp for app-side interactive connects. Used by
         /// `CitadelSSHSession`.
         ///

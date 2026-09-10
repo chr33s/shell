@@ -2,15 +2,32 @@
 //  ReconnectionManager.swift
 //  shell
 //
-//  State machine for managing automatic session reconnection with exponential backoff.
-//  Coordinates with NetworkReachabilityMonitor for opportunistic reconnection.
+//  Session-facing façade over `RecoveryCoordinator`
+//  (spec.connectivity.md §3, §7.1, §16).
+//
+//  This type used to *be* the retry loop. It no longer is. The coordinator
+//  owns recovery policy — attempt accounting, backoff, cooldown, path
+//  coalescing, generation isolation — and this class exists to keep the
+//  session/view layer's existing vocabulary (`State`, `DisconnectReason`,
+//  `onReconnected`) working while that policy lives in one testable place.
+//
+//  Three behavioral changes come with the move, all of them required:
+//
+//   * Attempts are counted when a dial actually begins. The old loop
+//     incremented before its wait, so a cancelled wait, a path event, or a
+//     backgrounded app burned attempts that never touched the network.
+//   * Exhausting the burst is no longer the end. The intent survives and
+//     recovery continues at the cooldown rate while foreground-active and
+//     path-eligible, instead of parking in a manual-only state forever.
+//   * The session's own startup retry no longer multiplies with this one:
+//     the recovery path asks for a single-attempt connect (§7.1).
 //
 
 import Foundation
 import Combine
 import os
 
-/// Manages automatic reconnection attempts for a terminal session
+/// Manages automatic reconnection attempts for a terminal session.
 @MainActor
 public final class ReconnectionManager {
 
@@ -20,50 +37,33 @@ public final class ReconnectionManager {
 
     // MARK: - Configuration
 
-    /// Configuration for reconnection behavior
+    /// Configuration for reconnection behavior.
     struct Config: Equatable, Sendable {
-        /// Whether auto-reconnect is enabled
+        /// Master gate for automatic replacement attempts.
         var enabled: Bool = true
 
-        /// Initial delay before first reconnection attempt (seconds)
-        var initialDelay: TimeInterval = 1.0
-
-        /// Maximum delay between reconnection attempts (seconds)
-        var maxDelay: TimeInterval = 30.0
-
-        /// Maximum number of reconnection attempts before giving up
+        /// Attempts per rapid recovery **burst** — not a session-lifetime cap.
         var maxAttempts: Int = 5
 
-        /// Multiplier for exponential backoff (delay * multiplier each attempt)
-        var backoffMultiplier: Double = 2.0
-
-        /// Whether to attempt immediate reconnection when network is restored
+        /// Whether a restored path may trigger an opportunistic attempt.
         var reconnectOnNetworkRestored: Bool = true
 
-        /// Nonisolated init allows creation from any context
         nonisolated init(
             enabled: Bool = true,
-            initialDelay: TimeInterval = 1.0,
-            maxDelay: TimeInterval = 30.0,
             maxAttempts: Int = 5,
-            backoffMultiplier: Double = 2.0,
             reconnectOnNetworkRestored: Bool = true
         ) {
             self.enabled = enabled
-            self.initialDelay = initialDelay
-            self.maxDelay = maxDelay
             self.maxAttempts = maxAttempts
-            self.backoffMultiplier = backoffMultiplier
             self.reconnectOnNetworkRestored = reconnectOnNetworkRestored
         }
 
-        /// Default configuration matching user requirements
         nonisolated static let `default` = Config()
     }
 
     // MARK: - State
 
-    /// Reason for disconnection
+    /// Reason for disconnection, as reported by a session.
     public enum DisconnectReason: Equatable, CustomStringConvertible {
         case networkLost
         case serverClosed
@@ -81,7 +81,7 @@ public final class ReconnectionManager {
             }
         }
 
-        /// Whether this disconnect reason should trigger auto-reconnect
+        /// Whether this disconnect reason should trigger auto-reconnect.
         public var shouldAutoReconnect: Bool {
             switch self {
             case .userInitiated:
@@ -90,301 +90,449 @@ public final class ReconnectionManager {
                 return true
             }
         }
+
+        /// Typed classification for the coordinator.
+        ///
+        /// `.error` deliberately maps to `.unknown` rather than being matched
+        /// against localized substrings: an unknown error gets the bounded
+        /// burst and then requires attention (§7.3). Callers that know the
+        /// real domain should set `ReconnectionManager.pendingFailure` instead
+        /// of encoding it in a message string.
+        var classified: RecoveryFailure {
+            switch self {
+            case .networkLost: return RecoveryFailure(domain: .transportUnavailable)
+            case .serverClosed: return RecoveryFailure(domain: .transportUnavailable)
+            case .timeout: return RecoveryFailure(domain: .timeout)
+            case .userInitiated: return RecoveryFailure(domain: .cancelled, hop: .local)
+            case .error(let message): return RecoveryFailure(domain: .unknown, detail: message)
+            }
+        }
     }
 
-    /// Current state of the reconnection manager
+    /// Current state of the reconnection manager, in the vocabulary the
+    /// session and view layers already speak.
     enum State: Equatable {
-        /// Not managing any connection (initial state)
         case idle
-
-        /// Session is connected and running
         case connected
-
-        /// Session disconnected, evaluating whether to reconnect
         case disconnected(reason: DisconnectReason)
-
-        /// Waiting before next reconnection attempt
         case waitingToReconnect(attempt: Int, nextAttemptIn: TimeInterval)
-
-        /// Actively attempting to reconnect
         case reconnecting(attempt: Int)
-
-        /// Reconnection permanently failed (e.g., auth error)
         case failed(reason: String)
-
-        /// Max attempts reached, waiting for user to manually reconnect
+        /// Automatic attempts have stopped and a user action is required.
         case manualReconnectRequired
     }
 
     // MARK: - Manager State
 
-    /// Current state of the manager
     private(set) var state: State = .idle
 
-    /// Current attempt number (1-based, 0 when not reconnecting)
-    private(set) var currentAttempt: Int = 0
+    /// Attempts that actually began dialing in the current recovery epoch.
+    var currentAttempt: Int { coordinator.context.attemptState.dialCount }
 
-    // MARK: - Configuration
-
-    /// Reconnection configuration
-    var config: Config
+    /// Configuration. Assigning adopts it at the coordinator's explicit
+    /// boundary; a change mid-recovery is staged, not applied underneath it.
+    var config: Config {
+        didSet {
+            guard config != oldValue else { return }
+            coordinator.isAutomaticRecoveryEnabled = config.enabled
+            var policy = coordinator.policy
+            policy.burstAttempts = max(1, config.maxAttempts)
+            coordinator.adoptPolicy(policy)
+        }
+    }
 
     // MARK: - Callbacks
 
-    /// Called when a reconnection attempt should be made.
-    /// The callback should attempt to reconnect and throw on failure.
+    /// Called when a reconnection attempt should be made. The callback should
+    /// attempt to reconnect and throw on failure.
     var onReconnectAttempt: (() async throws -> Void)?
 
-    /// Called whenever state changes
+    /// Called whenever the legacy state changes.
     var onStateChange: ((State) -> Void)?
 
-    /// Called when max attempts reached and giving up
+    /// Called when automatic attempts stop and the user must act.
     var onGiveUp: (() -> Void)?
 
-    /// Called when reconnection succeeds
+    /// Called when reconnection succeeds.
     var onReconnected: (() -> Void)?
 
-    // MARK: - Private Properties
+    /// Called whenever the native recovery status should be re-rendered.
+    var onRecoveryStatusChange: ((RecoveryStatusPresentation?) -> Void)?
 
-    private var reconnectTask: Task<Void, Never>?
+    // MARK: - Recovery surface
+
+    /// The coordinator that actually owns recovery for this connection.
+    let coordinator: RecoveryCoordinator
+
+    /// Observable recovery state, for callers that want the honest vocabulary
+    /// rather than the legacy one.
+    var recoveryState: RecoveryState { coordinator.state }
+
+    /// Which of the three user-visible outcomes was last reached.
+    var lastOutcome: RecoveryOutcome? { coordinator.lastOutcome }
+
+    /// Native status for the recovery strip. `nil` means "nothing to show".
+    private(set) var recoveryStatus: RecoveryStatusPresentation?
+
+    /// The tmux session name being reattached, for display only.
+    var displaySessionName: String?
+
+    /// Validate the existing transport once, without replacing it. Set by the
+    /// controller from the live session (§8.2).
+    var validateTransport: ((ConnectionHealthMonitor.ValidationReason) -> Void)?
+
+    /// A more precise failure than the session's `DisconnectReason` conveys,
+    /// set by the layer that actually knows (host trust, credentials, hop).
+    var pendingFailure: RecoveryFailure?
+
+    // MARK: - Private
+
     private var networkCancellable: AnyCancellable?
-    private var isPaused: Bool = false
+    private var lastReason: DisconnectReason = .networkLost
+    private var statusTicker: Timer?
 
     // MARK: - Initialization
 
-    init(config: Config = .default) {
+    init(
+        config: Config = .default,
+        context: RecoveryContext? = nil,
+        coordinator: RecoveryCoordinator? = nil
+    ) {
         self.config = config
+
+        let resolvedContext = context ?? RecoveryContext(
+            intent: .interactiveShell,
+            targetIdentity: RecoveryTargetIdentity(host: "", port: 22, username: ""),
+            policy: {
+                var policy = RecoveryPolicy.default
+                policy.burstAttempts = max(1, config.maxAttempts)
+                return policy
+            }())
+
+        self.coordinator = coordinator ?? RecoveryCoordinator(context: resolvedContext)
+        self.coordinator.isAutomaticRecoveryEnabled = config.enabled
+
+        wireCoordinator()
         subscribeToNetworkChanges()
     }
 
     deinit {
-        reconnectTask?.cancel()
         networkCancellable?.cancel()
+        statusTicker?.invalidate()
+    }
+
+    private func wireCoordinator() {
+        coordinator.performAttempt = { [weak self] _ in
+            guard let self else { throw CancellationError() }
+            guard let handler = self.onReconnectAttempt else {
+                throw ReconnectionError.noHandler
+            }
+            try await handler()
+            // PTY allocated, shell/exec request accepted, handlers installed.
+            // That is terminal readiness and nothing more — a control-mode
+            // recovery is promoted to a restored session only when the tmux
+            // layer verifies it reattached to the same session (§9.5).
+            return RecoveryReadiness(
+                kind: .terminalReady,
+                generation: self.coordinator.context.connectionGeneration)
+        }
+
+        coordinator.classifyFailure = { [weak self] error in
+            self?.classify(error) ?? RecoveryFailure(domain: .unknown)
+        }
+
+        coordinator.pathEligibilityProvider = {
+            // A generic path result is a hint. `unknown` stays dialable so a
+            // VPN-on-demand or captive-portal route still gets its bounded try.
+            NetworkReachabilityMonitor.shared.isNetworkUnavailableOrRecentlyLost()
+                ? .unavailable
+                : .eligible
+        }
+
+        coordinator.onStateChange = { [weak self] recoveryState in
+            self?.adoptRecoveryState(recoveryState)
+        }
+
+        coordinator.onOutcome = { [weak self] outcome in
+            guard let self else { return }
+            switch outcome {
+            case .sessionRestored, .newShellOpened:
+                self.onReconnected?()
+            case .commandOutcomeUnknown:
+                self.onGiveUp?()
+            }
+        }
     }
 
     // MARK: - Public Methods
 
-    /// Called when a session connects successfully
+    /// Called when a session connects successfully.
     func handleConnected() {
         Self.logger.info("Session connected")
+        coordinator.noteReady(RecoveryReadiness(
+            kind: .terminalReady,
+            generation: coordinator.context.connectionGeneration))
         transition(to: .connected)
-        currentAttempt = 0
-        isPaused = false
     }
 
-    /// Called when a session disconnects unexpectedly
+    /// Called when a session disconnects unexpectedly.
     func handleDisconnect(reason: DisconnectReason) {
         Self.logger.info("Session disconnected: \(reason.description)")
-
-        // Cancel any existing reconnection
-        cancelTasks()
-
-        // Transition to disconnected state
+        lastReason = reason
         transition(to: .disconnected(reason: reason))
 
-        // Check if we should auto-reconnect
-        guard config.enabled && reason.shouldAutoReconnect else {
-            Self.logger.info("Auto-reconnect disabled or user-initiated disconnect")
-            return
-        }
-
-        // Start reconnection loop
-        startReconnectionLoop()
+        let failure = pendingFailure ?? reason.classified
+        pendingFailure = nil
+        coordinator.noteDisconnected(failure)
     }
 
-    /// Called when reconnection fails due to a permanent error (e.g., auth failure)
+    /// Called when reconnection fails due to a permanent error.
     func handlePermanentFailure(reason: String) {
         Self.logger.error("Permanent reconnection failure: \(reason)")
-        cancelTasks()
+        coordinator.noteDisconnected(
+            pendingFailure ?? RecoveryFailure(domain: .authenticationRejected, detail: reason))
+        pendingFailure = nil
         transition(to: .failed(reason: reason))
     }
 
-    /// Cancels any ongoing reconnection attempts
+    /// Cancels any ongoing reconnection attempts.
     func cancelReconnection() {
         Self.logger.info("Reconnection cancelled")
-        cancelTasks()
+        coordinator.stop()
         transition(to: .idle)
-        currentAttempt = 0
     }
 
-    /// Manually trigger a reconnection attempt
+    /// Manually trigger a reconnection attempt.
     func manualReconnect() {
         Self.logger.info("Manual reconnection requested")
-        cancelTasks()
-        currentAttempt = 0
-        isPaused = false
-        startReconnectionLoop()
+        if case .awaitingUser = coordinator.state {
+            coordinator.resumeAfterUserResolution()
+        } else {
+            coordinator.retryNow()
+        }
     }
 
-    /// Reset the manager to idle state
+    /// Reset the manager to idle.
     func reset() {
         Self.logger.debug("Resetting reconnection manager")
-        cancelTasks()
+        coordinator.stop()
         transition(to: .idle)
-        currentAttempt = 0
-        isPaused = false
     }
 
-    /// Pause reconnection (e.g., when app goes to background)
+    /// Pause recovery (app backgrounded). Consumes no attempts.
     func pause() {
-        guard !isPaused else { return }
-        Self.logger.info("Pausing reconnection")
-        isPaused = true
-        cancelTasks()
+        coordinator.suspend()
     }
 
-    /// Resume reconnection (e.g., when app returns to foreground)
+    /// Resume recovery (app foregrounded). Re-evaluates once.
     func resume() {
-        guard isPaused else { return }
-        Self.logger.info("Resuming reconnection")
-        isPaused = false
+        coordinator.resume()
+    }
 
-        // If we were waiting, restart the loop
-        if case .waitingToReconnect = state {
-            startReconnectionLoop()
-        } else if case .disconnected = state {
-            startReconnectionLoop()
-        } else if case .reconnecting = state {
-            // pause() cancelled the loop mid-attempt and the attempt's
-            // outcome was discarded, leaving this state behind. Restart
-            // here or nothing ever will.
-            startReconnectionLoop()
+    /// A verified normal remote exit. Terminal — never auto-recovered.
+    func handleRemoteExit() {
+        coordinator.noteRemoteExit()
+        transition(to: .idle)
+    }
+
+    /// Adopt the connection identity and intent for this logical session.
+    func adoptTarget(
+        _ identity: RecoveryTargetIdentity,
+        intent: RecoveryIntent,
+        verifiesTmuxContinuity: Bool = false
+    ) {
+        coordinator.updateTarget(
+            identity, intent: intent, verifiesTmuxContinuity: verifiesTmuxContinuity)
+    }
+
+    // MARK: - Recovery state adoption
+
+    private func adoptRecoveryState(_ recoveryState: RecoveryState) {
+        switch recoveryState {
+        case .live:
+            transition(to: .connected)
+
+        case .suspect:
+            transition(to: .disconnected(reason: lastReason))
+
+        case .waitingForConnectivity:
+            transition(to: .waitingToReconnect(
+                attempt: currentAttempt + 1, nextAttemptIn: 0))
+
+        case .waitingForRetry(let deadline):
+            let remaining = max(0, deadline.seconds - SystemRecoveryClock().now.seconds)
+            transition(to: .waitingToReconnect(
+                attempt: currentAttempt + 1, nextAttemptIn: remaining))
+
+        case .recovering:
+            transition(to: .reconnecting(attempt: max(1, currentAttempt)))
+
+        case .awaitingUser(let reason):
+            switch reason {
+            case .burstExhausted, .autoReconnectDisabled:
+                transition(to: .manualReconnectRequired)
+                onGiveUp?()
+            case .commandOutcomeUnknown:
+                transition(to: .manualReconnectRequired)
+            case .roundTripUnverified:
+                // Not a failure state: the transport may still be alive and
+                // the user's screen is intact. Keep the tab, show the strip.
+                transition(to: .manualReconnectRequired)
+            case .hostTrustRejected, .credentialUnavailable, .authenticationCancelled,
+                 .tmuxSessionMissing, .tmuxIdentityAmbiguous, .unsupportedRecovery,
+                 .protocolIncompatible:
+                transition(to: .failed(reason: Self.describe(reason)))
+                onGiveUp?()
+            }
+
+        case .suspended:
+            break
+
+        case .stopped, .exited:
+            transition(to: .idle)
         }
+
+        publishRecoveryStatus()
+    }
+
+    private static func describe(_ reason: RecoveryAttentionReason) -> String {
+        RecoveryStatusPresentation.make(for: .awaitingUser(reason: reason), intent: .interactiveShell)?.title
+            ?? String(localized: "Reconnection failed", comment: "Recovery status: generic failure")
+    }
+
+    /// Re-emit the current status without a state change behind it.
+    func republishRecoveryStatus() {
+        publishRecoveryStatus()
+    }
+
+    private func publishRecoveryStatus() {
+        let context = coordinator.context
+        let now = SystemRecoveryClock().now
+        var retryRemaining: TimeInterval?
+        if case .waitingForRetry(let deadline) = coordinator.state {
+            retryRemaining = max(0, deadline.seconds - now.seconds)
+        }
+
+        recoveryStatus = RecoveryStatusPresentation.make(
+            for: coordinator.state,
+            intent: context.intent,
+            isStale: context.presentationState.isStale,
+            lastVerifiedActivityAge: context.freshness.roundTripAge(now: now)
+                ?? context.freshness.targetActivityAge(now: now),
+            retrySecondsRemaining: retryRemaining,
+            sessionName: displaySessionName,
+            hopDescription: hopDescription(),
+            isInCooldown: context.attemptState.inCooldown)
+
+        onRecoveryStatusChange?(recoveryStatus)
+        updateStatusTicker()
+    }
+
+    private func hopDescription() -> String? {
+        let identity = coordinator.context.targetIdentity
+        guard !identity.host.isEmpty else { return nil }
+        return identity.connectionKey
+    }
+
+    /// The countdown line needs a repaint each second, but only while there
+    /// actually is a countdown. No animated polling continues while suspended.
+    private func updateStatusTicker() {
+        let needsTicker: Bool
+        if case .waitingForRetry = coordinator.state { needsTicker = true } else { needsTicker = false }
+
+        if needsTicker {
+            guard statusTicker == nil else { return }
+            statusTicker = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+                Task { @MainActor [weak self] in self?.refreshRecoveryStatusOnly() }
+            }
+        } else {
+            statusTicker?.invalidate()
+            statusTicker = nil
+        }
+    }
+
+    private func refreshRecoveryStatusOnly() {
+        guard case .waitingForRetry = coordinator.state else {
+            updateStatusTicker()
+            return
+        }
+        publishRecoveryStatus()
+    }
+
+    // MARK: - Failure classification
+
+    /// Typed classification of an attempt error.
+    ///
+    /// Concrete error *types* decide the domain. The localized-message
+    /// substring matching this replaced could not tell a jump-host auth
+    /// failure from a destination one, and mistook any error mentioning
+    /// "host key" for a rejection (§7.3).
+    private func classify(_ error: Error) -> RecoveryFailure {
+        if error is CancellationError { return RecoveryFailure(domain: .cancelled, hop: .local) }
+
+        if case SSHKeyManager.LoadError.legacyKeyNeedsUnlock = error {
+            return RecoveryFailure(domain: .authenticationNeeded, hop: .destination)
+        }
+
+        // The jump-host error type already carries which hop failed, which is
+        // the whole reason to check it before the destination cases.
+        if let jumpError = error as? SSHJumpError {
+            let hop: RecoveryHop = jumpError.isJumpHostError ? .jumpHost : .destination
+            switch jumpError {
+            case .authenticationFailed:
+                return RecoveryFailure(domain: .authenticationRejected, hop: hop)
+            case .hostKeyRejected:
+                return RecoveryFailure(domain: .hostTrustRejected, hop: hop)
+            }
+        }
+
+        if error is HostKeyRejectedError {
+            return RecoveryFailure(domain: .hostTrustRejected, hop: .destination)
+        }
+
+        if let sshError = error as? SSHError {
+            switch sshError {
+            case .authenticationFailed, .authenticationTimeout:
+                return RecoveryFailure(domain: .authenticationRejected, hop: .destination)
+            case .connectionTimeout:
+                return RecoveryFailure(domain: .timeout, hop: .destination)
+            case .notConnected, .channelCreationFailed:
+                return RecoveryFailure(domain: .transportUnavailable, hop: .destination)
+            case .sshHandshakeFailed:
+                // A handshake failure is usually a dropped connection mid-KEX,
+                // not an incompatible peer, so it keeps the bounded burst.
+                return RecoveryFailure(domain: .transportUnavailable, hop: .destination)
+            case .invalidConfiguration:
+                return RecoveryFailure(domain: .configurationInvalid, hop: .local)
+            }
+        }
+
+        if let reconnectError = error as? TerminalSessionController.ReconnectionError {
+            switch reconnectError {
+            case .tmuxSessionUnverified:
+                // Retrying this changes nothing: the evidence will not
+                // improve without the user choosing a session.
+                return RecoveryFailure(domain: .sessionMissing, hop: .tmuxServer)
+            case .endedBeforeReady, .readinessTimedOut:
+                return RecoveryFailure(domain: .timeout, hop: .destination)
+            case .noPTY, .unsupportedSessionType:
+                return RecoveryFailure(domain: .configurationInvalid, hop: .local)
+            }
+        }
+
+        if error is TimeoutError { return RecoveryFailure(domain: .timeout) }
+
+        return RecoveryFailure(domain: .unknown, detail: error.localizedDescription)
     }
 
     // MARK: - Private Methods
 
     private func transition(to newState: State) {
         guard state != newState else { return }
-
-        Self.logger.debug("State transition: \(String(describing: self.state)) -> \(String(describing: newState))")
+        Self.logger.debug(
+            "State transition: \(String(describing: self.state)) -> \(String(describing: newState))")
         state = newState
         onStateChange?(newState)
-    }
-
-    /// - Parameter immediateFirstAttempt: Skip the backoff wait for the first
-    ///   attempt of this loop. Used by the network-restored fast path —
-    ///   without it, "retry immediately" would still sit out the next
-    ///   scheduled backoff delay.
-    private func startReconnectionLoop(immediateFirstAttempt: Bool = false) {
-        guard !isPaused else {
-            Self.logger.debug("Reconnection paused, not starting loop")
-            return
-        }
-
-        reconnectTask = Task { @MainActor [weak self] in
-            guard let self = self else { return }
-
-            var skipDelay = immediateFirstAttempt
-            while !Task.isCancelled && self.currentAttempt < self.config.maxAttempts {
-                self.currentAttempt += 1
-                let attempt = self.currentAttempt
-
-                // Calculate delay for this attempt
-                let delay = skipDelay ? 0 : self.calculateDelay(forAttempt: attempt)
-                skipDelay = false
-
-                Self.logger.info("Reconnection attempt \(attempt)/\(self.config.maxAttempts), delay: \(delay)s")
-
-                // Wait before attempting (skipped on fast-path immediate retries)
-                if delay > 0 {
-                    self.transition(to: .waitingToReconnect(attempt: attempt, nextAttemptIn: delay))
-                    await self.wait(delay: delay)
-
-                    // Check if cancelled during wait
-                    guard !Task.isCancelled else { return }
-                }
-
-                // Attempt reconnection
-                self.transition(to: .reconnecting(attempt: attempt))
-
-                do {
-                    if let reconnectHandler = self.onReconnectAttempt {
-                        try await reconnectHandler()
-                    } else {
-                        Self.logger.error("No reconnect handler configured")
-                        throw ReconnectionError.noHandler
-                    }
-
-                    // Cancellation is cooperative: cancelReconnection() during
-                    // an in-flight attempt can't abort the handler. If the
-                    // handshake completed anyway, the canceller owns the state
-                    // — don't report a late success.
-                    guard !Task.isCancelled else {
-                        Self.logger.info("Reconnection attempt \(attempt) completed after cancellation - discarding")
-                        return
-                    }
-
-                    // Success!
-                    Self.logger.info("Reconnection successful on attempt \(attempt)")
-                    self.transition(to: .connected)
-                    self.currentAttempt = 0
-                    self.onReconnected?()
-                    return
-
-                } catch {
-                    Self.logger.warning("Reconnection attempt \(attempt) failed: \(error.localizedDescription)")
-
-                    // Check if this is a permanent failure
-                    if self.isPermanentFailure(error) {
-                        self.handlePermanentFailure(reason: error.localizedDescription)
-                        return
-                    }
-
-                    // Continue to next attempt if we have retries left
-                }
-            }
-
-            // A cancelled loop must not be reported as giving up (the
-            // canceller owns the next state transition).
-            guard !Task.isCancelled else { return }
-
-            // Max attempts reached
-            Self.logger.warning("Max reconnection attempts (\(self.config.maxAttempts)) reached")
-            self.transition(to: .manualReconnectRequired)
-            self.onGiveUp?()
-        }
-    }
-
-    private func wait(delay: TimeInterval) async {
-        try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-    }
-
-    private func calculateDelay(forAttempt attempt: Int) -> TimeInterval {
-        // Exponential backoff: initialDelay * multiplier^(attempt-1)
-        // Attempt 1: 1s, Attempt 2: 2s, Attempt 3: 4s, Attempt 4: 8s, Attempt 5: 16s
-        let baseDelay = config.initialDelay
-        let multiplier = pow(config.backoffMultiplier, Double(attempt - 1))
-        let calculatedDelay = baseDelay * multiplier
-        return min(calculatedDelay, config.maxDelay)
-    }
-
-    private func isPermanentFailure(_ error: Error) -> Bool {
-        // Legacy-encrypted key with no local passphrase — needs manual unlock
-        if case SSHKeyManager.LoadError.legacyKeyNeedsUnlock = error { return true }
-
-        // Check for authentication-related errors that shouldn't be retried
-        let errorDescription = error.localizedDescription.lowercased()
-
-        // Auth failures
-        if errorDescription.contains("authentication") ||
-           errorDescription.contains("permission denied") ||
-           errorDescription.contains("access denied") {
-            return true
-        }
-
-        // Host key rejection
-        if errorDescription.contains("host key") ||
-           errorDescription.contains("hostkey") {
-            return true
-        }
-
-        return false
-    }
-
-    private func cancelTasks() {
-        reconnectTask?.cancel()
-        reconnectTask = nil
     }
 
     private nonisolated func subscribeToNetworkChanges() {
@@ -397,20 +545,19 @@ public final class ReconnectionManager {
     }
 
     private func handleNetworkRestored() {
-        guard config.reconnectOnNetworkRestored else { return }
+        // Validate before replacing. A path change does not mean the existing
+        // connection is dead — on a Wi-Fi-to-cellular handoff it often is not
+        // — and replacing a working transport loses the user's session for no
+        // reason (AC-04).
+        if coordinator.state == .live {
+            validateTransport?(.pathChange)
+        }
 
-        // If we're waiting to reconnect, attempt immediately
-        if case .waitingToReconnect = state {
-            Self.logger.info("Network restored - attempting immediate reconnection")
-            cancelTasks()
-            // Skip the pending delay but keep attempt count
-            startReconnectionLoop(immediateFirstAttempt: true)
-        }
-        // If we gave up, offer another chance
-        else if case .manualReconnectRequired = state {
-            Self.logger.info("Network restored - resetting for manual reconnect")
-            // Just log - user still needs to manually trigger
-        }
+        guard config.reconnectOnNetworkRestored else { return }
+        // A restored path is meaningful evidence; the coordinator still
+        // coalesces it and rate-limits the bypass, so a flapping link cannot
+        // reset backoff by shouting.
+        coordinator.notePathEvent(meaningfulRestoration: true)
     }
 
     // MARK: - Errors
@@ -427,16 +574,16 @@ public final class ReconnectionManager {
     }
 }
 
-// MARK: - UserDefaults Extension for Config
+// MARK: - Settings
 
 extension ReconnectionManager.Config {
 
-    /// Load configuration from the settings store
+    /// Load configuration from the settings store.
     static func fromUserDefaults() -> ReconnectionManager.Config {
         var config = ReconnectionManager.Config.default
         config.enabled = SettingsStore.shared.value(Settings.Connections.autoReconnectEnabled)
 
-        // A stored 0 still falls back to the default attempt count
+        // A stored 0 still falls back to the default attempt count.
         let maxAttempts = SettingsStore.shared.value(Settings.Connections.autoReconnectMaxAttempts)
         if maxAttempts > 0 {
             config.maxAttempts = maxAttempts
@@ -445,7 +592,7 @@ extension ReconnectionManager.Config {
         return config
     }
 
-    /// Save configuration to the settings store
+    /// Save configuration to the settings store.
     func saveToUserDefaults() {
         SettingsStore.shared.set(Settings.Connections.autoReconnectEnabled, enabled)
         SettingsStore.shared.set(Settings.Connections.autoReconnectMaxAttempts, maxAttempts)

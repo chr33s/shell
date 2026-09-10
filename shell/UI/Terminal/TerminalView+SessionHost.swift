@@ -135,6 +135,10 @@ extension Ghostty.TerminalView {
         get { isLiveDisconnectionOverlay }
         set { isLiveDisconnectionOverlay = newValue }
     }
+    var terminalRecoveryStatus: RecoveryStatusPresentation? {
+        get { recoveryStatus }
+        set { recoveryStatus = newValue }
+    }
     var terminalOutputPipeline: TerminalOutputPipeline { outputPipeline }
     var terminalReconnectionWidth: Int { Int(surfaceSize?.columns ?? 80) }
     var terminalPendingFileToOpen: String? {
@@ -163,6 +167,47 @@ extension Ghostty.TerminalView {
 
     func terminalNotifyRestorationStateChanged() {
         NotificationCenter.default.post(name: .terminalRestorationStateChanged, object: self)
+    }
+
+    func terminalNotifyRecoveryStatusChanged() {
+        NotificationCenter.default.post(name: .terminalRecoveryStatusChanged, object: self)
+    }
+
+    /// Route a recovery-strip action into the flow that already implements it.
+    ///
+    /// Each of these is deliberately an existing, user-visible flow rather
+    /// than something recovery does on its own: authentication goes through
+    /// the normal prompt, choosing a tmux session goes through the session
+    /// dashboard, a new shell is a new tab the user can see is new, and a
+    /// draft is reviewed in the compose overlay before anything is sent.
+    func terminalRequestRecoveryAction(_ action: RecoveryStatusAction) {
+        switch action {
+        case .authenticate:
+            if case .ssh(let sshConfig) = connectionConfig {
+                onAuthenticationRequired?(sshConfig)
+            }
+
+        case .selectSession:
+            // Explicit selection, because continuity could not be verified.
+            // Recovery must not pick a session on the user's behalf (CON-05).
+            NotificationCenter.default.post(name: .showTmuxSessions, object: self)
+
+        case .openNewShell:
+            // A new tab, not a silent replacement of this one: the old
+            // display stays as separately identifiable read-only history
+            // (spec.connectivity.md §9.3).
+            NotificationCenter.default.post(name: .newTab, object: self)
+
+        case .reviewDraft:
+            if !showComposeOverlay {
+                showComposeOverlay = true
+                NotificationCenter.default.post(name: .ghosttyComposeStateChanged, object: self)
+            }
+
+        case .retryNow, .stopRecovery, .dismiss:
+            // Handled by the reconnection controller before it reaches here.
+            break
+        }
     }
 
     func terminalHandleSessionError(_ error: Error, prefix: String?) {

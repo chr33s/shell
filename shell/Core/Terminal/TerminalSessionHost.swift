@@ -56,6 +56,9 @@ protocol TerminalSessionControllerHost: TerminalSessionHost, TerminalResponsePip
     var terminalSurfaceAvailable: Bool { get }
     var terminalSurfaceGridSize: (rows: UInt16, cols: UInt16)? { get }
     var terminalIsLiveDisconnectionOverlay: Bool { get set }
+    /// Native recovery status, rendered by `RecoveryStatusStrip` *outside* the
+    /// terminal byte stream. `nil` means the strip is hidden.
+    var terminalRecoveryStatus: RecoveryStatusPresentation? { get set }
     var terminalOutputPipeline: TerminalOutputPipeline { get }
     var terminalReconnectionWidth: Int { get }
     var terminalHasPendingScrollbackRestore: Bool { get }
@@ -68,6 +71,11 @@ protocol TerminalSessionControllerHost: TerminalSessionHost, TerminalResponsePip
     func terminalNotifySessionDidChange()
     func terminalNotifyConnectionConfigChanged()
     func terminalNotifyRestorationStateChanged()
+    func terminalNotifyRecoveryStatusChanged()
+    /// A recovery action that needs a view-layer flow: an authentication
+    /// sheet, a tmux session picker, a new shell, or the compose overlay.
+    /// Every one of these is user-initiated.
+    func terminalRequestRecoveryAction(_ action: RecoveryStatusAction)
     func terminalHandleSessionError(_ error: Error, prefix: String?)
     func terminalClearProgressAndSpinner()
     func terminalRequestAuthentication(_ config: SSHConfig)

@@ -504,6 +504,11 @@ final class TmuxController {
     /// tmux session is actually attached) versus passing through to a pane app.
     var isActive: Bool { !isDetaching && !windowTabs.isEmpty }
 
+    /// Window ids this gateway currently projects, for continuity evidence.
+    func projectedWindowIDs() -> [Int] {
+        windowTabs.keys.sorted()
+    }
+
     /// True while this controller still has projected tmux window tabs that would
     /// be orphaned if the gateway were closed without a live `%exit` reconcile to
     /// prune them. Unlike `isActive`, this stays true during a pending graceful

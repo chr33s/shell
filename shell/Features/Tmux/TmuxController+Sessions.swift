@@ -128,6 +128,13 @@ extension TmuxController {
         // `show @hidden` reply converges. (id=tmux-hidden-windows)
         if sessionIdentityChanged {
             reloadHiddenWindows(forSessionId: id)
+            // Capture continuity evidence now, while the session is provably
+            // this one. Gathering it after a drop would answer a different
+            // question: "what is on the server now", not "is this the same
+            // session I was attached to" (spec.connectivity.md §9.1).
+            Task { @MainActor [weak self] in
+                await self?.captureContinuityEvidence()
+            }
         }
         if changed {
             // Mirror onto the gateway tab so the sidebar's gateway header

@@ -46,13 +46,13 @@ struct SettingsSSHSection: View {
             Section {
                 SettingToggle(Settings.Connections.autoReconnectEnabled, title: "Auto Reconnect")
                     .themedRow()
-                SettingToggle(Settings.Connections.backgroundKeepalive, title: "Keep SSH Alive in Background")
+                SettingToggle(Settings.Connections.backgroundKeepalive, title: "Try to Keep SSH Alive in Background")
                     .themedRow()
                 SettingToggle(Settings.Connections.forceIPv4, title: "Force IPv4")
                     .themedRow()
                 SettingToggle(
                     Settings.Connections.healthMonitoring,
-                    title: "Connection Health Monitoring"
+                    title: "Periodic Connection Health Checks"
                 )
                 .themedRow()
                 if healthMonitoringEnabled {
@@ -69,7 +69,10 @@ struct SettingsSSHSection: View {
             } header: {
                 SettingGroupHeader("Connections", group: .connections)
             } footer: {
-                Text("Health monitoring measures round-trip time on live SSH sessions with periodic keepalives, and marks a tab when the link degrades. Both settings apply to sessions that are already connected.")
+                // The distinction in the second sentence is the one §8.2
+                // requires be explained: turning the periodic loop off does
+                // not turn off recovery's own bounded validation.
+                Text("Periodic checks measure round-trip time on live SSH sessions with regular keepalives, and mark a tab when the link degrades. Turning them off does not disable reconnection: a single check still runs when the app returns to the foreground, the network path changes, or a connection errors. Auto Reconnect sets how many attempts each rapid recovery burst makes; after a burst, attempts continue at a slower rate. Background continuity is best-effort within the limits iOS allows and is never guaranteed.")
             }
         }
         .themedList()

@@ -707,6 +707,11 @@ extension Ghostty {
         /// Whether the current overlay is from a live disconnection (vs state restoration)
         var isLiveDisconnectionOverlay: Bool = false
 
+        /// Native recovery status for this terminal, rendered by
+        /// `RecoveryStatusStrip` above the surface. Recovery status never
+        /// enters the terminal byte stream (spec.connectivity.md §12).
+        @Published var recoveryStatus: RecoveryStatusPresentation?
+
         /// Whether this terminal shows a reconnection overlay
         var showsReconnectionOverlay: Bool {
             switch restorationState {

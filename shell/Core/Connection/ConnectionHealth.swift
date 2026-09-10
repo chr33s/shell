@@ -2,19 +2,37 @@
 //  ConnectionHealth.swift
 //  shell
 //
-//  Connection health metrics for SSH sessions including RTT and packet loss
+//  Connection health metrics for SSH sessions: round-trip time and probe
+//  failure rate (spec.connectivity.md §8.1). Not packet loss — the SSH layer
+//  cannot observe IP datagrams.
 //
 
 import Foundation
 import SwiftUI
 
-/// Individual ping sample for time series display
+/// Individual probe sample for time series display.
 struct PingSample: Equatable, Sendable {
     let timestamp: Date
-    /// RTT in milliseconds, nil indicates packet loss
+    /// RTT in milliseconds; nil means the probe did not resolve in time.
+    ///
+    /// Deliberately NOT "packet loss": an SSH global request that goes
+    /// unanswered tells us the round trip was not confirmed. It says nothing
+    /// about IP datagrams, and the SSH layer cannot observe them
+    /// (spec.connectivity.md §8.1).
     let rttMilliseconds: Double?
 
+    /// Cancelled and intentionally-suspended samples are excluded from the
+    /// failure denominator entirely — they are not evidence about the link.
+    let wasCancelled: Bool
+
     var isSuccess: Bool { rttMilliseconds != nil }
+    var countsTowardFailureRate: Bool { !wasCancelled }
+
+    init(timestamp: Date, rttMilliseconds: Double?, wasCancelled: Bool = false) {
+        self.timestamp = timestamp
+        self.rttMilliseconds = rttMilliseconds
+        self.wasCancelled = wasCancelled
+    }
 }
 
 /// Connection health metrics measured via SSH keepalive requests
@@ -22,20 +40,50 @@ struct ConnectionHealth: Equatable, Sendable {
     /// Round-trip time in milliseconds (nil if no measurement yet)
     var rttMilliseconds: Double?
 
-    /// Packet loss percentage (0.0-100.0) over the rolling window
-    var packetLossPercent: Double
+    /// Percentage of probes (0.0-100.0) that did not resolve in the rolling
+    /// window, excluding cancelled and suspended samples.
+    ///
+    /// This is a *probe failure rate*, not packet loss. Reporting it as loss
+    /// invented an IP-level measurement the SSH layer never made (§8.1).
+    var probeFailurePercent: Double
 
-    /// Number of successful pings in the current window
+    /// Number of successful probes in the current window
     var successfulPings: Int
 
-    /// Total pings attempted in the current window
+    /// Total probes counted in the current window (cancelled ones excluded)
     var totalPings: Int
 
-    /// Timestamp of last successful ping
+    /// Timestamp of last successful probe
     var lastSuccessfulPing: Date?
 
-    /// Rolling window of ping samples for time series display
+    /// When `rttMilliseconds` was measured. RTT is always displayed with its
+    /// age: a stale historical RTT must not imply current health (§8.1).
+    var rttMeasuredAt: Date?
+
+    /// True while a probe is outstanding past its deadline. The round trip is
+    /// unverified — which is not the same as the remote process being dead.
+    var roundTripUnverified: Bool = false
+
+    /// Rolling window of probe samples for time series display
     var samples: [PingSample]
+
+    /// Age of the current RTT reading, or nil when nothing was ever measured.
+    var rttAge: TimeInterval? {
+        rttMeasuredAt.map { Date().timeIntervalSince($0) }
+    }
+
+    /// RTT with its age attached, e.g. "23ms (12s ago)". An unqualified
+    /// number would keep claiming a healthy link long after the last reply.
+    var ageQualifiedRTTDescription: String {
+        guard rttMilliseconds != nil else {
+            return String(localized: "Not verified", comment: "Connection health: no confirmed round trip")
+        }
+        guard let age = rttAge, age >= 1 else { return rttDescription }
+        let ageText = RecoveryStatusPresentation.formatAge(age)
+        return String(
+            localized: "\(rttDescription) (\(ageText) ago)",
+            comment: "Connection health: RTT with the age of the measurement")
+    }
 
     /// Connection quality tier derived from RTT
     enum Quality: Sendable {
@@ -90,10 +138,10 @@ struct ConnectionHealth: Equatable, Sendable {
             return quality
         }
 
-        let recentSamples = samples.suffix(3)
+        let recentSamples = samples.suffix(3).filter(\.countsTowardFailureRate)
         let poorCount = recentSamples.filter { sample in
             guard let rtt = sample.rttMilliseconds else {
-                return true // Packet loss counts as poor
+                return true // An unresolved probe counts as poor
             }
             return rtt >= 300
         }.count
@@ -123,7 +171,12 @@ struct ConnectionHealth: Equatable, Sendable {
 
     /// Human-readable status combining RTT and quality
     var statusDescription: String {
-        let rttText = rttDescription
+        if roundTripUnverified {
+            return String(
+                localized: "Round trip unverified",
+                comment: "Connection health: probe deadline expired")
+        }
+        let rttText = ageQualifiedRTTDescription
         let qualityText = quality.description
         if quality == .unknown {
             return String(localized: "Measuring...", comment: "Connection health: measuring RTT")
@@ -135,10 +188,11 @@ struct ConnectionHealth: Equatable, Sendable {
     static var initial: ConnectionHealth {
         ConnectionHealth(
             rttMilliseconds: nil,
-            packetLossPercent: 0,
+            probeFailurePercent: 0,
             successfulPings: 0,
             totalPings: 0,
             lastSuccessfulPing: nil,
+            rttMeasuredAt: nil,
             samples: []
         )
     }

@@ -41,8 +41,9 @@ identity, no unrestricted remote input, and no automatic or bulk approval. The
 companion is optional at every layer — the terminal app builds and runs exactly
 as before without a broker configured.
 
-See [spec.md](spec.md) for the extraction spec this fork implements, and
-[spec.watch.md](spec.watch.md) for the control companion.
+See [spec.md](spec.md) for the extraction spec this fork implements,
+[spec.connectivity.md](spec.connectivity.md) for mobile connectivity and session
+recovery, and [spec.watch.md](spec.watch.md) for the control companion.
 
 ## Requirements
 
@@ -198,9 +199,41 @@ Four sections, nothing else:
 
 - **Terminal** — font size, theme, scrollback, session restore, `TERM` (local and
   remote), keyboard
-- **SSH** — profiles, SSH identities, known hosts, saved passwords, reconnect
+- **SSH** — profiles, SSH identities, known hosts, saved passwords, recovery
 - **tmux** — default mode, default session name, close-window behavior
 - **Sync** — iCloud sync toggles per data class, plus last-sync status
+
+## Losing the network
+
+Mobile connections drop. Shell treats a lost connection and a lost session as
+different things, and never claims more than it can prove.
+
+- **tmux is what preserves a session.** In control mode, recovery reattaches to
+  the *same* session — verified by server and session metadata, not by name, so
+  a renamed session still matches and a name reused by a different session does
+  not. If that session cannot be verified, Shell asks which session to attach to
+  rather than creating one and calling it restored. Regular tmux mode has no
+  control channel to gather that evidence from, so it reattaches by name; it
+  still never creates, and a missing session becomes a prompt rather than a new
+  empty session.
+- **Plain SSH cannot resume.** A replacement connection is a new shell, and it
+  is labelled "Open New Shell", never "Resume session". The previous screen is
+  kept as read-only history. Configure tmux on a profile if you want session
+  continuity.
+- **Commands are never silently re-run.** If a connection fails around a
+  one-shot command, Shell reports "Command outcome unknown" and leaves it to
+  you. There is no exactly-once execution promise, and a missing exit status is
+  not evidence that a command did not run.
+- **Recovery status stays out of the terminal.** It renders in a native strip
+  above the surface, so a full-screen remote application's output is unchanged
+  by a reconnection.
+- **Attempts are counted honestly.** "Attempts per Recovery Burst" bounds one
+  rapid burst; after it, the intent survives and attempts continue at a slower
+  rate while the app is in the foreground and a route is plausible. Waiting,
+  network events, and backgrounding spend no attempts.
+- **Background connectivity is not guaranteed.** iOS suspends apps, and Shell
+  does not pretend otherwise: it retains the intent to reconnect and acts on it
+  when you come back.
 
 ## Sync
 

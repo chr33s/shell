@@ -21,6 +21,7 @@ struct NotificationHandlersModifier: ViewModifier {
     private static let toggleTabBarPublisher = NotificationCenter.default.publisher(for: .toggleTabBar)
     private static let toggleGroupModePublisher = NotificationCenter.default.publisher(for: .toggleGroupMode)
     private static let terminalRestorationStateChangedPublisher = NotificationCenter.default.publisher(for: .terminalRestorationStateChanged)
+    private static let terminalRecoveryStatusChangedPublisher = NotificationCenter.default.publisher(for: .terminalRecoveryStatusChanged)
     #if targetEnvironment(macCatalyst)
     private static let toggleTransparencyPublisher = NotificationCenter.default.publisher(for: .toggleTransparency)
     private static let toggleTitleBarPublisher = NotificationCenter.default.publisher(for: .toggleTitleBar)
@@ -60,6 +61,11 @@ struct NotificationHandlersModifier: ViewModifier {
             }
             .onReceive(Self.terminalRestorationStateChangedPublisher) { _ in
                 // Force SwiftUI to re-evaluate reconnection overlay visibility
+                restorationVersion += 1
+            }
+            .onReceive(Self.terminalRecoveryStatusChangedPublisher) { _ in
+                // Same reason: the recovery strip reads a class property that
+                // `@State` does not observe.
                 restorationVersion += 1
             }
             #if targetEnvironment(macCatalyst)

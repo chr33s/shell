@@ -1047,6 +1047,9 @@ extension Notification.Name {
     /// updates, since `TerminalView` is a class whose properties `@State`
     /// does not observe.
     static let terminalRestorationStateChanged = Notification.Name("dev.chr33s.shell.terminalRestorationStateChanged")
+    /// Posted when a terminal's native recovery status changes. Same
+    /// class-not-observable reason as the line above.
+    static let terminalRecoveryStatusChanged = Notification.Name("dev.chr33s.shell.terminalRecoveryStatusChanged")
     static let createSplit = Notification.Name("dev.chr33s.shell.createSplit")
     static let navigateSplit = Notification.Name("dev.chr33s.shell.navigateSplit")
     static let closeSplit = Notification.Name("dev.chr33s.shell.closeSplit")

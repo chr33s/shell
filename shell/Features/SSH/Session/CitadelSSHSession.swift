@@ -14,6 +14,7 @@ import NIOPosix
 import NIOTransportServices
 import Crypto
 import os.log
+import os
 
 /// SSH session that uses Citadel's high-level API for connections
 /// Supports jump host (ProxyJump) functionality via Citadel's jump() method
@@ -161,6 +162,58 @@ final class CitadelSSHSession: SSHTerminalSession {
 
     // Connection health callback
     var onHealthUpdate: ((ConnectionHealth) -> Void)?
+
+    /// Fires when a keepalive round trip passes its deadline. The round trip
+    /// is unverified — NOT proof that the remote process is gone
+    /// (spec.connectivity.md §8.3). The recovery coordinator decides what to
+    /// do with that, which depends on the session's intent.
+    var onProbeDeadlineExpired: (() -> Void)?
+
+    /// Fires with the measured RTT whenever a round trip is confirmed.
+    var onRoundTripConfirmed: ((Double) -> Void)?
+
+    /// Fires when authenticated inbound traffic arrives after a period of
+    /// doubt. Proves the link carries bytes; the round trip stays unverified
+    /// until a probe actually answers.
+    var onTargetActivityResumed: (() -> Void)?
+
+    /// Set while the connection is under suspicion, so the output path knows
+    /// it is worth one main-actor hop to report that traffic resumed.
+    private let suspectFlag = OSAllocatedUnfairLock<Bool>(initialState: false)
+
+    /// Returns true exactly once per suspicion, for the first inbound chunk.
+    private nonisolated static func claimSuspectRecovery(
+        _ flag: OSAllocatedUnfairLock<Bool>
+    ) -> Bool {
+        flag.withLock { suspect in
+            guard suspect else { return false }
+            suspect = false
+            return true
+        }
+    }
+
+    /// Authenticated inbound traffic arrived while the link was in doubt.
+    @MainActor
+    private func noteInboundTargetActivity() {
+        guard isRunning else { return }
+        healthMonitor?.noteTargetActivity()
+        inputGate.setLive(true)
+        onTargetActivityResumed?()
+    }
+
+    /// Startup retry schedule.
+    ///
+    /// Defaults to the interactive ramp for user-initiated connects. Recovery
+    /// sets `.singleAttempt`, because the recovery coordinator already owns
+    /// the retry budget and a nested loop here would multiply it (§7.1).
+    var startupRetryPolicy: InitialConnectRetry.Config = .interactive
+
+    /// Ordered, bounded admission for every byte destined for the remote end.
+    let inputGate = RecoveryInputGate(generation: 1)
+
+    /// Fires when input was refused, so the UI can say so rather than
+    /// leaving the user typing into a void.
+    var onInputRejected: ((RecoveryInputDecision) -> Void)?
 
     // Reconnection support
     var onDisconnect: ((ReconnectionManager.DisconnectReason) -> Void)?
@@ -317,7 +370,7 @@ final class CitadelSSHSession: SSHTerminalSession {
         //     cancellation guarantees the retry task is cancelled too.
         let task = Task<SSHClient, Error> {
             try await InitialConnectRetry.run(
-                config: .interactive,
+                config: self.startupRetryPolicy,
                 label: "ssh:\(self.config.displayName)",
                 isPermanent: InitialConnectRetry.isPermanentConnectErrorApp
             ) { attempt, timeout in
@@ -754,6 +807,15 @@ final class CitadelSSHSession: SSHTerminalSession {
     }
 
     func sendInput(_ data: Data) {
+        sendInput(data, from: .hardwareKeyboard)
+    }
+
+    /// Send input, naming the path it came from.
+    ///
+    /// The source is recorded rather than inferred: `.terminalReply` and
+    /// `.paste` are the ones that matter for diagnosing a rejection, and a
+    /// caller that does not say defaults to a keystroke.
+    func sendInput(_ data: Data, from source: RecoveryInputSource) {
         guard isRunning, stdinWriter != nil, let continuation = stdinStreamContinuation else {
             Self.logger.warning("Cannot send input: session not ready")
             return
@@ -763,6 +825,33 @@ final class CitadelSSHSession: SSHTerminalSession {
         // Unknown and unsupported escapes fall through as literal bytes.
         let filtered = escapeFilter.filter(data)
         guard !filtered.isEmpty else { return }
+
+        // Bounded producer backpressure (spec.connectivity.md §10). Every
+        // input path funnels through here — hardware and software keyboard,
+        // paste, accessibility actions, macros, terminal-generated replies,
+        // and tmux command routing — so this is the one place the budget can
+        // be enforced without a back door.
+        //
+        // Overflow rejects visibly. It never drops the oldest bytes and never
+        // reorders a control key around a paste: an ordered stream that
+        // quietly loses a chunk is worse than one that refuses it (CON-06).
+        switch inputGate.admit(filtered.count, from: source, generation: inputGate.generation) {
+        case .accept:
+            break
+        case .rejectBudgetExhausted(let pending, let budget):
+            Self.logger.warning("Input rejected: \(pending)/\(budget) bytes pending")
+            onInputRejected?(.rejectBudgetExhausted(pendingBytes: pending, budgetBytes: budget))
+            return
+        case .rejectNotLive, .rejectStaleGeneration:
+            // The session is running but the gate is not live — the link is
+            // under suspicion. Staleness across a *replacement* connection is
+            // handled by ownership rather than by this check: a replaced
+            // session is a different object with its own retired gate, so a
+            // cached replay cannot reach the new one through here.
+            Self.logger.warning("Input rejected: connection is not live")
+            onInputRejected?(.rejectNotLive)
+            return
+        }
 
         // AsyncStream yields are strictly FIFO and the single writer task
         // performs the writes sequentially, so bytes reach the channel in
@@ -775,6 +864,11 @@ final class CitadelSSHSession: SSHTerminalSession {
 
     func setSize(_ size: TerminalPTY.TerminalSize) throws {
         pty.windowSize = size
+
+        // Resize is latest-wins, unlike command input: replaying every
+        // intermediate rotation and keyboard-height change on reattach would
+        // flood the remote with sizes the user never settled on (§10).
+        inputGate.requestSize(TerminalGridSize(rows: size.rows, cols: size.cols))
 
         guard let writer = stdinWriter else { return }
 
@@ -814,6 +908,40 @@ final class CitadelSSHSession: SSHTerminalSession {
         guard isRunning else { return }
         Self.logger.info("Citadel resumeForForeground")
         startHealthMonitoringIfEnabled()
+        validateTransport(reason: .foregroundActivation)
+    }
+
+    /// Run one bounded check of the existing transport.
+    ///
+    /// This is the path that stays available when periodic health checks are
+    /// switched off, and it is what the settings footer promises: a single
+    /// check on foreground activation, a path change, or a transport error
+    /// (§8.2). It validates *before* anything replaces the connection, so a
+    /// Wi-Fi-to-cellular handoff does not tear down a link that still works.
+    func validateTransport(reason: ConnectionHealthMonitor.ValidationReason) {
+        guard isRunning else { return }
+
+        if let monitor = healthMonitor {
+            Task { @MainActor in await monitor.validateNow(reason: reason) }
+            return
+        }
+
+        // Periodic checks are off. Build a monitor for this one check and let
+        // it go afterwards — assigning it to `healthMonitor` would leave a
+        // non-nil, never-started monitor behind, and
+        // `startHealthMonitoringIfEnabled()` bails on non-nil, so switching
+        // the setting back on would silently never start the probe loop.
+        guard let client else { return }
+        let monitor = ConnectionHealthMonitor(client: client, pingInterval: probeIntervalSetting)
+        wireHealthMonitor(monitor)
+        Task { @MainActor in
+            await monitor.validateNow(reason: reason)
+            _ = monitor  // keep it alive for the duration of the check
+        }
+    }
+
+    private var probeIntervalSetting: TimeInterval {
+        TimeInterval(SettingsStore.shared.value(Settings.Connections.healthProbeInterval))
     }
 
     // MARK: - Private Methods
@@ -837,17 +965,30 @@ final class CitadelSSHSession: SSHTerminalSession {
             // teardown paths finish() it so the loop exits.
             let (stdinStream, stdinContinuation) = AsyncStream.makeStream(of: ByteBuffer.self)
             self.stdinStreamContinuation = stdinContinuation
-            self.stdinWriterTask = Task {
+            self.stdinWriterTask = Task { [weak self] in
                 for await buffer in stdinStream {
+                    let written = buffer.readableBytes
                     do {
                         try await outbound.write(buffer)
                     } catch {
                         Self.logger.error("Failed to write to SSH: \(error.localizedDescription)")
                     }
+                    // The budget is released here, not at `yield`. The stream
+                    // itself is unbounded, so crediting bytes on enqueue made
+                    // `pendingBytes` return to zero on every call and the §10
+                    // budget could only ever reject one oversized write. What
+                    // it must bound is the backlog behind a stalled socket,
+                    // which is exactly the gap between yield and this line.
+                    await MainActor.run { self?.inputGate.noteWritten(written) }
                 }
             }
 
             Self.logger.info("SSH session ready, firing onReady callback")
+            // The gate opens only now: the PTY is allocated, the shell
+            // request was accepted, and the I/O handlers are installed. That
+            // is what terminal readiness means (§9.5) — not that `start()`
+            // returned.
+            self.inputGate.setLive(true)
             self.transition(to: .running)
             self.onReady?()
 
@@ -868,6 +1009,14 @@ final class CitadelSSHSession: SSHTerminalSession {
                 }
                 if let bytesView = buffer.getBytes(at: buffer.readerIndex, length: buffer.readableBytes) {
                     sink.emit(Data(bytesView))
+                }
+                // Authenticated inbound bytes from the destination are the
+                // strongest freshness evidence there is, and they are the only
+                // way out of `suspect` when a keepalive is parked on a socket
+                // that will never answer. The flag keeps this off the hot
+                // path: one main-actor hop per recovery, not per chunk.
+                if Self.claimSuspectRecovery(self.suspectFlag) {
+                    await MainActor.run { self.noteInboundTargetActivity() }
                 }
 
             case .exitStatus(let code):
@@ -1026,6 +1175,12 @@ final class CitadelSSHSession: SSHTerminalSession {
         sessionTask = nil
         stdinWriter = nil
         finishStdinStream()
+        // Retiring the generation stops the old writer and discards
+        // connection-bound unsent data. It is deliberately NOT copied to a
+        // replacement writer: bytes already handed to a socket may or may not
+        // have been delivered, and replaying them is not safe (§10).
+        inputGate.retire()
+        healthMonitor?.releaseOutstandingProbe()
         // Stop health monitoring
         healthMonitor?.stop()
         healthMonitor = nil
@@ -1074,11 +1229,31 @@ final class CitadelSSHSession: SSHTerminalSession {
         let probeInterval = TimeInterval(SettingsStore.shared.value(Settings.Connections.healthProbeInterval))
 
         let monitor = ConnectionHealthMonitor(client: client, pingInterval: probeInterval)
+        wireHealthMonitor(monitor)
+        monitor.start()
+        self.healthMonitor = monitor
+    }
+
+    private func wireHealthMonitor(_ monitor: ConnectionHealthMonitor) {
         monitor.onHealthUpdate = { [weak self] health in
             self?.onHealthUpdate?(health)
         }
-        monitor.start()
-        self.healthMonitor = monitor
+        monitor.onProbeDeadlineExpired = { [weak self] in
+            guard let self else { return }
+            // Suspect: freeze input rather than letting keystrokes vanish
+            // into an unverified transport (§10). The transport is NOT torn
+            // down here — an unverified round trip is not a dead server, and
+            // inbound traffic or a late reply can still clear this.
+            self.suspectFlag.withLock { $0 = true }
+            self.inputGate.setLive(false)
+            self.onProbeDeadlineExpired?()
+        }
+        monitor.onRoundTripConfirmed = { [weak self] rtt in
+            guard let self, self.isRunning else { return }
+            self.suspectFlag.withLock { $0 = false }
+            self.inputGate.setLive(true)
+            self.onRoundTripConfirmed?(rtt)
+        }
     }
 
     /// Re-time the live probe loop. `ConnectionHealthMonitor.updateInterval`

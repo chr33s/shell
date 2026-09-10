@@ -52,6 +52,31 @@ extension MainView {
         }
     }
 
+    /// The native recovery status strip for the focused terminal.
+    ///
+    /// This is where recovery status belongs: above the surface, never inside
+    /// it. A spinner or countdown written into Ghostty would overwrite
+    /// whatever a full-screen remote application is drawing, and the terminal
+    /// contents must come back unchanged after a recovery (AC-18).
+    @ViewBuilder
+    var recoveryStatusOverlay: some View {
+        // Same class-not-observable dance as `reconnectionOverlay`.
+        let _ = restorationVersion
+        if terminals.indices.contains(selectedTabIndex),
+           let focusedTerminal = terminals[selectedTabIndex].focusedTerminal,
+           let presentation = focusedTerminal.recoveryStatus {
+            VStack {
+                RecoveryStatusStrip(presentation: presentation) { action in
+                    focusedTerminal.performRecoveryAction(action)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 8)
+            .allowsHitTesting(true)
+        }
+    }
+
     /// Returns the search overlay for the focused terminal, when search is open.
     @ViewBuilder
     func searchOverlay(searchStateVersion: Int) -> some View {
@@ -193,6 +218,9 @@ extension MainView {
 
             // Reconnection overlay for restored sessions
             reconnectionOverlay
+
+            // Live recovery status, rendered natively above the surface
+            recoveryStatusOverlay
 
             // tmux -CC window placeholder restored from disk, awaiting reconcile
             tmuxReconnectingOverlay

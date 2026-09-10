@@ -561,6 +561,52 @@ struct SSHConfig: Codable, Hashable {
                                  controlMode: tmuxAutoMode == .control)
     }
 
+    /// Remote command for a **recovery** reattachment to a verified session id.
+    ///
+    /// Deliberately not `tmuxExecCommandForConnection`: that one is
+    /// `new-session -A`, which creates the session when it is missing. On a
+    /// connect that is what the user asked for. On a recovery it would hand
+    /// the user a brand-new empty session while the UI said "reattaching",
+    /// which is precisely the silent target substitution CON-05 forbids.
+    /// Returns `nil` when no verified session id is available, and the caller
+    /// must then ask the user to choose rather than guessing.
+    func tmuxRecoveryAttachCommand(sessionID: Int?, socketPath: String? = nil) -> String? {
+        guard let sessionID else { return nil }
+        return TmuxRecoveryIdentity.remoteAttachCommandLine(
+            sessionID: sessionID,
+            controlMode: tmuxAutoMode == .control,
+            socketPath: socketPath,
+            pathPrefix: Self.remoteExecPathPrefix)
+    }
+
+    /// Attach-only reconnect for **regular** tmux mode, which has no control
+    /// channel and therefore no continuity evidence to attach by id with.
+    ///
+    /// Attaching by name cannot prove it is the same session, so this is never
+    /// reported as a restored session. It does guarantee the other half:
+    /// without `-A`, a missing session fails the attach instead of quietly
+    /// creating a new one (§9.2).
+    func tmuxRecoveryAttachByNameCommand() -> String? {
+        TmuxRecoveryIdentity.remoteAttachByNameCommandLine(
+            sessionName: tmuxSessionNameForConnection,
+            pathPrefix: Self.remoteExecPathPrefix)
+    }
+
+    /// Opaque reference to the credential this profile authenticates with.
+    ///
+    /// Never the secret: a recovery descriptor stores this and the identity
+    /// layer resolves it again at connection time, so nothing derived from a
+    /// key or password is written to disk by the recovery machinery (§5).
+    var recoveryCredentialReference: String? {
+        switch authMethod {
+        case .password: return "password:inline"
+        case .savedPassword: return "password:saved"
+        case .key(let id): return "identity:\(id.uuidString)"
+        case .keyboardInteractive: return "keyboard-interactive"
+        case .unknown(let rawType): return "unknown:\(rawType)"
+        }
+    }
+
     static func shellSingleQuote(_ string: String) -> String {
         "'\(string.replacingOccurrences(of: "'", with: "'\\''"))'"
     }
@@ -570,8 +616,17 @@ struct SSHConfig: Codable, Hashable {
         tmuxAutoEnable
     }
 
+    /// Replaces `effectiveExecCommand` for a recovery attempt.
+    ///
+    /// Set only by the recovery path, and only to an attach-by-id command
+    /// built from verified continuity evidence. Nothing else may write it:
+    /// the whole point is that a reconnect cannot fall back to
+    /// `new-session -A` and call the result a restored session (CON-05).
+    var recoveryExecCommandOverride: String?
+
     /// The exec command to run in place of the interactive shell, if any.
     var effectiveExecCommand: String? {
-        tmuxAutoEnable ? tmuxExecCommandForConnection : nil
+        if let recoveryExecCommandOverride { return recoveryExecCommandOverride }
+        return tmuxAutoEnable ? tmuxExecCommandForConnection : nil
     }
 }

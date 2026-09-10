@@ -1,3 +1,23 @@
+//
+//  TerminalReconnectionController.swift
+//  shell
+//
+//  Binds one terminal to its `ReconnectionManager` and publishes recovery
+//  status to the native strip (spec.connectivity.md §12).
+//
+//  This file used to write recovery UI into Ghostty: a spinner animated at
+//  0.08s, a 0.1s countdown timer rewriting a status line, a centred error
+//  message, and a "✓ Reconnected!" line — all as escape sequences injected
+//  into the terminal's byte stream. That is unrecoverable corruption for any
+//  full-screen application on the alternate screen, and it is the reason the
+//  spec requires recovery status to live outside the stream entirely.
+//
+//  Nothing here writes to the surface any more. The controller maps manager
+//  state onto a `RecoveryStatusPresentation` and hands it to the host; the
+//  strip renders it above the surface. The terminal's bytes after a recovery
+//  are exactly the bytes the remote sent (AC-18).
+//
+
 import Foundation
 import os
 
@@ -6,20 +26,10 @@ final class TerminalReconnectionController {
     private weak var host: TerminalSessionControllerHost?
 
     private(set) var manager: ReconnectionManager?
-    private var reconnectionCountdownTimer: Timer?
-    private var reconnectionSpinnerAnimator: InlineSpinnerAnimator?
 
     /// True between `pauseUI()` and `resumeUI()` (i.e. while backgrounded).
-    ///
-    /// Tearing down the timer and the animator in `pauseUI()` was not enough:
-    /// `manager.onStateChange` and `session.onDisconnect` stay wired while
-    /// paused, so a drop arriving in the background built a *fresh*
-    /// `InlineSpinnerAnimator` whose 0.08s timer wrote escape sequences
-    /// straight to the surface — and nothing ever stopped it, because
-    /// `startReconnectionLoop()` bails while the manager is paused, so the
-    /// state machine parks in `.disconnected` until `resumeUI()`. That is
-    /// exactly the cursor corruption `pauseReconnectionUI()` exists to
-    /// prevent. Every direct write path below is gated on this flag.
+    /// No animated polling continues while suspended (§12), so the strip is
+    /// cleared and the manager's own status ticker is stopped by `pause()`.
     private var isUIPaused = false
 
     init(host: TerminalSessionControllerHost) {
@@ -28,6 +38,11 @@ final class TerminalReconnectionController {
 
     var state: ReconnectionManager.State? {
         manager?.state
+    }
+
+    /// Honest recovery state, for callers that want the typed vocabulary.
+    var recoveryState: RecoveryState? {
+        manager?.recoveryState
     }
 
     func setup(
@@ -41,19 +56,34 @@ final class TerminalReconnectionController {
         }
 
         let config = ReconnectionManager.Config.fromUserDefaults()
-        guard config.enabled else {
-            Ghostty.logger.info("Auto-reconnect is disabled in settings")
-            return
-        }
 
         let manager: ReconnectionManager
         if let existingManager = self.manager {
             existingManager.config = config
             manager = existingManager
         } else {
-            manager = ReconnectionManager(config: config)
+            // The logical session id is the terminal's own UUID, not a fresh
+            // one. It has to be stable across every reconnect and app launch:
+            // a per-manager UUID would key a new descriptor on each setup and
+            // leave the store growing a record per attempt.
+            var policy = RecoveryPolicy.default
+            policy.burstAttempts = max(1, config.maxAttempts)
+            let context = RecoveryContext(
+                logicalSessionID: host?.terminalUUID ?? UUID(),
+                intent: .interactiveShell,
+                targetIdentity: RecoveryTargetIdentity(host: "", port: 22, username: ""),
+                policy: policy)
+            manager = ReconnectionManager(config: config, context: context)
             self.manager = manager
         }
+
+        // The master gate turns automatic *replacement* off. It must not
+        // close a healthy connection, and the manager must still exist so the
+        // user can retry by hand and see honest status (§14).
+        manager.coordinator.isAutomaticRecoveryEnabled = config.enabled
+
+        adoptTargetIdentity(for: manager)
+
         let configuredSessionID = ObjectIdentifier(session as AnyObject)
 
         manager.onReconnectAttempt = { [weak self] in
@@ -73,6 +103,14 @@ final class TerminalReconnectionController {
             self?.handleSuccess()
         }
 
+        manager.onRecoveryStatusChange = { [weak self] presentation in
+            self?.publish(presentation)
+        }
+
+        manager.validateTransport = { [weak session] reason in
+            (session as? CitadelSSHSession)?.validateTransport(reason: reason)
+        }
+
         session.onDisconnect = { [weak self] reason in
             guard let self else { return }
             guard let current = currentSession(),
@@ -88,8 +126,122 @@ final class TerminalReconnectionController {
         Ghostty.logger.info("Reconnection manager configured for session")
     }
 
+    /// Give the coordinator the trust scope and intent it must reconnect with.
+    ///
+    /// The intent is what decides whether a successful reconnect may be
+    /// called a restored session: only a tmux profile promises continuity, so
+    /// a plain SSH profile can never report `sessionRestored` (CON-09).
+    private func adoptTargetIdentity(for manager: ReconnectionManager) {
+        guard let host else { return }
+        switch host.terminalConnectionConfig {
+        case .ssh(let sshConfig):
+            let identity = RecoveryTargetIdentity(
+                host: sshConfig.host,
+                port: sshConfig.port,
+                username: sshConfig.username,
+                credentialReference: sshConfig.recoveryCredentialReference,
+                jumpHostDescriptor: sshConfig.jumpHost.map {
+                    "\($0.username)@\($0.host):\($0.port)"
+                },
+                tmuxSocket: nil)
+            let intent: RecoveryIntent = sshConfig.tmuxAutoEnable ? .attachExistingTmux : .interactiveShell
+            manager.displaySessionName = sshConfig.tmuxAutoEnable
+                ? sshConfig.tmuxSessionNameForConnection
+                : nil
+            let verifiesContinuity = sshConfig.tmuxAutoEnable && sshConfig.tmuxAutoMode == .control
+            manager.adoptTarget(identity, intent: intent,
+                                verifiesTmuxContinuity: verifiesContinuity)
+
+            // Control mode can prove it reattached to the same session, so it
+            // must before the recovery is called restored. The gateway calls
+            // back through the registry once it has asked the server.
+            if verifiesContinuity {
+                TmuxContinuityRegistry.shared.setVerificationHandler(
+                    forConnection: identity.connectionKey
+                ) { [weak manager] verdict in
+                    guard let manager else { return }
+                    manager.coordinator.noteTmuxAttachmentVerified(
+                        verdict, generation: manager.coordinator.context.connectionGeneration)
+                }
+            }
+
+            // Checkpoint the intent now, not only on the background callback:
+            // the process can be terminated without one (§13). What is stored
+            // is intent and evidence — never a transport, a task, or a secret.
+            let evidence = TmuxContinuityRegistry.shared.evidence(
+                forConnection: identity.connectionKey)
+            manager.coordinator.updateTmuxIdentity(evidence)
+            let descriptor = RecoveryDescriptor(
+                logicalSessionID: manager.coordinator.context.logicalSessionID,
+                intent: intent,
+                target: identity,
+                tmuxEvidence: evidence,
+                tabID: host.terminalContainingTabID)
+            RecoveryDescriptorStore.shared.saveIfChanged(descriptor)
+
+        case .local, .shellLaunchedSSH:
+            break
+        }
+    }
+
     func handleConnected() {
         manager?.handleConnected()
+    }
+
+    /// A keepalive round trip passed its deadline.
+    ///
+    /// This marks the round trip unverified and gates input. It does NOT
+    /// declare the remote process dead, and for a plain-shell intent it does
+    /// not tear the transport down to build another one — the user's apparent
+    /// session survives and the explicit "Open new shell" action is offered
+    /// instead (§8.3).
+    func noteProbeDeadlineExpired() {
+        manager?.coordinator.noteProbeDeadlineExpired()
+    }
+
+    /// A keepalive round trip completed. Clears the suspect state.
+    func noteConfirmedRoundTrip(milliseconds: Double) {
+        manager?.coordinator.noteConfirmedRoundTrip(milliseconds: milliseconds)
+    }
+
+    /// Authenticated inbound traffic arrived from the destination.
+    ///
+    /// This is the other way out of `suspect`, and the only one available when
+    /// a keepalive is parked on a socket that never answers: the server is
+    /// demonstrably still sending, even though the round trip is unverified
+    /// (§8.1, §8.3).
+    func noteTargetActivity() {
+        guard let manager else { return }
+        manager.coordinator.noteTargetActivity()
+        manager.coordinator.noteSuspectResolvedByInboundActivity()
+    }
+
+    /// Input was refused. Say so.
+    ///
+    /// Silently dropping keystrokes is worse than the drop itself: the user
+    /// keeps typing into a terminal that looks alive and finds out later that
+    /// none of it arrived. The strip carries the reason and the way out (§10).
+    func noteInputRejected(_ decision: RecoveryInputDecision) {
+        guard let manager, let host else { return }
+        // A live connection that merely hit its byte budget is not a recovery
+        // state; show a standalone notice rather than pretending otherwise.
+        guard case .rejectBudgetExhausted = decision else {
+            manager.republishRecoveryStatus()
+            return
+        }
+        host.terminalRecoveryStatus = RecoveryStatusPresentation(
+            title: String(
+                localized: "Input paused",
+                comment: "Recovery status: pending-input budget is full"),
+            detail: String(
+                localized: "The connection has not accepted the pending input yet.",
+                comment: "Recovery detail: producer backpressure"),
+            actions: [.dismiss],
+            severity: .warning,
+            showsActivity: false,
+            announces: true,
+            isStale: false)
+        host.terminalNotifyRecoveryStatusChanged()
     }
 
     func handlePermanentFailure(reason: String) {
@@ -102,39 +254,74 @@ final class TerminalReconnectionController {
 
     func cancelReconnection() {
         manager?.cancelReconnection()
+        discardDescriptor()
+    }
+
+    /// Drop this logical session's stored intent. Called when the user stops
+    /// recovery or the tab closes: a descriptor that outlives the intent it
+    /// describes would offer to reconnect something nobody asked for.
+    func discardDescriptor() {
+        guard let manager else { return }
+        RecoveryDescriptorStore.shared.remove(
+            logicalSessionID: manager.coordinator.context.logicalSessionID)
+    }
+
+    /// Route a strip action. Every one of these is an explicit user action —
+    /// nothing here happens automatically.
+    func performRecoveryAction(_ action: RecoveryStatusAction) {
+        guard let manager else { return }
+        switch action {
+        case .retryNow:
+            manager.manualReconnect()
+        case .stopRecovery:
+            manager.cancelReconnection()
+        case .dismiss:
+            publish(nil)
+        case .authenticate, .selectSession, .openNewShell, .reviewDraft:
+            // These need view-layer flows (auth sheet, session picker, new
+            // tab, compose overlay). The host owns them.
+            host?.terminalRequestRecoveryAction(action)
+        }
     }
 
     func pauseUI() {
-        reconnectionCountdownTimer?.invalidate()
-        reconnectionCountdownTimer = nil
-
-        if let spinner = reconnectionSpinnerAnimator {
-            let cleanup = spinner.getCleanupSequence()
-            if !cleanup.isEmpty {
-                host?.terminalWriteToGhostty(cleanup)
-            }
-            spinner.stop()
-            reconnectionSpinnerAnimator = nil
-        }
-
-        manager?.pause()
-
-        // Set last: the cleanup write above is the one write that must still
-        // reach the surface.
         isUIPaused = true
+        manager?.pause()
+        publish(nil)
     }
 
     func resumeUI() {
-        // Order matters. `manager.resume()` restarts the loop from
-        // `.disconnected`/`.waitingToReconnect` and repaints synchronously via
-        // `handleStateChange`; clearing the flag afterwards would swallow that
-        // first repaint too.
+        // Clear the flag before resuming: `resume()` re-evaluates and
+        // republishes synchronously, and that first repaint must not be
+        // swallowed.
         isUIPaused = false
         manager?.resume()
+        // `resume()` only republishes when it actually changes state, and it
+        // returns early unless the coordinator was `.suspended`. States that
+        // are waiting on a person — a changed host key, a missing session, a
+        // stopped recovery — never suspend, so relying on that repaint left
+        // the user back from the background staring at a dead terminal with
+        // the Authenticate / Choose Session / Retry buttons gone.
+        manager?.republishRecoveryStatus()
+    }
+
+    private func publish(_ presentation: RecoveryStatusPresentation?) {
+        guard let host else { return }
+        guard !isUIPaused else {
+            host.terminalRecoveryStatus = nil
+            host.terminalNotifyRecoveryStatusChanged()
+            return
+        }
+        host.terminalRecoveryStatus = presentation
+        host.terminalNotifyRecoveryStatusChanged()
     }
 
     private func handleStateChange(_ state: ReconnectionManager.State) {
         guard let host else { return }
+
+        // The restoration overlay and the live recovery strip are different
+        // surfaces. Clear the restoration overlay once recovery is actually
+        // moving again so the two don't stack.
         if host.terminalIsLiveDisconnectionOverlay {
             switch state {
             case .disconnected, .waitingToReconnect, .reconnecting, .connected, .idle:
@@ -146,153 +333,18 @@ final class TerminalReconnectionController {
             }
         }
 
-        switch state {
-        case .disconnected(let reason):
-            stopCountdown()
-
-            // Backgrounded: the reconnection loop is paused, so this spinner
-            // would animate until `resumeUI()` with no state change to stop
-            // it. `resumeUI()` clears the flag before `manager.resume()`,
-            // which restarts the loop from `.disconnected` and repaints.
-            guard !isUIPaused else { break }
-
-            let message = "Connection lost: \(reason.description)"
-            reconnectionSpinnerAnimator = InlineSpinnerAnimator()
-            reconnectionSpinnerAnimator?.start(
-                message: message,
-                style: .error,
-                terminalWidth: host.terminalReconnectionWidth
-            ) { [weak host] output in
-                host?.terminalWriteToGhostty(output)
-            }
-
-        case .waitingToReconnect(let attempt, let delay):
-            startCountdown(delay: delay, attempt: attempt)
-
-        case .reconnecting(let attempt):
-            stopCountdown()
-
-            let cleanup = reconnectionSpinnerAnimator?.getCleanupSequence() ?? ""
-            reconnectionSpinnerAnimator?.stop()
-            reconnectionSpinnerAnimator = nil
-
-            let maxAttempts = manager?.config.maxAttempts ?? 5
-            let themeColors = SpinnerAnimator.ThemeColors.fromThemeManager()
-            let rgb = themeColors.colorFor(style: .reconnecting)
-            let color = "\u{1B}[38;2;\(rgb.0);\(rgb.1);\(rgb.2)m"
-            let reset = "\u{1B}[0m"
-
-            host.terminalWriteToGhostty(
-                cleanup + color + "Reconnecting (attempt \(attempt)/\(maxAttempts))..." + reset + "\r\n\r\n"
-            )
-
-        case .connected:
-            break
-
-        case .failed(let reason):
-            stopCountdown()
-            playFailureAnimation(reason: reason)
-
-        case .manualReconnectRequired:
-            break
-
-        case .idle:
-            cleanupAnimators()
-        }
-    }
-
-    private func startCountdown(delay: TimeInterval, attempt: Int) {
-        guard let host else { return }
-        stopCountdown()
-
-        // Backgrounded: neither the spinner nor the 0.1s countdown timer may
-        // write escape sequences. The loop repaints on resume.
-        guard !isUIPaused else { return }
-
-        let endTime = Date().addingTimeInterval(delay)
-        let maxAttempts = manager?.config.maxAttempts ?? 5
-
-        if reconnectionSpinnerAnimator == nil {
-            reconnectionSpinnerAnimator = InlineSpinnerAnimator()
+        if case .idle = state {
+            // No intent left to describe — a clean exit, an explicit stop, or
+            // a reset. A descriptor that outlives its intent would offer to
+            // reconnect something nobody asked for on the next launch.
+            discardDescriptor()
         }
 
-        let secondsLeft = Int(ceil(delay))
-        let message = "Reconnecting in \(secondsLeft)s (attempt \(attempt)/\(maxAttempts))..."
-        reconnectionSpinnerAnimator?.start(
-            message: message,
-            style: .reconnecting,
-            terminalWidth: host.terminalReconnectionWidth
-        ) { [weak host] output in
-            host?.terminalWriteToGhostty(output)
+        if case .failed(let reason) = state {
+            host.terminalIsLiveDisconnectionOverlay = true
+            host.terminalRestorationState = .failed(reason)
+            host.terminalNotifyRestorationStateChanged()
         }
-
-        reconnectionCountdownTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.updateCountdown(endTime: endTime, attempt: attempt, maxAttempts: maxAttempts)
-            }
-        }
-    }
-
-    private func updateCountdown(endTime: Date, attempt: Int, maxAttempts: Int) {
-        let remaining = endTime.timeIntervalSinceNow
-        if remaining <= 0 {
-            stopCountdown()
-            return
-        }
-
-        let secondsRemaining = Int(ceil(remaining))
-        let message = "Reconnecting in \(secondsRemaining)s (attempt \(attempt)/\(maxAttempts))..."
-        reconnectionSpinnerAnimator?.updateMessage(message)
-    }
-
-    private func stopCountdown() {
-        reconnectionCountdownTimer?.invalidate()
-        reconnectionCountdownTimer = nil
-    }
-
-    private func cleanupAnimators() {
-        stopCountdown()
-
-        let cleanup = reconnectionSpinnerAnimator?.getCleanupSequence() ?? ""
-        reconnectionSpinnerAnimator?.stop()
-        reconnectionSpinnerAnimator = nil
-
-        if !cleanup.isEmpty {
-            host?.terminalWriteToGhostty(cleanup)
-        }
-    }
-
-    private func playFailureAnimation(reason: String) {
-        guard let host else { return }
-        let spinnerCleanup = reconnectionSpinnerAnimator?.getCleanupSequence() ?? ""
-        reconnectionSpinnerAnimator?.stop()
-        reconnectionSpinnerAnimator = nil
-
-        // Backgrounded: suppress the escape-sequence writes only.
-        // `handlePermanentFailure` is driven from outside the reconnection
-        // loop (SSH auth failure), so it lands here while paused, but
-        // `manager.resume()` does not re-notify from `.failed` — the overlay
-        // and restoration state below must still be set or the user returns
-        // to a dead terminal with no indication of why.
-        if !isUIPaused {
-            if !spinnerCleanup.isEmpty {
-                host.terminalWriteToGhostty(spinnerCleanup)
-            }
-
-            let themeColors = SpinnerAnimator.ThemeColors.fromThemeManager()
-            let dimRGB = themeColors.dimmedForeground
-            let dimColor = "\u{1B}[38;2;\(dimRGB.0);\(dimRGB.1);\(dimRGB.2)m"
-            let reset = "\u{1B}[0m"
-
-            let padding = max(0, (host.terminalReconnectionWidth - reason.count) / 2)
-            let centeredError = String(repeating: " ", count: padding) + reason
-
-            host.terminalWriteToGhostty("\r\n" + dimColor + centeredError + reset + "\r\n\r\n")
-        }
-
-        host.terminalIsLiveDisconnectionOverlay = true
-        host.terminalRestorationState = .failed(reason)
-        host.terminalNotifyRestorationStateChanged()
     }
 
     private func handleSuccess() {
@@ -302,30 +354,17 @@ final class TerminalReconnectionController {
             host.terminalRestorationState = .none
             host.terminalNotifyRestorationStateChanged()
         }
-
-        stopCountdown()
-        reconnectionSpinnerAnimator?.stop()
-        reconnectionSpinnerAnimator = nil
-
-        let themeColors = SpinnerAnimator.ThemeColors.fromThemeManager()
-        let successRGB = themeColors.colorFor(style: .success)
-        let successColor = "\u{1B}[38;2;\(successRGB.0);\(successRGB.1);\(successRGB.2)m"
-        let reset = "\u{1B}[0m"
-
-        host.terminalWriteToGhostty(successColor + "✓ Reconnected!" + reset + "\r\n")
+        // Success is reported by the strip disappearing, not by a line
+        // written into the user's terminal.
+        publish(nil)
     }
 
     private func handleGiveUp() {
-        stopCountdown()
-
-        let cleanup = reconnectionSpinnerAnimator?.getCleanupSequence() ?? ""
-        reconnectionSpinnerAnimator?.stop()
-        reconnectionSpinnerAnimator = nil
-
         guard let host else { return }
-        host.terminalWriteToGhostty(cleanup)
         host.terminalIsLiveDisconnectionOverlay = true
-        host.terminalRestorationState = .failed("Auto-reconnect failed after maximum attempts.")
+        host.terminalRestorationState = .failed(
+            String(localized: "Automatic reconnection stopped.",
+                   comment: "Restoration overlay: automatic recovery halted"))
         host.terminalNotifyRestorationStateChanged()
     }
 }
