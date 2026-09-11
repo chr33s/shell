@@ -1,0 +1,4 @@
+module CMLDSA44 [system][extern_c] {
+  header "cmldsa44.h"
+  export *
+}

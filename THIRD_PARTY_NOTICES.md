@@ -47,8 +47,11 @@ If this summary differs from an upstream license, the upstream license controls.
 
 The app uses maintained rootshell forks or binary-package wrappers for some of
 these projects. A wrapper does not change the license of the software it
-contains. See the corresponding package repository for the exact source,
-modification notices, and complete license text used by a build.
+contains. The exact source, modification notices, and license text of every
+Swift package a build links are checked in under `vendor/<package>/` at the
+revision recorded in `vendor/manifest.lock`; each package's `Package.swift`
+there is mechanically rewritten to resolve locally, and nothing else is
+changed. See the corresponding package repository for upstream history.
 
 Joe's Own Editor is an optional, debug-only component licensed under the GNU
 GPL. Its package and the support files under `Resources/joe` are stripped from

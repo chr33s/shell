@@ -1,0 +1,41 @@
+name: Feature request
+description: Propose a focused enhancement to the Citadel library.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The fork's roadmap is driven by rootshell's requirements. Please describe the library-level use case rather than only a proposed API.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What SSH-library capability is missing, and who needs it?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the desired behavior and any public API implications.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Describe workarounds or alternative designs you considered.
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Include relevant protocol specifications or interoperability requirements.
+  - type: checkboxes
+    id: upstream
+    attributes:
+      label: Fork policy
+      options:
+        - label: This request does not propose a general synchronization with upstream Citadel.
+          required: true

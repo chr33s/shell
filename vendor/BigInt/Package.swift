@@ -1,0 +1,34 @@
+// swift-tools-version:5.9
+// vendored by scripts/vendor.py — regenerated on every sync, do not edit by hand
+//
+//  Package.swift
+//  BigInt
+//
+//  Created by Károly Lőrentey on 2016-01-12.
+//  Copyright © 2016-2017 Károly Lőrentey.
+//
+
+import PackageDescription
+
+let package = Package(
+    name: "BigInt",
+    platforms: [
+        .macOS(.v10_13),
+        .iOS(.v12),
+        .tvOS(.v12),
+        .watchOS(.v4),
+        .macCatalyst(.v13),
+        .visionOS(.v1),
+    ],
+    products: [
+        .library(name: "BigInt", targets: ["BigInt"])
+    ],
+    targets: [
+        .target(
+            name: "BigInt", path: "Sources",
+            swiftSettings: [.enableExperimentalFeature("StrictConcurrency")]),
+        .testTarget(
+            name: "BigIntTests", dependencies: ["BigInt"], path: "Tests",
+            swiftSettings: [.enableExperimentalFeature("StrictConcurrency")]),
+    ]
+)

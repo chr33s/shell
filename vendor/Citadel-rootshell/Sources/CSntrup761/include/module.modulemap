@@ -1,0 +1,4 @@
+module CSntrup761 [system][extern_c] {
+  header "sntrup761.h"
+  export *
+}

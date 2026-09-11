@@ -1,0 +1,74 @@
+name: Bug report
+description: Report a reproducible problem in the rootshell-maintained Citadel fork.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include credentials, private keys, sensitive host information, or security vulnerabilities. rootshell application problems belong in https://github.com/kitknox/rootshell/issues.
+  - type: input
+    id: version
+    attributes:
+      label: Citadel version or commit
+      description: Provide the release tag or full commit SHA where the problem occurs.
+      placeholder: 0.13.0 or commit SHA
+    validations:
+      required: true
+  - type: input
+    id: toolchain
+    attributes:
+      label: Toolchain
+      description: Include the Xcode and Swift versions.
+      placeholder: Xcode 26.x, Swift 6.x
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Apple platform and OS
+      placeholder: macOS 26.x, iOS 26.x, or visionOS 26.x
+    validations:
+      required: true
+  - type: input
+    id: peer
+    attributes:
+      label: SSH peer
+      description: Identify the SSH client or server implementation and version when relevant.
+      placeholder: OpenSSH 10.x
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Provide the smallest safe code sample and exact steps that reproduce the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Redacted logs or additional context
+      description: Remove credentials, keys, user data, hostnames, and IP addresses before posting.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission checks
+      options:
+        - label: I reproduced this with the latest fork release or `main`.
+          required: true
+        - label: I removed credentials, private keys, and sensitive infrastructure details.
+          required: true
+        - label: This is not a security vulnerability or a rootshell application issue.
+          required: true

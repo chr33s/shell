@@ -1,0 +1,49 @@
+name: Swift
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+   
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Build
+      run: swift build --build-tests
+    - name: Run tests
+      run: swift test --parallel
+
+  linux:
+    container:
+      image: swift:${{ matrix.linux }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        linux: [focal, jammy, noble]
+    steps:
+    - uses: actions/checkout@v4
+    - name: Build
+      run: swift build --build-tests --enable-test-discovery -Xswiftc -strict-concurrency=complete
+    - name: Test
+      run: swift test --enable-test-discovery --parallel -Xswiftc -strict-concurrency=complete
+      
+  android:
+    runs-on: macos-13
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Environment
+        run: echo "ANDROID_NDK_HOME=${HOME}/Library/Android/sdk/ndk/27.2.12479018" >> $GITHUB_ENV
+      - name: Test
+        uses: skiptools/swift-android-action@v2
+
+  # codecov:
+  #   runs-on: macos-latest
+  #   steps:
+  #   - uses: actions/checkout@v4
+  #   - name: Test and generate code coverage report
+  #     run: swift test --enable-code-coverage
+  #   - name: Upload coverage to Codecov
+  #     uses: codecov/codecov-action@v4

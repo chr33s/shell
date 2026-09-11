@@ -1,0 +1,1174 @@
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift Logging API open source project
+//
+// Copyright (c) 2018-2019 Apple Inc. and the Swift Logging API project authors
+// Licensed under Apache License v2.0
+//
+// See LICENSE.txt for license information
+// See CONTRIBUTORS.txt for the list of Swift Logging API project authors
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+//===----------------------------------------------------------------------===//
+
+import Foundation
+import Testing
+
+@testable import Logging
+
+private enum TestAttr: Int64, Logger.MetadataValueAttributes.Attribute {
+    case x = 1
+    case y = 2
+}
+
+extension LogHandler {
+    fileprivate func with(logLevel: Logger.Level) -> any LogHandler {
+        var result = self
+        result.logLevel = logLevel
+        return result
+    }
+
+    fileprivate func withMetadata(_ key: String, _ value: Logger.MetadataValue) -> any LogHandler {
+        var result = self
+        result.metadata[key] = value
+        return result
+    }
+}
+
+struct LoggingTest {
+    @Test func autoclosure() throws {
+        // create test logging impl, do not bootstrap global LoggingSystem
+        let logging = TestLogging()
+
+        var logger = Logger(
+            label: "test",
+            factory: {
+                logging.make(label: $0)
+            }
+        )
+        logger.logLevel = .info
+        logger.log(
+            level: .debug,
+            {
+                Issue.record("debug should not be called")
+                return "debug"
+            }()
+        )
+        logger.trace(
+            {
+                Issue.record("trace should not be called")
+                return "trace"
+            }()
+        )
+        logger.debug(
+            {
+                Issue.record("debug should not be called")
+                return "debug"
+            }()
+        )
+        logger.info(
+            {
+                "info"
+            }()
+        )
+        logger.warning(
+            {
+                "warning"
+            }()
+        )
+        logger.error(
+            {
+                "error"
+            }()
+        )
+        #expect(3 == logging.history.entries.count, "expected number of entries to match")
+        logging.history.assertNotExist(level: .debug, message: "trace")
+        logging.history.assertNotExist(level: .debug, message: "debug")
+        logging.history.assertExist(level: .info, message: "info")
+        logging.history.assertExist(level: .warning, message: "warning")
+        logging.history.assertExist(level: .error, message: "error")
+    }
+
+    @Test func multiplex() throws {
+        // create test logging impl, do not bootstrap global LoggingSystem
+        let logging1 = TestLogging()
+        let logging2 = TestLogging()
+
+        var logger = Logger(
+            label: "test",
+            factory: {
+                MultiplexLogHandler([logging1.make(label: $0), logging2.make(label: $0)])
+            }
+        )
+        logger.logLevel = .warning
+        logger.info("hello world?")
+        logger[metadataKey: "foo"] = "bar"
+        logger.warning("hello world!")
+        logging1.history.assertNotExist(level: .info, message: "hello world?")
+        logging2.history.assertNotExist(level: .info, message: "hello world?")
+        logging1.history.assertExist(level: .warning, message: "hello world!", metadata: ["foo": "bar"])
+        logging2.history.assertExist(level: .warning, message: "hello world!", metadata: ["foo": "bar"])
+    }
+
+    @Test func multiplexLogHandlerWithVariousLogLevels() throws {
+        let logging1 = TestLogging()
+        let logging2 = TestLogging()
+
+        let logger1 = logging1.make(label: "1").with(logLevel: .info)
+        let logger2 = logging2.make(label: "2").with(logLevel: .debug)
+
+        let multiplexLogger = Logger(
+            label: "test",
+            factory: { _ in
+                MultiplexLogHandler([logger1, logger2])
+            }
+        )
+        multiplexLogger.trace("trace")
+        multiplexLogger.debug("debug")
+        multiplexLogger.info("info")
+        multiplexLogger.warning("warning")
+
+        logging1.history.assertNotExist(level: .trace, message: "trace")
+        logging1.history.assertNotExist(level: .debug, message: "debug")
+        logging1.history.assertExist(level: .info, message: "info")
+        logging1.history.assertExist(level: .warning, message: "warning")
+
+        logging2.history.assertNotExist(level: .trace, message: "trace")
+        logging2.history.assertExist(level: .debug, message: "debug")
+        logging2.history.assertExist(level: .info, message: "info")
+        logging2.history.assertExist(level: .warning, message: "warning")
+    }
+
+    @Test func multiplexLogHandlerNeedNotMaterializeValuesMultipleTimes() throws {
+        let logging1 = TestLogging()
+        let logging2 = TestLogging()
+
+        let logger1 = logging1.make(label: "1").with(logLevel: .info)
+        let logger2 = logging2.make(label: "2").with(logLevel: .info)
+
+        var messageMaterializations: Int = 0
+        var metadataMaterializations: Int = 0
+
+        let multiplexLogger = Logger(
+            label: "test",
+            factory: { _ in
+                MultiplexLogHandler([logger1, logger2])
+            }
+        )
+        multiplexLogger.info(
+            { () -> Logger.Message in
+                messageMaterializations += 1
+                return "info"
+            }(),
+            metadata: { () -> Logger.Metadata in
+                metadataMaterializations += 1
+                return [:]
+            }()
+        )
+
+        logging1.history.assertExist(level: .info, message: "info")
+        logging2.history.assertExist(level: .info, message: "info")
+
+        #expect(messageMaterializations == 1)
+        #expect(metadataMaterializations == 1)
+    }
+
+    @Test func multiplexLogHandlerMetadata_settingMetadataThroughToUnderlyingHandlers() {
+        let logging1 = TestLogging()
+        let logging2 = TestLogging()
+
+        let logger1 = logging1.make(label: "1")
+            .withMetadata("one", "111")
+            .withMetadata("in", "in-1")
+        let logger2 = logging2.make(label: "2")
+            .withMetadata("two", "222")
+            .withMetadata("in", "in-2")
+
+        var multiplexLogger = Logger(
+            label: "test",
+            factory: { _ in
+                MultiplexLogHandler([logger1, logger2])
+            }
+        )
+
+        // each logs its own metadata
+        multiplexLogger.info("info")
+        logging1.history.assertExist(
+            level: .info,
+            message: "info",
+            metadata: [
+                "one": "111",
+                "in": "in-1",
+            ]
+        )
+        logging2.history.assertExist(
+            level: .info,
+            message: "info",
+            metadata: [
+                "two": "222",
+                "in": "in-2",
+            ]
+        )
+
+        // if modified, change applies to both underlying handlers
+        multiplexLogger[metadataKey: "new"] = "new"
+        multiplexLogger.info("info")
+        logging1.history.assertExist(
+            level: .info,
+            message: "info",
+            metadata: [
+                "one": "111",
+                "in": "in-1",
+                "new": "new",
+            ]
+        )
+        logging2.history.assertExist(
+            level: .info,
+            message: "info",
+            metadata: [
+                "two": "222",
+                "in": "in-2",
+                "new": "new",
+            ]
+        )
+
+        // overriding an existing value works the same way as adding a new one
+        multiplexLogger[metadataKey: "in"] = "multi"
+        multiplexLogger.info("info")
+        logging1.history.assertExist(
+            level: .info,
+            message: "info",
+            metadata: [
+                "one": "111",
+                "in": "multi",
+                "new": "new",
+            ]
+        )
+        logging2.history.assertExist(
+            level: .info,
+            message: "info",
+            metadata: [
+                "two": "222",
+                "in": "multi",
+                "new": "new",
+            ]
+        )
+    }
+
+    @Test func multiplexLogHandlerMetadata_readingHandlerMetadata() {
+        let logging1 = TestLogging()
+        let logging2 = TestLogging()
+
+        let logger1 = logging1.make(label: "1")
+            .withMetadata("one", "111")
+            .withMetadata("in", "in-1")
+        let logger2 = logging2.make(label: "2")
+            .withMetadata("two", "222")
+            .withMetadata("in", "in-2")
+
+        let multiplexLogger = Logger(
+            label: "test",
+            factory: { _ in
+                MultiplexLogHandler([logger1, logger2])
+            }
+        )
+
+        #expect(
+            multiplexLogger.handler.metadata == [
+                "one": "111",
+                "two": "222",
+                "in": "in-2",
+            ]
+        )
+    }
+
+    @Test func multiplexMetadataProviderSet() {
+        let logging1 = TestLogging()
+        let logging2 = TestLogging()
+
+        let handler1 = {
+            var handler1 = logging1.make(label: "1")
+            handler1.metadata["one"] = "111"
+            handler1.metadata["in"] = "in-1"
+            handler1.metadataProvider = .constant([
+                "provider-1": "provided-111",
+                "provider-overlap": "provided-111",
+            ])
+            return handler1
+        }()
+        let handler2 = {
+            var handler2 = logging2.make(label: "2")
+            handler2.metadata["two"] = "222"
+            handler2.metadata["in"] = "in-2"
+            handler2.metadataProvider = .constant([
+                "provider-2": "provided-222",
+                "provider-overlap": "provided-222",
+            ])
+            return handler2
+        }()
+
+        let multiplexLogger = Logger(
+            label: "test",
+            factory: { _ in
+                MultiplexLogHandler([handler1, handler2])
+            }
+        )
+
+        #expect(
+            multiplexLogger.handler.metadata == [
+                "one": "111",
+                "two": "222",
+                "in": "in-2",
+                "provider-1": "provided-111",
+                "provider-2": "provided-222",
+                "provider-overlap": "provided-222",
+            ]
+        )
+        #expect(
+            multiplexLogger.handler.metadataProvider?.get() == [
+                "provider-1": "provided-111",
+                "provider-2": "provided-222",
+                "provider-overlap": "provided-222",
+            ]
+        )
+    }
+
+    @Test func multiplexMetadataProviderExtract() {
+        let logging1 = TestLogging()
+        let logging2 = TestLogging()
+
+        let handler1 = {
+            var handler1 = logging1.make(label: "1")
+            handler1.metadataProvider = .constant([
+                "provider-1": "provided-111",
+                "provider-overlap": "provided-111",
+            ])
+            return handler1
+        }()
+        let handler2 = {
+            var handler2 = logging2.make(label: "2")
+            handler2.metadata["two"] = "222"
+            handler2.metadata["in"] = "in-2"
+            handler2.metadataProvider = .constant([
+                "provider-2": "provided-222",
+                "provider-overlap": "provided-222",
+            ])
+            return handler2
+        }()
+
+        let multiplexLogger = Logger(
+            label: "test",
+            factory: { _ in
+                MultiplexLogHandler(
+                    [handler1, handler2],
+                    metadataProvider: .constant([
+                        "provider-overlap": "provided-outer"
+                    ])
+                )
+            }
+        )
+
+        let provider = multiplexLogger.metadataProvider!
+
+        #expect(
+            provider.get() == [
+                "provider-1": "provided-111",
+                "provider-2": "provided-222",
+                "provider-overlap": "provided-outer",
+            ]
+        )
+    }
+
+    enum TestError: Error {
+        case boom
+        case withMessage(String)
+    }
+
+    @Test func dictionaryMetadata() {
+        let testLogging = TestLogging()
+
+        var logger = Logger(
+            label: "\(#function)",
+            factory: {
+                testLogging.make(label: $0)
+            }
+        )
+        logger[metadataKey: "foo"] = ["bar": "buz"]
+        logger[metadataKey: "empty-dict"] = [:]
+        logger[metadataKey: "nested-dict"] = ["l1key": ["l2key": ["l3key": "l3value"]]]
+        logger.info("hello world!")
+        testLogging.history.assertExist(
+            level: .info,
+            message: "hello world!",
+            metadata: [
+                "foo": ["bar": "buz"],
+                "empty-dict": [:],
+                "nested-dict": ["l1key": ["l2key": ["l3key": "l3value"]]],
+            ]
+        )
+    }
+
+    @Test func listMetadata() {
+        let testLogging = TestLogging()
+
+        var logger = Logger(
+            label: "\(#function)",
+            factory: {
+                testLogging.make(label: $0)
+            }
+        )
+        logger[metadataKey: "foo"] = ["bar", "buz"]
+        logger[metadataKey: "empty-list"] = []
+        logger[metadataKey: "nested-list"] = ["l1str", ["l2str1", "l2str2"]]
+        logger.info("hello world!")
+        testLogging.history.assertExist(
+            level: .info,
+            message: "hello world!",
+            metadata: [
+                "foo": ["bar", "buz"],
+                "empty-list": [],
+                "nested-list": ["l1str", ["l2str1", "l2str2"]],
+            ]
+        )
+    }
+
+    // Example of custom "box" which may be used to implement "render at most once" semantics
+    // Not thread-safe, thus should not be shared across threads.
+    internal final class LazyMetadataBox: CustomStringConvertible {
+        private var makeValue: (() -> String)?
+        private var _value: String?
+
+        init(_ makeValue: @escaping () -> String) {
+            self.makeValue = makeValue
+        }
+
+        /// This allows caching a value in case it is accessed via an by name subscript,
+        // rather than as part of rendering all metadata that a LoggingContext was carrying
+        var value: String {
+            if let f = self.makeValue {
+                self._value = f()
+                self.makeValue = nil
+            }
+
+            assert(self._value != nil, "_value MUST NOT be nil once `lazyValue` has run.")
+            return self._value!
+        }
+
+        var description: String {
+            "\(self.value)"
+        }
+    }
+
+    @Test func stringConvertibleMetadata() {
+        let testLogging = TestLogging()
+        var logger = Logger(
+            label: "\(#function)",
+            factory: {
+                testLogging.make(label: $0)
+            }
+        )
+
+        logger[metadataKey: "foo"] = .stringConvertible("raw-string")
+        let lazyBox = LazyMetadataBox { "rendered-at-first-use" }
+        logger[metadataKey: "lazy"] = .stringConvertible(lazyBox)
+        logger.info("hello world!")
+        testLogging.history.assertExist(
+            level: .info,
+            message: "hello world!",
+            metadata: [
+                "foo": .stringConvertible("raw-string"),
+                "lazy": .stringConvertible(LazyMetadataBox { "rendered-at-first-use" }),
+            ]
+        )
+    }
+
+    private func dontEvaluateThisString(
+        fileID: String = #fileID,
+        file: StaticString = #filePath,
+        line: UInt = #line,
+        column: UInt = #column
+    ) -> Logger.Message {
+        Issue.record(
+            "should not have been evaluated",
+            sourceLocation: SourceLocation(fileID: fileID, filePath: "\(file)", line: Int(line), column: Int(column))
+        )
+        return "should not have been evaluated"
+    }
+
+    @Test func autoClosuresAreNotForcedUnlessNeeded() {
+        let testLogging = TestLogging()
+
+        var logger = Logger(
+            label: "\(#function)",
+            factory: {
+                testLogging.make(label: $0)
+            }
+        )
+        logger.logLevel = .error
+
+        logger.debug(self.dontEvaluateThisString(), metadata: ["foo": "\(self.dontEvaluateThisString())"])
+        logger.debug(self.dontEvaluateThisString())
+        logger.info(self.dontEvaluateThisString())
+        logger.warning(self.dontEvaluateThisString())
+        logger.warning(self.dontEvaluateThisString(), error: TestError.withMessage("\(self.dontEvaluateThisString())"))
+        logger.log(level: .warning, self.dontEvaluateThisString())
+    }
+
+    @Test func localMetadata() {
+        let testLogging = TestLogging()
+
+        var logger = Logger(
+            label: "\(#function)",
+            factory: {
+                testLogging.make(label: $0)
+            }
+        )
+        logger.info("hello world!", metadata: ["foo": "bar"])
+        logger[metadataKey: "bar"] = "baz"
+        logger[metadataKey: "baz"] = "qux"
+        logger.warning("hello world!")
+        logger.error("hello world!", metadata: ["baz": "quc"])
+        testLogging.history.assertExist(level: .info, message: "hello world!", metadata: ["foo": "bar"])
+        testLogging.history.assertExist(
+            level: .warning,
+            message: "hello world!",
+            metadata: ["bar": "baz", "baz": "qux"]
+        )
+        testLogging.history.assertExist(level: .error, message: "hello world!", metadata: ["bar": "baz", "baz": "quc"])
+    }
+
+    @Test func customFactory() {
+        struct CustomHandler: LogHandler {
+            func log(event: LogEvent) {}
+
+            subscript(metadataKey _: String) -> Logger.Metadata.Value? {
+                get { nil }
+                set {}
+            }
+
+            var metadata: Logger.Metadata {
+                get { Logger.Metadata() }
+                set {}
+            }
+
+            var logLevel: Logger.Level {
+                get { .info }
+                set {}
+            }
+        }
+
+        let logger1 = Logger(label: "foo")
+        #expect(!(logger1.handler is CustomHandler), "expected non-custom log handler")
+        let logger2 = Logger(label: "foo", factory: { _ in CustomHandler() })
+        #expect(logger2.handler is CustomHandler, "expected custom log handler")
+    }
+
+    @Test func errorParameter() {
+        let testLogging = TestLogging()
+
+        let logger = Logger(
+            label: "\(#function)",
+            factory: {
+                testLogging.make(label: $0)
+            }
+        )
+        logger.log(level: .info, "hello world!", error: TestError.boom)
+        testLogging.history.assertExist(level: .info, message: "hello world!", error: TestError.boom)
+    }
+
+    @Test func allLogLevelsExceptCriticalCanBeBlocked() {
+        let testLogging = TestLogging()
+
+        var logger = Logger(
+            label: "\(#function)",
+            factory: {
+                testLogging.make(label: $0)
+            }
+        )
+        logger.logLevel = .critical
+
+        logger.trace("no")
+        logger.debug("no")
+        logger.info("no")
+        logger.notice("no")
+        logger.warning("no")
+        logger.error("no")
+        logger.critical("yes: critical")
+
+        testLogging.history.assertNotExist(level: .trace, message: "no")
+        testLogging.history.assertNotExist(level: .debug, message: "no")
+        testLogging.history.assertNotExist(level: .info, message: "no")
+        testLogging.history.assertNotExist(level: .notice, message: "no")
+        testLogging.history.assertNotExist(level: .warning, message: "no")
+        testLogging.history.assertNotExist(level: .error, message: "no")
+        testLogging.history.assertExist(level: .critical, message: "yes: critical")
+    }
+
+    @Test func allLogLevelsWork() {
+        let testLogging = TestLogging()
+
+        var logger = Logger(
+            label: "\(#function)",
+            factory: {
+                testLogging.make(label: $0)
+            }
+        )
+        logger.logLevel = .trace
+
+        logger.trace("yes: trace")
+        logger.debug("yes: debug")
+        logger.info("yes: info")
+        logger.notice("yes: notice")
+        logger.warning("yes: warning")
+        logger.error("yes: error")
+        logger.critical("yes: critical")
+
+        testLogging.history.assertExist(level: .trace, message: "yes: trace")
+        testLogging.history.assertExist(level: .debug, message: "yes: debug")
+        testLogging.history.assertExist(level: .info, message: "yes: info")
+        testLogging.history.assertExist(level: .notice, message: "yes: notice")
+        testLogging.history.assertExist(level: .warning, message: "yes: warning")
+        testLogging.history.assertExist(level: .error, message: "yes: error")
+        testLogging.history.assertExist(level: .critical, message: "yes: critical")
+    }
+
+    @Test func allLogLevelByFunctionRefWithSourceAndError() {
+        let testLogging = TestLogging()
+
+        var logger = Logger(
+            label: "\(#function)",
+            factory: {
+                testLogging.make(label: $0)
+            }
+        )
+        logger.logLevel = .trace
+
+        let trace = logger.trace(_:error:metadata:source:file:function:line:)
+        let debug = logger.debug(_:error:metadata:source:file:function:line:)
+        let info = logger.info(_:error:metadata:source:file:function:line:)
+        let notice = logger.notice(_:error:metadata:source:file:function:line:)
+        let warning = logger.warning(_:error:metadata:source:file:function:line:)
+        let error = logger.error(_:error:metadata:source:file:function:line:)
+        let critical = logger.critical(_:error:metadata:source:file:function:line:)
+
+        trace("yes: trace", TestError.boom, [:], "foo", #file, #function, #line)
+        debug("yes: debug", TestError.boom, [:], "foo", #file, #function, #line)
+        info("yes: info", TestError.boom, [:], "foo", #file, #function, #line)
+        notice("yes: notice", TestError.boom, [:], "foo", #file, #function, #line)
+        warning("yes: warning", TestError.boom, [:], "foo", #file, #function, #line)
+        error("yes: error", TestError.boom, [:], "foo", #file, #function, #line)
+        critical("yes: critical", TestError.boom, [:], "foo", #file, #function, #line)
+
+        testLogging.history.assertExist(level: .trace, message: "yes: trace", error: TestError.boom, source: "foo")
+        testLogging.history.assertExist(level: .debug, message: "yes: debug", error: TestError.boom, source: "foo")
+        testLogging.history.assertExist(level: .info, message: "yes: info", error: TestError.boom, source: "foo")
+        testLogging.history.assertExist(level: .notice, message: "yes: notice", error: TestError.boom, source: "foo")
+        testLogging.history.assertExist(level: .warning, message: "yes: warning", error: TestError.boom, source: "foo")
+        testLogging.history.assertExist(level: .error, message: "yes: error", error: TestError.boom, source: "foo")
+        testLogging.history.assertExist(
+            level: .critical,
+            message: "yes: critical",
+            error: TestError.boom,
+            source: "foo"
+        )
+    }
+
+    @Test func allLogLevelByFunctionRefWithSourceWithoutError() {
+        let testLogging = TestLogging()
+
+        var logger = Logger(
+            label: "\(#function)",
+            factory: {
+                testLogging.make(label: $0)
+            }
+        )
+        logger.logLevel = .trace
+
+        let trace = logger.trace(_:metadata:source:file:function:line:)
+        let debug = logger.debug(_:metadata:source:file:function:line:)
+        let info = logger.info(_:metadata:source:file:function:line:)
+        let notice = logger.notice(_:metadata:source:file:function:line:)
+        let warning = logger.warning(_:metadata:source:file:function:line:)
+        let error = logger.error(_:metadata:source:file:function:line:)
+        let critical = logger.critical(_:metadata:source:file:function:line:)
+
+        trace("yes: trace", [:], "foo", #file, #function, #line)
+        debug("yes: debug", [:], "foo", #file, #function, #line)
+        info("yes: info", [:], "foo", #file, #function, #line)
+        notice("yes: notice", [:], "foo", #file, #function, #line)
+        warning("yes: warning", [:], "foo", #file, #function, #line)
+        error("yes: error", [:], "foo", #file, #function, #line)
+        critical("yes: critical", [:], "foo", #file, #function, #line)
+
+        testLogging.history.assertExist(level: .trace, message: "yes: trace", source: "foo")
+        testLogging.history.assertExist(level: .debug, message: "yes: debug", source: "foo")
+        testLogging.history.assertExist(level: .info, message: "yes: info", source: "foo")
+        testLogging.history.assertExist(level: .notice, message: "yes: notice", source: "foo")
+        testLogging.history.assertExist(level: .warning, message: "yes: warning", source: "foo")
+        testLogging.history.assertExist(level: .error, message: "yes: error", source: "foo")
+        testLogging.history.assertExist(level: .critical, message: "yes: critical", source: "foo")
+    }
+
+    @Test func allLogLevelByFunctionRefWithoutSourceOrError() {
+        let testLogging = TestLogging()
+
+        var logger = Logger(
+            label: "\(#function)",
+            factory: {
+                testLogging.make(label: $0)
+            }
+        )
+        logger.logLevel = .trace
+
+        let trace = logger.trace(_:metadata:file:function:line:)
+        let debug = logger.debug(_:metadata:file:function:line:)
+        let info = logger.info(_:metadata:file:function:line:)
+        let notice = logger.notice(_:metadata:file:function:line:)
+        let warning = logger.warning(_:metadata:file:function:line:)
+        let error = logger.error(_:metadata:file:function:line:)
+        let critical = logger.critical(_:metadata:file:function:line:)
+
+        trace("yes: trace", [:], #fileID, #function, #line)
+        debug("yes: debug", [:], #fileID, #function, #line)
+        info("yes: info", [:], #fileID, #function, #line)
+        notice("yes: notice", [:], #fileID, #function, #line)
+        warning("yes: warning", [:], #fileID, #function, #line)
+        error("yes: error", [:], #fileID, #function, #line)
+        critical("yes: critical", [:], #fileID, #function, #line)
+
+        testLogging.history.assertExist(level: .trace, message: "yes: trace")
+        testLogging.history.assertExist(level: .debug, message: "yes: debug")
+        testLogging.history.assertExist(level: .info, message: "yes: info")
+        testLogging.history.assertExist(level: .notice, message: "yes: notice")
+        testLogging.history.assertExist(level: .warning, message: "yes: warning")
+        testLogging.history.assertExist(level: .error, message: "yes: error")
+        testLogging.history.assertExist(level: .critical, message: "yes: critical")
+    }
+
+    @Test func logsEmittedFromSubdirectoryGetCorrectModuleInNewerSwifts() {
+        let testLogging = TestLogging()
+
+        var logger = Logger(
+            label: "\(#function)",
+            factory: {
+                testLogging.make(label: $0)
+            }
+        )
+        logger.logLevel = .trace
+
+        emitLogMessage("hello", to: logger)
+
+        let moduleName = "LoggingTests"  // the actual name
+
+        testLogging.history.assertExist(level: .trace, message: "hello", source: moduleName)
+        testLogging.history.assertExist(level: .debug, message: "hello", source: moduleName)
+        testLogging.history.assertExist(level: .info, message: "hello", source: moduleName)
+        testLogging.history.assertExist(level: .notice, message: "hello", source: moduleName)
+        testLogging.history.assertExist(level: .warning, message: "hello", source: moduleName)
+        testLogging.history.assertExist(level: .error, message: "hello", source: moduleName)
+        testLogging.history.assertExist(level: .critical, message: "hello", source: moduleName)
+    }
+
+    @Test func logMessageWithStringInterpolation() {
+        let testLogging = TestLogging()
+
+        var logger = Logger(
+            label: "\(#function)",
+            factory: {
+                testLogging.make(label: $0)
+            }
+        )
+        logger.logLevel = .debug
+
+        let someInt = Int.random(in: 23..<42)
+        logger.debug("My favourite number is \(someInt) and not \(someInt - 1)")
+        testLogging.history.assertExist(
+            level: .debug,
+            message: "My favourite number is \(someInt) and not \(someInt - 1)" as String
+        )
+    }
+
+    @Test func loggingAString() {
+        let testLogging = TestLogging()
+
+        var logger = Logger(
+            label: "\(#function)",
+            factory: {
+                testLogging.make(label: $0)
+            }
+        )
+        logger.logLevel = .debug
+
+        let anActualString: String = "hello world!"
+        // We can't stick an actual String in here because we expect a Logger.Message. If we want to log an existing
+        // `String`, we can use string interpolation. The error you'll get trying to use the String directly is:
+        //
+        //     error: Cannot convert value of type 'String' to expected argument type 'Logger.Message'
+        logger.debug("\(anActualString)")
+        testLogging.history.assertExist(level: .debug, message: "hello world!")
+    }
+
+    @Test func multiplexMetadataProviderMergesInSpecifiedOrder() {
+        let logging = TestLogging()
+
+        let providerA = Logger.MetadataProvider { ["provider": "a", "a": "foo"] }
+        let providerB = Logger.MetadataProvider { ["provider": "b", "b": "bar"] }
+        let logger = Logger(
+            label: #function,
+            factory: { label in
+                logging.makeWithMetadataProvider(label: label, metadataProvider: .multiplex([providerA, providerB]))
+            }
+        )
+
+        logger.log(level: .info, "test", metadata: ["one-off": "42"])
+
+        logging.history.assertExist(
+            level: .info,
+            message: "test",
+            metadata: ["provider": "b", "a": "foo", "b": "bar", "one-off": "42"]
+        )
+    }
+
+    @Test func multiplexerIsValue() {
+        let multi = MultiplexLogHandler([
+            StreamLogHandler.standardOutput(label: "x"), StreamLogHandler.standardOutput(label: "y"),
+        ])
+        let logger1: Logger = {
+            var logger = Logger(
+                label: "foo",
+                factory: { _ in
+                    print("new multi")
+                    return multi
+                }
+            )
+            logger.logLevel = .debug
+            logger[metadataKey: "only-on"] = "first"
+            return logger
+        }()
+        #expect(.debug == logger1.logLevel)
+        var logger2 = logger1
+        logger2.logLevel = .error
+        logger2[metadataKey: "only-on"] = "second"
+        #expect(.error == logger2.logLevel)
+        #expect(.debug == logger1.logLevel)
+        #expect("first" == logger1[metadataKey: "only-on"])
+        #expect("second" == logger2[metadataKey: "only-on"])
+        logger1.error("hey")
+    }
+
+    @Test func multiplexLogHandlerMetadataWithAttributes_settingAndReading() {
+        let logging1 = TestLogging()
+        let logging2 = TestLogging()
+
+        let logger1 = logging1.make(label: "1")
+        let logger2 = logging2.make(label: "2")
+
+        var multiplexLogger = Logger(
+            label: "test",
+            factory: { _ in
+                MultiplexLogHandler([logger1, logger2])
+            }
+        )
+
+        // Set metadata with attributes via string interpolation
+        multiplexLogger[metadataKey: "key1"] = "\("value1", attributes: { $0[TestAttr.self] = .x })"
+
+        // The value survives the round-trip
+        let retrieved = multiplexLogger[metadataKey: "key1"]
+        #expect(retrieved != nil)
+        #expect(retrieved?.description == "value1")
+
+        // Attributes are preserved inside .stringConvertible
+        #expect(retrieved?.attributes[TestAttr.self] == .x)
+    }
+
+    @Test func multiplexLogHandlerMetadataWithAttributes_forwardsEventWithAttributes() {
+        let logging1 = TestLogging()
+        let logging2 = TestLogging()
+
+        var logger = Logger(
+            label: "test",
+            factory: {
+                MultiplexLogHandler([logging1.make(label: $0), logging2.make(label: $0)])
+            }
+        )
+        logger.logLevel = .debug
+
+        // Log with metadata containing attributed values
+        logger.info("hello", metadata: ["request-id": "\("abc123")"])
+
+        // Both handlers should receive the message
+        logging1.history.assertExist(level: .info, message: "hello")
+        logging2.history.assertExist(level: .info, message: "hello")
+    }
+
+    @Test func metadataWithAttributes_flowsThroughHandler() {
+        let logging = TestLogging()
+
+        var logger = Logger(
+            label: "test",
+            factory: { logging.make(label: $0) }
+        )
+        logger.logLevel = .debug
+
+        // Log with metadata values that carry attributes
+        logger.info(
+            "attributed event",
+            metadata: [
+                "user-id": "\("12345", attributes: { $0[TestAttr.self] = .x })"
+            ]
+        )
+
+        // The handler should receive the message via LogEvent
+        logging.history.assertExist(level: .info, message: "attributed event")
+    }
+
+    /// Protects an object such that it can only be accessed while holding a lock.
+    private final class LockedValueBox<Value: Sendable>: @unchecked Sendable {
+        private let lock = Lock()
+        private var storage: Value
+
+        init(initialValue: Value) {
+            self.storage = initialValue
+        }
+
+        func withLock<Result>(_ operation: (Value) -> Result) -> Result {
+            self.lock.withLock {
+                operation(self.storage)
+            }
+        }
+
+        func withLockMutating(_ operation: (inout Value) -> Void) {
+            self.lock.withLockVoid {
+                operation(&self.storage)
+            }
+        }
+
+        var underlying: Value {
+            get { self.withLock { $0 } }
+            set { self.withLockMutating { $0 = newValue } }
+        }
+    }
+
+    @Test func loggerWithGlobalOverride() {
+        struct LogHandlerWithGlobalLogLevelOverride: LogHandler {
+            // the static properties hold the globally overridden log level (if overridden)
+            private static let overrideLogLevel = LockedValueBox<Logger.Level?>(initialValue: nil)
+
+            private let recorder: Recorder
+            // this holds the log level if not overridden
+            private var _logLevel: Logger.Level = .info
+
+            // metadata storage
+            var metadata: Logger.Metadata = [:]
+
+            init(recorder: Recorder) {
+                self.recorder = recorder
+            }
+
+            var logLevel: Logger.Level {
+                // when we get asked for the log level, we check if it was globally overridden or not
+                get {
+                    LogHandlerWithGlobalLogLevelOverride.overrideLogLevel.underlying ?? self._logLevel
+                }
+                // we set the log level whenever we're asked (note: this might not have an effect if globally
+                // overridden)
+                set {
+                    self._logLevel = newValue
+                }
+            }
+
+            func log(event: LogEvent) {
+                self.recorder.record(
+                    level: event.level,
+                    metadata: event.metadata,
+                    message: event.message,
+                    source: event.source
+                )
+            }
+
+            subscript(metadataKey metadataKey: String) -> Logger.Metadata.Value? {
+                get {
+                    self.metadata[metadataKey]
+                }
+                set(newValue) {
+                    self.metadata[metadataKey] = newValue
+                }
+            }
+
+            // this is the function to globally override the log level, it is not part of the `LogHandler` protocol
+            static func overrideGlobalLogLevel(_ logLevel: Logger.Level) {
+                LogHandlerWithGlobalLogLevelOverride.overrideLogLevel.underlying = logLevel
+            }
+        }
+
+        let logRecorder = Recorder()
+
+        var logger1 = Logger(
+            label: "logger-\(#file):\(#line)",
+            factory: { _ in
+                LogHandlerWithGlobalLogLevelOverride(recorder: logRecorder)
+            }
+        )
+        var logger2 = logger1
+        logger1.logLevel = .warning
+        logger1[metadataKey: "only-on"] = "first"
+        logger2.logLevel = .error
+        logger2[metadataKey: "only-on"] = "second"
+        #expect(.error == logger2.logLevel)
+        #expect(.warning == logger1.logLevel)
+        #expect("first" == logger1[metadataKey: "only-on"])
+        #expect("second" == logger2[metadataKey: "only-on"])
+
+        logger1.notice("logger1, before")
+        logger2.notice("logger2, before")
+
+        LogHandlerWithGlobalLogLevelOverride.overrideGlobalLogLevel(.debug)
+
+        logger1.notice("logger1, after")
+        logger2.notice("logger2, after")
+
+        logRecorder.assertNotExist(level: .notice, message: "logger1, before")
+        logRecorder.assertNotExist(level: .notice, message: "logger2, before")
+        logRecorder.assertExist(level: .notice, message: "logger1, after")
+        logRecorder.assertExist(level: .notice, message: "logger2, after")
+    }
+
+    @Test func logLevelCases() {
+        let levels = Logger.Level.allCases
+        #expect(7 == levels.count)
+    }
+
+    @Test func logLevelOrdering() {
+        #expect(Logger.Level.trace < Logger.Level.debug)
+        #expect(Logger.Level.trace < Logger.Level.info)
+        #expect(Logger.Level.trace < Logger.Level.notice)
+        #expect(Logger.Level.trace < Logger.Level.warning)
+        #expect(Logger.Level.trace < Logger.Level.error)
+        #expect(Logger.Level.trace < Logger.Level.critical)
+        #expect(Logger.Level.debug < Logger.Level.info)
+        #expect(Logger.Level.debug < Logger.Level.notice)
+        #expect(Logger.Level.debug < Logger.Level.warning)
+        #expect(Logger.Level.debug < Logger.Level.error)
+        #expect(Logger.Level.debug < Logger.Level.critical)
+        #expect(Logger.Level.info < Logger.Level.notice)
+        #expect(Logger.Level.info < Logger.Level.warning)
+        #expect(Logger.Level.info < Logger.Level.error)
+        #expect(Logger.Level.info < Logger.Level.critical)
+        #expect(Logger.Level.notice < Logger.Level.warning)
+        #expect(Logger.Level.notice < Logger.Level.error)
+        #expect(Logger.Level.notice < Logger.Level.critical)
+        #expect(Logger.Level.warning < Logger.Level.error)
+        #expect(Logger.Level.warning < Logger.Level.critical)
+        #expect(Logger.Level.error < Logger.Level.critical)
+    }
+
+    @Test(arguments: Logger.Level.allCases) func logLevelDescription(level: Logger.Level) {
+        #expect(level.description == level.rawValue)
+        #expect(Logger.Level(level.rawValue.uppercased()) == level)
+    }
+
+    @Test func overloadingError() {
+        struct Dummy: Error, LocalizedError {
+            var errorDescription: String? {
+                "errorDescription"
+            }
+        }
+        // create test logging impl, do not bootstrap global LoggingSystem
+        let logging = TestLogging()
+
+        var logger = Logger(
+            label: "test",
+            factory: {
+                logging.make(label: $0)
+            }
+        )
+        logger.logLevel = .error
+        logger.error(error: Dummy())
+
+        logging.history.assertExist(level: .error, message: "errorDescription")
+    }
+
+    @Test func compileInitializeStandardStreamLogHandlersWithMetadataProviders() {
+        // avoid "unreachable code" warnings
+        let dontExecute = Int.random(in: 100...200) == 1
+        guard dontExecute else {
+            return
+        }
+
+        // default usage
+        LoggingSystem.bootstrap { (label: String) in StreamLogHandler.standardOutput(label: label) }
+        LoggingSystem.bootstrap { (label: String) in StreamLogHandler.standardError(label: label) }
+
+        // with metadata handler, explicitly, api
+        LoggingSystem.bootstrap(
+            { label, metadataProvider in
+                StreamLogHandler.standardOutput(label: label, metadataProvider: metadataProvider)
+            },
+            metadataProvider: .exampleProvider
+        )
+        LoggingSystem.bootstrap(
+            { label, metadataProvider in
+                StreamLogHandler.standardError(label: label, metadataProvider: metadataProvider)
+            },
+            metadataProvider: .exampleProvider
+        )
+
+        // with metadata handler, still pretty
+        LoggingSystem.bootstrap(
+            { (label: String, metadataProvider: Logger.MetadataProvider?) in
+                StreamLogHandler.standardOutput(label: label, metadataProvider: metadataProvider)
+            },
+            metadataProvider: .exampleProvider
+        )
+        LoggingSystem.bootstrap(
+            { (label: String, metadataProvider: Logger.MetadataProvider?) in
+                StreamLogHandler.standardError(label: label, metadataProvider: metadataProvider)
+            },
+            metadataProvider: .exampleProvider
+        )
+    }
+
+    @Test func loggerIsJustHoldingASinglePointer() {
+        let expectedSize = MemoryLayout<UnsafeRawPointer>.size
+        #expect(MemoryLayout<Logger>.size == expectedSize)
+    }
+
+    @Test func loggerCopyOnWrite() {
+        var logger1 = Logger(label: "foo")
+        logger1.logLevel = .error
+        var logger2 = logger1
+        logger2.logLevel = .trace
+        #expect(.error == logger1.logLevel)
+        #expect(.trace == logger2.logLevel)
+    }
+}
+
+extension Logger {
+    func error(
+        error: any Error,
+        metadata: @autoclosure () -> Logger.Metadata? = nil,
+        file: String = #fileID,
+        function: String = #function,
+        line: UInt = #line
+    ) {
+        self.error("\(error.localizedDescription)", metadata: metadata(), file: file, function: function, line: line)
+    }
+}
+
+extension Logger.MetadataProvider {
+    static var exampleProvider: Self {
+        .init { ["example": .string("example-value")] }
+    }
+
+    static func constant(_ metadata: Logger.Metadata) -> Self {
+        .init { metadata }
+    }
+}
+
+// MARK: - Sendable
+
+// used to test logging metadata which requires Sendable conformance
+// @unchecked Sendable since manages it own state
+extension LoggingTest.LazyMetadataBox: @unchecked Sendable {}

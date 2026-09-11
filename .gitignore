@@ -1,7 +1,5 @@
 xcuserdata/
 .build/
-.local-packages/
-Frameworks/
 releases
 /build/
 /tools/

@@ -447,9 +447,9 @@
 			mainGroup = AB00000000000000000006;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				AB00000000000000000050 /* XCRemoteSwiftPackageReference "ghosttykit-rootshell" */,
-				AB00000000000000000051 /* XCRemoteSwiftPackageReference "Citadel-rootshell" */,
-				AB00000000000000000052 /* XCRemoteSwiftPackageReference "ios_system-rootshell" */,
+				AB00000000000000000050 /* XCLocalSwiftPackageReference "vendor/ghosttykit-rootshell" */,
+				AB00000000000000000051 /* XCLocalSwiftPackageReference "vendor/Citadel-rootshell" */,
+				AB00000000000000000052 /* XCLocalSwiftPackageReference "vendor/ios_system-rootshell" */,
 				AE00000000000000000050 /* XCLocalSwiftPackageReference "Packages/ShellControlCore" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -837,53 +837,38 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
+		AB00000000000000000050 /* XCLocalSwiftPackageReference "vendor/ghosttykit-rootshell" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "vendor/ghosttykit-rootshell";
+		};
+		AB00000000000000000051 /* XCLocalSwiftPackageReference "vendor/Citadel-rootshell" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "vendor/Citadel-rootshell";
+		};
+		AB00000000000000000052 /* XCLocalSwiftPackageReference "vendor/ios_system-rootshell" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "vendor/ios_system-rootshell";
+		};
 		AE00000000000000000050 /* XCLocalSwiftPackageReference "Packages/ShellControlCore" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/ShellControlCore;
 		};
 /* End XCLocalSwiftPackageReference section */
 
-/* Begin XCRemoteSwiftPackageReference section */
-		AB00000000000000000050 /* XCRemoteSwiftPackageReference "ghosttykit-rootshell" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/kitknox/ghosttykit-rootshell.git";
-			requirement = {
-				kind = exactVersion;
-				version = 0.2.12;
-			};
-		};
-		AB00000000000000000051 /* XCRemoteSwiftPackageReference "Citadel-rootshell" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/kitknox/Citadel-rootshell.git";
-			requirement = {
-				kind = exactVersion;
-				version = 0.12.4;
-			};
-		};
-		AB00000000000000000052 /* XCRemoteSwiftPackageReference "ios_system-rootshell" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/kitknox/ios_system-rootshell.git";
-			requirement = {
-				kind = exactVersion;
-				version = 0.1.0;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
-
 /* Begin XCSwiftPackageProductDependency section */
 		AB00000000000000000053 /* GhosttyKitAppStore */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = AB00000000000000000050 /* XCRemoteSwiftPackageReference "ghosttykit-rootshell" */;
+			package = AB00000000000000000050 /* XCLocalSwiftPackageReference "vendor/ghosttykit-rootshell" */;
 			productName = GhosttyKitAppStore;
 		};
 		AB00000000000000000054 /* Citadel */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = AB00000000000000000051 /* XCRemoteSwiftPackageReference "Citadel-rootshell" */;
+			package = AB00000000000000000051 /* XCLocalSwiftPackageReference "vendor/Citadel-rootshell" */;
 			productName = Citadel;
 		};
 		AB00000000000000000055 /* ios_system */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = AB00000000000000000052 /* XCRemoteSwiftPackageReference "ios_system-rootshell" */;
+			package = AB00000000000000000052 /* XCLocalSwiftPackageReference "vendor/ios_system-rootshell" */;
 			productName = ios_system;
 		};
 		AE00000000000000000051 /* ShellControlProtocol */ = {

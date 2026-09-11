@@ -299,16 +299,37 @@ xcrun swiftc Shared/MacBridge.swift tests/MacSupportSmoke.swift -o /tmp/shell-ma
 /tmp/shell-mac-support-smoke .derivedData/Build/Products/Debug/ShellMacSupport.bundle
 ```
 
-`shell.xcodeproj` resolves its binary dependencies (GhosttyKit, ios_system) and Citadel
-through Swift Package Manager. When SwiftPM cannot reach the network, fetch the
-xcframeworks once and build against a local override instead:
+## Dependencies
+
+Every external Swift package — GhosttyKit, ios_system, Citadel, and their
+transitive Apple and third-party packages — is vendored under `vendor/`, so a
+build never resolves anything over the network and there is no `Package.resolved`
+to drift. `vendor/manifest` pins each package to an upstream tag;
+`scripts/vendor.py` fetches those pins, rewrites each package's `Package.swift`
+so it depends on its vendored siblings by path, keeps only the xcframework
+targets named in the manifest (SwiftPM fetches each zip and verifies the
+upstream SHA-256, so the binaries are content-pinned without bloating the
+repository), and strips the dependencies this project never builds (marked
+`drop=`). Every local
+change is mechanical and regenerated on each sync, so pulling an upstream
+release is a one-line pin bump with nothing to merge:
 
 ```sh
-./scripts/fetch-frameworks.sh
-./scripts/use-local-frameworks.sh on
-./scripts/build.sh
-./scripts/use-local-frameworks.sh off   # restore the upstream packages before committing
+./scripts/vendor.py status                              # pinned vs newest upstream tag
+./scripts/vendor.py update Citadel-rootshell 0.12.5     # bump a pin, refetch, relocalize, stage
+./scripts/vendor.py sync                                # make vendor/ match the manifest
+./scripts/vendor.py verify                              # offline consistency check (CI runs this)
 ```
+
+A pinned package's contents are replaced wholesale on update, so hand edits to
+vendored code go in `vendor/patches/<package>/*.patch` (plain `git diff` output
+taken at the repository root); they are re-applied after localization, and a
+patch that no longer applies stops the sync so it can be rebased rather than
+silently dropped. `vendor/manifest.lock` records the resolved commits and binary
+checksums and is written by the tool. The xcframework zips are the only thing a
+build fetches; Xcode caches them in DerivedData. Upstream submodules are not fetched: the
+ios_system tree is carried for provenance, not compiled — the app links its
+xcframeworks.
 
 ## Releasing
 
@@ -319,7 +340,7 @@ the repository provides is the shared schemes those workflows build and the
 
 | Script | When | What it does |
 | --- | --- | --- |
-| `ci_scripts/ci_post_clone.sh` | after clone | Writes `Configuration/Local.xcconfig` from the `SHELL_CONTROL_BROKER_URL` environment variable, so Release Watch builds reach a real broker instead of the `control.invalid` placeholder |
+| `ci_scripts/ci_post_clone.sh` | after clone | Runs `./scripts/vendor.py verify` so a build fails fast if `vendor/` and `vendor/manifest` disagree, then writes `Configuration/Local.xcconfig` from the `SHELL_CONTROL_BROKER_URL` environment variable, so Release Watch builds reach a real broker instead of the `control.invalid` placeholder |
 | `ci_scripts/ci_pre_xcodebuild.sh` | before build | Stamps `CI_BUILD_NUMBER` into `CURRENT_PROJECT_VERSION` in `Configuration/Base.xcconfig` and `Configuration/Watch.xcconfig` |
 | `ci_scripts/ci_post_xcodebuild.sh` | after build | Runs `./scripts/test-control.sh` on test actions — the control packages are plain SwiftPM packages that no Xcode scheme covers |
 

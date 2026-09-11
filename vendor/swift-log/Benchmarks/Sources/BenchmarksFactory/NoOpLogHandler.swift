@@ -1,0 +1,132 @@
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Swift Logging API open source project
+//
+// Copyright (c) 2025 Apple Inc. and the Swift Logging API project authors
+// Licensed under Apache License v2.0
+//
+// See LICENSE.txt for license information
+// See CONTRIBUTORS.txt for the list of Swift Logging API project authors
+//
+// SPDX-License-Identifier: Apache-2.0
+//
+//===----------------------------------------------------------------------===//
+
+import Logging
+
+// MARK: - Benchmark attributes
+
+public enum BenchmarkSensitivity: Int64, Logger.MetadataValueAttributes.Attribute, Sendable {
+    case sensitive = 1
+    case `public` = 2
+}
+
+extension Logger.MetadataValue.StringInterpolation {
+    @inlinable
+    public mutating func appendInterpolation<T: CustomStringConvertible & Sendable>(
+        _ value: T,
+        sensitivity: BenchmarkSensitivity
+    ) {
+        self.appendInterpolation(value, attributes: { $0[BenchmarkSensitivity.self] = sensitivity })
+    }
+}
+
+public enum BenchmarkColor: Int64, Logger.MetadataValueAttributes.Attribute, Sendable {
+    case red = 1
+    case blue = 2
+}
+
+extension Logger.MetadataValue.StringInterpolation {
+    @inlinable
+    public mutating func appendInterpolation<T: CustomStringConvertible & Sendable>(
+        _ value: T,
+        color: BenchmarkColor
+    ) {
+        self.appendInterpolation(value, attributes: { $0[BenchmarkColor.self] = color })
+    }
+}
+
+// MARK: - NoOpLogHandler
+
+struct NoOpLogHandler: LogHandler {
+    let label: String
+    public var metadataProvider: Logger.MetadataProvider?
+
+    init(label: String, metadataProvider: Logger.MetadataProvider?) {
+        self.label = label
+        self.metadataProvider = metadataProvider
+    }
+
+    init(label: String) {
+        self.label = label
+        self.metadataProvider = LoggingSystem.metadataProvider
+    }
+
+    func log(
+        event: LogEvent
+    ) {
+        // Access metadata attributes
+        if let metadata = event.metadata {
+            for (_, value) in metadata {
+                let _ = value.attributes
+            }
+        }
+
+        // Do nothing
+    }
+
+    func log(
+        level: Logger.Level,
+        message: Logger.Message,
+        metadata explicitMetadata: Logger.Metadata?,
+        source: String,
+        file: String,
+        function: String,
+        line: UInt
+    ) {
+        // Access metadata attributes
+        if let metadata = explicitMetadata {
+            for (_, value) in metadata {
+                let _ = value.attributes
+            }
+        }
+
+        // Do nothing
+    }
+
+    private var _logLevel: Logger.Level?
+    var logLevel: Logger.Level {
+        get {
+            self._logLevel ?? .debug
+        }
+        set {
+            self._logLevel = newValue
+        }
+    }
+
+    private var _metadataSet = false
+    private var _metadata = Logger.Metadata() {
+        didSet {
+            self._metadataSet = true
+        }
+    }
+
+    public var metadata: Logger.Metadata {
+        get {
+            self._metadata
+        }
+        set {
+            self._metadata = newValue
+        }
+    }
+
+    // TODO: would be nice to delegate to local copy of logger but StdoutLogger is a reference type. why?
+    subscript(metadataKey metadataKey: Logger.Metadata.Key) -> Logger.Metadata.Value? {
+        get {
+            self._metadata[metadataKey]
+        }
+        set {
+            self._metadata[metadataKey] = newValue
+        }
+    }
+}
