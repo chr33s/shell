@@ -133,6 +133,7 @@
 		AD00000000000000000003 /* ShellTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ShellTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		AE00000000000000000003 /* ShellWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ShellWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AE00000000000000000010 /* Watch.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Watch.xcconfig; sourceTree = "<group>"; };
+		AE00000000000000000011 /* WatchDebug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = WatchDebug.xcconfig; sourceTree = "<group>"; };
 		AF00000000000000000003 /* ShellWatchTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ShellWatchTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -278,6 +279,7 @@
 				AB00000000000000000011 /* Debug.xcconfig */,
 				AB00000000000000000012 /* Release.xcconfig */,
 				AE00000000000000000010 /* Watch.xcconfig */,
+				AE00000000000000000011 /* WatchDebug.xcconfig */,
 			);
 			path = Configuration;
 			sourceTree = "<group>";
@@ -724,15 +726,10 @@
 		};
 		AE00000000000000000041 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = AE00000000000000000010 /* Watch.xcconfig */;
+			baseConfigurationReference = AE00000000000000000011 /* WatchDebug.xcconfig */;
 			buildSettings = {
 				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = 72KB9YQR7B;
-				ENABLE_TESTABILITY = YES;
-				ONLY_ACTIVE_ARCH = YES;
-				SHELL_CONTROL_BROKER_URL = "http://localhost:8443";
-				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
-				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
 			name = Debug;
 		};

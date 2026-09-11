@@ -12,6 +12,7 @@ struct ShellWatchApp: App {
     @WKApplicationDelegateAdaptor(WatchAppDelegate.self) private var delegate
     @State private var session: ControlSession?
     @State private var startupError: String?
+    @State private var waitingForPairing = false
 
     var body: some Scene {
         WindowGroup {
@@ -19,6 +20,12 @@ struct ShellWatchApp: App {
                 if let session {
                     RootView(session: session)
                         .environment(session)
+                } else if waitingForPairing {
+                    ContentUnavailableView(
+                        String(localized: "Waiting for iPhone"),
+                        systemImage: "applewatch.radiowaves.left.and.right",
+                        description: Text(String(localized: "Open Settings → Control on iPhone and scan the pairing QR from npx @chr33s/shell."))
+                    )
                 } else if let startupError {
                     ContentUnavailableView(
                         String(localized: "Setup needed"),
@@ -35,12 +42,54 @@ struct ShellWatchApp: App {
 
     private func bootstrap() async {
         guard session == nil else { return }
-        guard let brokerURL = ShellWatchConfiguration.brokerURL else {
-            // Saying so beats dialling a placeholder host and surfacing an
-            // opaque network error during enrollment.
-            startupError = String(localized: "This build has no control service configured. Set SHELL_CONTROL_BROKER_URL and rebuild.")
+        ControlPairingSession.shared.onBrokerURL = { url in
+            Task { await adoptBrokerURL(url) }
+        }
+        ControlPairingSession.shared.activate()
+        if let runtime = runtimeBrokerURL {
+            await startSession(runtime)
             return
         }
+        // Prefer a phone-paired host over a Debug baked localhost, which would
+        // otherwise enroll against loopback before WatchConnectivity arrives.
+        // WCSession activation plus the first application-context delivery is
+        // not bounded by two seconds on a cold launch, and a loopback baked URL
+        // is unreachable from the watch anyway, so wait it out in that case.
+        let bakedIsReachable = ShellWatchConfiguration.bakedBrokerURL
+            .flatMap(\.host)
+            .map { !ControlBrokerAddress.isLoopbackHost($0) } ?? false
+        if let inbound = await ControlPairingSession.shared.waitForBrokerURL(timeout: bakedIsReachable ? 2 : 10) {
+            await adoptBrokerURL(inbound)
+            return
+        }
+        if let baked = ShellWatchConfiguration.bakedBrokerURL {
+            await startSession(baked)
+        } else {
+            waitingForPairing = true
+        }
+    }
+
+    private var runtimeBrokerURL: URL? {
+        guard let stored = UserDefaults.standard.string(forKey: ControlBrokerAddress.runtimeDefaultsKey),
+              let url = URL(string: stored)
+        else { return nil }
+        return ControlBrokerAddress.normalize(url)
+    }
+
+    private func adoptBrokerURL(_ url: URL) async {
+        guard let broker = ControlBrokerAddress.normalize(url) else { return }
+        let defaults = UserDefaults.standard
+        let previous = ShellWatchConfiguration.brokerURL
+        defaults.set(broker.absoluteString, forKey: ControlBrokerAddress.runtimeDefaultsKey)
+        if previous == broker, session != nil { return }
+        waitingForPairing = false
+        startupError = nil
+        session?.signOut()
+        session = nil
+        await startSession(broker)
+    }
+
+    private func startSession(_ brokerURL: URL) async {
         do {
             let session = try ControlSession(
                 brokerURL: brokerURL,
@@ -60,21 +109,21 @@ struct ShellWatchApp: App {
     }
 }
 
-/// Build-time configuration. The broker address is a deployment choice, and
-/// changing it requires re-enrollment and clearing the old cache
-/// (spec.watch.md section 5).
+/// Build-time configuration. A pairing QR may override the baked URL at
+/// runtime (spec.watch.md section 5).
 enum ShellWatchConfiguration {
     /// The placeholder a build without a configured broker carries.
-    static let unconfiguredHost = "control.invalid"
+    static let unconfiguredHost = ControlBrokerAddress.unconfiguredHost
+
+    static var bakedBrokerURL: URL? {
+        ControlBrokerAddress.url(from: Bundle.main.object(forInfoDictionaryKey: "SHELLControlBrokerURL"))
+    }
 
     static var brokerURL: URL? {
-        guard let text = Bundle.main.object(forInfoDictionaryKey: "SHELLControlBrokerURL") as? String,
-              let url = URL(string: text),
-              url.host != unconfiguredHost
-        else {
-            return nil
-        }
-        return url
+        ControlBrokerAddress.effective(
+            runtime: UserDefaults.standard.string(forKey: ControlBrokerAddress.runtimeDefaultsKey),
+            baked: bakedBrokerURL
+        )
     }
 
     static var keychainAccessGroup: String? {

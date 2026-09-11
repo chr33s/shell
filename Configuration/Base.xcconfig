@@ -34,6 +34,13 @@ INFOPLIST_FILE = shell/Info.plist
 SHELL_KEYCHAIN_ACCESS_GROUP = $(AppIdentifierPrefix)dev.chr33s.shell
 SHELL_CLOUDKIT_CONTAINER = iCloud.dev.chr33s.shell
 
+// Runtime configuration the phone and Watch read back from Info.plist.
+// The placeholder is recognised as "no broker configured". A real host is
+// supplied by Configuration/Local.xcconfig (untracked) or by the Xcode Cloud
+// SHELL_CONTROL_BROKER_URL environment variable. The `$()` splits `//`, which
+// xcconfig would otherwise treat as a comment.
+SHELL_CONTROL_BROKER_URL = https:/$()/control.invalid
+
 // Entitlements
 CODE_SIGN_ENTITLEMENTS = shell/Entitlements/Shell.entitlements
 CODE_SIGN_STYLE = Automatic
@@ -58,6 +65,7 @@ GENERATE_INFOPLIST_FILE = YES
 INFOPLIST_KEY_CFBundleDisplayName = Shell
 INFOPLIST_KEY_LSApplicationCategoryType = public.app-category.developer-tools
 INFOPLIST_KEY_NSFaceIDUsageDescription = Authenticate to use SSH keys protected by the Secure Enclave or Keychain.
+INFOPLIST_KEY_NSCameraUsageDescription = Scan a pairing QR from npx @chr33s/shell to connect this device to your Mac broker.
 INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES
 INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES
 INFOPLIST_KEY_UILaunchScreen_Generation = YES
@@ -91,3 +99,6 @@ EXCLUDED_SOURCE_FILE_NAMES[sdk=macosx*] = $(inherited) commandDictionary.plist e
 // so an x86_64 simulator build has nothing to link against.
 EXCLUDED_ARCHS[sdk=iphonesimulator*] = $(inherited) x86_64
 EXCLUDED_ARCHS[sdk=xrsimulator*] = $(inherited) x86_64
+
+// An untracked local override, if the developer or Xcode Cloud has one.
+#include? "Local.xcconfig"

@@ -79,6 +79,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             Task { @MainActor in
                 await CloudKitSyncManager.shared.logDiagnostics()
                 await CloudKitSyncManager.shared.revalidateSubscriptionsIfNeeded()
+                await ControlCompanion.shared.start()
+                ControlPairingSupport.activate()
             }
         }
 
@@ -129,7 +131,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             userInfo: response.notification.request.content.userInfo
         )
         Task { @MainActor in
-            ControlNotifications.pendingIntent = intent
+            ControlNotifications.requestReview(intent)
             completionHandler()
         }
     }

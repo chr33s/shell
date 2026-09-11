@@ -75,9 +75,24 @@ enum ControlNotifications {
         }
     }
 
+    /// Posted when a notification response selects a review intent. The payload
+    /// is only a request id; the app still fetches before showing anything.
+    static let reviewRequested = Notification.Name("dev.chr33s.shell.control.reviewRequested")
+
     /// The request a notification response asked to open. A scene reads and
     /// clears it; it is never treated as a decision.
     @MainActor static var pendingIntent: ReviewIntent?
+
+    @MainActor
+    static func requestReview(_ intent: ReviewIntent?) {
+        pendingIntent = intent
+        guard let intent else { return }
+        NotificationCenter.default.post(
+            name: reviewRequested,
+            object: nil,
+            userInfo: ["request_id": intent.requestID.rawValue]
+        )
+    }
 
     /// A terminal-sourced informational alert.
     ///

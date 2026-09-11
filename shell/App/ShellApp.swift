@@ -5,6 +5,7 @@
 
 import SwiftUI
 import Combine
+import ShellControlClient
 
 #if canImport(UIKit)
 import UIKit
@@ -49,6 +50,7 @@ struct ShellApp: App {
                 .environmentObject(ghosttyApp)
                 .preferredColorScheme(appearanceManager.colorScheme)
                 .statusBarStyleForTerminalTheme()
+                .modifier(ControlReviewPresentationModifier())
                 .task {
                     guard ProtectedDataGuard.isAvailable else { return }
                     guard !Self.didRunAppStartupTasks else { return }
@@ -64,6 +66,17 @@ struct ShellApp: App {
                 // as well would open the same host a second time in that window.
                 #if !targetEnvironment(macCatalyst)
                 .onOpenURL { url in
+                    if let broker = ControlBrokerAddress.parsePairingLink(url) {
+                        Task { @MainActor in
+                            // Hand the ORIGINAL link over, not the normalized
+                            // broker: normalizing drops the query string, and
+                            // applyPairedBroker reads the `token` item off it
+                            // to show the code the CLI asks the user to match.
+                            _ = await ControlCompanion.shared.applyPairedBroker(url)
+                            NotificationCenter.default.post(name: .controlPairingReceived, object: broker)
+                        }
+                        return
+                    }
                     guard let components = SSHURLParser.parse(url) else { return }
                     // Address the open to a single scene, the way Catalyst does.
                     // The receiver in MainView+Notifications treats an ABSENT

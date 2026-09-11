@@ -9,6 +9,33 @@ import ShellControlProtocol
 /// session handling; what must not change is that confirming requires account
 /// administration, and that the user sees what is being granted first.
 enum ConfirmationPage {
+    static func pair(brokerURL: String) -> String {
+        let link = "shell-control://pair?broker=\(queryEscape(brokerURL))"
+        return page(title: "Open Shell", body: """
+        <p>This is a pairing page for the Shell control companion. It does not
+        enrol anything by itself.</p>
+        <p><a href="\(escape(link))">Open in Shell</a></p>
+        <p class="hint">If the link does nothing, paste this broker URL in
+        Settings → Control:</p>
+        <p><code>\(escape(brokerURL))</code></p>
+        """)
+    }
+
+    static func pairUnavailable() -> String {
+        page(title: "Pairing is not configured", body: """
+        <p>This broker has no public URL, so it will not tell a device where to
+        connect. Set <code>SHELL_CONTROL_PUBLIC_URL</code> and restart.</p>
+        """)
+    }
+
+    /// Percent-encode a query value. HTML-escaping is not URL encoding and would
+    /// leave <code>://</code> intact inside <code>broker=</code>.
+    static func queryEscape(_ text: String) -> String {
+        var allowed = CharacterSet.alphanumerics
+        allowed.insert(charactersIn: "-._~")
+        return text.addingPercentEncoding(withAllowedCharacters: allowed) ?? text
+    }
+
     static func form(userCode: String, message: String?) -> String {
         page(title: "Confirm a device", body: """
         <p>Enter the administration secret for this service to see what

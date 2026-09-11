@@ -47,10 +47,9 @@ SHELL_WATCH_KEYCHAIN_ACCESS_GROUP = $(AppIdentifierPrefix)dev.chr33s.shell.watch
 // ShellWatch/Info.plist and are substituted from here.
 //
 // The placeholder below is recognised by the app as "no broker configured", so
-// a Release build never ships pointing at somebody's laptop. The ShellWatch
-// target's Debug configuration overrides it with http://localhost:8443, which
-// is what ./scripts/run-broker.sh serves — so Xcode's Run button works against
-// a local broker with no extra setup.
+// a Release build never ships pointing at somebody's laptop. WatchDebug.xcconfig
+// overrides it with the loopback broker ./scripts/run-broker.sh serves, so
+// Xcode's Run button works against a local broker with no extra setup.
 //
 // Point a build at a different service either on the command line:
 //

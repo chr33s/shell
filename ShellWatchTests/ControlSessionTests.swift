@@ -14,14 +14,25 @@ final class ControlSessionTests: XCTestCase {
     private func makeSession(
         service: StubControlService,
         credentials: InMemoryCredentialStore,
-        cache: InMemoryInboxCache = InMemoryInboxCache()
+        cache: InMemoryInboxCache = InMemoryInboxCache(),
+        defaults: UserDefaults? = nil
     ) throws -> ControlSession {
-        try ControlSession(
+        let defaults = defaults ?? {
+            // A device holding credentials has necessarily already started
+            // against the broker that issued them, so record it. Credentials
+            // with NO stored broker means they came from somewhere else — the
+            // reinstall case — and `start()` correctly wipes them.
+            let fresh = UserDefaults(suiteName: "watch-session-\(UUID().uuidString)")!
+            fresh.set("https://control.test", forKey: ControlBrokerAddress.defaultsKey)
+            return fresh
+        }()
+        return try ControlSession(
             brokerURL: URL(string: "https://control.test")!,
             credentials: credentials,
             cache: cache,
             journalStore: InMemoryCommandJournal(),
             transport: service,
+            defaults: defaults,
             now: { [now] in now.date }
         )
     }
@@ -188,6 +199,53 @@ final class ControlSessionTests: XCTestCase {
         let session = try makeSession(service: service, credentials: InMemoryCredentialStore())
         await session.start()
         XCTAssertEqual(session.phase, .needsEnrollment)
+        let requests = await service.requests
+        XCTAssertTrue(requests.isEmpty)
+    }
+
+    func testChangingTheBakedBrokerURLClearsWatchCredentials() async throws {
+        let service = makeService()
+        let credentials = InMemoryCredentialStore()
+        try credentials.storeSigningKey(InMemoryDeviceKey())
+        try credentials.storeSession(await service.session())
+        let cache = InMemoryInboxCache()
+        var seeded = InboxState()
+        seeded.approvals[.random()] = try WatchTestFixtures.makeRecord(createdAt: now)
+        try cache.commit(seeded)
+        let suiteName = "watch-broker-wipe-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defaults.set("https://old.example", forKey: ControlBrokerAddress.defaultsKey)
+
+        let session = try makeSession(service: service, credentials: credentials, cache: cache, defaults: defaults)
+        await session.start()
+
+        XCTAssertEqual(session.phase, .needsEnrollment)
+        XCTAssertNil(try credentials.loadSession())
+        XCTAssertTrue(session.inbox.approvals.isEmpty)
+        XCTAssertEqual(defaults.string(forKey: ControlBrokerAddress.defaultsKey), "https://control.test")
+    }
+
+    /// Deleting the app drops `UserDefaults` but leaves the Keychain, so a
+    /// reinstall that pairs with a different broker arrives with credentials
+    /// and nothing stored. Those credentials belong to the previous broker and
+    /// must never be presented to the new one.
+    func testCredentialsWithoutAStoredBrokerAreTreatedAsAnotherBrokers() async throws {
+        let service = makeService()
+        let credentials = InMemoryCredentialStore()
+        try credentials.storeSigningKey(InMemoryDeviceKey())
+        try credentials.storeSession(await service.session())
+        let cache = InMemoryInboxCache()
+        var seeded = InboxState()
+        seeded.approvals[.random()] = try WatchTestFixtures.makeRecord(createdAt: now)
+        try cache.commit(seeded)
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "watch-reinstall-\(UUID().uuidString)"))
+
+        let session = try makeSession(service: service, credentials: credentials, cache: cache, defaults: defaults)
+        await session.start()
+
+        XCTAssertEqual(session.phase, .needsEnrollment)
+        XCTAssertNil(try credentials.loadSession())
+        XCTAssertTrue(session.inbox.approvals.isEmpty)
         let requests = await service.requests
         XCTAssertTrue(requests.isEmpty)
     }

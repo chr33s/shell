@@ -15,17 +15,22 @@ public struct BrokerService: Sendable {
         /// policy changes require it; decision credentials never suffice.
         public var adminSecret: String
         public var adminAccountID: ControlID
+        /// Public HTTPS origin used for `/pair` deep links. Optional: without
+        /// it the pairing page still works against the request Host.
+        public var publicURL: String
 
         public init(
             verificationURI: String,
             allowedAPNsTopics: Set<String>,
             adminSecret: String,
-            adminAccountID: ControlID
+            adminAccountID: ControlID,
+            publicURL: String = ""
         ) {
             self.verificationURI = verificationURI
             self.allowedAPNsTopics = allowedAPNsTopics
             self.adminSecret = adminSecret
             self.adminAccountID = adminAccountID
+            self.publicURL = publicURL
         }
     }
 
@@ -56,6 +61,35 @@ public struct BrokerService: Sendable {
         switch (request.method, request.path) {
         case ("GET", "/v1/capabilities"):
             return json(status: 200, await store.capabilities().json)
+
+        case ("GET", "/pair"):
+            // Never take the broker URL from Host: a spoofed Host would deep-link
+            // the app at an attacker. The configured public URL is the only source.
+            guard !configuration.publicURL.isEmpty else {
+                return html(status: 503, ConfirmationPage.pairUnavailable())
+            }
+            return html(status: 200, ConfirmationPage.pair(brokerURL: configuration.publicURL))
+
+        case ("GET", "/v1/admin/pending"):
+            try await limiter.check(bucket: "admin", limit: 30)
+            _ = try localAdministrator(request)
+            return json(status: 200, try await store.pendingDeviceAuthorizations())
+
+        case ("POST", "/v1/admin/origins"):
+            try await limiter.check(bucket: "admin", limit: 30)
+            let principal = try localAdministrator(request)
+            guard case .admin(let accountID) = principal else {
+                throw ControlError(code: .notAuthorized, message: "account administration required")
+            }
+            var reader = try JSONReader(try body(request))
+            let label = try reader.optionalString("label", maxLength: 120) ?? "origin"
+            try reader.rejectUnknownMembers()
+            let created = try await store.provisionOrigin(accountID: accountID, label: label)
+            return json(status: 201, .object([
+                "origin_id": JSONValue(created.originID),
+                "origin_secret": .string(created.secret),
+                "label": .string(label),
+            ]))
 
         // MARK: Enrollment (no control authority)
 
@@ -365,6 +399,47 @@ public struct BrokerService: Sendable {
             throw ControlError(code: .notAuthorized, message: "account administration required")
         }
         return .admin(accountID: configuration.adminAccountID)
+    }
+
+    /// Headers cloudflared stamps onto everything it proxies. A client cannot
+    /// remove them, so their presence means the request arrived through the
+    /// tunnel whatever its `Host` claims.
+    private static let forwardingHeaders = [
+        "cf-connecting-ip", "cf-ray", "cf-ipcountry", "cf-visitor",
+        "x-forwarded-for", "x-forwarded-proto", "forwarded",
+    ]
+
+    /// Admin routes are loopback-only. The listening socket is already bound to
+    /// 127.0.0.1, but cloudflared dials it from loopback too, so the peer
+    /// address cannot tell the local CLI from the public tunnel. `Host` alone
+    /// cannot either: it is attacker-controlled end to end, and a request
+    /// through the tunnel can claim `Host: 127.0.0.1` as easily as the CLI
+    /// does. Requiring a loopback `Host` AND the absence of any forwarding
+    /// header means a tunnelled request fails one check or the other. The admin
+    /// secret is still required on top of this.
+    private func localAdministrator(_ request: HTTPServer.Request, formSecret: String? = nil) throws -> Principal {
+        guard isLoopbackHost(request), !isForwarded(request) else {
+            throw ControlError(code: .notFound, message: "no such endpoint")
+        }
+        return try administrator(request, formSecret: formSecret)
+    }
+
+    private func isForwarded(_ request: HTTPServer.Request) -> Bool {
+        BrokerService.forwardingHeaders.contains { request.header($0) != nil }
+    }
+
+    /// Strips the brackets off an IPv6 literal before the port: splitting on
+    /// `:` first turned `[::1]:8443` into `[`, so IPv6 loopback never matched.
+    private func isLoopbackHost(_ request: HTTPServer.Request) -> Bool {
+        var host = (request.header("Host") ?? "").lowercased()
+        if host.hasPrefix("["), let end = host.firstIndex(of: "]") {
+            host = String(host[host.index(after: host.startIndex)..<end])
+        } else if host.filter({ $0 == ":" }).count == 1,
+                  let colon = host.firstIndex(of: ":"),
+                  host[host.index(after: colon)...].allSatisfy(\.isNumber) {
+            host = String(host[..<colon])
+        }
+        return host == "localhost" || host == "127.0.0.1" || host == "::1"
     }
 
     private func wantsHTML(_ request: HTTPServer.Request) -> Bool {

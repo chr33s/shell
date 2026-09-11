@@ -13,6 +13,8 @@
 import UserNotifications
 import XCTest
 import ShellControlProtocol
+import ShellControlSecurity
+import ShellControlClient
 
 @testable import Shell
 
@@ -115,5 +117,117 @@ final class ControlCompanionWiringTests: XCTestCase {
     private func controlSource() throws -> String {
         try SourceTree.requireSources()
         return SourceTree.allAppSource()
+    }
+
+    // MARK: - Baked broker and phone-first setup
+
+    func testThePhoneInfoPlistCarriesTheBrokerURLKey() {
+        XCTAssertNotNil(
+            Bundle.main.object(forInfoDictionaryKey: "SHELLControlBrokerURL"),
+            "the iOS Info.plist must substitute SHELL_CONTROL_BROKER_URL so TestFlight can bake a host"
+        )
+        if let url = ControlCompanion.shared.resolvedBrokerURL {
+            XCTAssertTrue(
+                ControlBrokerAddress.isAcceptable(url),
+                "a baked broker must be HTTPS or loopback HTTP, not the placeholder"
+            )
+        }
+    }
+
+    func testThePlaceholderBrokerLeavesTheCompanionInert() {
+        XCTAssertNil(ControlBrokerAddress.url(from: "https://control.invalid"))
+        XCTAssertEqual(ControlBrokerAddress.unconfiguredHost, "control.invalid")
+    }
+
+    func testChangingTheBakedBrokerURLClearsCredentials() async throws {
+        let suiteName = "control-companion-wipe-\(UUID().uuidString)"
+        let suite = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { suite.removePersistentDomain(forName: suiteName) }
+        let credentials = InMemoryCredentialStore()
+        try credentials.storeSigningKey(InMemoryDeviceKey())
+        try credentials.storeSession(
+            DeviceSession(
+                deviceID: .random(),
+                accountID: .random(),
+                accessToken: "access",
+                accessTokenExpiresAt: ControlTimestamp(Date().addingTimeInterval(600)),
+                refreshToken: "refresh",
+                grants: DeviceGrant.watchDefault
+            )
+        )
+        let old = try XCTUnwrap(URL(string: "https://old.example"))
+        let new = try XCTUnwrap(URL(string: "https://control.example"))
+        suite.set(old.absoluteString, forKey: ControlBrokerAddress.defaultsKey)
+
+        let companion = ControlCompanion(credentials: credentials, defaults: suite, brokerURL: new)
+        await companion.start()
+
+        XCTAssertNil(try credentials.loadSession())
+        XCTAssertEqual(companion.phase, .needsEnrollment)
+        XCTAssertEqual(suite.string(forKey: ControlBrokerAddress.defaultsKey), new.absoluteString)
+    }
+
+    func testTheSameBrokerURLKeepsCredentials() async throws {
+        let suite = try XCTUnwrap(UserDefaults(suiteName: "control-companion-keep-\(UUID().uuidString)"))
+        let credentials = InMemoryCredentialStore()
+        try credentials.storeSigningKey(InMemoryDeviceKey())
+        try credentials.storeSession(
+            DeviceSession(
+                deviceID: .random(),
+                accountID: .random(),
+                accessToken: "access",
+                accessTokenExpiresAt: ControlTimestamp(Date().addingTimeInterval(600)),
+                refreshToken: "refresh",
+                grants: DeviceGrant.watchDefault
+            )
+        )
+        let url = try XCTUnwrap(URL(string: "https://control.example"))
+        suite.set(url.absoluteString, forKey: ControlBrokerAddress.defaultsKey)
+        let companion = ControlCompanion(credentials: credentials, defaults: suite, brokerURL: url)
+        await companion.start()
+        XCTAssertNotNil(try credentials.loadSession())
+        XCTAssertEqual(companion.phase, .ready)
+    }
+
+    func testSettingsExposesAControlSectionAndSafariConfirm() throws {
+        let source = try controlSource()
+        XCTAssertTrue(source.contains("case control"), "Settings must include the Control companion section")
+        XCTAssertTrue(source.contains("SettingsControlSection"))
+        XCTAssertTrue(source.contains("ControlPairingSupport.activate()"))
+        XCTAssertTrue(source.contains("npx @chr33s/shell"))
+        XCTAssertTrue(source.contains("Scan QR"))
+        XCTAssertTrue(source.contains("Waiting for confirmation on your Mac"))
+        XCTAssertTrue(source.contains("shell-control"))
+    }
+
+    func testApplyPairedBrokerStoresARuntimeURLAndWipesOnChange() async throws {
+        let suiteName = "control-companion-pair-\(UUID().uuidString)"
+        let suite = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { suite.removePersistentDomain(forName: suiteName) }
+        let credentials = InMemoryCredentialStore()
+        try credentials.storeSigningKey(InMemoryDeviceKey())
+        try credentials.storeSession(
+            DeviceSession(
+                deviceID: .random(),
+                accountID: .random(),
+                accessToken: "access",
+                accessTokenExpiresAt: ControlTimestamp(Date().addingTimeInterval(600)),
+                refreshToken: "refresh",
+                grants: DeviceGrant.watchDefault
+            )
+        )
+        let first = try XCTUnwrap(URL(string: "https://old.example"))
+        suite.set(first.absoluteString, forKey: ControlBrokerAddress.defaultsKey)
+        let companion = ControlCompanion(credentials: credentials, defaults: suite, brokerURL: first)
+        await companion.start()
+        XCTAssertEqual(companion.phase, .ready)
+
+        let next = try XCTUnwrap(URL(string: "https://random.trycloudflare.com"))
+        let companion2 = ControlCompanion(credentials: credentials, defaults: suite, brokerURL: nil)
+        let applied = await companion2.applyPairedBroker(next)
+        XCTAssertTrue(applied)
+        XCTAssertEqual(suite.string(forKey: ControlBrokerAddress.runtimeDefaultsKey), next.absoluteString)
+        XCTAssertNil(try credentials.loadSession())
+        XCTAssertEqual(companion2.phase, .needsEnrollment)
     }
 }

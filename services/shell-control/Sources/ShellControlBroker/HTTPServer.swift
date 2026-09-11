@@ -36,11 +36,13 @@ public final class HTTPServer: @unchecked Sendable {
     public typealias Handler = @Sendable (Request) async -> Response
 
     private let port: UInt16
+    private let bindLoopback: Bool
     private let handler: Handler
     private var listenSocket: Int32 = -1
 
-    public init(port: UInt16, handler: @escaping Handler) {
+    public init(port: UInt16, bindLoopback: Bool = true, handler: @escaping Handler) {
         self.port = port
+        self.bindLoopback = bindLoopback
         self.handler = handler
     }
 
@@ -70,7 +72,9 @@ public final class HTTPServer: @unchecked Sendable {
         var address = sockaddr_in()
         address.sin_family = sa_family_t(AF_INET)
         address.sin_port = port.bigEndian
-        address.sin_addr.s_addr = INADDR_ANY
+        // Loopback by default: cloudflared is the only public ingress. Binding
+        // INADDR_ANY would expose admin routes and /pair to the LAN.
+        address.sin_addr.s_addr = bindLoopback ? inet_addr("127.0.0.1") : INADDR_ANY
         let bound = withUnsafePointer(to: &address) { pointer in
             pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(listenSocket, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
         }

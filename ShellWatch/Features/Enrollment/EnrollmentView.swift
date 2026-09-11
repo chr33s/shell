@@ -45,6 +45,11 @@ struct EnrollmentView: View {
             }
             .padding(.horizontal, 4)
         }
+        .task(id: ControlPairingSession.shared.startEnrollmentRequested) {
+            guard ControlPairingSession.shared.consumeStartEnrollmentRequest() else { return }
+            guard !isRunning else { return }
+            await enroll()
+        }
     }
 
     private func enroll() async {
@@ -64,6 +69,18 @@ struct EnrollmentView: View {
             verificationURI = started.authorization.verificationURI
             fingerprint = started.fingerprint
             status = String(localized: "Waiting for confirmation…")
+            ControlPairingSession.shared.publishEnrollment(
+                .init(
+                    userCode: started.authorization.userCode,
+                    verificationURI: started.authorization.verificationURI,
+                    verificationURIComplete: started.authorization.verificationURIComplete,
+                    fingerprint: started.fingerprint,
+                    expiresAt: started.authorization.expiresAt,
+                    platform: "watchOS",
+                    label: WKInterfaceDeviceLabel.current
+                ),
+                brokerURL: session.brokerURL
+            )
 
             var interval = started.authorization.interval
             while Date() < started.authorization.expiresAt.date {

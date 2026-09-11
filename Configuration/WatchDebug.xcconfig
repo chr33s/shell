@@ -1,0 +1,22 @@
+// WatchDebug.xcconfig - Debug settings for the Shell Watch companion.
+//
+// The loopback broker default lives here rather than in the target's build
+// settings: a setting written into project.pbxproj outranks every xcconfig,
+// so Configuration/Local.xcconfig could never point a Debug watch build at a
+// real broker. As an xcconfig it is just an earlier assignment, and the
+// Local.xcconfig include at the end of this file overrides it.
+#include "Watch.xcconfig"
+
+ENABLE_TESTABILITY = YES
+ONLY_ACTIVE_ARCH = YES
+SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG $(inherited)
+SWIFT_OPTIMIZATION_LEVEL = -Onone
+
+// What ./scripts/run-broker.sh serves, so Xcode's Run button works against a
+// local broker with no extra setup. The `$()` splits the `//`, which xcconfig
+// would otherwise read as a comment.
+SHELL_CONTROL_BROKER_URL = http:/$()/localhost:8443
+
+// An untracked local override, if the developer has one. It must come after
+// the default above to win.
+#include? "Local.xcconfig"

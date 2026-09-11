@@ -27,6 +27,7 @@ final class ControlSession {
     private let credentials: any DeviceCredentialStore
     private let cache: any InboxCacheStore
     private let journal: CommandJournal
+    private let defaults: UserDefaults
     /// Injectable so tests can drive the credential-renewal and offline paths
     /// without a network; production uses `URLSession`.
     private let transport: any ControlHTTPTransport
@@ -44,6 +45,7 @@ final class ControlSession {
         cache: any InboxCacheStore,
         journalStore: any CommandJournalStore,
         transport: any ControlHTTPTransport = URLSessionTransport(),
+        defaults: UserDefaults = .standard,
         now: @escaping @Sendable () -> Date = { Date() }
     ) throws {
         self.brokerURL = brokerURL
@@ -51,6 +53,7 @@ final class ControlSession {
         self.cache = cache
         self.journal = try CommandJournal(store: journalStore)
         self.transport = transport
+        self.defaults = defaults
         self.now = now
     }
 
@@ -62,6 +65,16 @@ final class ControlSession {
     /// Restores cached state first so the inbox can render offline, then tries
     /// the network.
     func start() async {
+        if ControlBrokerAddress.hasChanged(
+            from: defaults.string(forKey: ControlBrokerAddress.defaultsKey),
+            to: brokerURL,
+            hasCredentials: (try? credentials.loadSession()) != nil
+        ) {
+            try? credentials.removeAll()
+            try? cache.clear()
+            inbox = InboxState()
+        }
+        defaults.set(brokerURL.absoluteString, forKey: ControlBrokerAddress.defaultsKey)
         if let cached = try? cache.load() { inbox = cached }
         pendingCommands = await journal.pending
         guard let session = try? credentials.loadSession(),

@@ -2,19 +2,20 @@
 //  SettingsPresentation.swift
 //  shell
 //
-//  The whole Settings surface: four sections (Terminal, SSH, tmux, Sync)
-//  and the sheet that presents them. Spec section 12 — no other settings
-//  pages.
+//  The whole Settings surface: Terminal, SSH, tmux, Sync, and the optional
+//  Control companion. Spec section 12 is four sections; spec.watch.md adds
+//  Control as the one allowed extra.
 //
 
 import SwiftUI
 
-/// The four top-level settings sections.
+/// The top-level settings sections.
 enum SettingsSection: String, Hashable, Identifiable, CaseIterable {
     case terminal
     case ssh
     case tmux
     case sync
+    case control
 
     var id: String { rawValue }
 
@@ -24,6 +25,7 @@ enum SettingsSection: String, Hashable, Identifiable, CaseIterable {
         case .ssh: "SSH"
         case .tmux: "tmux"
         case .sync: "Sync"
+        case .control: "Control"
         }
     }
 
@@ -33,6 +35,7 @@ enum SettingsSection: String, Hashable, Identifiable, CaseIterable {
         case .ssh: "network"
         case .tmux: "square.split.2x2"
         case .sync: "icloud"
+        case .control: "applewatch"
         }
     }
 }
@@ -82,6 +85,7 @@ struct SettingsView: View {
                 case .ssh: SettingsSSHSection()
                 case .tmux: SettingsTmuxSection()
                 case .sync: SettingsSyncSection()
+                case .control: SettingsControlSection()
                 }
             }
             .navigationDestination(for: SettingsDestination.self) { destination in

@@ -195,6 +195,14 @@ public actor BrokerStore {
         try commit()
     }
 
+    /// Mints an origin credential. The secret is returned once; only its
+    /// verifier is stored (spec.watch.md section 10).
+    public func provisionOrigin(accountID: ControlID, label: String) throws -> (originID: ControlID, secret: String) {
+        let secret = Base64URL.encode(BrokerStore.randomBytes(32))
+        let originID = try enrollOrigin(accountID: accountID, label: label, secret: secret)
+        return (originID, secret)
+    }
+
     @discardableResult
     public func enrollOrigin(
         originID: ControlID = .random(),

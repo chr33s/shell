@@ -14,6 +14,14 @@
 				<string>ssh</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>dev.chr33s.shell.control</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>shell-control</string>
+			</array>
+		</dict>
 	</array>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
@@ -21,6 +29,8 @@
 	<string>$(SHELL_KEYCHAIN_ACCESS_GROUP)</string>
 	<key>ShellCloudKitContainer</key>
 	<string>$(SHELL_CLOUDKIT_CONTAINER)</string>
+	<key>SHELLControlBrokerURL</key>
+	<string>$(SHELL_CONTROL_BROKER_URL)</string>
 	<key>UIFileSharingEnabled</key>
 	<true/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>

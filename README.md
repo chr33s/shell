@@ -97,10 +97,14 @@ Watch  --HTTPS-->  Shell Control broker  <--HTTPS--  shell-controld  --IPC-->  a
 
 The Watch owns its own P-256 key, APNs registration, and HTTPS client, and
 enrols independently over OAuth device authorization: it works with the iPhone
-app absent. A decision is a JWS (`ES256`, JCS payload) that commits to one
-request digest and the versions the reviewer saw; the host claims that decision
-exactly once and reports a receipt saying what it actually applied. A push
-notification is a hint — the ledger is the snapshot and change stream.
+app absent. TestFlight onboarding is phone-first: Settings → Control starts
+setup on this device, opens Safari to confirm, and WatchConnectivity only
+forwards the Watch's enrollment code so the same Safari page can approve the
+Watch. It never copies private keys or session tokens. A decision is a JWS
+(`ES256`, JCS payload) that commits to one request digest and the versions the
+reviewer saw; the host claims that decision exactly once and reports a receipt
+saying what it actually applied. A push notification is a hint — the ledger is
+the snapshot and change stream.
 
 ```text
 Packages/ShellControlCore/   portable protocol, security, and client code
@@ -120,11 +124,12 @@ which deliberately does not include `Base.xcconfig`.
 
 ### Trying the companion locally
 
-Debug builds of the Watch app point at `http://localhost:8443`, which is what
-`./scripts/run-broker.sh` serves — so Xcode's Run button works against a local
-broker with no extra setup. Release builds carry the placeholder
+Debug builds of the phone and Watch apps point at `http://localhost:8443`, which
+is what `./scripts/run-broker.sh` serves — so Xcode's Run button works against a
+local broker with no extra setup. Release builds carry the placeholder
 `https://control.invalid`, which the app recognises as "not configured" and says
-so rather than dialling it, so nothing ships pointing at a laptop.
+so rather than dialling it, so nothing ships pointing at a laptop. A TestFlight
+build bakes a real HTTPS host via `SHELL_CONTROL_BROKER_URL` (see Releasing).
 
 ```sh
 ./scripts/run-broker.sh                 # dev broker on http://localhost:8443
@@ -137,9 +142,21 @@ into `.derivedData/dev-broker.env` on first run. The simulator shares the Mac's
 network stack, and loopback is the one case the client accepts without TLS.
 
 Enrollment is confirmed by an account administrator, not by the enrolling
-device: open the printed verification URI in a browser, check the key
-fingerprint against the one on the Watch, and approve. `dev-confirm.sh` does the
-same thing from the shell.
+device. Testers run the companion CLI from a checkout (or `npx github:chr33s/shell`):
+
+```sh
+npx @chr33s/shell          # broker on 127.0.0.1 + HTTPS tunnel + origin + pairing QR
+```
+
+On the phone: **Settings → Control → Scan QR** (or paste the printed URL).
+The CLI prints each device fingerprint; type `y` to approve. It will not
+auto-approve — a public tunnel would otherwise enrol strangers.
+`npx @chr33s/shell down` stops the broker. Without `cloudflared`, the broker
+stays on loopback.
+
+Locally without the npm CLI, open the printed verification URI in a browser,
+check the key fingerprint against the one on the device, and approve.
+`dev-confirm.sh` does the same thing from the shell.
 
 For a persistent address, create `Configuration/Local.xcconfig` (untracked):
 
@@ -202,6 +219,8 @@ Four sections, nothing else:
 - **SSH** — profiles, SSH identities, known hosts, saved passwords, recovery
 - **tmux** — default mode, default session name, close-window behavior
 - **Sync** — iCloud sync toggles per data class, plus last-sync status
+- **Control** — optional Watch companion: pair a Mac broker (`npx @chr33s/shell`
+  QR or paste), enroll this device, confirm the Watch
 
 ## Losing the network
 

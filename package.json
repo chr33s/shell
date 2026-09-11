@@ -1,0 +1,44 @@
+{
+  "name": "@chr33s/shell",
+  "version": "0.1.0",
+  "description": "Shell control companion: broker, origin daemon, and pairing QR",
+  "type": "module",
+  "bin": {
+    "shell": "./cli/bin/shell.ts"
+  },
+  "files": [
+    "cli",
+    "cmd/Package.swift",
+    "cmd/Sources",
+    "services/shell-control/Package.swift",
+    "services/shell-control/Sources",
+    "Packages/ShellControlCore/Package.swift",
+    "Packages/ShellControlCore/Sources"
+  ],
+  "scripts": {
+    "test": "node --test cli/src/util.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64",
+    "x64"
+  ],
+  "dependencies": {
+    "qrcode-terminal": "^0.12.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.4",
+    "typescript": "^5.9.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chr33s/shell.git"
+  },
+  "license": "MIT"
+}

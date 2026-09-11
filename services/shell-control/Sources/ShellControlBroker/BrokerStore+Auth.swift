@@ -161,6 +161,25 @@ extension BrokerStore {
         try commit()
     }
 
+    /// Pending device grants the CLI auto-confirms. Expired, denied, and already
+    /// approved records are omitted.
+    public func pendingDeviceAuthorizations() throws -> JSONValue {
+        var items: [JSONValue] = []
+        for record in deviceAuthorizations.values {
+            guard record.approvedAccountID == nil, record.deniedAt == nil, timestamp < record.expiresAt,
+                  let enrollment = enrollments[record.enrollmentID], enrollment.completedAt == nil
+            else { continue }
+            items.append(.object([
+                "user_code": .string(record.userCode),
+                "platform": .string(enrollment.platform.rawValue),
+                "label": .string(enrollment.label),
+                "key_fingerprint": .string(try enrollment.publicJWK.displayFingerprint()),
+                "expires_at": JSONValue(record.expiresAt),
+            ]))
+        }
+        return .object(["pending": .array(items)])
+    }
+
     public func denyDeviceAuthorization(userCode: String) throws {
         guard let deviceCode = deviceAuthorizations.first(where: { $0.value.userCode == userCode })?.key else {
             throw ControlError(code: .notFound, message: "unknown code")

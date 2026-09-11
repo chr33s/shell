@@ -13,3 +13,6 @@ releases
 
 # Local build overrides
 Configuration/Local.xcconfig
+
+# npx @chr33s/shell
+node_modules/

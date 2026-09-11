@@ -49,7 +49,8 @@ let service = BrokerService(
         verificationURI: environment["SHELL_CONTROL_VERIFICATION_URI"] ?? "https://example.invalid/activate",
         allowedAPNsTopics: allowedTopics,
         adminSecret: adminSecret,
-        adminAccountID: accountID
+        adminAccountID: accountID,
+        publicURL: environment["SHELL_CONTROL_PUBLIC_URL"] ?? ""
     )
 )
 
@@ -70,7 +71,8 @@ if let keyID = environment["SHELL_CONTROL_APNS_KEY_ID"],
 let worker = OutboxWorker(store: store, sender: sender)
 Task { await worker.run() }
 
-let server = HTTPServer(port: port) { request in
+let bindLoopback = environment["SHELL_CONTROL_BIND"] != "any"
+let server = HTTPServer(port: port, bindLoopback: bindLoopback) { request in
     await service.handle(request)
 }
 do {
@@ -81,5 +83,6 @@ do {
     FileHandle.standardError.write(Data("shell-control-broker: \(error)\n".utf8))
     exit(2)
 }
-FileHandle.standardError.write(Data("shell-control-broker: listening on \(port)\n".utf8))
+let bindHost = bindLoopback ? "127.0.0.1" : "*"
+FileHandle.standardError.write(Data("shell-control-broker: listening on \(bindHost):\(port)\n".utf8))
 server.acceptLoop()

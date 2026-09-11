@@ -9,3 +9,15 @@ COPY_PHASE_STRIP = NO
 
 GCC_PREPROCESSOR_DEFINITIONS = DEBUG=1 $(inherited)
 SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG $(inherited)
+
+// Simulator shares the Mac's loopback, matching the Watch Debug override, so
+// Xcode's Run button can enrol the phone companion against ./scripts/run-broker.sh.
+// The `$()` splits the `//`, which xcconfig would otherwise read as the start
+// of a comment and truncate the value to "http:".
+SHELL_CONTROL_BROKER_URL = http:/$()/localhost:8443
+
+// Base.xcconfig already included this, but it has to come AFTER the loopback
+// default above: later assignment wins, and without this a developer who set a
+// real broker in Local.xcconfig would silently get localhost on every Run.
+// Re-including is harmless, and `#include?` is a no-op when the file is absent.
+#include? "Local.xcconfig"
