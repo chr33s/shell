@@ -595,8 +595,12 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = AB00000000000000000011 /* Debug.xcconfig */;
 			buildSettings = {
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = 72KB9YQR7B;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator xros xrsimulator";
+				SUPPORTS_MACCATALYST = YES;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
 			};
 			name = Debug;
 		};
@@ -604,8 +608,12 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = AB00000000000000000012 /* Release.xcconfig */;
 			buildSettings = {
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = 72KB9YQR7B;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator xros xrsimulator";
+				SUPPORTS_MACCATALYST = YES;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
 			};
 			name = Release;
 		};
@@ -728,7 +736,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = AE00000000000000000011 /* WatchDebug.xcconfig */;
 			buildSettings = {
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = 72KB9YQR7B;
 			};
 			name = Debug;
@@ -737,7 +745,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = AE00000000000000000010 /* Watch.xcconfig */;
 			buildSettings = {
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = 72KB9YQR7B;
 			};
 			name = Release;
