@@ -90,6 +90,31 @@ final class AdminSetupTests: XCTestCase {
         guard case .origin = principal else { return XCTFail("expected origin principal") }
     }
 
+    func testNativeOriginProvisioningIsIdempotentAndConflictsSafely() async throws {
+        let harness = BrokerHarness()
+        let service = makeService(harness)
+        let originID = ControlID.random()
+        func request(secret: String) async throws -> HTTPServer.Response {
+            let body = try JSONCanonicalization.canonicalize(.object([
+                "label": "native mac", "origin_id": JSONValue(originID), "origin_secret": .string(secret),
+            ]))
+            return await service.handle(HTTPServer.Request(
+                method: "POST", path: "/v1/admin/origins", query: [:],
+                headers: ["authorization": "Admin admin-secret", "content-type": "application/json", "host": "127.0.0.1"],
+                body: body
+            ))
+        }
+        let stableSecret = String(repeating: "a", count: 32)
+        let first = try await request(secret: stableSecret)
+        let retry = try await request(secret: stableSecret)
+        let conflict = try await request(secret: String(repeating: "b", count: 32))
+        XCTAssertEqual(first.status, 200)
+        XCTAssertEqual(retry.status, 200)
+        XCTAssertEqual(conflict.status, 409)
+        let principal = try await harness.store.authenticateOrigin(originID: originID, secret: stableSecret)
+        guard case .origin = principal else { return XCTFail("expected original credential to remain valid") }
+    }
+
     /// `Host` is attacker-controlled, so a request that reaches the broker
     /// through the tunnel can claim to be local. cloudflared's own forwarding
     /// headers cannot be removed by the client, so they give the check

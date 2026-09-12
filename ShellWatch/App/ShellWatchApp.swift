@@ -24,7 +24,7 @@ struct ShellWatchApp: App {
                     ContentUnavailableView(
                         String(localized: "Waiting for iPhone"),
                         systemImage: "applewatch.radiowaves.left.and.right",
-                        description: Text(String(localized: "Open Settings → Control on iPhone and scan the pairing QR from npx @chr33s/shell."))
+                        description: Text(String(localized: "Open Settings → Control on iPhone and scan the pairing QR from shell-control setup."))
                     )
                 } else if let startupError {
                     ContentUnavailableView(

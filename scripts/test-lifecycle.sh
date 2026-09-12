@@ -1,15 +1,21 @@
 #!/bin/bash
-# Isolated CLI lifecycle tests. They never touch a developer's real
-# ~/.local/state/shell-control or LaunchAgents.
-#
-# Usage: ./scripts/test-lifecycle.sh
-set -uo pipefail
-
+# Native CLI unit/integration tests. Test fixtures use isolated state roots and
+# fake service ownership; this script never addresses a developer installation.
+set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-export SHELL_CONTROL_STATE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/shell-lifecycle.XXXXXX")"
-export SHELL_CONTROL_LIB_DIR="$(mktemp -d "${TMPDIR:-/tmp}/shell-lib.XXXXXX")"
-export SHELL_CONTROL_LAUNCH_AGENTS_DIR="$(mktemp -d "${TMPDIR:-/tmp}/shell-agents.XXXXXX")"
-trap 'rm -rf "$SHELL_CONTROL_STATE_DIR" "$SHELL_CONTROL_LIB_DIR" "$SHELL_CONTROL_LAUNCH_AGENTS_DIR"' EXIT
+cd "$ROOT/cmd"
+swift build --product shell-control
+swift test
 
-cd "$ROOT"
-node --test cli/src/lifecycle.test.ts cli/src/cli.test.ts cli/src/services.test.ts cli/src/state.test.ts cli/src/tunnel.test.ts cli/src/health.test.ts
+# Parser smoke checks against the built executable. No command may create this
+# root while parsing help, version, or an invalid invocation.
+STATE="$(mktemp -d "${TMPDIR:-/tmp}/shell-native-cli.XXXXXX")/state"
+trap 'rm -rf "$(dirname "$STATE")"' EXIT
+SHELL_CONTROL_STATE_DIR="$STATE" .build/debug/shell-control >/dev/null
+test ! -e "$STATE"
+SHELL_CONTROL_STATE_DIR="$STATE" .build/debug/shell-control --version >/dev/null
+test ! -e "$STATE"
+if SHELL_CONTROL_STATE_DIR="$STATE" .build/debug/shell-control setup --port 0 extra >/dev/null 2>&1; then
+  echo "invalid invocation unexpectedly succeeded" >&2; exit 1
+fi
+test ! -e "$STATE"

@@ -53,7 +53,8 @@ public enum ControlBrokerAddress {
         components.scheme = url.scheme?.lowercased()
         // `URL.host` hands back an IPv6 literal unbracketed, and `URLComponents`
         // will not build a URL from one: it has to go back in brackets.
-        components.host = host.contains(":") && !host.hasPrefix("[") ? "[\(host)]" : host
+        let hostname = host.lowercased()
+        components.host = hostname.contains(":") && !hostname.hasPrefix("[") ? "[\(hostname)]" : hostname
         components.port = url.port
         return components.url
     }

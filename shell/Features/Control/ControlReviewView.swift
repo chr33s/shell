@@ -132,7 +132,7 @@ struct ControlSetupView: View {
 
             if companion.phase == .notConfigured {
                 Section {
-                    Text(String(localized: "Run npx @chr33s/shell on your Mac, then scan the QR or paste the broker URL."))
+                    Text(String(localized: "Run shell-control setup on your Mac, then scan the QR or paste the broker URL."))
                         .foregroundStyle(.secondary)
                         .themedRow()
                 }
@@ -167,7 +167,7 @@ struct ControlSetupView: View {
     }
 
     private var footerText: String {
-        String(localized: "On your Mac run npx @chr33s/shell, then scan the QR. This device and Apple Watch each enrol with their own key. The CLI confirms them; credentials are never copied.")
+        String(localized: "On your Mac run shell-control setup, then scan the QR. This device and Apple Watch each enrol with their own key. The CLI confirms them; credentials are never copied.")
     }
 
     @ViewBuilder
@@ -201,7 +201,7 @@ struct ControlSetupView: View {
         } header: {
             Text(String(localized: "Pair with Mac"))
         } footer: {
-            Text(String(localized: "Paste the URL printed by npx @chr33s/shell, or scan its QR. Changing broker signs this device out."))
+            Text(String(localized: "Paste the URL printed by shell-control setup, or scan its QR. Changing broker signs this device out."))
         }
     }
 
@@ -270,7 +270,7 @@ struct ControlSetupView: View {
                 LabeledContent(String(localized: "Watch fingerprint"), value: enrollment.fingerprint)
                     .font(.footnote.monospaced())
                     .themedRow()
-                Text(String(localized: "Confirm this code on the Mac running npx @chr33s/shell."))
+                Text(String(localized: "Confirm this code on the Mac running shell-control setup."))
                     .font(.footnote)
                     .themedRow()
             }

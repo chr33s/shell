@@ -87,7 +87,21 @@ public struct BrokerService: Sendable {
             }
             var reader = try JSONReader(try body(request))
             let label = try reader.optionalString("label", maxLength: 120) ?? "origin"
+            let requestedID = try reader.optionalID("origin_id")
+            let requestedSecret = try reader.optionalString("origin_secret", maxLength: 256)
+            guard (requestedID == nil) == (requestedSecret == nil) else {
+                throw ControlError(code: .invalidPayload, message: "origin_id and origin_secret must be supplied together")
+            }
             try reader.rejectUnknownMembers()
+            if let requestedID, let requestedSecret {
+                guard requestedSecret.utf8.count >= 32 else {
+                    throw ControlError(code: .invalidPayload, message: "caller-selected origin_secret is too short")
+                }
+                let originID = try await store.provisionOrigin(
+                    originID: requestedID, secret: requestedSecret, accountID: accountID, label: label
+                )
+                return json(status: 200, .object(["origin_id": JSONValue(originID), "label": .string(label)]))
+            }
             let created = try await store.provisionOrigin(accountID: accountID, label: label)
             return json(status: 201, .object([
                 "origin_id": JSONValue(created.originID),

@@ -1,363 +1,510 @@
-# Shell Control: CLI-independent service lifecycle
+# Shell Control: Swift CLI
 
-**Status:** Proposed implementation specification; implementation not performed.  
-**Suggested repository path:** `spec.control-lifecycle.md`  
+**Status:** Implemented by the native `shell-control` command tree in `cmd/`. Requirements remain normative for that implementation.  
 **Repository:** `chr33s/shell`  
-**Inspected baseline:** `main` at `c7cab2d64eed3bfce79058eae328b270bcf34008`, 12 September 2026.  
-**Scope:** The remaining connection-lifecycle gaps identified in the CLI, Mac services, tunnel address, and Watch recovery—not every outstanding feature in `spec.watch.md`.
+**Deployment model:** Clean installation of a native Swift implementation.
 
-MUST, MUST NOT, SHOULD, and MAY are normative requirements for the proposed implementation. Timing and retention values below are engineering defaults and test targets, not operating-system or network guarantees. Existing protocol authorization, request expiry, and receipt semantics remain authoritative.
+Capitalized MUST, MUST NOT, SHOULD, and MAY express requirements. Timing and retention values are engineering defaults and test targets, not operating-system guarantees.
 
-## 1. Product contract
+## 1. Decision and scope
 
-Once setup reports readiness, closing the CLI or its terminal MUST NOT stop the services carrying Watch traffic. The CLI is a management and enrollment interface, not a network relay or the lifetime owner of those services.
+Replace the TypeScript management CLI with a native Swift command tree in the existing `shell-control` executable. Keep `shell-control-broker`, `shell-controld`, and managed `cloudflared` as separate processes owned by per-user `launchd` jobs.
 
-The completed implementation uses per-user **launchd agents** for the broker, origin daemon, and an optional managed tunnel. Login persistence is explicit and opt-in. A stable public HTTPS address is required for the supported persistent configuration. The quick-tunnel path remains a development convenience with an explicit address-change/re-pairing boundary.
+The implementation assumes a clean installation. It MUST NOT include an npm wrapper, Node bootstrapper, compatibility executable, legacy-state importer, PID adoption, dual implementation, feature-flagged fallback, or staged deployment transition. Delete the first-party TypeScript CLI and its dedicated npm build/test/package configuration in the same deliverable.
 
-The user-facing promises are deliberately separate:
+Runtime users MUST NOT need Node, npm, TypeScript, Xcode, a Swift compiler, or a source checkout. Developers build the release with SwiftPM. `cloudflared` remains a separately supplied executable for managed tunnel modes; “Swift-only” refers to Shell's management implementation, not rewriting that external transport.
 
-| Event | Required behavior |
-|---|---|
-| Ctrl+C, CLI termination, terminal window closes | Ready services remain running; existing enrollment and the public address are unchanged. |
-| Broker or daemon crashes | The service manager restarts the affected service; recovery preserves authority and never replays uncertain execution. |
-| Named tunnel process crashes | Restart the same configured tunnel, retaining the configured hostname. |
-| Quick tunnel process exits | Report unavailable; do not silently replace its hostname. |
-| Network interruption or sleep | Report stale/unreachable state; resume attempts after connectivity returns. No availability while asleep is promised. |
-| Logout | Per-user services are unavailable. |
-| Reboot followed by login | Explicitly installed and enabled agents resume; no pre-login availability is promised. |
-| `down` | Stop owned services and prevent automatic relaunch until an explicit start. Preserve account, enrollment, and journals. |
+The work includes service management, installation state, typed administration requests, pairing and enrollment prompts, health reporting, diagnostics, native distribution, and regression tests. It also includes the daemon recovery correction in section 10 because that defect affects normal approval handling independently of the CLI language.
 
-Apple documents that user agents execute only while their user is logged in; this design does not install a root/system daemon.[E2]
+The following remain out of scope: Linux/Windows support, system-wide root services, unattended pre-login availability, Cloudflare account or DNS provisioning, remote-host execution, a new approval protocol, automatic approval, terminal emulation on Watch, and automatic software updates.
 
-## 2. Baseline and remaining work
+### 1.1 Invariants
 
-The existing implementation already provides separate broker, tunnel, and origin processes; device enrollment; a Watch-owned HTTPS client; credential/cache restoration; and a durable broker and host journal. Preserve these mechanisms rather than replacing the control protocol.[R1] [R2] [R3] [R6]
+- The CLI is a management client, not a network relay or long-lived supervisor. Ready services survive its exit and terminal closure.
+- `down` means stopped and prevented from automatically restarting until an explicit `up`.
+- A healthy repeat invocation does not restart services, change the endpoint, or regenerate enrollment identity.
+- Permission decisions continue to use `shell-control/1`. An exit code, cached record, notification, or successful health probe is never execution authority.
+- An interrupted operation with uncertain effects is not replayed. Recovery discovery must not classify live work as abandoned.
+- Clean installation is not permission to delete an existing installation. Unrecognized existing state is an error, not an invitation to reset it.
 
-| Observed implementation | Required completion |
-|---|---|
-| Broker/daemon use `detached: true` and `unref()`, but inherit stderr; cloudflared uses CLI-owned stdout/stderr pipes. | Remove terminal and CLI I/O dependencies; prove real process exit and continued service operation. |
-| Signal handlers are installed after setup; enrollment polling has a non-cancellable sleep and an unbounded administrative fetch. | Install cancellation before asynchronous startup, abort outstanding CLI work, and define startup ownership. |
-| `ensureBroker()` and `ensureDaemon()` terminate an existing live process on every setup. | Idempotently reuse healthy, matching installations; restart only on explicit request or necessary recovery. |
-| `status()` checks saved PIDs and prints the pairing token. | Separate process liveness from readiness, make reads side-effect-free, and redact credentials/pairing secrets. |
-| `killPidFile()` signals the saved PID/process group without establishing process identity. | Use launchd job ownership; conservatively validate legacy processes during migration. |
-| Quick-tunnel health failure can cause replacement of its random hostname. | Preserve the configured address through transient failure; require explicit URL rotation. |
-| Watch polling is attached to view appearance/disappearance. | Also gate polling on scene activity and serialize refresh/credential renewal. |
-| Daemon startup reconciliation uses best-effort remote writes before appending recovery markers. | Retain durable recovery obligations until acknowledged; retry without minting new mutation IDs. |
+These requirements supplement the protocol and safety boundaries in `spec.watch.md`; they do not replace its request, signature, consume, receipt, or authorization rules. [R7][R14]
 
-These are source observations, not results of a macOS runtime reproduction.[R1] [R2] [R4] [R5] Node documents that detachment alone does not remove the parent's standard-I/O relationship.[E1]
+## 2. Baseline findings and required corrections
 
-## 3. Architecture and boundaries
+The inspected host package already provides `shell-control` and `shell-controld`, uses Swift tools version 6.2, and targets macOS 26. The TypeScript layer supplies management behavior around those executables. [R2][R5][R6]
+
+The following source-review findings are implementation requirements, not claims of completed macOS reproductions:
+
+| ID | Baseline finding | Required outcome |
+|---|---|---|
+| F1 | `runHeartbeats()` invokes recovery discovery over the current journal, whose unresolved set includes live requests. | Only work identified as interrupted at a process-start boundary is eligible for restart recovery. |
+| F2 | The enrollment prompt installs a no-op readline `SIGINT` handler. | Actual terminal Ctrl+C cancels the invocation and closes the prompt without stopping ready services. |
+| F3 | The management parser rejects adapter options before forwarding them. | `notify`, `request`, and `receipt` are typed native subcommands that accept their own options directly. |
+| F4 | Service configuration writes replace APNs values with empty strings when the current shell lacks environment variables. | Persisted push configuration survives all ordinary management commands. Clearing it is explicit. |
+| F5 | `launchctl enable`/`disable` results are ignored; shutdown verification can confuse unloaded with persistently disabled. | Every state-changing result is checked; persistent disablement and current process absence are verified separately. |
+| F6 | Startup checks local services without requiring the public route to work; `restart all` can mutate services before rejecting quick-tunnel restart. | Readiness is mode-aware, and the complete requested operation is validated before side effects. |
+| F7 | Installation generation hashes omit the native CLI. | Release identity and integrity validation cover every Shell executable, including `shell-control`. |
+
+F1 is evidenced by the daemon and journal; F2–F6 by the management and service implementations; F7 by binary installation code. [R2][R3][R8][R9]
+
+The native implementation MUST correct these behaviors rather than preserve bug-for-bug parity.
+
+## 3. Architecture and package boundaries
 
 ```text
-Management plane:
-  npx @chr33s/shell -> launchctl -> per-user service jobs
-                   -> local authenticated administration / health
+shell-control  --administration HTTP--> local broker
+     |
+     +--invoke launchctl--> per-user launchd
+     |                         |-- shell-control-broker
+     |                         |-- shell-controld
+     |                         `-- cloudflared, when managed
+     |
+     `--local IPC--> shell-controld <--local IPC-- permission adapters
 
-Control traffic:
-  Watch -> HTTPS hostname -> tunnel / external reverse proxy -> local broker
-                                                              ^
-                                                        loopback HTTP
-                                                              |
-                                                       shell-controld
-                                                              |
-                                                   authenticated local IPC
-                                                              |
-                                                            adapter
+Watch --HTTPS--> configured public endpoint --> local broker
+                                                  ^
+                                                  |
+                                         shell-controld over loopback
 ```
 
-The origin daemon SHOULD use the local broker address for this co-located deployment. The Watch and OAuth verification page use the public HTTPS address. A public tunnel outage must not unnecessarily break local daemon-to-broker communication.
+The local daemon MUST use the loopback broker URL, not make a round trip through the public tunnel. The Watch continues to contact the public endpoint directly. Changing the CLI does not add a phone relay or a permanent Watch socket. [R2][R14]
 
-This specification supports an externally operated **reverse proxy to the same local broker**, not provisioning a different remotely hosted broker. WatchConnectivity remains optional setup/handoff assistance, never the control relay. No permanent Watch socket, SSH changes, root privileges, automatic approval, cloud account provisioning, or automatic prevention of Mac sleep is introduced.
+### 3.1 Proposed source layout
 
-## 4. CLI contract
+```text
+cmd/
+  Package.swift
+  Sources/
+    shell-control/
+      ShellControlCommand.swift
+      Commands/
+        SetupCommand.swift
+        UpCommand.swift
+        DownCommand.swift
+        RestartCommand.swift
+        ServiceCommand.swift
+        StatusCommand.swift
+        LogsCommand.swift
+        PairCommand.swift
+        ConfirmCommand.swift
+        PushCommand.swift
+        NotifyCommand.swift
+        RequestCommand.swift
+        ReceiptCommand.swift
+    ShellControlManagement/
+      InstallationStore.swift
+      LifecycleCoordinator.swift
+      ServiceManager.swift
+      LaunchdServiceManager.swift
+      ControlAdminClient.swift
+      TunnelConfiguration.swift
+      TunnelDiscovery.swift
+      HealthChecks.swift
+      TerminalPrompt.swift
+      PairingRenderer.swift
+      InvocationCancellation.swift
+      ProcessRunner.swift
+      NativeBundleInstaller.swift
+    ShellControlHostSupport/
+      UnixSocket.swift
+      ProcessLock.swift
+      AtomicFileStore.swift
+    ShellControlDaemon/
+      DaemonCore.swift
+      Journal.swift
+      ...
+    shell-controld/
+      main.swift
+  Tests/
+    ShellControlManagementTests/
+    ShellControlCommandTests/
+    ShellControlDaemonTests/
+```
 
-Retain the existing no-argument setup flow and native `request`, `notify`, and `receipt` forwarding. The following commands/flags are the **proposed** interface, not a claim that they already exist.
+`ShellControlHostSupport` contains reusable host I/O primitives and depends only on the protocol modules it actually needs. The management target MUST NOT depend on the daemon actor merely to acquire a lock or use its socket. Extract reusable code without changing IPC framing.
+
+`ShellControlManagement` owns configuration, lifecycle policy, administration, and diagnostics. Command types perform argument validation and dispatch; they MUST NOT accumulate service lifecycle logic in one large root file.
+
+The broker remains in `services/shell-control`. Neither the broker nor the daemon becomes a mode of the user-facing CLI. Watch and phone targets MUST NOT acquire a dependency on the host-management target or its administrative credentials.
+
+### 3.2 Swift implementation choices
+
+Use a pinned, vendored `swift-argument-parser` dependency and an `AsyncParsableCommand` root. Rename the executable's current `main.swift` when introducing an `@main` command type; do not retain two entry points. The official parser supports nested commands and asynchronous command execution. [E1][E2]
+
+Use Foundation and the existing transport/protocol modules for HTTP, JSON, and URLs. Use a dedicated, injectable `ProcessRunner` for short-lived helper processes and a dedicated `ServiceManager` protocol for service ownership. Use Core Image's QR generator plus a small terminal matrix renderer; no JavaScript QR dependency is permitted. [R10][R11][E3]
+
+Do not add a new subprocess framework merely to implement this specification. Swift strict-concurrency errors MUST be resolved with explicit ownership, actors, or synchronization—not blanket `@unchecked Sendable` declarations.
+
+## 4. Command-line contract
+
+The executable name is `shell-control`. Invoking it with no subcommand shows help and exits successfully without changing state. There is no `shell` or npm compatibility alias.
+
+Common options are `--help`, `--version`, and `--state-dir <absolute-path>`. `SHELL_CONTROL_STATE_DIR` may supply the state root when the explicit option is absent, including for adapters and isolated tests. The production default is `~/.local/state/shell-control`.
 
 | Command | Contract |
 |---|---|
-| `setup` or no arguments | Ensure the configured services; print pairing instructions; monitor enrollments on a TTY. Do not opt into login startup. |
-| `setup --no-watch` | Perform the same readiness checks and return without enrollment monitoring. |
-| `up` | Start or re-enable an existing configuration; no QR, enrollment loop, or credential regeneration. |
-| `down` | Persist stopped intent, disable and unload owned jobs, and verify shutdown. |
-| `restart broker\|daemon\|tunnel\|all` | Restart only the requested owned components; preserve identity. Quick-tunnel replacement requires the explicit URL-change flow. |
-| `service install` | Install login-persistent agents after validating a stable-address configuration. This explicit command is the opt-in. |
-| `service uninstall` | Stop jobs and remove only this installation's agent files. Retain configuration, enrollment, and journals. |
-| `status` | Preserve JSON as the default output; return observational status without creating or repairing state. |
-| `status --check` | Same JSON, with a nonzero exit when required components are not ready. |
-| `logs [broker\|daemon\|tunnel] [--follow]` | Read local diagnostic logs. Exiting a log reader never affects the service. |
-| `pair [--watch]` | Explicitly print the pairing link/token/QR; optionally monitor enrollments. |
-| `setup --rotate-url` | Explicitly accept replacement of a dead quick-tunnel URL and the resulting device re-pairing requirement. |
+| `setup [--no-watch] [address options]` | Create a fresh native installation or reconcile an existing native installation. Print pairing instructions after the local installation is committed; monitor enrollment only with interactive input. |
+| `up [--rotate-url]` | Explicitly enable and start an existing native installation. It does not enroll devices or print a QR. URL rotation is allowed only when explicitly requested for quick mode. |
+| `down` | Persist stopped intent, disable and unload every owned job, and verify both conditions. Retain configuration, credentials, and journals. |
+| `restart broker\|daemon\|tunnel\|all` | Restart the selected owned components after validating the entire request. Reject an installation with stopped intent. |
+| `service install` | Opt into startup after graphical login. Requires a stable address. Preserve current running/stopped intent. |
+| `service uninstall` | Remove login persistence without deleting data or interrupting an already-running session job. Stopped services remain stopped. |
+| `status [--check]` | Emit an observational JSON status document. `--check` fails unless the configured control path is ready. |
+| `logs [broker\|daemon\|tunnel] [--follow]` | Read bounded diagnostic output. Cancellation affects the reader only. |
+| `pair [--watch]` | Print the saved pairing URL/token and a QR when supported; optionally monitor enrollment. It does not start stopped services. |
+| `confirm <USER-CODE> [--yes]` | Display the device description/fingerprint and approve that one code. A TTY prompts unless `--yes` is passed. Non-interactive use MUST pass `--yes`. Never infer consent from mere discovery. |
+| `push configure --key-id <id> --team-id <id> --key-file <absolute-path>` | Validate and persist a complete APNs provider configuration. Copy the key into protected installation storage. |
+| `push disable` | Explicitly disable push and remove its installed key material after updating the broker configuration. |
+| `notify`, `request`, `receipt` | Run the existing adapter operations as native command handlers, not subprocess proxies. |
 
-Configure the proposed modes through `setup --tunnel-mode quick|named|external-proxy`, `--public-url <https-url>`, and, for named mode, `--tunnel-config <absolute-path>`. Validate the named tunnel's identity, ingress hostname, loopback target, and credential-file ownership before launch. The CLI does not create the tunnel or DNS record. For example, after that infrastructure exists:
+### 4.1 Parsing and output
 
-```sh
-npx @chr33s/shell setup --tunnel-mode named \
-  --public-url https://control.example.com \
-  --tunnel-config /absolute/path/cloudflared.yml --no-watch
-npx @chr33s/shell service install
-npx @chr33s/shell pair --watch
-```
+Each subcommand owns its options. Unknown or conflicting options and extra positionals MUST fail before filesystem or service changes. Management flags MUST NOT consume adapter flags. Support `--` where needed to terminate option parsing, but ordinary adapter invocations MUST NOT require it.
 
-Explicit configuration flags take precedence when configuring an installation. A stored installation otherwise remains authoritative; a conflicting environment variable must not silently replace its endpoint. On a fresh installation, the existing `SHELL_CONTROL_PUBLIC_URL` override maps to external-proxy mode unless a mode is explicitly selected. Reject unknown flags. Help and status must remain side-effect-free.
+The adapter surface retains its functional flags, including `notify --title`, `request --spec-file`, `request --wait`, and receipt parameters. Port validation requires a value from 1 through 65535. Timeouts must be bounded positive values. [R5]
 
-Non-TTY setup MUST NOT wait indefinitely or approve a pending device. Print the existing explicit confirmation command and return after readiness. Preserve fingerprint comparison and explicit approval requirements.
+`status`, `notify`, `request`, and `receipt` reserve stdout for their documented JSON. Diagnostics, prompts, and progress go to stderr. Help and pairing output are human-readable exceptions. Output writers MUST finish or report a write failure before process exit; success must not truncate piped JSON.
 
-Ctrl+C after readiness exits only the interactive command. Use exit status 130 for SIGINT, 143 for SIGTERM, and 129 for SIGHUP; successful finite commands use 0, operational failures 1, and invalid arguments/configuration 2. A hung CLI network request must not prevent cancellation. Target exit within one second of cancellation after readiness in the test harness.
+Management exit codes are `0` for success, `1` for unavailable/degraded/runtime failure, and `2` for invalid invocation or unsupported configuration. Signal cancellation uses `128 + signal`: 130 for SIGINT, 143 for SIGTERM, and 129 for SIGHUP. Timeout is a runtime failure, not a fabricated signal event.
 
-## 5. Phase 1: immediate detachment fix
+For a successfully resolved `request --wait`, preserve the protocol exit convention: approved `0`, rejected `10`, expired `11`, cancelled `12`, unavailable `13`. A local signal interruption is not a broker cancellation and must not be translated into `12`. A successful notification or request creation without `--wait` also exits `0`, but does not grant execution permission. [R7]
 
-This phase is independently shippable before launchd migration, but is not the completed persistence solution.
+### 4.2 Setup behavior
 
-For every detached service, use ignored stdin and securely opened append-only file descriptors for stdout/stderr. Do not use `inherit`, parent-owned pipes, or an IPC channel. Close the parent's copies of the log descriptors after a successful spawn; retain `unref()` for this transitional launcher. Handle both the spawn error event and premature service exit. Do not mark a service ready merely because a PID was allocated.[E1]
+Fresh setup starts session-scoped services; it does not enable login persistence. A second setup with matching configuration reuses healthy services and the existing native identity.
 
-Replace the shared temporary cloudflared log with a private, installation-specific startup log. Discover the URL by bounded reads of that file, not by retaining child streams. Read only the current startup generation; maintain a bounded partial-line buffer so fragmented output is handled. Do not accept an old URL from a previous launch. Stop the reader and close all descriptors after discovery or cancellation.
+After `down`, `setup` MUST NOT override stopped intent or re-enable jobs. It reports that `up` is required. `up --rotate-url` is the explicit recovery path when a stopped quick tunnel cannot retain its old hostname.
 
-Install one invocation-scoped cancellation controller before any asynchronous startup. Pass its signal through CLI HTTP requests, timers, readiness waits, and prompts; remove all signal listeners in `finally`. Do not share a module-global stop flag between invocations or tests. A CLI cancellation signal MUST NOT be forwarded to an already-ready service.
+Noninteractive setup returns after readiness evaluation and never waits for input or approves devices. `--no-watch` produces that behavior in an interactive terminal too. Monitoring is outside the installation lock and does not own any running service.
 
-Record which resources an invocation actually created. Before readiness, cancellation rolls back only those newly created resources, without disturbing reused services or rotating established identities. After readiness, interruption leaves the installation running. If the CLI itself is killed before cleanup, the next invocation reconciles the recorded incomplete startup instead of creating duplicate writers.
+## 5. Native installation state
 
-## 6. Phase 2: launchd ownership and persistence
-
-Use a single `ServiceManager` abstraction with production operations implemented through `/bin/launchctl` and injected fakes for tests. Use the current user's `gui/<uid>` domain; fail clearly when that domain is unavailable. Do not silently escalate privileges or switch to a system domain.
-
-Use installation-scoped labels, for example:
+Use a new self-identifying native format, not an importer for the TypeScript files.
 
 ```text
-dev.chr33s.shell.control.<installation-id>.broker
-dev.chr33s.shell.control.<installation-id>.daemon
-dev.chr33s.shell.control.<installation-id>.tunnel
+~/.local/state/shell-control/
+  installation.json            # format marker, identity, desired state, deployment
+  secrets.json                 # account, admin, cursor, pairing, origin credentials
+  runtime.json                 # interrupted management-operation metadata
+  install.lock                 # kernel-owned exclusive flock; never an ownership PID
+  credentials/
+    apns.p8                    # present only when push is configured
+    tunnel.json                # present only in named mode
+  services/
+    broker.json
+    daemon.json
+    tunnel.yml                 # generated for named mode, never arbitrary imported YAML
+  launchd/
+    <label>.plist               # canonical session registrations
+  logs/
+  broker.json                  # existing broker ledger role
+  dispatch-journal.ndjson      # existing daemon journal role
+  broker.lock
+  daemon.lock
+  control.sock
+  health.sock
 ```
 
-Persist the installation ID once. A PID is an observation, not an identifier or authority to terminate a process.
+The native installation format marker is `shell-control.native/1`. Its required fields include `installation_id`, `desired_state`, `persistent`, `port`, `address_mode`, `public_url`, `release_id`, and typed tunnel/push configuration. `runtime.json` is diagnostic/reconciliation state, not the broker's authority ledger.
 
-**Session-only mode:** store agent definitions under the private state directory and bootstrap them explicitly. Do not install them in an automatic-login directory.
+Generate identity and secrets exactly once for a genuinely fresh installation. Existing native state that is missing required credentials, malformed, or from an unsupported format fails closed. If the root contains another installation format or unexplained broker/journal state, refuse setup without adopting, resetting, or deleting it. No automatic uninstall of another implementation is provided.
 
-**Persistent mode:** install user-owned definitions in `~/Library/LaunchAgents/`. Use `RunAtLoad`, restart-on-exit for broker/daemon/named tunnel, and a restart throttle of at least ten seconds. A quick tunnel is not eligible for persistent installation and MUST NOT be automatically relaunched into a different hostname. Installing an unchanged, already-running session job for future login must not itself restart that job.
+### 5.1 Files and locking
 
-Agent definitions MUST use absolute executable, configuration, working-directory, and log paths. Set restrictive permissions, ignored stdin, and service-owned logging. Do not execute through a shell, `npx`, a package-manager cache, the source checkout, or a shell startup file. Managed service executables run in the foreground and do not daemonize themselves.[E2]
+Directories containing configuration, secrets, journals, or logs use mode `0700`; regular files use `0600`, except executable release files. Verify current-user ownership and reject unsafe symlinks or path traversal at security-sensitive paths. A managed executable symlink is a separately validated installation artifact, not a blanket exception.
 
-Install verified build outputs into versioned directories beneath `~/.local/lib/chr33s-shell/`. Preserve executable permissions/signing where applicable. Retain the previous version for rollback. A checkout deletion, `npm` cache cleanup, or shell PATH change must not break an installed agent. A managed cloudflared binary/configuration must likewise have a stable, validated location; external-proxy mode has no Shell-owned tunnel process.
+Mutating management commands take a nonblocking `flock` on `install.lock`, retry with a cancellable deadline of 30 seconds, and hold the descriptor until the mutation ends. Do not unlink the lock inode during normal release. Kernel lock ownership—not a PID file, socket liveness guess, or Swift actor—is the cross-process exclusion mechanism. There is no requirement to coordinate with the removed TypeScript implementation.
 
-Add native `--config <absolute-path>` support for broker and daemon startup. Pass paths—not admin/origin secrets—in agent arguments. Keep existing environment-based development entry points compatible, but never dump or wholesale persist the parent process environment.
+Read-only commands MUST NOT create a state directory, generate secrets, recover an unfinished installation transaction, or obtain a mutating lock. They may report a concurrent operation as in progress and retry a bounded read of its generation metadata.
 
-`down` must disable automatic starts as well as unload jobs. Killing a process while leaving restart policy active is not shutdown. `up` explicitly re-enables the installation. Respect OS/user background-service restrictions; diagnostics must explain a disabled service without attempting to bypass the user's setting.
+Use same-directory temporary files, complete writes, file synchronization, and atomic rename for individual updates. Record a management operation ID, its validated plan, and pending step before side effects that can outlive the CLI. Reconcile incomplete steps against owned launchd registrations on the next mutating invocation. Do not assume multiple separate JSON renames form one atomic transaction.
 
-## 7. State, configuration, and idempotency
+### 5.2 Configuration persistence
 
-Continue using `~/.local/state/shell-control/` by default. Add a consistent state-directory override for all tools and tests. Separate durable identity/configuration from transient runtime observations:
+Ordinary `setup`, `up`, `restart`, `status`, and login startup load the committed native deployment configuration. They MUST NOT rebuild it from the environment of the current terminal.
+
+Push configuration has two valid states: disabled, or a complete validated key ID/team ID/private-key reference with an allowed topic set. Missing shell variables never clear it. `push configure` replaces the tuple atomically; `push disable` is the only clearing action. Only the broker receives the provider key reference.
+
+Service JSON and plists are derived artifacts. A content/generation change is detected before restarting an affected service. Rewriting identical content must not cause restarts. A failed reconfiguration reports which steps applied; it must not imply successful rollback when a running service may still use the previous generation.
+
+## 6. Lifecycle ownership and cancellation
+
+### 6.1 Service manager
+
+Define an injectable `ServiceManager` with install, start, stop, restart, enable, disable, remove-persistence, and observe operations. The production implementation supports `launchd` only. A fake implementation is test-only and cannot be selected through a production environment variable.
+
+Use labels derived from the native installation ID, such as `dev.chr33s.shell.control.<installation-id>.broker`, with corresponding daemon and tunnel labels. Operate only in `gui/<uid>`. Absence of the graphical login domain is an actionable error; never escalate to a system domain.
+
+Use absolute executable/configuration paths and argument arrays. Broker and daemon take protected `--config` paths. Secrets MUST NOT appear in `ProgramArguments`, plists, process titles, status, or diagnostics. Plists use `/dev/null` for stdin and explicit files for stdout/stderr; no inherited terminal streams and no CLI-owned service pipes are permitted.
+
+Broker and daemon are restartable jobs. Named tunnels may restart automatically with their fixed identity; quick tunnels must not automatically restart and silently replace their address. Set a restart throttle of at least 10 seconds. Apple documents per-user agents and launchd ownership; the target-platform suite must validate the actual command/state behavior on macOS 26. [E4]
+
+Always check helper exit status. `Input/output error` or an unrecognized response is not evidence of successful bootstrap or bootout. Treat disabled, registered, running, and application-ready as separate observations. Verify disabled overrides independently of whether a job is loaded, including after bootout.
+
+No process is signalled solely because its name or PID resembles a service. Do not adopt unmanaged processes. Owned service shutdown goes through the service manager and the validated label.
+
+### 6.2 Operations
+
+Validate command arguments, all selected components, paths, release integrity, and the complete address policy before any mutation. In particular, `restart all` in quick mode rejects the whole request before restarting broker or daemon. `restart tunnel` in external-proxy or loopback mode reports that no tunnel is owned.
+
+`down` first commits stopped intent, then disables and unloads every owned job. Attempt all components even when one fails, aggregate failures, and verify both current absence and durable disablement. Never emit success with an unchecked job. `service install` while stopped writes future-login registration but keeps it disabled; removing persistence does not enable it.
+
+Session jobs are bootstrapped from the canonical state-directory plist. Login persistence adds an identical owned plist under `~/Library/LaunchAgents`. Adding/removing that future-login file must not restart a matching running job. The implementation must test this behavior rather than rely on plist existence as proof.
+
+Startup proceeds as a journaled operation: validate and stage the bundle/configuration; establish tunnel configuration and any required quick address; start and verify the broker; provision/persist the origin; start and verify the daemon; then evaluate the public route. Record newly created resources before launch and release the installation lock before enrollment monitoring.
+
+Local-service commit and remote readiness are distinct. Before local commit, cancellation or failure cleans up only resources created by that invocation. It must not stop a pre-existing healthy service. After local commit, a public-route failure leaves diagnosable services running, returns a degraded result, and does not repeatedly tear down a healthy tunnel.
+
+### 6.3 Invocation cancellation
+
+One cancellation owner handles SIGINT, SIGTERM, SIGHUP, terminal Ctrl+C, and explicit task cancellation. Cancellation must interrupt prompt reads, HTTP requests, socket operations, bounded file following, helper processes, and lock waits.
+
+Terminal input must be genuinely cancellable. Do not put an uninterruptible `readLine()` on the main actor or install a signal handler that consumes Ctrl+C without cancelling the invocation. Use a dedicated input reader with a tested descriptor/dispatch cancellation mechanism and restore terminal settings on every exit path.
+
+For short-lived helpers, `ProcessRunner` must drain bounded stdout and stderr concurrently, propagate exit status, and terminate/reap only the helper it owns on cancellation. It must never treat a helper's process group as authority to kill managed services.
+
+Cancellation after readiness affects the CLI only. Library code returns errors/results; it does not call `exit()` to bypass cleanup. Only the executable entry point maps the completed result to process exit.
+
+## 7. Address and tunnel policy
+
+Setup supports these address options:
 
 ```text
-setup.env                     legacy import source; never shell-executed
-config.json                   versioned desired configuration; mode 0600
-secrets.json                  service-specific credentials; mode 0600
-runtime.json                  startup generation and observations; not authority
-broker.json                   existing broker ledger; preserve
-dispatch-journal.ndjson        existing host journal; preserve
-recovery-outbox.ndjson         proposed acknowledged-recovery bookkeeping
-launchd/                      generated session definitions
-logs/                         private diagnostic output
+--tunnel-mode quick|named|external-proxy|loopback
+--public-url <https-origin>
+--tunnel-id <uuid>                       # named only
+--tunnel-credentials <absolute-path>     # named only
+--cloudflared-path <absolute-path>      # managed modes; otherwise resolve PATH once
+--rotate-url                            # existing quick mode only
 ```
 
-Configuration records schema version, installation ID, desired running/stopped state, login-persistence setting, port, address mode, public URL, tunnel identity/config path, and installed binary version. Credentials include the existing account/admin/cursor/origin/pairing material; their values MUST NOT appear in status or ordinary logs.
+Default fresh setup uses quick mode. Missing `cloudflared` is an explicit error, not silent fallback to loopback. Local-only testing requires `--tunnel-mode loopback`.
 
-All mutating management commands acquire a single installation lock backed by an OS advisory lock. Config/state replacements use a private temporary file, flush, atomic rename, and appropriate directory durability. Reject unsafe ownership, symlinks, unexpected file types, and malformed configuration. Missing or corrupt credentials in an existing installation are a repair error, not permission to silently create a new account.
+Accept public HTTPS origins only: no embedded user information, query, fragment, or non-root path. Normalize with shared URL code. Plain HTTP is allowed only for explicit loopback use. Retain normal TLS validation and reject cross-origin redirects for management probes. [R11]
 
-A repeated setup with matching healthy services MUST preserve broker and daemon PIDs, the tunnel hostname, account/origin IDs, and enrollment. Configuration changes that require a restart must be reported and applied deliberately. A second concurrent setup waits for the lock and then reuses the first result.
+### 7.1 Named mode
 
-The broker and daemon each hold a lifetime singleton lock for their state/socket. Never permit two broker writers against the same ledger. Startup lock acquisition and socket collision failures must be explicit; do not unlink a socket served by another live instance.
+Require an already-provisioned tunnel UUID, credential file, and stable public hostname. Validate credentials against the chosen tunnel identity, copy them into private installation storage, and generate the tunnel YAML from typed configuration. Do not port the handwritten arbitrary-YAML parser from TypeScript.
 
-Initial quick-mode setup may start the connector first to learn its address, then configure/start the broker, provision the origin, and start the daemon. A temporary proxy error while the broker is not yet ready is expected. Stable mode already knows its hostname. On later login, services must tolerate arbitrary launch order using bounded retry; startup ordering is not their correctness mechanism.
+Generate exactly the intended public-host rule pointing at `http://127.0.0.1:<port>` and a final `http_status:404` catch-all. Quote scalar values safely and validate the resulting ingress configuration with the selected `cloudflared` executable. Cloudflare documents ordered ingress rules and their final catch-all requirement. [E5]
 
-## 8. Public-address policy
+DNS creation, account login, and tunnel creation are operator prerequisites. The CLI must not invoke `cloudflared service install`; Shell owns only its per-user tunnel job.
 
-Support three explicit modes:
+### 7.2 Quick mode
 
-| Mode | Public identity | Ownership and recovery |
-|---|---|---|
-| `quick` | Random development URL | Shell starts a session-only connector once. Preserve it while alive; explicit rotation after loss. |
-| `named` | User-configured stable HTTPS hostname | Shell supervises an existing named Cloudflare connector using a validated configuration/credential file. |
-| `external-proxy` | User-configured stable HTTPS hostname | Another service forwards to the local broker; Shell never stops or replaces that service. |
+Quick mode is a development convenience. Discover its address from bounded, generation-scoped reads of file-backed logs, not child stdout/stderr pipes owned by the CLI. Ignore earlier log generations and bound partial lines and total read buffers.
 
-A local/simulator-only mode MAY remain available, but must say that physical devices cannot reach a loopback address. It is not a successful remote-Watch setup.
+A saved address with a dead tunnel is `degraded`, not ready. Do not silently create a replacement on setup, health failure, broker restart, or login. `setup --rotate-url` or `up --rotate-url` explicitly authorizes a new address; print old and new endpoints and explain that devices must be paired/enrolled against the replacement.
 
-Quick Tunnels produce random subdomains and are documented for development/testing, not production availability.[E3] A named connector's configured ingress and credentials must be explicit; provisioning Cloudflare accounts, DNS, or new tunnels is outside this change.[E4]
+Quick mode cannot enable login persistence. Broker failure, HTTP 502, DNS timeout, or a captive portal must not by itself trigger hostname rotation.
 
-A timeout, DNS failure, TLS failure, captive portal, or broker-side 5xx response MUST NOT automatically rotate the URL. Neither a non-530 response nor a live cloudflared PID proves end-to-end readiness. Preserve the configured address while classifying the actual failure. Named-mode recovery starts the same tunnel; it never falls back to quick mode.
+### 7.3 External proxy and loopback
 
-URL replacement displays old/new addresses and an explicit re-pairing notice. Do not imply that a Watch pointing at a dead hostname can learn its replacement over that dead connection. Reuse the existing explicit pairing flow and clear/re-enroll device credentials on a broker-address change; do not copy tokens or silently redirect authenticated requests across origins.[R3]
+External-proxy mode routes a stable public origin to the same local broker. Shell neither owns nor stops the proxy. The daemon still talks to the broker on loopback.
 
-The implementation may retain the Mac-side ledger during an intentional address change. This does not authorize silently rebinding existing Watch credentials to a different endpoint.
+Loopback mode owns no tunnel and makes no physical-Watch reachability claim. Its readiness result is explicitly scoped to local services. Any address-mode change must be deliberate, validated as a whole, and reported as an endpoint change when it affects enrolled devices.
 
-## 9. Readiness and diagnostics
+## 8. Health, status, and logging
 
-Expose distinct observations for job registration, process liveness, local broker readiness, daemon IPC responsiveness, daemon authentication/reconciliation, and public-route reachability. Every observation has a timestamp and an error category. Public-route success measured on the Mac is not proof that a particular Watch currently has network access.
+Expose a new native management status schema rather than retaining TypeScript compatibility fields. Use `schema: "shell-control.status/1"` with `overall`, `readiness_scope`, `desired_state`, `persistent`, `public_url`, and per-component observations for broker, daemon, tunnel, public route, and push. Every observation includes a check time and a machine-readable reason when not ready.
 
-Add an authenticated local broker diagnostic read and a separate read-only daemon `health.sock`, protected by the existing same-user peer-verification rules. A health query must not register a job, mint a run, or change the published adapter message schema. Readiness requires a loaded durable store, expected installation/configuration generation, responsive IPC, and successful origin authentication. A newly launched process still replaying safe recovery metadata is `recovering`, not fully ready.
+The broker probe must check protocol compatibility, loaded-store readiness, and the expected installation-specific service identity. Use the existing `service_identity` capability field as a nonsecret instance discriminator rather than assuming the literal `shell-control` identifies this installation. A matching discriminator is diagnostic evidence, not authorization. Verify the public route against the same identity and avoid accepting cached or redirected responses as a fresh health result. [R10][R12]
 
-A public capabilities check must validate protocol and expected non-secret instance metadata rather than accepting any HTTP 200. Any added metadata is additive and diagnostic, not cryptographic proof of identity. Send no administrative credentials to the public probe; prohibit cross-origin credential forwarding. Use bounded requests and no-store responses to avoid stale proxy health results.
+The daemon health socket reports store initialization, IPC responsiveness, fresh origin authentication, and outstanding abandoned-work recovery count. An existing PID or responsive socket alone is insufficient. Recovery in progress is `recovering`, not a crash that should be fixed by endless restarts.
 
-Retain the existing top-level liveness booleans for a transition period and add versioned detail. Omit `pairing_token`; move deliberate secret display to `pair`. For example:
+Remote mode is ready only when the local broker, authenticated daemon, required managed tunnel, and public route are ready. External-proxy mode substitutes a verified public route for a managed-tunnel process. Loopback readiness is local only. Push absence is reported separately and does not block foreground HTTPS review; configured push is not proof of actual notification delivery.
 
-```json
-{
-  "schema_version": 2,
-  "broker": true,
-  "tunnel": true,
-  "daemon": true,
-  "overall": "degraded",
-  "manager": "launchd",
-  "persistent": true,
-  "desired_state": "running",
-  "public_url": "https://control.example.com",
-  "components": {
-    "broker": { "state": "ready" },
-    "daemon": { "state": "ready", "recovery_pending": 0 },
-    "tunnel": { "state": "running", "mode": "named" },
-    "public_route": { "state": "unreachable", "error": "dns_timeout" },
-    "push": { "state": "not_configured" }
-  }
-}
+`status` is read-only, including when no installation exists. `status --check`, setup completion, and `up` must share the same readiness projection and cannot disagree because one only checks PIDs.
+
+Proposed deadlines: 4 seconds per HTTP health probe, 2 seconds per health-socket attempt, 8 seconds per administration request, 30 seconds for quick URL discovery, and a 60-second overall startup readiness budget. Use monotonic deadlines and cancellable waits; tests inject the clock rather than sleep through these limits.
+
+All logs must be written independently of the CLI lifetime. Never log keys, tokens, capabilities, raw authorization headers, or full sensitive approval documents. Bound `logs` output to a tail by default and handle rotation/truncation while following. Broker and daemon log retention must operate without an open CLI. Tunnel log retention must use a tested OS/transport-supported mechanism, not restart a quick tunnel just to rotate its log. Diagnostic-log cleanup must never truncate broker or dispatch journals.
+
+## 9. Administration, pairing, and adapters
+
+Implement a host-only `ControlAdminClient` over the shared injectable HTTP transport. The existing `ControlAPIClient` has device/origin credentials, not the administration surface required by setup. Do not pass an admin secret through a device client or add it to Watch configuration. [R10]
+
+Administration stays on the configured loopback broker. Requests are authenticated, bounded, and cancellable; unexpected response bodies or statuses are errors, not silently decoded empty success objects. Do not retry a provisioning POST with a new identity after an ambiguous response. Persist its pending operation and reconcile with the broker; add a stable idempotency contract for origin provisioning if necessary.
+
+Use the shared pairing URL construction/normalization. Generate the pairing-page QR natively, preserve a quiet zone, render without smoothing, and verify that it scans from both light and dark terminals. Non-TTY output includes the textual link/token without terminal escape art. [R11][E3]
+
+Enrollment monitoring prints a sanitized label, platform, fingerprint, and requested permissions before asking for consent. Default answer is no. EOF, cancelled input, malformed description, and a non-TTY never approve. `confirm <USER-CODE>` is a deliberate single-code approval command, not a bulk-confirm mechanism. A push token or pairing token is not a device authentication credential.
+
+Move adapter handlers into native subcommands and reuse the existing framed IPC, JSON types, and outcome mapping. Keep `notify`, `request`, and `receipt` free of management side effects: they do not implicitly install/start services or create an account when a socket is unavailable. Validate a complete permit and the exact request/run context; never reduce permission to a zero exit status. [R5][R7]
+
+Administrative and local IPC endpoints must continue to enforce their existing caller/scope checks. The CLI does not gain unrestricted remote execution, approval shortcuts, or authority to accept SSH host keys.
+
+## 10. Correct restart recovery before release
+
+The baseline's recurring recovery discovery is unsafe because journal entries for live requests appear unfinished until completion. A recurring worker must retry abandoned-work obligations, not rediscover current work as though the process just restarted. [R8][R9]
+
+### 10.1 Startup boundary
+
+After acquiring the daemon singleton lock and before accepting new IPC work, read the durable journal and capture an immutable startup frontier: a record sequence, byte boundary, or equivalent boot-scoped candidate set. Persist interrupted-work candidates before admitting new runs.
+
+Only candidates identified at that boundary may enter restart recovery. Requests created later in the current process are live work, even if their journal entries are unresolved, claimed, or awaiting a receipt. Do not rely solely on checking whether an in-memory run dictionary happens to contain a request during an `await`.
+
+On a subsequent real restart, unfinished work from the preceding process is naturally eligible at the new boundary. The startup frontier is not a permanent exemption across future restarts.
+
+### 10.2 Retrying obligations
+
+Separate these operations:
+
+```text
+discoverInterruptedWorkAtStartup(frontier)
+retryUnresolvedStartupCandidates()
+retryPersistedRecoveryMutations()
+heartbeatLiveRuns()
 ```
 
-The implementation adds observation timestamps and diagnostic identifiers; examples omit them for clarity. External-proxy mode reports its connector as `externally_managed`, not missing.
+The heartbeat loop may invoke the latter three operations, but never an unbounded rediscovery of all currently unfinished journal work. Discovery and retry must be single-flight despite actor reentrancy across network awaits.
 
-APNs is an independent capability. Missing provider credentials must say **Push not configured; open the Watch app to refresh**, not imply that background alerts work. Configured credentials also do not prove delivery to a device. Do not block foreground HTTP readiness solely because push is disabled; expose that limitation separately.[R6]
+Before a remote withdrawal or unknown-outcome receipt, durably record its exact mutation/receipt identifiers and immutable payload. Retries reuse them. Record local terminal interpretation and acknowledgement only after a verified response or an explicitly idempotent terminal result. Network failure leaves the obligation pending.
 
-`status` is strictly read-only: it must not create secrets, rewrite configuration, restart services, or rotate URLs. It returns 0 when inspection succeeds, even if degraded; `--check` returns 1 unless all required control-path components are ready.
+If request lookup fails, retain the candidate and report recovery pending; do not mark it complete merely because no record was fetched. A candidate can be retired without a mutation only when an authenticated response and the protocol's state rules establish that no recovery action remains.
 
-## 10. Shutdown and safe restart recovery
+An abandoned claim may require an unknown-outcome receipt. A live claim awaiting its adapter receipt must never receive that restart receipt. No recovery path dispatches or replays the underlying operation.
 
-Handle SIGTERM in native services. Stop accepting new local work, cancel heartbeats/network waits, flush durable state, and close listeners. Target a fifteen-second cooperative shutdown budget, followed by a clearly reported service-manager termination when necessary. Keep the broker available while the daemon records any possible shutdown outcomes, then stop the connector and broker. A failed network write never justifies blocking shutdown indefinitely.
+During normal shutdown, stop accepting new work, signal cancellable handlers, drain bounded in-flight work, flush durable records, and let restart recovery handle unresolved obligations. Do not perform synchronous unlimited network work in a signal handler. Journal corruption must be surfaced; silently skipping an authority-relevant record is not safe recovery.
 
-`down` and `restart` MUST NOT kill the user's actual job/application as an undocumented side effect. Adapters must receive a disconnected/unavailable outcome rather than an approval.
+## 11. Native packaging and installation
 
-Preserve the existing distinction between service transport recovery and execution recovery. A broker restart can retain live adapter waits if the daemon survives. A daemon restart does not prove that its in-memory run bindings or blocked adapter are still valid. Withdraw unresolved requests whose original wait cannot be established, and report uncertain post-claim effects as unknown. Never claim that restarting a service resumes an arbitrary job.[R5]
+Ship one native release bundle per supported architecture, with the three Swift executables, a release manifest, checksums, licenses, and user documentation. Required runtime targets are macOS 26 on arm64 and x86_64; each advertised artifact must be tested on that target rather than assumed from a successful cross-build. [R6]
 
-Fix recovery acknowledgement handling: persist each recovery receipt/withdrawal and its immutable mutation ID before sending. Retain the obligation through transport failure, process restart, or an unavailable broker. Append its acknowledged/terminal marker only after the broker confirms the result or reconciliation proves the same mutation already committed. A `try?` remote write followed by an unconditional local completion marker is forbidden.
+Build both SwiftPM packages in CI with a pinned toolchain. Vendor the argument-parser dependency through the repository's manifest process, recording an exact reviewed revision. First-party command tests and packaging must run without npm. [R13]
 
-Retries reuse the original receipt/mutation identifiers and payloads. Reconciliation may submit recovery metadata; it MUST NOT re-execute the operation, manufacture a new approval, extend an expired grant, or bypass the existing consume/receipt safety rules. Persistent authentication rejection becomes a repair-required state, not an endless re-enrollment loop.
+Release bundles MUST contain prebuilt binaries. Setup MUST NOT run `swift build`, download a compiler, evaluate a remote script, or fetch and execute unverified code. Developers use an explicit build script; runtime bootstrap is not a build system.
 
-## 11. Watch lifecycle and reconnection
+Use a signed/notarized native distribution container and validate the actual downloaded artifact under Gatekeeper. A disk image is the primary delivery container for this specification; its contents include the versioned bundle, from which the user invokes `bin/shell-control setup`. Apply Developer ID signing, appropriate hardened-runtime settings, notarization, and container stapling in CI. Test the workflow rather than instructing users to remove quarantine attributes. [E6]
 
-Retain `ControlSession`, its Keychain credentials, protected inbox cache, and command journal. Add explicit scene-activity handling in addition to view visibility; `onDisappear` alone is not the complete backgrounding contract.[R3] [R4]
+Setup stages the verified bundle under `~/.local/lib/chr33s-shell/<release-id>/`, then atomically publishes it and an owned `~/.local/bin/shell-control` symlink. Never replace an unrelated existing executable or symlink. Launchd registrations point to absolute versioned binaries, not the mounted image, a build directory, or a temporary download. Deleting/unmounting the source container must not break installed services.
 
-A single session-owned task controls automatic refresh. Poll only when the scene is active and a relevant screen needs current data. Coalesce simultaneous launch, foreground, notification, manual-refresh, and post-decision triggers. Serialize credential refresh so concurrent requests cannot independently spend rotating refresh credentials.
+The release manifest identifies architecture, minimum OS, toolchain/build version, and hashes for all three executables. The release identity must change for a CLI-only change. Validate the complete bundle before publishing it; a partial directory or one matching binary does not establish a complete installation. The manifest itself must be bound to the trusted signed distribution, not treated as independent proof of authenticity.
 
-Refresh immediately on foreground return; while active use the existing minimum five-second interval. Transient failures back off to 10, 20, 40, then 60 seconds, with bounded jitter that never violates the minimum interval. Manual refresh may trigger an immediate coalesced attempt. Backgrounding cancels polling and retry timers. Do not add a silent-push or always-open-socket requirement.
+`cloudflared` is a declared external prerequisite for managed modes. Resolve and validate its absolute executable path, persist that selection, and report a missing/changed dependency rather than silently choosing a different program after login. It is not needed for external-proxy or loopback mode. Do not ship a package manager bootstrap or maintain a second JavaScript installation path.
 
-A transport failure, broker 5xx, or route outage retains credentials/cache and shows last verified freshness. Revocation and confirmed invalid refresh credentials follow the existing sign-out/re-enrollment path. A broker-unreachable observation must not be labelled “Mac asleep” or “Mac offline” without evidence; distinguish it from an expired host-presence lease fetched from a reachable broker.
+Ordinary repeat setup of the same native release is supported. Importing another implementation, binary downgrade, automatic update, and cross-version state conversion are not part of this clean-install deliverable.
 
-Re-fetch before enabling an approval, and reconcile pending command outcomes after reconnect using their original journal IDs. No cached/offline approval or automatic repeat submission is introduced. A notification is only a hint to fetch authoritative state; missing push does not remove the foreground refresh path.
+## 12. Remove the TypeScript implementation
 
-## 12. Logging and security
+Delete `cli/bin/shell.ts`, the management `.ts` sources and declarations, their Node tests, and `qrcode-terminal` usage. Remove the root npm manifest/lockfile and TypeScript configuration when they exist solely for this CLI. Do not delete unrelated vendored resources merely because their extension is JavaScript or JSON.
 
-All installation directories are user-owned and private; secret-bearing files are mode 0600. Logs exclude authorization headers, device tokens, enrollment secrets, tunnel credentials, and full approval payloads. Diagnostic identifiers must not become authorization capabilities.
+Replace `cli/README.md` with native command documentation under `cmd/`, update the root README and lifecycle documentation, and replace the Node-based lifecycle test invocation with native tests and a macOS integration harness. Remove npm commands from first-party build, release, onboarding, and CI instructions.
 
-Logging must continue after the CLI exits. Provide service-owned or OS-managed retention, with a proposed target of 10 MiB active diagnostic output plus three retained segments per component. Retention must not require a running CLI. Do not mistake renaming a file for reopening a descriptor retained by launchd/cloudflared; the selected logging implementation must demonstrate rotation with the original process still alive. Diagnostic rotation can be lossy, but it must never rotate/truncate the broker ledger or dispatch journal.
+Any older lifecycle design text that prescribes TypeScript management, legacy PID adoption, or an npm launch path must be updated or clearly marked obsolete. Preserve the independent Watch/host protocol documentation and its security requirements.
 
-Do not publish a raw admin endpoint or local IPC socket as part of this change. Preserve the existing broker authorization checks and TLS requirements. Binding local service HTTP to loopback must be verified, not inferred from the advertised URL. Launch arguments are arrays, never interpolated shell commands.
+The final repository must contain one authoritative management implementation. There is no wrapper, compatibility package, parallel installation mode, or temporary production selection flag.
 
-## 13. Migration and rollback
+## 13. Acceptance tests
 
-On first use, detect legacy `setup.env` and PID files. Under the installation lock, create a private backup, validate/import existing credentials, and preserve broker state and the dispatch journal. Do not regenerate account, cursor, origin, or pairing identities merely to adopt launchd.
-
-Before signalling a legacy process, establish same-user ownership, executable path, start identity, and relevant state/socket association. An old PID file alone is insufficient. An unverifiable process is reported as unmanaged; do not guess, kill all processes by name, or signal an arbitrary negative process-group ID.
-
-A running legacy quick tunnel cannot simply be adopted by launchd without affecting its process lifecycle. Preserve it temporarily as `legacy_unmanaged` or require explicit migration that warns of address change. Never tear it down silently to make the installation look fully managed. New persistent setup requires the stable-address transition and normal re-pairing when the endpoint changes.
-
-Upgrade by staging a new binary/configuration generation, validating it, and changing only affected jobs. Preserve the previous generation until readiness passes. On failure, restore prior executable/configuration definitions where compatible. **Never roll back the broker ledger, spent-authority records, or dispatch journal** as part of a binary rollback. Keep journal/configuration schemas backward-compatible throughout this rollout; stop with a repair instruction rather than load an older binary against an incompatible schema.
-
-## 14. Implementation map
-
-Paths marked “new” are proposed, not existing source observations.
-
-| Location | Work |
-|---|---|
-| `cli/src/cli.ts` | Thin command dispatch; cancellation lifecycle; explicit pairing; replace destructive ensure/kill behavior. |
-| `cli/src/services.ts` (new) | Testable service-manager interface and launchd implementation. |
-| `cli/src/state.ts` (new) | Versioned configuration, locking, migration, atomic writes, installation identity. |
-| `cli/src/tunnel.ts` (new) | Address modes, bounded quick-URL discovery, explicit rotation policy. |
-| `cli/src/health.ts` (new) | Read-only probes and versioned status projection. |
-| `cli/src/*.test.ts` and test fixtures (new) | CLI lifecycle, fake services, signal handling, state and tunnel regressions. |
-| `cmd/Sources/shell-controld/main.swift`, `cmd/Sources/ShellControlDaemon/UnixSocket.swift` | File configuration, shutdown handling, singleton ownership and the peer-verified diagnostic socket. |
-| `cmd/Sources/ShellControlDaemon/DaemonCore.swift`, `Journal.swift` | Durable recovery obligations and acknowledged, idempotent reconciliation. |
-| `cmd/Tests/ShellControlDaemonTests/` | Restart/disconnect/recovery and no-replay tests. |
-| `services/shell-control/Sources/` and corresponding tests | File configuration, singleton ledger ownership, readiness diagnostics, shutdown behavior. |
-| `ShellWatch/Services/ControlSession.swift` | Single-flight refresh/token renewal, bounded active retry, recovery projection. |
-| `ShellWatch/App/ShellWatchApp.swift`, `ShellWatch/Features/Inbox/InboxView.swift` | Scene/visibility lifecycle wiring and truthful availability labels. |
-| `ShellWatchTests/` | Lifecycle, concurrent renewal, offline/foreground, and cache preservation tests. |
-| `package.json`, `scripts/test-control.sh` | Include new unit suites and an isolated macOS integration entry point. |
-| `README.md`, `cli/README.md`, `cmd/README.md`, `spec.watch.md` | Document ownership, persistent setup, address changes, stop semantics, and availability limits. |
-
-Do not change OS deployment targets, vendored dependencies, SSH, terminal, tmux, or CloudKit behavior as part of this work.
-
-## 15. Required acceptance tests
-
-Use fake clocks/transports and small local fake services for deterministic tests. Use isolated state directories, ports, and installation-scoped launchd labels for macOS integration. Never operate on a developer's real enrollment or installed services.
+Tests use isolated state roots, launchd labels, socket paths, ports, and credentials. They must never stop the developer's real services or contact a production broker. Unit tests use injected clocks, I/O, transport, and service observations; integration tests exercise the built executable.
 
 | ID | Scenario | Required result |
 |---|---|---|
-| L01 | `setup --no-watch` completes | CLI actually exits; broker, daemon and connector remain usable. |
-| L02 | SIGINT during idle monitoring, an open prompt, or a hanging fetch | Exit within the cancellation target; no approvals; ready services unaffected. |
-| L03 | Close the PTY/terminal, send SIGHUP, or SIGKILL the ready CLI | Service health and public hostname remain unchanged. |
-| L04 | Service writes stdout/stderr continuously after CLI exit | No broken pipe, terminal dependency, log deadlock, or CLI-owned stream. |
-| L05 | Fragment URL output; prepopulate a stale log; omit URL; fail spawn | Correct current URL only; bounded failure; no leaked polling/file handles. |
-| L06 | Run setup twice and concurrently | One installation and ledger writer; matching healthy PIDs and identities are reused. |
-| L07 | Reuse a legacy PID for an unrelated process | No signal reaches the unrelated process; report unverifiable ownership. |
-| L08 | Kill broker while keeping connector and daemon alive | Broker restarts; hostname and enrollment survive; no duplicate request or lost ledger state. |
-| L09 | Kill named connector | Same configured hostname becomes reachable again; no QR/re-enrollment required for unchanged identity. |
-| L10 | DNS timeout, TLS failure, route 502/530, broker down | Correct degraded state; no automatic quick-URL replacement. |
-| L11 | Kill quick connector | Unavailable state and explicit rotation guidance; persistent install rejects quick mode. |
-| L12 | Run `down`, wait through restart policy, then log out/in | Owned services stay stopped until `up`; ledger/credentials remain. |
-| L13 | Install, reboot, then log in with minimal PATH and deleted checkout/cache | Installed services resume without CLI or source checkout; stable endpoint preserved. |
-| L14 | Start daemon before broker; lose network during startup | Retry safely; no busy loop, false readiness, or generated replacement identity. |
-| L15 | Restart daemon around claim/receipt; fail every recovery network write | No operation replay; original recovery mutation remains durable until acknowledged. |
-| L16 | Inspect a running-but-unresponsive process or an unrelated HTTP 200 | `status` is not ready; no state mutation or credentials in output. |
-| L17 | Background/foreground Watch; trigger concurrent refresh/renewal | No background polling; one renewal; cache/identity retained after transient failures. |
-| L18 | Sleep/wake Mac; expire request or presence lease while unavailable | Refresh on recovery; expired authority stays unusable; no unsupported “resumed” claim. |
-| L19 | Remove APNs provider credentials | Foreground review works; status explicitly reports push unavailable. |
-| L20 | Interrupt migration; fail upgraded binary; corrupt configuration | Recover or report repair; no credential regeneration, duplicate writer, or ledger rollback. |
-| L21 | Rotate logs while CLI absent and services continue writing | Retention works without breaking the connector or touching durable authorization data. |
-| L22 | End-to-end physical Watch request after terminal closure | Existing enrolled Watch fetches, explicitly decides, and receives the host receipt with no CLI running. |
+| N01 | Root help, no args, or version with no state directory | Correct output; no files, services, network calls, or secrets created. |
+| N02 | Adapter flags, including `--title`, `--spec-file`, `--wait`, and receipt options | Parsed by the correct native subcommand without a separator workaround. |
+| N03 | Invalid flags, ports, conflicting modes, extra arguments | Exit 2 before any mutation. |
+| N04 | Adapter terminal outcomes | Structured response and 0/10/11/12/13 mappings match the protocol. |
+| N05 | Fresh setup from a downloaded native bundle on a Mac without Node or developer tools | Installs and runs without a compiler, npm, or source checkout. |
+| N06 | Repeat healthy setup of the same release | Same identities, endpoint, PIDs, and effective service configuration. |
+| N07 | Unrecognized existing state or corrupt native credentials | Actionable error; no import, reset, credential regeneration, or deletion. |
+| N08 | Two concurrent mutating commands | Kernel lock serializes writes; cancellation while waiting is prompt. |
+| N09 | SIGKILL during a journaled installation step | Next mutation reconciles only owned incomplete resources; no duplicate broker or account. |
+| N10 | Real PTY Ctrl+C while a fingerprint prompt is open | Prompt and CLI exit; ready service PIDs and reachability are unaffected. |
+| N11 | SIGTERM, SIGHUP, EOF, HTTP timeout, cancelled lock wait | Correct distinct outcome; no inferred approval; terminal state restored. |
+| N12 | CLI exits, source disk image is unmounted, then terminal is closed | Services continue using installed binaries and file-backed logs. |
+| N13 | `down` with persistent agents, followed by logout/login | No owned services return until `up`; each disabled state is verified. |
+| N14 | A launchctl disable/bootstrap/bootout operation fails | Nonzero command result; no unconditional success or generic-error suppression. |
+| N15 | `service install` while stopped; uninstall while running | Install preserves stopped intent; uninstall removes persistence without restarting the session jobs. |
+| N16 | `restart all` in quick mode | Rejected before any PID, configuration, or registration changes. |
+| N17 | Broker restart with healthy named or quick tunnel | Tunnel PID/address are retained; unrelated components are not restarted. |
+| N18 | Missing/dead quick tunnel with a saved URL | Degraded result; no silent rotation; explicit rotation reports the new pairing requirement. |
+| N19 | Missing cloudflared | Managed mode fails clearly; only explicit loopback/external mode proceeds without it. |
+| N20 | Generated named-tunnel configuration | Exactly intended ingress plus catch-all; safe quoting; selected tunnel/credential identity validated. |
+| N21 | Public route wrong identity, stale response, DNS failure, invalid TLS, or redirect | Not ready; no credential leakage, TLS bypass, or destructive tunnel recreation. |
+| N22 | Loopback mode versus external-proxy mode | Correct readiness scope; no claim that local-only service is remotely reachable. |
+| N23 | Configure APNs, then run setup/up/restart with an empty environment | Provider tuple and protected key remain configured. |
+| N24 | `push disable` and malformed partial push configuration | Explicit disable works; incomplete replacement fails without erasing valid configuration. |
+| N25 | Enrollment code expired, malformed fingerprint, no TTY, or EOF | No approval; bounded useful diagnostics. |
+| N26 | Pairing QR in light/dark terminals and non-TTY output | Physical phone can scan both; non-TTY text remains usable and escape-free. |
+| N27 | Live pending request spans multiple heartbeat/recovery retry cycles | Remains pending; no recovery withdrawal is queued. |
+| N28 | Live claimed operation delays its real receipt | No false restart-generated unknown receipt. |
+| N29 | Actual daemon restart with abandoned pending/claimed work | Startup-boundary discovery produces the appropriate durable obligations. |
+| N30 | Broker outage during recovery, then reconnection and another crash | Stable mutation IDs/payloads are retained and acknowledged exactly once logically; no replay of execution. |
+| N31 | Corrupt/truncated authority-relevant journal input | Safe diagnostic failure or explicitly validated tail recovery; no silent omission of completed/claimed records. |
+| N32 | CLI-only binary change; incomplete or tampered bundle | Release identity changes; invalid bundle is rejected before publication. |
+| N33 | Full stdout pipe, disappearing reader, and concurrent helper output | No truncated success JSON or helper deadlock; output failure is surfaced. |
+| N34 | Continuous service logs after CLI exit | Retention operates independently; no secret exposure, journal truncation, or forced quick-tunnel rotation. |
+| N35 | Native-only build/test/release environment | First-party management tooling has no Node/npm/TypeScript dependency or alternate implementation. |
+| N36 | Physical Watch with stable endpoint, CLI absent, and phone app unavailable | Fresh request can be reviewed, explicitly decided, consumed once, and receipted through the existing protocol. |
+| N37 | Mac sleep/network interruption and later wake | No execution replay or invented continuity; status recovers when services/routes actually recover. |
 
-Run the existing `npm run typecheck`, `npm test`, `./scripts/test-control.sh`, and `./scripts/test-watch.sh`; expand test discovery because the baseline npm test script currently selects only `cli/src/util.test.ts`.[R7] Add a dedicated macOS lifecycle suite. Physical-device, actual logout/login, and sleep/wake cases are release validation, not falsely reported as Linux/container tests.
+N10–N17 and N36–N37 require real macOS/device evidence. A fake service manager, source inspection, simulated exception, or Linux terminal reproduction cannot substitute for those release gates. Keep test logs and artifact hashes with the release evidence.
 
-## 16. Delivery order and definition of done
+## 14. Implementation work breakdown
 
-**P0 — CLI independence:** complete Section 5 and tests L01–L05, including real PTY/process-exit tests. This fixes the immediate user-visible lifecycle bug but does not claim reboot persistence.
+These are source-work dependencies, not a staged deployment scheme. The shipped result is the native implementation only.
 
-**P1 — Managed stable operation:** complete launchd ownership, explicit persistence, stable-address modes, identity-preserving migration, safe stop/start, and readiness status. Pass L06–L14 and L16. Session-only mode and persistent mode converge on the same manager; the transitional detached launcher is retained only for explicit legacy compatibility.
+| Work package | Primary changes | Completion gate |
+|---|---|---|
+| Recovery correctness | Split daemon startup discovery from recurring retries; add boot-frontier/candidate persistence and regression coverage. | N27–N31 pass. |
+| Native command core | Add parser dependency and command tree; extract host support; integrate adapter handlers; implement cancellation and administration. | N01–N04, N10–N11, N25 pass. |
+| Native management | Implement installation store, launchd manager, tunnel generation/discovery, push persistence, status, and logs. | N06–N09, N13–N24, N33–N34 pass. |
+| Distribution and removal | Build/sign/notarize native bundles; validate clean setup; remove TypeScript/npm code and instructions. | N05, N12, N26, N32, N35 pass. |
+| End-to-end validation | Exercise actual macOS lifecycle, login, network, and physical Watch paths. | N36–N37 and all real-platform gates pass. |
 
-**P2 — Recovery and release hardening:** complete acknowledged host recovery, Watch lifecycle/coalescing, logging retention, rollback, documentation, and L15/L17–L22. Preserve the existing authorization contract throughout all phases.
+Update `cmd/Package.swift`, the vendor manifest, source notices, native tests, root onboarding documentation, and release scripts together. Replace relevant entry points in `scripts/test-lifecycle.sh` and extend native `scripts/test-control.sh` coverage rather than leave dormant Node tests as the nominal validation path.
 
-Done means the full supported stable-address configuration survives CLI termination, terminal closure, component failure, and reboot-followed-by-login without re-enrollment, subject to the documented user-session and network limits. It also means `down` stays down, quick-URL loss is honest and explicit, status never confuses a PID with readiness, and no recovery path repeats uncertain execution. A spec, code inspection, or green mocked test alone is not evidence that physical-device lifecycle tests passed.
+## 15. Definition of done
 
-## 17. Source references
+The release is complete when a clean Mac can install the signed native bundle without Node or developer tools, enroll a Watch, close the CLI and terminal, and continue making correctly validated decisions through independently running services.
 
-Repository references are pinned to the inspected baseline. They establish current behavior; all requirements above are proposed changes.
+All required commands are implemented in Swift; the first-party npm/TypeScript implementation is removed; native configuration survives ordinary management actions; `down` remains effective across login; and recovery never withdraws live requests or invents outcomes for live claims.
 
-| Reference | Source |
-|---|---|
-| [R1] | CLI setup, lifecycle, status, and tunnel handling. |
-| [R2] | Repository architecture and control-companion boundary. |
-| [R3] | Watch credential, cache, and refresh implementation. |
-| [R4] | Watch inbox view lifecycle. |
-| [R5] | Host restart reconciliation. |
-| [R6] | Broker deployment, persistence, and APNs configuration. |
-| [R7] | Package scripts and platform constraints. |
-| [E1] | Official Node.js child-process documentation. |
-| [E2] | Apple launchd guidance; archived, with target-OS validation required. |
-| [E3] | Official Cloudflare Quick Tunnel limitations. |
-| [E4] | Official Cloudflare named-tunnel configuration. |
+The repository includes automated tests, recorded macOS/physical-device results, native installation instructions, and an explicit report of any unsupported distribution target. No missing lifecycle guarantee is described as solved merely because the implementation compiles or the language changed.
 
-[R1]: https://github.com/chr33s/shell/blob/c7cab2d64eed3bfce79058eae328b270bcf34008/cli/src/cli.ts "CLI setup, process launch, shutdown, tunnel checks and status"
-[R2]: https://github.com/chr33s/shell/blob/c7cab2d64eed3bfce79058eae328b270bcf34008/README.md "Current control-companion architecture"
-[R3]: https://github.com/chr33s/shell/blob/c7cab2d64eed3bfce79058eae328b270bcf34008/ShellWatch/Services/ControlSession.swift "Watch credentials, refresh, cache and polling"
-[R4]: https://github.com/chr33s/shell/blob/c7cab2d64eed3bfce79058eae328b270bcf34008/ShellWatch/Features/Inbox/InboxView.swift "View-owned polling lifecycle"
-[R5]: https://github.com/chr33s/shell/blob/c7cab2d64eed3bfce79058eae328b270bcf34008/cmd/Sources/ShellControlDaemon/DaemonCore.swift "Host restart reconciliation and authority preservation"
-[R6]: https://github.com/chr33s/shell/blob/c7cab2d64eed3bfce79058eae328b270bcf34008/services/shell-control/README.md "Broker persistence, HTTPS deployment and optional APNs credentials"
-[R7]: https://github.com/chr33s/shell/blob/c7cab2d64eed3bfce79058eae328b270bcf34008/package.json "Existing npm scripts and Node/platform constraints"
-[E1]: https://nodejs.org/api/child_process.html#optionsdetached "Node.js: detached children, unref and independent standard I/O; consulted 12 September 2026"
-[E2]: https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/CreatingLaunchdJobs.html "Apple: per-user launch agents, lifecycle and managed-process behavior; archived guidance, verify current launchctl behavior on supported macOS"
-[E3]: https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/trycloudflare/ "Cloudflare: random Quick Tunnel hostnames and development-only scope; consulted 12 September 2026"
-[E4]: https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/local-management/configuration-file/ "Cloudflare: explicit named tunnel and ingress configuration; consulted 12 September 2026"
+## References
+
+Repository links below are pinned to the reviewed commit. The architecture, command additions, native file format, clean-install restrictions, and acceptance budgets are decisions of this specification.
+
+- [R1] — Baseline commit
+- [R2] — TypeScript management CLI
+- [R3] — Existing service manager and binary installation
+- [R4] — Existing installation state
+- [R5] — Existing Swift adapter CLI
+- [R6] — Host package
+- [R7] — IPC and exit conventions
+- [R8] — Daemon recovery and heartbeats
+- [R9] — Dispatch journal
+- [R10] — Shared HTTP API client
+- [R11] — Shared broker and pairing URL implementation
+- [R12] — Existing health projection
+- [R13] — Vendored package manifest
+- [R14] — Watch/control protocol specification
+- [E1] — Swift command-line tools
+- [E2] — AsyncParsableCommand and entry-point requirements
+- [E3] — Native QR generation
+- [E4] — Apple launchd agents and lifecycle
+- [E5] — Cloudflare named-tunnel configuration and ingress
+- [E6] — Apple notarization workflow
+
+[R1]: https://github.com/chr33s/shell/commit/ac2790875dda069b9310dc5bc9a415e5282e5321 "Baseline commit"
+[R2]: https://github.com/chr33s/shell/blob/ac2790875dda069b9310dc5bc9a415e5282e5321/cli/src/cli.ts "TypeScript management CLI"
+[R3]: https://github.com/chr33s/shell/blob/ac2790875dda069b9310dc5bc9a415e5282e5321/cli/src/services.ts "Existing service manager and binary installation"
+[R4]: https://github.com/chr33s/shell/blob/ac2790875dda069b9310dc5bc9a415e5282e5321/cli/src/state.ts "Existing installation state"
+[R5]: https://github.com/chr33s/shell/blob/ac2790875dda069b9310dc5bc9a415e5282e5321/cmd/Sources/shell-control/main.swift "Existing Swift adapter CLI"
+[R6]: https://github.com/chr33s/shell/blob/ac2790875dda069b9310dc5bc9a415e5282e5321/cmd/Package.swift "Host package"
+[R7]: https://github.com/chr33s/shell/blob/ac2790875dda069b9310dc5bc9a415e5282e5321/Packages/ShellControlCore/Sources/Protocol/HostIPC.swift "IPC and exit conventions"
+[R8]: https://github.com/chr33s/shell/blob/ac2790875dda069b9310dc5bc9a415e5282e5321/cmd/Sources/ShellControlDaemon/DaemonCore.swift "Daemon recovery and heartbeats"
+[R9]: https://github.com/chr33s/shell/blob/ac2790875dda069b9310dc5bc9a415e5282e5321/cmd/Sources/ShellControlDaemon/Journal.swift "Dispatch journal"
+[R10]: https://github.com/chr33s/shell/blob/ac2790875dda069b9310dc5bc9a415e5282e5321/Packages/ShellControlCore/Sources/Client/ControlAPIClient.swift "Shared HTTP API client"
+[R11]: https://github.com/chr33s/shell/blob/ac2790875dda069b9310dc5bc9a415e5282e5321/Packages/ShellControlCore/Sources/Client/ControlBrokerAddress.swift "Shared broker and pairing URL implementation"
+[R12]: https://github.com/chr33s/shell/blob/ac2790875dda069b9310dc5bc9a415e5282e5321/cli/src/health.ts "Existing health projection"
+[R13]: https://github.com/chr33s/shell/blob/ac2790875dda069b9310dc5bc9a415e5282e5321/vendor/manifest "Vendored package manifest"
+[R14]: https://github.com/chr33s/shell/blob/ac2790875dda069b9310dc5bc9a415e5282e5321/spec.watch.md "Watch/control protocol specification"
+[E1]: https://www.swift.org/get-started/command-line-tools/ "Swift command-line tools"
+[E2]: https://apple.github.io/swift-argument-parser/documentation/argumentparser/asyncparsablecommand/ "AsyncParsableCommand and entry-point requirements"
+[E3]: https://developer.apple.com/documentation/coreimage/ciqrcodegenerator "Native QR generation"
+[E4]: https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/CreatingLaunchdJobs.html "Apple launchd agents and lifecycle"
+[E5]: https://developers.cloudflare.com/tunnel/advanced/local-management/configuration-file/ "Cloudflare named-tunnel configuration and ingress"
+[E6]: https://developer.apple.com/documentation/Security/customizing-the-notarization-workflow "Apple notarization workflow"

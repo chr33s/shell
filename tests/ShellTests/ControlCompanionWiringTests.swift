@@ -194,7 +194,7 @@ final class ControlCompanionWiringTests: XCTestCase {
         XCTAssertTrue(source.contains("case control"), "Settings must include the Control companion section")
         XCTAssertTrue(source.contains("SettingsControlSection"))
         XCTAssertTrue(source.contains("ControlPairingSupport.activate()"))
-        XCTAssertTrue(source.contains("npx @chr33s/shell"))
+        XCTAssertTrue(source.contains("shell-control setup"))
         XCTAssertTrue(source.contains("Scan QR"))
         XCTAssertTrue(source.contains("Waiting for confirmation on your Mac"))
         XCTAssertTrue(source.contains("shell-control"))

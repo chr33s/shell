@@ -142,29 +142,26 @@ into `.derivedData/dev-broker.env` on first run. The simulator shares the Mac's
 network stack, and loopback is the one case the client accepts without TLS.
 
 Enrollment is confirmed by an account administrator, not by the enrolling
-device. Testers run the companion CLI from a checkout (or `npx github:chr33s/shell`):
+device. Download the signed native Shell Control disk image for the Mac's
+architecture and invoke its prebuilt CLI:
 
 ```sh
-npx @chr33s/shell          # broker on 127.0.0.1 + HTTPS tunnel + origin + pairing QR
+bin/shell-control setup    # broker on loopback + HTTPS tunnel + origin + pairing QR
 ```
 
-Once setup reports readiness, closing that CLI or terminal does **not** stop the
-broker, origin daemon, or managed tunnel. `npx @chr33s/shell down` is what stops
-them, and they stay stopped until `up`. Quick tunnels are a development
-convenience: a lost `*.trycloudflare.com` hostname is never replaced silently
-(`setup --rotate-url` plus re-pairing). Login persistence is opt-in via
-`service install` and requires a named tunnel or an external reverse proxy to
-the same local broker.
+Setup installs the verified native executables under `~/.local/lib/chr33s-shell`;
+it does not need Node, npm, a compiler, or a checkout. Once readiness is reported,
+closing that CLI or terminal does **not** stop the broker, origin daemon, or managed
+tunnel. `shell-control down` stops and persistently disables them until an explicit
+`up`. A lost quick-tunnel hostname is never replaced silently; use
+`shell-control up --rotate-url` and re-pair devices. Login persistence is opt-in via
+`service install` and requires a named tunnel or an external reverse proxy.
 
 On the phone: **Settings → Control → Scan QR** (or paste the printed URL).
-The CLI prints each device fingerprint; type `y` to approve. It will not
-auto-approve — a public tunnel would otherwise enrol strangers.
-`npx @chr33s/shell down` stops the broker and prevents automatic relaunch.
-Without `cloudflared`, the broker stays on loopback.
-
-Locally without the npm CLI, open the printed verification URI in a browser,
-check the key fingerprint against the one on the device, and approve.
-`dev-confirm.sh` does the same thing from the shell.
+The CLI displays each device fingerprint and permissions before explicit approval;
+it never auto-approves. Missing `cloudflared` is an error for managed modes—use
+`--tunnel-mode loopback` deliberately for local-only testing. See
+[`cmd/README.md`](cmd/README.md) for the complete native command and release guide.
 
 For a persistent address, create `Configuration/Local.xcconfig` (untracked):
 
@@ -227,7 +224,7 @@ Four sections, nothing else:
 - **SSH** — profiles, SSH identities, known hosts, saved passwords, recovery
 - **tmux** — default mode, default session name, close-window behavior
 - **Sync** — iCloud sync toggles per data class, plus last-sync status
-- **Control** — optional Watch companion: pair a Mac broker (`npx @chr33s/shell`
+- **Control** — optional Watch companion: pair a Mac broker (`shell-control setup`
   QR or paste), enroll this device, confirm the Watch
 
 ## Losing the network

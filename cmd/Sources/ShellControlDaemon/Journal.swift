@@ -16,6 +16,11 @@ public struct DispatchJournal: Sendable {
         case dispatchIntent(requestID: ControlID, consumeID: ControlID)
         case dispatchResult(requestID: ControlID, receiptID: ControlID, result: ReceiptResult)
         case withdrawn(requestID: ControlID)
+        /// Captured exactly once at the process-start frontier, before new IPC
+        /// work is admitted. Recurring workers consume this set; they never
+        /// rediscover the growing live journal.
+        case recoveryCandidate(requestID: ControlID, classification: String)
+        case recoveryCandidateRetired(requestID: ControlID)
         /// Persist the recovery payload and mutation ID *before* the network write.
         case recoveryQueued(mutationID: ControlID, kind: String, requestID: ControlID, payload: String)
         case recoveryAcknowledged(mutationID: ControlID)
@@ -62,6 +67,10 @@ public struct DispatchJournal: Sendable {
                 ])
             case .withdrawn(let requestID):
                 return .object(["kind": "withdrawn", "request_id": JSONValue(requestID)])
+            case .recoveryCandidate(let requestID, let classification):
+                return .object(["kind": "recovery_candidate", "request_id": JSONValue(requestID), "classification": .string(classification)])
+            case .recoveryCandidateRetired(let requestID):
+                return .object(["kind": "recovery_candidate_retired", "request_id": JSONValue(requestID)])
             case .recoveryQueued(let mutationID, let kind, let requestID, let payload):
                 return .object([
                     "kind": "recovery_queued",
@@ -112,6 +121,14 @@ public struct DispatchJournal: Sendable {
                 )
             case "withdrawn":
                 return .withdrawn(requestID: try reader.id("request_id"))
+            case "recovery_candidate":
+                let classification = try reader.string("classification", maxLength: 16)
+                guard classification == "uncertain" || classification == "unresolved" else {
+                    throw ValidationError.invalid("classification", "is not a recovery classification")
+                }
+                return .recoveryCandidate(requestID: try reader.id("request_id"), classification: classification)
+            case "recovery_candidate_retired":
+                return .recoveryCandidateRetired(requestID: try reader.id("request_id"))
             case "recovery_queued":
                 return .recoveryQueued(
                     mutationID: try reader.id("mutation_id"),
@@ -154,11 +171,22 @@ public struct DispatchJournal: Sendable {
 
     public func load() throws -> [Entry] {
         let data = try Data(contentsOf: url)
-        return data.split(separator: 0x0A).compactMap { line in
-            guard let value = try? JSONValue.parse(Data(line)) else { return nil }
-            return try? Entry.decode(value)
+        var entries: [Entry] = []
+        let lines = data.split(separator: 0x0A, omittingEmptySubsequences: false)
+        for (index, line) in lines.enumerated() {
+            if line.isEmpty {
+                if index == lines.count - 1 { continue }
+                throw ValidationError.invalid("journal", "contains an empty record at line \(index + 1)")
+            }
+            do { entries.append(try Entry.decode(try JSONValue.parse(Data(line)))) }
+            catch { throw ValidationError.invalid("journal", "has a corrupt record at line \(index + 1): \(error)") }
         }
+        return entries
     }
+
+    /// Immutable process-start boundary. The caller captures this before
+    /// accepting adapters and passes the value to recovery discovery once.
+    public func startupFrontier() throws -> [Entry] { try load() }
 
     /// What the journal says is unfinished.
     public struct Recovery: Sendable {
@@ -169,11 +197,13 @@ public struct DispatchJournal: Sendable {
         public var unresolved: Set<ControlID> = []
     }
 
-    public func recover() throws -> Recovery {
+    public func recover() throws -> Recovery { try recover(at: startupFrontier()) }
+
+    public func recover(at frontier: [Entry]) throws -> Recovery {
         var recovery = Recovery()
         var claimed: Set<ControlID> = []
         var intended: Set<ControlID> = []
-        for entry in try load() {
+        for entry in frontier {
             switch entry {
             case .requestPersisted(let requestID, _, _):
                 recovery.unresolved.insert(requestID)
@@ -196,6 +226,18 @@ public struct DispatchJournal: Sendable {
         }
         recovery.uncertain = claimed.union(intended)
         return recovery
+    }
+
+    public func pendingStartupCandidates() throws -> [ControlID: String] {
+        var candidates: [ControlID: String] = [:]
+        for entry in try load() {
+            switch entry {
+            case .recoveryCandidate(let requestID, let classification): candidates[requestID] = classification
+            case .recoveryCandidateRetired(let requestID): candidates[requestID] = nil
+            default: break
+            }
+        }
+        return candidates
     }
 
     public struct QueuedRecovery: Sendable {

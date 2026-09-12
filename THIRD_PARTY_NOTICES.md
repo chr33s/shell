@@ -88,6 +88,7 @@ CryptoSwift requires the following acknowledgement:
 
 | Project | Copyright or acknowledgement | License |
 | --- | --- | --- |
+| [Swift Argument Parser](https://github.com/apple/swift-argument-parser) | Copyright (c) Apple Inc. and the Swift project authors | Apache 2.0 with Runtime Library Exception |
 | [Swift NIO](https://github.com/apple/swift-nio) | Copyright (c) Apple Inc. and the SwiftNIO project authors | Apache 2.0 |
 | [Swift NIO SSH](https://github.com/apple/swift-nio-ssh) | Copyright (c) Apple Inc. and the SwiftNIO SSH project authors | Apache 2.0 |
 | [Swift Crypto](https://github.com/apple/swift-crypto) | Copyright (c) Apple Inc. and the Swift Crypto project authors | Apache 2.0 |

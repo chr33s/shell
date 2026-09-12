@@ -1,0 +1,291 @@
+import XCTest
+import CryptoKit
+@testable import ShellControlManagement
+import ShellControlHostSupport
+
+actor FailingLaunchctlRunner: ProcessRunning {
+    enum Mode: Sendable { case disable, bootstrap }
+    let mode: Mode
+    init(_ mode: Mode) { self.mode = mode }
+    func run(_ executable: String, _ arguments: [String], timeout: TimeInterval) -> ProcessResult {
+        if mode == .disable && arguments.first == "disable" { return .init(status: 1, stdout: Data(), stderr: Data("denied".utf8)) }
+        if arguments.first == "bootstrap" { return .init(status: 1, stdout: Data(), stderr: Data("5: Input/output error".utf8)) }
+        if arguments.first == "print-disabled" { return .init(status: 0, stdout: Data("{ \"test\" => false }".utf8), stderr: Data()) }
+        if arguments.first == "print", arguments.count == 2 { return .init(status: 1, stdout: Data(), stderr: Data("Could not find service".utf8)) }
+        return .init(status: 0, stdout: Data(), stderr: Data())
+    }
+}
+
+actor FakeServices: ServiceManager {
+    var observations: [String: ServiceObservation] = [:]
+    var calls: [String] = []
+    var specs: [String: JobSpec] = [:]
+
+    private func running(_ spec: JobSpec, enabled: Bool = true) -> ServiceObservation {
+        .init(label: spec.label, registered: true, loaded: true, enabled: enabled, pid: 4242, lastExit: nil)
+    }
+
+    func install(_ spec: JobSpec, persistent: Bool, start: Bool) {
+        calls.append("install:\(spec.component.rawValue)")
+        specs[spec.label] = spec
+        observations[spec.label] = start
+            ? running(spec)
+            : .init(label: spec.label, registered: true, loaded: false, enabled: false, pid: nil, lastExit: nil)
+    }
+    func start(_ spec: JobSpec) {
+        calls.append("start:\(spec.component.rawValue)")
+        specs[spec.label] = spec
+        observations[spec.label] = running(spec)
+    }
+    func stop(label: String) {
+        calls.append("stop:\(label)")
+        let previous = observations[label]
+        observations[label] = .init(label: label, registered: previous?.registered ?? false, loaded: false,
+                                    enabled: previous?.enabled ?? true, pid: nil, lastExit: 0)
+    }
+    func restart(_ spec: JobSpec) {
+        calls.append("restart:\(spec.component.rawValue)")
+        specs[spec.label] = spec
+        observations[spec.label] = running(spec)
+    }
+    func enable(label: String) { calls.append("enable:\(label)") }
+    func disable(label: String) {
+        calls.append("disable:\(label)")
+        let previous = observations[label]
+        observations[label] = .init(label: label, registered: previous?.registered ?? false, loaded: previous?.loaded ?? false,
+                                    enabled: false, pid: previous?.pid, lastExit: nil)
+    }
+    func removePersistence(_ spec: JobSpec) { calls.append("unpersist:\(spec.component.rawValue)") }
+    func observe(label: String) -> ServiceObservation {
+        observations[label] ?? .init(label: label, registered: false, loaded: false, enabled: false, pid: nil, lastExit: nil)
+    }
+}
+
+final class ManagementTests: XCTestCase {
+    private func directory() -> URL { URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("shell-native-tests-\(UUID())") }
+
+    func testNativeStoreCreatesOnceAndRejectsMissingSecrets() throws {
+        let root = directory(); defer { try? FileManager.default.removeItem(at: root) }
+        let store = InstallationStore(root: root)
+        let lock = try store.lock(); defer { lock.release() }
+        let first = try store.create(releaseID: "release", mode: .loopback, publicURL: "http://127.0.0.1:8443", port: 8443, tunnel: .init())
+        let loaded = try store.load()
+        XCTAssertEqual(first.installation.installationID, loaded.installation.installationID)
+        XCTAssertEqual(first.secrets, loaded.secrets)
+        try FileManager.default.removeItem(at: store.paths.secrets)
+        XCTAssertThrowsError(try store.load())
+    }
+
+    func testUnrecognizedStateIsNotImportedOrDeleted() throws {
+        let root = directory(); defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let legacy = root.appendingPathComponent("broker.json")
+        try Data("legacy".utf8).write(to: legacy)
+        let store = InstallationStore(root: root), lock = try store.lock(); defer { lock.release() }
+        XCTAssertThrowsError(try store.create(releaseID: "r", mode: .loopback, publicURL: nil, port: 8443, tunnel: .init()))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: legacy.path))
+    }
+
+    func testPublicOriginValidation() throws {
+        XCTAssertEqual(try AddressPolicy.validate("https://CONTROL.example/", mode: .externalProxy), "https://control.example")
+        XCTAssertThrowsError(try AddressPolicy.validate("https://user@control.example/path?q=x", mode: .externalProxy))
+        XCTAssertThrowsError(try AddressPolicy.validate("http://example.com", mode: .loopback))
+        XCTAssertThrowsError(try AddressPolicy.validate("https://stable.example", mode: .quick))
+        XCTAssertEqual(try AddressPolicy.validate("http://LocalHost:8443", mode: .loopback), "http://localhost:8443")
+        XCTAssertEqual(try AddressPolicy.validate("http://[::1]:8443", mode: .loopback), "http://[::1]:8443")
+    }
+
+    func testDownCommitsIntentAndDisablesEveryOwnedJob() async throws {
+        let root = directory(); defer { try? FileManager.default.removeItem(at: root) }
+        let store = InstallationStore(root: root), lock = try store.lock()
+        _ = try store.create(releaseID: "r", mode: .loopback, publicURL: "http://127.0.0.1:8443", port: 8443, tunnel: .init()); lock.release()
+        let services = FakeServices()
+        let coordinator = LifecycleCoordinator(store: store, manager: services)
+        try await coordinator.down()
+        XCTAssertEqual(try store.load().installation.desiredState, .stopped)
+        let calls = await services.calls
+        XCTAssertEqual(calls.filter { $0.hasPrefix("disable:") }.count, 3)
+        XCTAssertEqual(calls.filter { $0.hasPrefix("stop:") }.count, 3)
+    }
+
+    func testStatusOnMissingInstallationDoesNotCreateDirectory() async {
+        let root = directory(); let coordinator = LifecycleCoordinator(store: InstallationStore(root: root))
+        let status = await coordinator.status()
+        XCTAssertEqual(status.schema, "shell-control.status/1")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.path))
+    }
+
+    func testProcessRunnerDrainsConcurrentOutputAndStopsOnItsBound() async throws {
+        let runner = ProcessRunner(outputLimit: 65_536)
+        let result = try await runner.run("/bin/sh", ["-c", "i=0; while [ $i -lt 500 ]; do echo out-$i; echo err-$i >&2; i=$((i+1)); done"], timeout: 5)
+        XCTAssertEqual(result.status, 0)
+        XCTAssertTrue(result.stdoutString.contains("out-499"))
+        XCTAssertTrue(result.stderrString.contains("err-499"))
+
+        let bounded = ProcessRunner(outputLimit: 1024)
+        let clock = ContinuousClock(), start = clock.now
+        do { _ = try await bounded.run("/usr/bin/yes", [], timeout: 10); XCTFail("unbounded output should fail") }
+        catch ProcessRunnerError.outputTooLarge {}
+        catch { XCTFail("unexpected process error: \(error)") }
+        XCTAssertLessThan(start.duration(to: clock.now), .seconds(3))
+    }
+
+    func testLaunchctlStateChangingFailuresAreNeverIgnored() async throws {
+        let disableManager = LaunchdServiceManager(uid: getuid(), runner: FailingLaunchctlRunner(.disable))
+        do { try await disableManager.disable(label: "test"); XCTFail("disable should fail") } catch {}
+
+        let root = directory(); defer { try? FileManager.default.removeItem(at: root) }
+        let spec = JobSpec(component: .broker, installationID: UUID(), executable: "/usr/bin/true", arguments: [],
+                           workingDirectory: root.path, stdoutPath: root.appendingPathComponent("out").path,
+                           stderrPath: root.appendingPathComponent("err").path, keepAlive: true, environment: [:],
+                           sessionPlistDirectory: root.appendingPathComponent("session").path,
+                           launchAgentsDirectory: root.appendingPathComponent("agents").path)
+        let bootstrapManager = LaunchdServiceManager(uid: getuid(), runner: FailingLaunchctlRunner(.bootstrap))
+        do { try await bootstrapManager.install(spec, persistent: false, start: true); XCTFail("I/O error should fail") } catch {}
+    }
+
+    func testBundleValidationCoversEveryExecutableAndRejectsTampering() throws {
+        let root = directory(), source = root.appendingPathComponent("source"), home = root.appendingPathComponent("home")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        var hashes: [String: String] = [:]
+        for name in ["shell-control", "shell-controld", "shell-control-broker"] {
+            let data = Data("binary-\(name)".utf8); try data.write(to: source.appendingPathComponent(name))
+            hashes[name] = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        }
+        #if arch(arm64)
+        let architecture = "arm64"
+        #else
+        let architecture = "x86_64"
+        #endif
+        let manifest = ReleaseManifest(releaseID: "test-release", architecture: architecture,
+                                       minimumOS: "26.0", toolchain: "test", executables: hashes)
+        let encoder = JSONEncoder(); try encoder.encode(manifest).write(to: source.appendingPathComponent("release-manifest.json"))
+        let installer = NativeBundleInstaller(executablePath: source.appendingPathComponent("shell-control").path, home: home)
+        XCTAssertEqual(try installer.validateBundle().releaseID, "test-release")
+        _ = try installer.install(manifest)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: home.appendingPathComponent(".local/bin/shell-control").path))
+        try Data("tampered".utf8).write(to: source.appendingPathComponent("shell-control"))
+        XCTAssertThrowsError(try installer.validateBundle())
+    }
+
+    func testNamedTunnelConfigurationIsTypedAndHasFinalCatchAll() throws {
+        let root = directory(); defer { try? FileManager.default.removeItem(at: root) }
+        let store = InstallationStore(root: root)
+        try SecureFileSystem.ensureDirectory(root)
+        try SecureFileSystem.ensureDirectory(store.paths.credentials)
+        try SecureFileSystem.ensureDirectory(store.paths.services)
+        let tunnelID = UUID()
+        let source = root.appendingPathComponent("source-credential.json")
+        let credentialJSON = try JSONSerialization.data(withJSONObject: ["TunnelID": tunnelID.uuidString.lowercased()])
+        try credentialJSON.write(to: source); try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: source.path)
+        let credential = try TunnelTools.installNamedCredential(source: source.path, tunnelID: tunnelID, paths: store.paths)
+        let config = try TunnelTools.writeNamedConfiguration(publicURL: "https://control.example", port: 8443,
+                                                               tunnelID: tunnelID, credential: credential, paths: store.paths)
+        let yaml = try String(contentsOf: config, encoding: .utf8)
+        XCTAssertTrue(yaml.contains("hostname: \"control.example\""))
+        XCTAssertTrue(yaml.contains("service: \"http://127.0.0.1:8443\""))
+        XCTAssertTrue(yaml.hasSuffix("  - service: \"http_status:404\"\n"))
+    }
+
+    func testNonTTYPairingOutputIsTextOnly() throws {
+        let output = try PairingRenderer.output(publicURL: "https://control.example", token: "ABCDEFGH", terminal: false)
+        XCTAssertTrue(output.contains("shell-control://pair"))
+        XCTAssertTrue(output.contains("token   ABCDEFGH"))
+        XCTAssertFalse(output.contains("\u{001B}"))
+    }
+
+    func testRestartRejectedWhenStoppedOrTunnelUnowned() async throws {
+        let root = directory(); defer { try? FileManager.default.removeItem(at: root) }
+        let store = InstallationStore(root: root), lock = try store.lock()
+        _ = try store.create(releaseID: "r", mode: .loopback, publicURL: "http://127.0.0.1:8443", port: 8443, tunnel: .init())
+        lock.release()
+        let coordinator = LifecycleCoordinator(store: store, manager: FakeServices())
+        do {
+            try await coordinator.restart([.tunnel])
+            XCTFail("loopback owns no tunnel")
+        } catch let error as ManagementError {
+            XCTAssertTrue(error.description.contains("no tunnel is owned"), error.description)
+        }
+        try await coordinator.down()
+        do {
+            try await coordinator.restart([.broker])
+            XCTFail("stopped installations must reject restart")
+        } catch let error as ManagementError {
+            XCTAssertTrue(error.description.contains("stopped"), error.description)
+        }
+    }
+
+    func testPublishLinkUpdatesOwnedReleaseSymlinkAndRefusesForeignFiles() throws {
+        let root = directory(); defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home")
+        func bundle(_ name: String, releaseID: String) throws -> (URL, ReleaseManifest) {
+            let source = root.appendingPathComponent(name)
+            try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+            var hashes: [String: String] = [:]
+            for executable in ["shell-control", "shell-controld", "shell-control-broker"] {
+                let data = Data("\(releaseID)-\(executable)".utf8)
+                try data.write(to: source.appendingPathComponent(executable))
+                hashes[executable] = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+            }
+            #if arch(arm64)
+            let architecture = "arm64"
+            #else
+            let architecture = "x86_64"
+            #endif
+            let manifest = ReleaseManifest(releaseID: releaseID, architecture: architecture,
+                                           minimumOS: "26.0", toolchain: "test", executables: hashes)
+            try JSONEncoder().encode(manifest).write(to: source.appendingPathComponent("release-manifest.json"))
+            return (source, manifest)
+        }
+        let first = try bundle("r1", releaseID: "release-1")
+        let installer1 = NativeBundleInstaller(executablePath: first.0.appendingPathComponent("shell-control").path, home: home)
+        _ = try installer1.install(first.1)
+        let link = home.appendingPathComponent(".local/bin/shell-control")
+        XCTAssertEqual(
+            try FileManager.default.destinationOfSymbolicLink(atPath: link.path),
+            home.appendingPathComponent(".local/lib/chr33s-shell/release-1/shell-control").path
+        )
+
+        let second = try bundle("r2", releaseID: "release-2")
+        let installer2 = NativeBundleInstaller(executablePath: second.0.appendingPathComponent("shell-control").path, home: home)
+        _ = try installer2.install(second.1)
+        XCTAssertEqual(
+            try FileManager.default.destinationOfSymbolicLink(atPath: link.path),
+            home.appendingPathComponent(".local/lib/chr33s-shell/release-2/shell-control").path
+        )
+
+        try FileManager.default.removeItem(at: link)
+        try FileManager.default.createSymbolicLink(
+            atPath: link.path,
+            withDestinationPath: "../lib/chr33s-shell/release-2/shell-control"
+        )
+        let third = try bundle("r3", releaseID: "release-3")
+        let installer3 = NativeBundleInstaller(executablePath: third.0.appendingPathComponent("shell-control").path, home: home)
+        _ = try installer3.install(third.1)
+        XCTAssertEqual(
+            try FileManager.default.destinationOfSymbolicLink(atPath: link.path),
+            home.appendingPathComponent(".local/lib/chr33s-shell/release-3/shell-control").path
+        )
+
+        try FileManager.default.removeItem(at: link)
+        try Data("foreign".utf8).write(to: link)
+        XCTAssertThrowsError(try installer2.install(second.1))
+        XCTAssertEqual(try String(contentsOf: link, encoding: .utf8), "foreign")
+        let fourth = try bundle("r4", releaseID: "release-4")
+        let installer4 = NativeBundleInstaller(executablePath: fourth.0.appendingPathComponent("shell-control").path, home: home)
+        XCTAssertThrowsError(try installer4.install(fourth.1))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: home.appendingPathComponent(".local/lib/chr33s-shell/release-4").path))
+        XCTAssertEqual(try String(contentsOf: link, encoding: .utf8), "foreign")
+    }
+
+    func testAtomicFilesArePrivate() throws {
+        let root = directory(); defer { try? FileManager.default.removeItem(at: root) }
+        let store = InstallationStore(root: root), lock = try store.lock(); defer { lock.release() }
+        _ = try store.create(releaseID: "r", mode: .loopback, publicURL: nil, port: 8443, tunnel: .init())
+        for path in [store.paths.installation.path, store.paths.secrets.path, store.paths.runtime.path] {
+            let mode = (try FileManager.default.attributesOfItem(atPath: path)[.posixPermissions] as! NSNumber).intValue
+            XCTAssertEqual(mode, 0o600)
+        }
+    }
+}

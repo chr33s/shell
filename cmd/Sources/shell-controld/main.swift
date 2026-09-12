@@ -5,6 +5,7 @@ import Glibc
 import Darwin
 #endif
 import ShellControlDaemon
+import ShellControlHostSupport
 import ShellControlProtocol
 
 // shell-controld runs on the actual execution host as a per-user service.

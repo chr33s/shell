@@ -2,7 +2,7 @@
 //  ControlPairingScanner.swift
 //  shell
 //
-//  In-app QR scanner for `npx @chr33s/shell` pairing. The system Camera app
+//  In-app QR scanner for `shell-control setup` pairing. The system Camera app
 //  cannot open a custom URL scheme; this reads the same payload.
 //
 

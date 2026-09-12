@@ -14,6 +14,7 @@ actor FakeBroker: ControlHTTPTransport {
     var consumeCount = 0
     var failReceipts = false
     var receiptAttempts = 0
+    var withdrawals = 0
     let now: @Sendable () -> Date
 
     init(now: @escaping @Sendable () -> Date) { self.now = now }
@@ -92,6 +93,7 @@ actor FakeBroker: ControlHTTPTransport {
             return try ok(permit.json)
         }
         if request.method == "POST", request.path.hasSuffix("/withdraw") {
+            withdrawals += 1
             return try ok(.object(["projection": ApprovalProjection(resolution: .cancelled, dispatch: .notApplied).json]))
         }
         return ControlHTTPResponse(status: 404, body: Data("{}".utf8))
@@ -552,6 +554,82 @@ final class DaemonTests: XCTestCase {
         XCTAssertTrue(try journal.pendingRecoveries().isEmpty)
         let postedReceiptIDs = await broker.receipts.map(\.receiptID)
         XCTAssertEqual(postedReceiptIDs, [receipt.receiptID])
+    }
+
+    func testLiveRequestIsNeverRediscoveredByRecurringRecovery() async throws {
+        let clock = Date(timeIntervalSince1970: 1_788_000_000)
+        let broker = FakeBroker(now: { clock })
+        let (core, directory) = try makeCore(broker, now: { clock }, heartbeatInterval: 0.005)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try await core.reconcileAfterRestart() // captures an empty startup frontier
+        _ = try await createPending(on: core)
+
+        let task = Task { await core.runHeartbeats() }
+        try await Task.sleep(for: .milliseconds(30)); task.cancel()
+        let withdrawals = await broker.withdrawals
+        let receipts = await broker.receipts
+        XCTAssertEqual(withdrawals, 0)
+        XCTAssertTrue(receipts.isEmpty)
+    }
+
+    func testLiveClaimAwaitingAdapterReceiptGetsNoRestartReceipt() async throws {
+        let clock = Date(timeIntervalSince1970: 1_788_000_000)
+        let broker = FakeBroker(now: { clock })
+        let (core, directory) = try makeCore(broker, now: { clock }, heartbeatInterval: 0.005)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try await core.reconcileAfterRestart()
+        let created = try await createPending(on: core)
+        try await broker.resolve(created.id, as: .approved, decisionID: .random())
+        _ = await core.handle(IPCRequest(messageID: .random(), type: .approvalWait,
+            runCapability: created.capability, body: .object([
+                "request_id": JSONValue(created.id), "request_hash": .string(created.hash), "timeout_seconds": 2,
+            ])))
+        let task = Task { await core.runHeartbeats() }
+        try await Task.sleep(for: .milliseconds(30)); task.cancel()
+        let receipts = await broker.receipts
+        XCTAssertTrue(receipts.isEmpty)
+    }
+
+    func testRealRestartDiscoversPriorPendingRequest() async throws {
+        let clock = Date(timeIntervalSince1970: 1_788_000_000)
+        let broker = FakeBroker(now: { clock })
+        let (core, directory) = try makeCore(broker, now: { clock })
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try await core.reconcileAfterRestart()
+        _ = try await createPending(on: core)
+        let configuration = await core.configuration
+        let client = ControlAPIClient(baseURL: configuration.brokerURL, transport: broker,
+                                      credential: .origin(originID: configuration.originID, secret: configuration.originSecret))
+        let restarted = try DaemonCore(configuration: configuration, client: client, now: { clock })
+        try await restarted.reconcileAfterRestart()
+        let withdrawals = await broker.withdrawals
+        XCTAssertEqual(withdrawals, 1)
+    }
+
+    func testCorruptAuthorityJournalFailsClosed() throws {
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("shell-corrupt-journal-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let journal = try DispatchJournal(url: directory.appendingPathComponent("journal.ndjson"))
+        try Data("{truncated".utf8).write(to: journal.url)
+        XCTAssertThrowsError(try journal.startupFrontier())
+    }
+
+    private func createPending(on core: DaemonCore) async throws -> (id: ControlID, hash: String, capability: String) {
+        let hello = await core.handle(IPCRequest(messageID: .random(), type: .hello, runCapability: nil, body: .object([
+            "protocol": .string(ServiceCapabilities.protocolName), "adapter": "test", "job_label": "live",
+            "capabilities": .array([]), "operation_schemas": .array([.string(ExecOperation.schema)]),
+        ])))
+        var helloReader = try JSONReader(hello.body)
+        let capability = try helloReader.string("run_capability", maxLength: 128)
+        let created = await core.handle(IPCRequest(messageID: .random(), type: .approvalRequest,
+            runCapability: capability, body: .object([
+                "summary": "Live request", "operation": .object([
+                    "schema": .string(ExecOperation.schema), "argv": .array(["/usr/bin/true"]),
+                    "cwd": "/tmp", "context_sha256": .string(String(repeating: "0", count: 64)),
+                ]),
+            ])))
+        var reader = try JSONReader(created.body)
+        return (try reader.id("request_id"), try reader.string("request_hash", maxLength: 80), capability)
     }
 
     func testRecoveryRetriesReuseTheSameReceiptID() async throws {

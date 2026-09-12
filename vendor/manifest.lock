@@ -55,6 +55,13 @@
     "ref": "v0.1.0",
     "url": "https://github.com/kitknox/ios_system-rootshell.git"
   },
+  "swift-argument-parser": {
+    "binaries": {},
+    "commit": "6a52f3251125d74daf04fcbd5e6f08a75d074382",
+    "drop": [],
+    "ref": "1.8.2",
+    "url": "https://github.com/apple/swift-argument-parser.git"
+  },
   "swift-asn1": {
     "binaries": {},
     "commit": "d9a5b37470adc940d22c3bcd5ca6953a516b727f",

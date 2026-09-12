@@ -205,6 +205,30 @@ public actor BrokerStore {
         return (originID, secret)
     }
 
+    /// Idempotent native-install provisioning. The host durably chooses the
+    /// identity and secret before its first POST, so an ambiguous response can
+    /// be retried without minting another origin or losing the only copy of the
+    /// secret.
+    public func provisionOrigin(
+        originID: ControlID,
+        secret: String,
+        accountID: ControlID,
+        label: String
+    ) throws -> ControlID {
+        if let existing = origins[originID] {
+            guard existing.accountID == accountID,
+                  existing.secretVerifier == BrokerStore.verifier(for: secret),
+                  !existing.isRevoked else {
+                throw ControlError(code: .idempotencyConflict, message: "origin provisioning identity conflicts")
+            }
+            // A preceding commit may have failed after the actor's in-memory
+            // state changed. Re-commit before acknowledging the retry.
+            try commit()
+            return originID
+        }
+        return try enrollOrigin(originID: originID, accountID: accountID, label: label, secret: secret)
+    }
+
     @discardableResult
     public func enrollOrigin(
         originID: ControlID = .random(),

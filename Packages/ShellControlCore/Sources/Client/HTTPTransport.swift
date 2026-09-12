@@ -56,12 +56,26 @@ public enum TransportError: Error, Sendable, Equatable {
 /// `URLSession` HTTPS for reads and short, foreground control requests. There
 /// is no always-open socket and no background polling loop
 /// (spec.watch.md section 7).
+private final class NoRedirectSessionDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    static let shared = NoRedirectSessionDelegate()
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest) async -> URLRequest? { nil }
+}
+
 public struct URLSessionTransport: ControlHTTPTransport {
+    private static let sharedSession: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        configuration.urlCache = nil
+        return URLSession(configuration: configuration, delegate: NoRedirectSessionDelegate.shared, delegateQueue: nil)
+    }()
+
     private let session: URLSession
     private let maxResponseBytes: Int
 
-    public init(session: URLSession = .shared, maxResponseBytes: Int = 1 << 20) {
-        self.session = session
+    public init(session: URLSession? = nil, maxResponseBytes: Int = 1 << 20) {
+        self.session = session ?? Self.sharedSession
         self.maxResponseBytes = maxResponseBytes
     }
 
@@ -72,7 +86,8 @@ public struct URLSessionTransport: ControlHTTPTransport {
         if !request.query.isEmpty {
             components.queryItems = request.query.map { URLQueryItem(name: $0.0, value: $0.1) }
         }
-        guard let url = components.url, url.scheme?.lowercased() == "https" || url.host == "localhost" else {
+        guard let url = components.url,
+              url.scheme?.lowercased() == "https" || (url.scheme?.lowercased() == "http" && url.host.map(ControlBrokerAddress.isLoopbackHost) == true) else {
             // The broker is reachable over authenticated HTTPS; a plain-HTTP
             // base URL is only tolerated for a loopback development broker.
             throw TransportError.invalidURL

@@ -1,6 +1,7 @@
 import Foundation
 import ShellControlProtocol
 import ShellControlClient
+import ShellControlHostSupport
 
 /// The host service: it authenticates local adapters, registers jobs, persists
 /// pending requests, polls the broker, validates decisions against the
@@ -44,6 +45,7 @@ public actor DaemonCore {
         /// not by itself possession of a run.
         let capability: String
         let adapter: String
+        let operationSchemas: Set<String>
         var waiting: Set<ControlID> = []
     }
 
@@ -56,8 +58,10 @@ public actor DaemonCore {
     private var handled: [ControlID: (bodyHash: String, response: IPCResponse)] = [:]
     private let now: @Sendable () -> Date
     private var acceptingWork = true
-    private var originAuthenticated = false
+    private var lastOriginAuthentication: ContinuousClock.Instant?
     private var recoveryPendingCount = 0
+    private var startupCandidates: [ControlID: String]?
+    private var recoveryPassRunning = false
     private var inFlight = 0
 
     public init(
@@ -76,100 +80,96 @@ public actor DaemonCore {
 
     var timestamp: ControlTimestamp { ControlTimestamp(now()) }
 
-    /// On restart, reconcile the journal, broker state, and live run identity.
-    /// When safe continuation cannot be proven, the daemon does not apply and a
-    /// new request is required (spec.watch.md section 17).
+    /// Captures the immutable process-start journal frontier and persists its
+    /// candidates before the executable opens either IPC listener.
+    public func discoverInterruptedWorkAtStartup() throws {
+        guard startupCandidates == nil else { return }
+        let frontier = try journal.startupFrontier()
+        let recovered = try journal.recover(at: frontier)
+        var candidates = try journal.pendingStartupCandidates()
+        for requestID in recovered.unresolved where candidates[requestID] == nil {
+            let classification = recovered.uncertain.contains(requestID) ? "uncertain" : "unresolved"
+            try journal.append(.recoveryCandidate(requestID: requestID, classification: classification))
+            candidates[requestID] = classification
+        }
+        // An uncertain request is also unresolved; uncertainty takes priority.
+        for requestID in recovered.uncertain where candidates[requestID] != "uncertain" {
+            try journal.append(.recoveryCandidate(requestID: requestID, classification: "uncertain"))
+            candidates[requestID] = "uncertain"
+        }
+        startupCandidates = candidates
+        recoveryPendingCount = candidates.count + (try journal.pendingRecoveries().count)
+    }
+
     public func reconcileAfterRestart() async throws {
-        try await retryRecoveryObligations()
+        try discoverInterruptedWorkAtStartup()
+        try await runRecoveryPass()
         await heartbeatOnce()
     }
 
-    /// Retry both discovery of interrupted work and every durable network
-    /// obligation. This runs at startup and alongside heartbeats, so recovery
-    /// does not require another process restart after connectivity returns.
-    private func retryRecoveryObligations() async throws {
-        let recovery = try journal.recover()
-        var pending = try journal.pendingRecoveries()
-        var alreadyQueued = Set(pending.map(\.requestID))
-        var deferredCount = 0
+    /// Single-flight despite actor reentrancy across broker awaits.
+    private func runRecoveryPass() async throws {
+        guard !recoveryPassRunning else { return }
+        recoveryPassRunning = true
+        defer { recoveryPassRunning = false }
+        try await retryUnresolvedStartupCandidates()
+        await retryPersistedRecoveryMutations()
+        recoveryPendingCount = (startupCandidates?.count ?? 0) + ((try? journal.pendingRecoveries().count) ?? 0)
+    }
 
-        for requestID in recovery.uncertain where !alreadyQueued.contains(requestID) {
-            let record: ApprovalRecord
-            do {
-                record = try await client.approval(requestID)
-            } catch {
-                deferredCount += 1
+    /// Resolve only the boot-scoped candidate set. Entries appended by live
+    /// runs in this process can never enter this dictionary.
+    private func retryUnresolvedStartupCandidates() async throws {
+        guard let snapshot = startupCandidates, !snapshot.isEmpty else { return }
+        var queued = try journal.pendingRecoveries()
+        var queuedRequests = Set(queued.map(\.requestID))
+        for (requestID, classification) in snapshot {
+            if queuedRequests.contains(requestID) {
+                try retireStartupCandidate(requestID)
                 continue
             }
-            let receipt = Receipt(
-                receiptID: .random(),
-                decisionID: record.projection.decisionID,
-                consumeID: nil,
-                requestHash: record.requestHash,
-                runID: record.spec.runID,
-                result: .unknown,
-                reasonCode: "daemon_restarted_after_claim",
-                occurredAt: timestamp
-            )
-            let payload = String(decoding: try JSONCanonicalization.canonicalize(receipt.json), as: UTF8.self)
-            let mutationID = ControlID.random()
-            try journal.append(.recoveryQueued(
-                mutationID: mutationID,
-                kind: "unknown_receipt",
-                requestID: requestID,
-                payload: payload
-            ))
-            pending.append(DispatchJournal.QueuedRecovery(
-                mutationID: mutationID,
-                kind: "unknown_receipt",
-                requestID: requestID,
-                payload: payload
-            ))
-            alreadyQueued.insert(requestID)
-        }
-        for requestID in recovery.unresolved where !alreadyQueued.contains(requestID) {
             let record: ApprovalRecord
-            do {
-                record = try await client.approval(requestID)
-            } catch {
-                deferredCount += 1
-                continue
-            }
-            guard record.projection.resolution == .pending else {
-                // The broker proves this question is already terminal, so no
-                // live adapter can still receive an answer after the restart.
+            do { record = try await client.approval(requestID) }
+            catch { continue } // no authenticated state: retain the candidate
+
+            if classification == "uncertain" {
+                let receipt = Receipt(
+                    receiptID: .random(), decisionID: record.projection.decisionID, consumeID: nil,
+                    requestHash: record.requestHash, runID: record.spec.runID, result: .unknown,
+                    reasonCode: "daemon_restarted_after_claim", occurredAt: timestamp
+                )
+                let payload = String(decoding: try JSONCanonicalization.canonicalize(receipt.json), as: UTF8.self)
+                let mutationID = ControlID.random()
+                try journal.append(.recoveryQueued(mutationID: mutationID, kind: "unknown_receipt", requestID: requestID, payload: payload))
+                queued.append(.init(mutationID: mutationID, kind: "unknown_receipt", requestID: requestID, payload: payload))
+            } else if record.projection.resolution == .pending {
+                let mutationID = ControlID.random()
+                let payloadValue = JSONValue.object([
+                    "mutation_id": JSONValue(mutationID), "run_id": JSONValue(record.spec.runID),
+                    "request_hash": .string(record.requestHash),
+                ])
+                let payload = String(decoding: try JSONCanonicalization.canonicalize(payloadValue), as: UTF8.self)
+                try journal.append(.recoveryQueued(mutationID: mutationID, kind: "withdraw", requestID: requestID, payload: payload))
+                queued.append(.init(mutationID: mutationID, kind: "withdraw", requestID: requestID, payload: payload))
+            } else {
+                // Authenticated terminal state proves no recovery mutation remains.
                 try journal.append(.withdrawn(requestID: requestID))
-                continue
             }
-            let mutationID = ControlID.random()
-            let payloadValue = JSONValue.object([
-                "mutation_id": JSONValue(mutationID),
-                "run_id": JSONValue(record.spec.runID),
-                "request_hash": .string(record.requestHash),
-            ])
-            let payload = String(decoding: try JSONCanonicalization.canonicalize(payloadValue), as: UTF8.self)
-            try journal.append(.recoveryQueued(
-                mutationID: mutationID,
-                kind: "withdraw",
-                requestID: requestID,
-                payload: payload
-            ))
-            pending.append(DispatchJournal.QueuedRecovery(
-                mutationID: mutationID,
-                kind: "withdraw",
-                requestID: requestID,
-                payload: payload
-            ))
-            alreadyQueued.insert(requestID)
+            queuedRequests.insert(requestID)
+            try retireStartupCandidate(requestID)
         }
+    }
 
-        recoveryPendingCount = pending.count + deferredCount
+    private func retireStartupCandidate(_ requestID: ControlID) throws {
+        try journal.append(.recoveryCandidateRetired(requestID: requestID))
+        startupCandidates?[requestID] = nil
+    }
+
+    private func retryPersistedRecoveryMutations() async {
+        guard let pending = try? journal.pendingRecoveries() else { return }
         for item in pending {
             do {
                 try await performRecovery(item)
-                // Record the terminal local interpretation before acknowledging
-                // the queue item. A crash between these appends safely retries
-                // the same immutable receipt/mutation.
                 if item.kind == "unknown_receipt" {
                     let receipt = try Receipt(json: try JSONValue.parse(Data(item.payload.utf8)))
                     try journal.append(.dispatchResult(requestID: item.requestID, receiptID: receipt.receiptID, result: .unknown))
@@ -177,10 +177,8 @@ public actor DaemonCore {
                     try journal.append(.withdrawn(requestID: item.requestID))
                 }
                 try journal.append(.recoveryAcknowledged(mutationID: item.mutationID))
-                recoveryPendingCount = max(0, recoveryPendingCount - 1)
             } catch {
-                // Retain the obligation and its identifiers for the next
-                // heartbeat. Never mint a replacement mutation here.
+                // The immutable obligation and identifiers remain pending.
             }
         }
     }
@@ -192,12 +190,13 @@ public actor DaemonCore {
             return
         }
         var reader = try JSONReader(try JSONValue.parse(Data(item.payload.utf8)))
-        _ = try await client.withdrawApproval(
-            item.requestID,
-            mutationID: item.mutationID,
-            runID: try reader.id("run_id"),
-            requestHash: try reader.string("request_hash", maxLength: 80)
-        )
+        let mutationID = try reader.id("mutation_id")
+        guard mutationID == item.mutationID else { throw ControlError(code: .hashMismatch, message: "recovery mutation identity mismatch") }
+        let runID = try reader.id("run_id")
+        let requestHash = try reader.string("request_hash", maxLength: 80)
+        try reader.rejectUnknownMembers()
+        _ = try await client.withdrawApproval(item.requestID, mutationID: item.mutationID,
+                                               runID: runID, requestHash: requestHash)
     }
 
     public func health() -> JSONValue {
@@ -206,7 +205,7 @@ public actor DaemonCore {
             state = "not_ready"
         } else if recoveryPendingCount > 0 {
             state = "recovering"
-        } else if originAuthenticated {
+        } else if originAuthenticationIsFresh {
             state = "ready"
         } else {
             state = "not_ready"
@@ -215,7 +214,7 @@ public actor DaemonCore {
             "state": .string(state),
             "store_loaded": .bool(true),
             "ipc_responsive": .bool(true),
-            "origin_authenticated": .bool(originAuthenticated),
+            "origin_authenticated": .bool(originAuthenticationIsFresh),
             "recovery_pending": .number(.int(Int64(recoveryPendingCount))),
         ])
     }
@@ -308,6 +307,7 @@ public actor DaemonCore {
         let jobID = try reader.optionalID("job_id") ?? .random()
         let capabilities = try reader.stringArray("capabilities", maxCount: 32, maxLength: 64)
         let schemas = try reader.stringArray("operation_schemas", maxCount: 32, maxLength: 64)
+        try reader.rejectUnknownMembers()
         guard schemas.allSatisfy({ $0 == ExecOperation.schema }) else {
             // A tool without a negotiated schema gets notifications and a link
             // to review elsewhere, not a synthetic approval implementation.
@@ -325,7 +325,8 @@ public actor DaemonCore {
             startedAt: timestamp
         )
         try await client.registerRun(registration)
-        runs[capability] = RunBinding(runID: runID, jobID: jobID, capability: capability, adapter: adapter)
+        runs[capability] = RunBinding(runID: runID, jobID: jobID, capability: capability,
+                                      adapter: adapter, operationSchemas: Set(schemas))
         try journal.append(.runStarted(runID: runID, jobID: jobID))
         return .object([
             "protocol": .string(ServiceCapabilities.protocolName),
@@ -350,16 +351,13 @@ public actor DaemonCore {
         guard let kind = NotificationKind(rawValue: kindText) else {
             throw ControlError(code: .invalidPayload, message: "unknown notification kind")
         }
-        let event = try InformationalEvent(
-            eventID: try reader.optionalID("event_id") ?? .random(),
-            originID: configuration.originID,
-            jobID: binding.jobID,
-            runID: binding.runID,
-            kind: kind,
-            title: try reader.string("title", maxLength: 120),
-            body: try reader.optionalString("body", maxLength: 1000) ?? "",
-            occurredAt: timestamp
-        )
+        let eventID = try reader.optionalID("event_id") ?? .random()
+        let title = try reader.string("title", maxLength: 120)
+        let body = try reader.optionalString("body", maxLength: 1000) ?? ""
+        try reader.rejectUnknownMembers()
+        let event = try InformationalEvent(eventID: eventID, originID: configuration.originID,
+                                           jobID: binding.jobID, runID: binding.runID, kind: kind,
+                                           title: title, body: body, occurredAt: timestamp)
         try await client.createNotification(event)
         return .object(["event_id": JSONValue(event.eventID)])
     }
@@ -370,14 +368,19 @@ public actor DaemonCore {
         var reader = try JSONReader(request.body)
         let summary = try reader.string("summary", maxLength: 200)
         let operation = try ControlOperation.decode(try reader.value("operation"))
+        guard binding.operationSchemas.contains(operation.schema) else {
+            throw ControlError(code: .unsupportedOperation, message: "operation schema was not negotiated for this run")
+        }
         let lifetime = TimeInterval(try reader.optionalInteger("lifetime_seconds") ?? Int64(ApprovalPolicy.defaultLifetime))
         let minimumReviewText = try reader.optionalString("minimum_review", maxLength: 16) ?? MinimumReview.watch.rawValue
         guard let minimumReview = MinimumReview(rawValue: minimumReviewText) else {
             throw ControlError(code: .invalidPayload, message: "unknown minimum_review")
         }
+        let requestID = try reader.optionalID("request_id") ?? .random()
+        try reader.rejectUnknownMembers()
         let created = timestamp
         let spec = try ApprovalSpec(
-            requestID: try reader.optionalID("request_id") ?? .random(),
+            requestID: requestID,
             originID: configuration.originID,
             jobID: binding.jobID,
             runID: binding.runID,
@@ -409,7 +412,10 @@ public actor DaemonCore {
         var reader = try JSONReader(request.body)
         let requestID = try reader.id("request_id")
         let requestHash = try reader.string("request_hash", maxLength: 80)
-        let deadline = now().addingTimeInterval(TimeInterval(try reader.optionalInteger("timeout_seconds") ?? 600))
+        let timeout = try reader.optionalInteger("timeout_seconds") ?? 600
+        guard timeout > 0 && timeout <= 86_400 else { throw ControlError(code: .invalidPayload, message: "invalid wait timeout") }
+        try reader.rejectUnknownMembers()
+        let deadline = now().addingTimeInterval(TimeInterval(timeout))
 
         markWaiting(requestID, capability: binding.capability, isWaiting: true)
 
@@ -457,6 +463,14 @@ public actor DaemonCore {
                         runID: binding.runID
                     )
                 )
+                guard permit.consumeID == consumeID,
+                      permit.decisionID == decisionID,
+                      permit.originID == configuration.originID,
+                      permit.runID == binding.runID,
+                      ContentDigest.matches(permit.requestHash, requestHash),
+                      permit.decision == .approve else {
+                    throw ControlError(code: .hashMismatch, message: "consume permit does not match the blocked run and request")
+                }
                 try journal.append(.claimed(requestID: requestID, consumeID: consumeID, applyBefore: permit.applyBefore))
                 markWaiting(requestID, capability: binding.capability, isWaiting: false)
                 guard permit.isApplicable(at: timestamp) else {
@@ -475,9 +489,11 @@ public actor DaemonCore {
         var reader = try JSONReader(request.body)
         let requestID = try reader.id("request_id")
         let requestHash = try reader.string("request_hash", maxLength: 80)
+        let mutationID = try reader.optionalID("mutation_id") ?? .random()
+        try reader.rejectUnknownMembers()
         let projection = try await client.withdrawApproval(
             requestID,
-            mutationID: try reader.optionalID("mutation_id") ?? .random(),
+            mutationID: mutationID,
             runID: binding.runID,
             requestHash: requestHash
         )
@@ -494,21 +510,22 @@ public actor DaemonCore {
         guard let result = ReceiptResult(rawValue: resultText) else {
             throw ControlError(code: .invalidPayload, message: "unknown receipt result")
         }
-        let receipt = Receipt(
-            receiptID: try reader.optionalID("receipt_id") ?? .random(),
-            decisionID: try reader.optionalID("decision_id"),
-            consumeID: try reader.optionalID("consume_id"),
-            commandID: try reader.optionalID("command_id"),
-            requestHash: try reader.optionalString("request_hash", maxLength: 80),
-            jobID: try reader.optionalID("job_id"),
-            runID: binding.runID,
-            result: result,
-            reasonCode: try reader.optionalString("reason_code", maxLength: 64) ?? "adapter_reported",
-            occurredAt: timestamp,
-            jobState: try reader.optionalString("job_state", maxLength: 32)
-        )
+        let receiptID = try reader.optionalID("receipt_id") ?? .random()
+        let decisionID = try reader.optionalID("decision_id")
+        let consumeID = try reader.optionalID("consume_id")
+        let commandID = try reader.optionalID("command_id")
+        let requestHash = try reader.optionalString("request_hash", maxLength: 80)
+        let jobID = try reader.optionalID("job_id")
+        let reasonCode = try reader.optionalString("reason_code", maxLength: 64) ?? "adapter_reported"
+        let jobState = try reader.optionalString("job_state", maxLength: 32)
+        let requestID = try reader.optionalID("request_id")
+        try reader.rejectUnknownMembers()
+        let receipt = Receipt(receiptID: receiptID, decisionID: decisionID, consumeID: consumeID,
+                              commandID: commandID, requestHash: requestHash, jobID: jobID,
+                              runID: binding.runID, result: result, reasonCode: reasonCode,
+                              occurredAt: timestamp, jobState: jobState)
         try await client.postReceipt(receipt)
-        if let requestID = try reader.optionalID("request_id") {
+        if let requestID {
             try journal.append(.dispatchResult(requestID: requestID, receiptID: receipt.receiptID, result: result))
         }
         return .object(["receipt_id": JSONValue(receipt.receiptID)])
@@ -520,25 +537,32 @@ public actor DaemonCore {
             // A heartbeat with no runs still proves origin authentication.
             do {
                 try await client.heartbeat(runIDs: [], waitingRequestIDs: [])
-                originAuthenticated = true
+                lastOriginAuthentication = .now
             } catch {
-                originAuthenticated = false
+                lastOriginAuthentication = nil
             }
             return
         }
         for binding in runs.values {
             do {
                 try await client.heartbeat(runIDs: [binding.runID], waitingRequestIDs: Array(binding.waiting))
-                originAuthenticated = true
+                lastOriginAuthentication = .now
             } catch {
-                originAuthenticated = false
+                lastOriginAuthentication = nil
             }
         }
     }
 
+    private var originAuthenticationIsFresh: Bool {
+        guard let lastOriginAuthentication else { return false }
+        return lastOriginAuthentication.duration(to: .now) <= .seconds(max(30, configuration.heartbeatInterval * 2))
+    }
+
     public func runHeartbeats() async {
         while !Task.isCancelled {
-            try? await retryRecoveryObligations()
+            // Retry boot-scoped candidates and already-persisted mutations;
+            // never rediscover all unfinished entries from live runs.
+            try? await runRecoveryPass()
             await heartbeatOnce()
             try? await Task.sleep(nanoseconds: UInt64(configuration.heartbeatInterval * 1_000_000_000))
         }
