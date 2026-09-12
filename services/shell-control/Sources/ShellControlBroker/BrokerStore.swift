@@ -32,6 +32,7 @@ public actor BrokerStore {
     var refreshTokens: [String: TokenRecord] = [:]
     var policyVersion: Int64 = 1
     var nextSequence: UInt64 = 1
+    public private(set) var storeLoaded = false
 
     let serviceIdentity: String
     let cursorSecret: Data
@@ -58,6 +59,7 @@ public actor BrokerStore {
     /// tombstones and idempotency records come back with everything else
     /// (spec.watch.md section 15).
     public func restore() throws {
+        defer { storeLoaded = true }
         guard let snapshot = try persistence?.load() else { return }
         var reader = try JSONReader(snapshot)
         policyVersion = try reader.integer("policy_version")
@@ -251,6 +253,15 @@ public actor BrokerStore {
 
     public func capabilities() -> ServiceCapabilities {
         ServiceCapabilities(serviceIdentity: serviceIdentity, serverTime: timestamp)
+    }
+
+    public func health() -> JSONValue {
+        .object([
+            "state": .string(storeLoaded ? "ready" : "not_ready"),
+            "store_loaded": .bool(storeLoaded),
+            "service_identity": .string(serviceIdentity),
+            "policy_version": .number(.int(policyVersion)),
+        ])
     }
 
     /// Tightening effective policy changes `policy_version`, which invalidates

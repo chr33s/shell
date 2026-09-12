@@ -39,6 +39,8 @@ public final class HTTPServer: @unchecked Sendable {
     private let bindLoopback: Bool
     private let handler: Handler
     private var listenSocket: Int32 = -1
+    private let stopLock = NSLock()
+    private var stopped = false
 
     public init(port: UInt16, bindLoopback: Bool = true, handler: @escaping Handler) {
         self.port = port
@@ -84,7 +86,12 @@ public final class HTTPServer: @unchecked Sendable {
 
     public func acceptLoop() {
         while true {
-            let client = accept(listenSocket, nil, nil)
+            stopLock.lock()
+            let done = stopped
+            let socket = listenSocket
+            stopLock.unlock()
+            if done { return }
+            let client = accept(socket, nil, nil)
             if client < 0 { continue }
             // A detached thread per connection rather than a shared pool: a
             // handler may block for the whole of a `wait=30` long poll, and a
@@ -109,7 +116,12 @@ public final class HTTPServer: @unchecked Sendable {
     }
 
     public func stop() {
-        if listenSocket >= 0 { close(listenSocket) }
+        stopLock.lock()
+        stopped = true
+        let socket = listenSocket
+        listenSocket = -1
+        stopLock.unlock()
+        if socket >= 0 { close(socket) }
     }
 
     // MARK: Parsing

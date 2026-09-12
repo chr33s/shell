@@ -51,7 +51,7 @@ Program / agent permission hook
 
 **Shell Control service** owns enrollment, authorization policy, immutable request documents, mutable resolution/dispatch records, an ordered change log, idempotency records, audit data, and an APNs outbox. Use transactional durable storage. For v1, a single logical writer backed by PostgreSQL is a reasonable implementation choice; preserve per-request/per-job serialization if scaled horizontally.
 
-**shell-controld** runs on the actual execution host as a per-user service on macOS or Linux. It authenticates local adapters, registers jobs, persists pending requests, long-polls the broker, validates decisions against the still-blocked operation, consumes authorization, and returns a response through the program's native permission mechanism.
+**shell-controld** runs on the actual execution host as a per-user service on macOS or Linux. It authenticates local adapters, registers jobs, persists pending requests, long-polls the broker, validates decisions against the still-blocked operation, consumes authorization, and returns a response through the program's native permission mechanism. The `@chr33s/shell` CLI enrols devices and manages those services; it is not the lifetime owner of them. Closing the CLI must not stop a ready broker, daemon, or named tunnel. `down` persists stopped intent. Quick-tunnel hostnames are never rotated silently. Login persistence is opt-in (`service install`) and requires a stable HTTPS address.
 
 **Adapters** implement a tool's documented, blocking pre-execution hook or an explicit command wrapper. A tool without a safe request/response hook gets notifications and a link to review elsewhere, not a synthetic approval implementation.
 

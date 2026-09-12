@@ -16,7 +16,7 @@
     "Packages/ShellControlCore/Sources"
   ],
   "scripts": {
-    "test": "node --test cli/src/util.test.ts",
+    "test": "node --test cli/src/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "engines": {

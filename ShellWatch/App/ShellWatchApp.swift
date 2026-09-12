@@ -145,15 +145,24 @@ enum ShellWatchConfiguration {
 
 struct RootView: View {
     let session: ControlSession
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
-        switch session.phase {
-        case .loading:
-            ProgressView()
-        case .needsEnrollment:
-            EnrollmentView()
-        case .ready:
-            InboxView()
+        Group {
+            switch session.phase {
+            case .loading:
+                ProgressView()
+            case .needsEnrollment:
+                EnrollmentView()
+            case .ready:
+                InboxView()
+            }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            session.noteSceneActive(phase == .active)
+        }
+        .onAppear {
+            session.noteSceneActive(scenePhase == .active)
         }
     }
 }

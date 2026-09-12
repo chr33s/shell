@@ -60,7 +60,11 @@ public struct BrokerService: Sendable {
     private func route(_ request: HTTPServer.Request) async throws -> HTTPServer.Response {
         switch (request.method, request.path) {
         case ("GET", "/v1/capabilities"):
-            return json(status: 200, await store.capabilities().json)
+            return json(status: 200, await store.capabilities().json, headers: ["Cache-Control": "no-store"])
+
+        case ("GET", "/v1/admin/health"):
+            _ = try localAdministrator(request)
+            return json(status: 200, await store.health(), headers: ["Cache-Control": "no-store"])
 
         case ("GET", "/pair"):
             // Never take the broker URL from Host: a spoofed Host would deep-link
@@ -496,9 +500,11 @@ public struct BrokerService: Sendable {
         BrokerService.parseFormBody(request.body)
     }
 
-    private func json(status: Int, _ value: JSONValue) -> HTTPServer.Response {
+    private func json(status: Int, _ value: JSONValue, headers extra: [String: String] = [:]) -> HTTPServer.Response {
         let data = (try? JSONCanonicalization.canonicalize(value)) ?? Data("{}".utf8)
-        return HTTPServer.Response(status: status, headers: ["Content-Type": "application/json"], body: data)
+        var headers = extra
+        headers["Content-Type"] = "application/json"
+        return HTTPServer.Response(status: status, headers: headers, body: data)
     }
 
     private func respond(_ error: ControlError) -> HTTPServer.Response {

@@ -12,6 +12,8 @@ actor FakeBroker: ControlHTTPTransport {
     var heartbeats = 0
     var notifications: [InformationalEvent] = []
     var consumeCount = 0
+    var failReceipts = false
+    var receiptAttempts = 0
     let now: @Sendable () -> Date
 
     init(now: @escaping @Sendable () -> Date) { self.now = now }
@@ -49,6 +51,10 @@ actor FakeBroker: ControlHTTPTransport {
             approvals[spec.requestID] = record
             return try ok(record.json)
         case ("POST", "/v1/receipts"):
+            receiptAttempts += 1
+            if failReceipts {
+                throw TransportError.offline
+            }
             receipts.append(try Receipt(json: try JSONValue.parse(request.body ?? Data())))
             return try ok(.object(["ok": true]))
         default:
@@ -93,7 +99,11 @@ actor FakeBroker: ControlHTTPTransport {
 }
 
 final class DaemonTests: XCTestCase {
-    private func makeCore(_ broker: FakeBroker, now: @escaping @Sendable () -> Date) throws -> (DaemonCore, URL) {
+    private func makeCore(
+        _ broker: FakeBroker,
+        now: @escaping @Sendable () -> Date,
+        heartbeatInterval: TimeInterval = ApprovalPolicy.heartbeatInterval
+    ) throws -> (DaemonCore, URL) {
         let directory = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("shell-controld-tests-\(UUID().uuidString)")
         let originID = ControlID.random()
@@ -102,7 +112,8 @@ final class DaemonTests: XCTestCase {
             originID: originID,
             originSecret: "secret",
             socketPath: directory.appendingPathComponent("control.sock").path,
-            journalURL: directory.appendingPathComponent("journal.ndjson")
+            journalURL: directory.appendingPathComponent("journal.ndjson"),
+            heartbeatInterval: heartbeatInterval
         )
         let client = ControlAPIClient(
             baseURL: configuration.brokerURL,
@@ -469,5 +480,121 @@ final class DaemonTests: XCTestCase {
         XCTAssertTrue(try journal.recover().unresolved.contains(requestID))
         try journal.append(.withdrawn(requestID: requestID))
         XCTAssertFalse(try journal.recover().unresolved.contains(requestID))
+    }
+
+    func testFailedRecoveryWriteDoesNotCompleteTheObligation() async throws {
+        nonisolated(unsafe) let clock = Date(timeIntervalSince1970: 1_788_000_000)
+        let broker = FakeBroker(now: { clock })
+        await broker.setFailReceipts(true)
+        let (core, directory) = try makeCore(broker, now: { clock })
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let journal = try DispatchJournal(url: directory.appendingPathComponent("journal.ndjson"))
+        let requestID = ControlID.random()
+        let mutationID = ControlID.random()
+        let receipt = Receipt(
+            receiptID: .random(),
+            decisionID: .random(),
+            consumeID: nil,
+            requestHash: "sha256:" + String(repeating: "0", count: 64),
+            runID: .random(),
+            result: .unknown,
+            reasonCode: "daemon_restarted_after_claim",
+            occurredAt: ControlTimestamp(clock)
+        )
+        let payload = String(decoding: try JSONCanonicalization.canonicalize(receipt.json), as: UTF8.self)
+        try journal.append(.recoveryQueued(
+            mutationID: mutationID,
+            kind: "unknown_receipt",
+            requestID: requestID,
+            payload: payload
+        ))
+        try await core.reconcileAfterRestart()
+        XCTAssertEqual(try journal.pendingRecoveries().count, 1)
+        let posted = await broker.receipts
+        XCTAssertTrue(posted.isEmpty)
+        let attempts = await broker.receiptAttempts
+        XCTAssertGreaterThanOrEqual(attempts, 1)
+    }
+
+    func testHeartbeatRetriesRecoveryWithoutAnotherRestart() async throws {
+        nonisolated(unsafe) let clock = Date(timeIntervalSince1970: 1_788_000_000)
+        let broker = FakeBroker(now: { clock })
+        await broker.setFailReceipts(true)
+        let (core, directory) = try makeCore(broker, now: { clock }, heartbeatInterval: 0.01)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let journal = try DispatchJournal(url: directory.appendingPathComponent("journal.ndjson"))
+        let requestID = ControlID.random()
+        let receipt = Receipt(
+            receiptID: .random(),
+            decisionID: .random(),
+            consumeID: nil,
+            requestHash: "sha256:" + String(repeating: "0", count: 64),
+            runID: .random(),
+            result: .unknown,
+            reasonCode: "daemon_restarted_after_claim",
+            occurredAt: ControlTimestamp(clock)
+        )
+        let payload = String(decoding: try JSONCanonicalization.canonicalize(receipt.json), as: UTF8.self)
+        try journal.append(.recoveryQueued(
+            mutationID: .random(),
+            kind: "unknown_receipt",
+            requestID: requestID,
+            payload: payload
+        ))
+        try await core.reconcileAfterRestart()
+        await broker.setFailReceipts(false)
+        let heartbeats = Task { await core.runHeartbeats() }
+        defer { heartbeats.cancel() }
+        for _ in 0..<50 {
+            if try journal.pendingRecoveries().isEmpty { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertTrue(try journal.pendingRecoveries().isEmpty)
+        let postedReceiptIDs = await broker.receipts.map(\.receiptID)
+        XCTAssertEqual(postedReceiptIDs, [receipt.receiptID])
+    }
+
+    func testRecoveryRetriesReuseTheSameReceiptID() async throws {
+        nonisolated(unsafe) let clock = Date(timeIntervalSince1970: 1_788_000_000)
+        let broker = FakeBroker(now: { clock })
+        await broker.setFailReceipts(true)
+        let (core, directory) = try makeCore(broker, now: { clock })
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let journal = try DispatchJournal(url: directory.appendingPathComponent("journal.ndjson"))
+        let requestID = ControlID.random()
+        let mutationID = ControlID.random()
+        let receiptID = ControlID.random()
+        let receipt = Receipt(
+            receiptID: receiptID,
+            decisionID: .random(),
+            consumeID: nil,
+            requestHash: "sha256:" + String(repeating: "0", count: 64),
+            runID: .random(),
+            result: .unknown,
+            reasonCode: "daemon_restarted_after_claim",
+            occurredAt: ControlTimestamp(clock)
+        )
+        let payload = String(decoding: try JSONCanonicalization.canonicalize(receipt.json), as: UTF8.self)
+        try journal.append(.recoveryQueued(
+            mutationID: mutationID,
+            kind: "unknown_receipt",
+            requestID: requestID,
+            payload: payload
+        ))
+        try await core.reconcileAfterRestart()
+        XCTAssertEqual(try journal.pendingRecoveries().count, 1)
+        await broker.setFailReceipts(false)
+        try await core.reconcileAfterRestart()
+        XCTAssertEqual(try journal.pendingRecoveries().count, 0)
+        let posted = await broker.receipts
+        XCTAssertEqual(posted.map(\.receiptID), [receiptID])
+        let consumes = await broker.consumeCount
+        XCTAssertEqual(consumes, 0)
+    }
+}
+
+extension FakeBroker {
+    func setFailReceipts(_ flag: Bool) {
+        failReceipts = flag
     }
 }

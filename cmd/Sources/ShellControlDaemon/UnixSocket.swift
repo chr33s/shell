@@ -15,12 +15,20 @@ public struct UnixSocketServer: Sendable {
         case bind(Int32)
         case listen(Int32)
         case peerRejected
+        case alreadyServing
     }
 
     public let path: String
 
     public init(path: String) {
         self.path = path
+    }
+
+    public func isServedByLiveInstance() -> Bool {
+        let client = UnixSocketClient(path: path)
+        guard let fd = try? client.connect() else { return false }
+        close(fd)
+        return true
     }
 
     public func makeListener() throws -> Int32 {
@@ -32,6 +40,9 @@ public struct UnixSocketServer: Sendable {
         )
         // Re-tighten in case the directory already existed with looser modes.
         try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory)
+        if isServedByLiveInstance() {
+            throw SocketError.alreadyServing
+        }
         unlink(path)
 
         let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)

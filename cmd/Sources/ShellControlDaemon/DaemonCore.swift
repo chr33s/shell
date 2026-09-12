@@ -13,6 +13,7 @@ public actor DaemonCore {
         public var originID: ControlID
         public var originSecret: String
         public var socketPath: String
+        public var healthSocketPath: String
         public var journalURL: URL
         public var heartbeatInterval: TimeInterval
 
@@ -22,6 +23,7 @@ public actor DaemonCore {
             originSecret: String,
             socketPath: String,
             journalURL: URL,
+            healthSocketPath: String? = nil,
             heartbeatInterval: TimeInterval = ApprovalPolicy.heartbeatInterval
         ) {
             self.brokerURL = brokerURL
@@ -29,6 +31,8 @@ public actor DaemonCore {
             self.originSecret = originSecret
             self.socketPath = socketPath
             self.journalURL = journalURL
+            let directory = (socketPath as NSString).deletingLastPathComponent
+            self.healthSocketPath = healthSocketPath ?? "\(directory)/health.sock"
             self.heartbeatInterval = heartbeatInterval
         }
     }
@@ -51,6 +55,10 @@ public actor DaemonCore {
     /// replays rather than mints a second request, event, or receipt.
     private var handled: [ControlID: (bodyHash: String, response: IPCResponse)] = [:]
     private let now: @Sendable () -> Date
+    private var acceptingWork = true
+    private var originAuthenticated = false
+    private var recoveryPendingCount = 0
+    private var inFlight = 0
 
     public init(
         configuration: Configuration,
@@ -72,10 +80,27 @@ public actor DaemonCore {
     /// When safe continuation cannot be proven, the daemon does not apply and a
     /// new request is required (spec.watch.md section 17).
     public func reconcileAfterRestart() async throws {
+        try await retryRecoveryObligations()
+        await heartbeatOnce()
+    }
+
+    /// Retry both discovery of interrupted work and every durable network
+    /// obligation. This runs at startup and alongside heartbeats, so recovery
+    /// does not require another process restart after connectivity returns.
+    private func retryRecoveryObligations() async throws {
         let recovery = try journal.recover()
-        for requestID in recovery.uncertain {
-            // Uncertain external effects are reported unknown, never replayed.
-            guard let record = try? await client.approval(requestID) else { continue }
+        var pending = try journal.pendingRecoveries()
+        var alreadyQueued = Set(pending.map(\.requestID))
+        var deferredCount = 0
+
+        for requestID in recovery.uncertain where !alreadyQueued.contains(requestID) {
+            let record: ApprovalRecord
+            do {
+                record = try await client.approval(requestID)
+            } catch {
+                deferredCount += 1
+                continue
+            }
             let receipt = Receipt(
                 receiptID: .random(),
                 decisionID: record.projection.decisionID,
@@ -86,28 +111,139 @@ public actor DaemonCore {
                 reasonCode: "daemon_restarted_after_claim",
                 occurredAt: timestamp
             )
-            try? await client.postReceipt(receipt)
-            try journal.append(.dispatchResult(requestID: requestID, receiptID: receipt.receiptID, result: .unknown))
+            let payload = String(decoding: try JSONCanonicalization.canonicalize(receipt.json), as: UTF8.self)
+            let mutationID = ControlID.random()
+            try journal.append(.recoveryQueued(
+                mutationID: mutationID,
+                kind: "unknown_receipt",
+                requestID: requestID,
+                payload: payload
+            ))
+            pending.append(DispatchJournal.QueuedRecovery(
+                mutationID: mutationID,
+                kind: "unknown_receipt",
+                requestID: requestID,
+                payload: payload
+            ))
+            alreadyQueued.insert(requestID)
         }
-        for requestID in recovery.unresolved {
-            guard let record = try? await client.approval(requestID) else { continue }
-            guard record.projection.resolution == .pending else { continue }
-            // The waiter did not survive the restart, so the question is
-            // withdrawn rather than answered into a process that no longer
-            // exists.
-            _ = try? await client.withdrawApproval(
-                requestID,
-                mutationID: .random(),
-                runID: record.spec.runID,
-                requestHash: record.requestHash
-            )
-            try journal.append(.withdrawn(requestID: requestID))
+        for requestID in recovery.unresolved where !alreadyQueued.contains(requestID) {
+            let record: ApprovalRecord
+            do {
+                record = try await client.approval(requestID)
+            } catch {
+                deferredCount += 1
+                continue
+            }
+            guard record.projection.resolution == .pending else {
+                // The broker proves this question is already terminal, so no
+                // live adapter can still receive an answer after the restart.
+                try journal.append(.withdrawn(requestID: requestID))
+                continue
+            }
+            let mutationID = ControlID.random()
+            let payloadValue = JSONValue.object([
+                "mutation_id": JSONValue(mutationID),
+                "run_id": JSONValue(record.spec.runID),
+                "request_hash": .string(record.requestHash),
+            ])
+            let payload = String(decoding: try JSONCanonicalization.canonicalize(payloadValue), as: UTF8.self)
+            try journal.append(.recoveryQueued(
+                mutationID: mutationID,
+                kind: "withdraw",
+                requestID: requestID,
+                payload: payload
+            ))
+            pending.append(DispatchJournal.QueuedRecovery(
+                mutationID: mutationID,
+                kind: "withdraw",
+                requestID: requestID,
+                payload: payload
+            ))
+            alreadyQueued.insert(requestID)
+        }
+
+        recoveryPendingCount = pending.count + deferredCount
+        for item in pending {
+            do {
+                try await performRecovery(item)
+                // Record the terminal local interpretation before acknowledging
+                // the queue item. A crash between these appends safely retries
+                // the same immutable receipt/mutation.
+                if item.kind == "unknown_receipt" {
+                    let receipt = try Receipt(json: try JSONValue.parse(Data(item.payload.utf8)))
+                    try journal.append(.dispatchResult(requestID: item.requestID, receiptID: receipt.receiptID, result: .unknown))
+                } else {
+                    try journal.append(.withdrawn(requestID: item.requestID))
+                }
+                try journal.append(.recoveryAcknowledged(mutationID: item.mutationID))
+                recoveryPendingCount = max(0, recoveryPendingCount - 1)
+            } catch {
+                // Retain the obligation and its identifiers for the next
+                // heartbeat. Never mint a replacement mutation here.
+            }
+        }
+    }
+
+    private func performRecovery(_ item: DispatchJournal.QueuedRecovery) async throws {
+        if item.kind == "unknown_receipt" {
+            let receipt = try Receipt(json: try JSONValue.parse(Data(item.payload.utf8)))
+            try await client.postReceipt(receipt)
+            return
+        }
+        var reader = try JSONReader(try JSONValue.parse(Data(item.payload.utf8)))
+        _ = try await client.withdrawApproval(
+            item.requestID,
+            mutationID: item.mutationID,
+            runID: try reader.id("run_id"),
+            requestHash: try reader.string("request_hash", maxLength: 80)
+        )
+    }
+
+    public func health() -> JSONValue {
+        let state: String
+        if !acceptingWork {
+            state = "not_ready"
+        } else if recoveryPendingCount > 0 {
+            state = "recovering"
+        } else if originAuthenticated {
+            state = "ready"
+        } else {
+            state = "not_ready"
+        }
+        return .object([
+            "state": .string(state),
+            "store_loaded": .bool(true),
+            "ipc_responsive": .bool(true),
+            "origin_authenticated": .bool(originAuthenticated),
+            "recovery_pending": .number(.int(Int64(recoveryPendingCount))),
+        ])
+    }
+
+    public func shutdown() {
+        acceptingWork = false
+    }
+
+    public func waitUntilIdle(timeout: TimeInterval) async {
+        let deadline = now().addingTimeInterval(timeout)
+        while inFlight > 0 && now() < deadline {
+            try? await Task.sleep(nanoseconds: 50_000_000)
         }
     }
 
     // MARK: IPC handlers
 
     public func handle(_ request: IPCRequest) async -> IPCResponse {
+        if !acceptingWork {
+            return IPCResponse(
+                messageID: request.messageID,
+                ok: false,
+                errorCode: ControlErrorCode.temporarilyUnavailable.rawValue,
+                errorMessage: "daemon is shutting down"
+            )
+        }
+        inFlight += 1
+        defer { inFlight = max(0, inFlight - 1) }
         // Retransmission uses the same message ID and body hash; a reused ID
         // with a different body is a conflict (spec.watch.md section 17).
         if let previous = handled[request.messageID] {
@@ -278,6 +414,9 @@ public actor DaemonCore {
         markWaiting(requestID, capability: binding.capability, isWaiting: true)
 
         while now() < deadline {
+            if !acceptingWork {
+                return ApprovalWaitOutcome.unavailable(reason: "daemon is shutting down").json
+            }
             let waiting = runs[binding.capability]?.waiting ?? [requestID]
             try await client.heartbeat(runIDs: [binding.runID], waitingRequestIDs: Array(waiting))
             let record = try await client.approval(requestID)
@@ -377,13 +516,29 @@ public actor DaemonCore {
 
     /// Refreshes presence for active runs and their waiters.
     public func heartbeatOnce() async {
+        if runs.isEmpty {
+            // A heartbeat with no runs still proves origin authentication.
+            do {
+                try await client.heartbeat(runIDs: [], waitingRequestIDs: [])
+                originAuthenticated = true
+            } catch {
+                originAuthenticated = false
+            }
+            return
+        }
         for binding in runs.values {
-            try? await client.heartbeat(runIDs: [binding.runID], waitingRequestIDs: Array(binding.waiting))
+            do {
+                try await client.heartbeat(runIDs: [binding.runID], waitingRequestIDs: Array(binding.waiting))
+                originAuthenticated = true
+            } catch {
+                originAuthenticated = false
+            }
         }
     }
 
     public func runHeartbeats() async {
         while !Task.isCancelled {
+            try? await retryRecoveryObligations()
             await heartbeatOnce()
             try? await Task.sleep(nanoseconds: UInt64(configuration.heartbeatInterval * 1_000_000_000))
         }

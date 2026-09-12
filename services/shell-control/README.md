@@ -27,6 +27,12 @@ SHELL_CONTROL_VERIFICATION_URI=https://control.example/activate \
 .build/release/shell-control-broker
 ```
 
+Managed installs pass `--config /absolute/path/broker.service.json`. The process
+runs in the foreground, binds loopback unless explicitly configured otherwise,
+holds a singleton lock next to the ledger, and stops the listener on SIGTERM.
+`GET /v1/capabilities` and `GET /v1/admin/health` are `Cache-Control: no-store`.
+The health route is loopback-admin only and does not mint work.
+
 | Variable | Meaning |
 |---|---|
 | `SHELL_CONTROL_PORT` | Listen port (default 8443). |

@@ -1,285 +1,1249 @@
-import { spawn, spawnSync } from "node:child_process";
-import { randomBytes, randomUUID } from "node:crypto";
-import { createWriteStream } from "node:fs";
-import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
-import { homedir, tmpdir } from "node:os";
+import { spawnSync } from "node:child_process";
+import { createHash, randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { appendFile, mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
-import { setTimeout as sleep } from "node:timers/promises";
-import { exists, findRepoRoot, makePairingToken, pairingLink, pairingPageURL } from "./util.ts";
+import {
+  abortExitCode,
+  CliError,
+  exists,
+  findRepoRoot,
+  isAbortError,
+  mergeSignals,
+  pairingLink,
+  pairingPageURL,
+  requireAbsolutePath,
+  signalExitCode,
+  sleep,
+} from "./util.ts";
+import {
+  acquireInstallationLock,
+  atomicWriteFile,
+  jobLabel,
+  loadOrCreateInstallation,
+  loadConfig,
+  loadRuntime,
+  loadSecrets,
+  localBrokerURL,
+  pathsFor,
+  saveConfig,
+  saveRuntime,
+  saveSecrets,
+  type LoadedInstallation,
+  type Secrets,
+} from "./state.ts";
+import {
+  binaryGeneration,
+  defaultLaunchAgentsDir,
+  defaultLibDir,
+  FakeServiceManager,
+  firstExisting,
+  inspectLegacyPid,
+  installBinaries,
+  jobSpecFor,
+  LaunchdServiceManager,
+  readPidFile,
+  which as whichBin,
+  type InstalledBinaries,
+  type JobSpec,
+  type ServiceManager,
+} from "./services.ts";
+import {
+  discoverQuickTunnelURL,
+  resolveAddressMode,
+  rotationNotice,
+  validateNamedTunnel,
+  validatePublicURL,
+} from "./tunnel.ts";
+import {
+  observationFromJob,
+  probeDaemonHealth,
+  probeLocalBroker,
+  probePublicRoute,
+  projectStatus,
+  pushObservation,
+  requiredComponentsReady,
+  tunnelObservation,
+  type ProbeDeps,
+  type StatusV2,
+} from "./health.ts";
 
-const ROOT = await findRepoRoot();
-const STATE = join(homedir(), ".local/state/shell-control");
-const ENV_FILE = join(STATE, "setup.env");
-const BROKER_PID = join(STATE, "broker.pid");
-const TUNNEL_PID = join(STATE, "tunnel.pid");
-const DAEMON_PID = join(STATE, "daemon.pid");
-const PORT = Number(process.env.SHELL_CONTROL_PORT || 8443);
-const LOCAL = `http://127.0.0.1:${PORT}`;
-
-type SetupEnv = {
-  SHELL_CONTROL_ACCOUNT_ID: string;
-  SHELL_CONTROL_ADMIN_SECRET: string;
-  SHELL_CONTROL_CURSOR_SECRET: string;
-  SHELL_CONTROL_PAIRING_TOKEN: string;
-  SHELL_CONTROL_PUBLIC_URL?: string;
-  SHELL_CONTROL_VERIFICATION_URI?: string;
-  SHELL_CONTROL_ORIGIN_ID?: string;
-  SHELL_CONTROL_ORIGIN_SECRET?: string;
+export type CLIContext = {
+  stateDir: string;
+  libDir: string;
+  launchAgentsDir: string;
+  env: NodeJS.ProcessEnv;
+  now: () => Date;
+  sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
+  fetchImpl: typeof fetch;
+  manager: ServiceManager;
+  stdinIsTTY: boolean;
+  stdout: NodeJS.WritableStream;
+  stderr: NodeJS.WritableStream;
+  stdin: NodeJS.ReadableStream;
+  which: (name: string) => string | null;
+  repoRoot: string | null;
+  platform: string;
+  uid: number;
+  homedir: string;
+  binaries?: InstalledBinaries;
+  readHealthSocket?: (path: string) => Promise<string | null>;
+  buildNative?: () => void;
 };
 
-type Binaries = {
-  broker: string;
-  daemon: string;
-  cli: string | undefined;
+export type ParsedArgs = {
+  command: string;
+  positional: string[];
+  flags: Map<string, string | boolean>;
 };
 
-type StopFlag = { value: boolean };
+const BOOLEAN_FLAGS = new Set([
+  "help", "h", "no-watch", "watch", "check", "follow", "rotate-url",
+]);
+const VALUE_FLAGS = new Set([
+  "tunnel-mode", "public-url", "tunnel-config",
+]);
+const COMMANDS = new Set([
+  "setup", "up", "down", "restart", "service", "status", "logs", "pair",
+  "confirm", "notify", "request", "receipt", "help",
+]);
 
-type PendingList = { pending?: Array<{ user_code?: string }> };
+export function parseArgv(argv: string[]): ParsedArgs {
+  const flags = new Map<string, string | boolean>();
+  const rest: string[] = [];
+  for (let i = 0; i < argv.length; i++) {
+    const token = argv[i]!;
+    if (token === "--") {
+      rest.push(...argv.slice(i + 1));
+      break;
+    }
+    if (token.startsWith("--") || token === "-h") {
+      const raw = token === "-h" ? "h" : token.slice(2);
+      const eq = raw.indexOf("=");
+      const name = eq >= 0 ? raw.slice(0, eq) : raw;
+      if (!BOOLEAN_FLAGS.has(name) && !VALUE_FLAGS.has(name)) {
+        throw new CliError(`unknown flag --${name}`, 2);
+      }
+      if (BOOLEAN_FLAGS.has(name)) {
+        flags.set(name, true);
+        continue;
+      }
+      const value = eq >= 0 ? raw.slice(eq + 1) : argv[++i];
+      if (value == null || value.startsWith("-")) {
+        throw new CliError(`--${name} requires a value`, 2);
+      }
+      flags.set(name, value);
+      continue;
+    }
+    rest.push(token);
+  }
+  let command: string;
+  let positional: string[];
+  if (flags.get("help") || flags.get("h")) {
+    command = "help";
+    positional = rest;
+  } else if (rest[0] && COMMANDS.has(rest[0])) {
+    command = rest[0];
+    positional = rest.slice(1);
+  } else if (rest[0]) {
+    throw new CliError(`unknown command ${rest[0]}`, 2);
+  } else {
+    command = "setup";
+    positional = [];
+  }
+  return { command, positional, flags };
+}
 
-type DeviceDescription = {
-  platform?: string;
-  label?: string;
-  key_fingerprint?: string;
-};
+export function usage(): string {
+  return `Usage: npx @chr33s/shell [setup|up|down|restart|service|status|logs|pair|confirm|request|notify|receipt]
 
-type OriginCredentials = {
-  origin_id: string;
-  origin_secret: string;
-};
+  setup [--no-watch] [--tunnel-mode quick|named|external-proxy]
+        [--public-url <https-url>] [--tunnel-config <absolute-path>]
+        [--rotate-url]
+            Ensure services, print pairing instructions. Does not opt into login startup.
+            --no-watch returns after readiness. Non-TTY never waits or approves.
+  up        Start or re-enable an existing configuration (no QR, no enrollment).
+  down      Persist stopped intent, disable and unload owned jobs, verify shutdown.
+  restart broker|daemon|tunnel|all
+            Restart only the requested owned components; preserve identity.
+  service install|uninstall
+            Opt into (or remove) login-persistent launchd agents. Requires a stable address.
+  status [--check]
+            Observational JSON. --check exits 1 unless the control path is ready.
+  logs [broker|daemon|tunnel] [--follow]
+            Read local diagnostic logs. Exiting never affects the service.
+  pair [--watch]
+            Print pairing link/token/QR; optionally monitor enrollments.
+  confirm <USER-CODE>
+            Approve one device after printing its fingerprint.
+  request, notify, receipt
+            Passed through to the native adapter CLI.
 
-export async function main(argv: string[]): Promise<void> {
-  // Match the help flags BEFORE the dash guard below: routing every
-  // dash-prefixed argument to `setup` made the `--help` / `-h` cases dead, so
-  // asking for usage instead built the sources, opened a tunnel and blocked.
-  const first = argv[0] ?? "";
-  const command = first === "-h" || first === "--help"
-    ? "help"
-    : first && !first.startsWith("-") ? first : "setup";
-  const rest = argv[0] === command ? argv.slice(1) : argv;
-  switch (command) {
+Closing this CLI does not stop ready services. Use down to stop them.
+Quick tunnels are development-only; named or external-proxy is required for persistence.
+`;
+}
+
+export async function defaultContext(): Promise<CLIContext> {
+  const home = homedir();
+  const uid = process.getuid?.() ?? 0;
+  const stateDir = process.env.SHELL_CONTROL_STATE_DIR || join(home, ".local/state/shell-control");
+  const manager = process.env.SHELL_CONTROL_SERVICE_MANAGER === "fake"
+    ? new FakeServiceManager()
+    : new LaunchdServiceManager({ uid });
+  return {
+    stateDir,
+    libDir: process.env.SHELL_CONTROL_LIB_DIR || defaultLibDir(home),
+    launchAgentsDir: process.env.SHELL_CONTROL_LAUNCH_AGENTS_DIR || defaultLaunchAgentsDir(home),
+    env: process.env,
+    now: () => new Date(),
+    sleep,
+    fetchImpl: fetch,
+    manager,
+    stdinIsTTY: Boolean(process.stdin.isTTY),
+    stdout: process.stdout,
+    stderr: process.stderr,
+    stdin: process.stdin,
+    which: whichBin,
+    repoRoot: await findRepoRoot(),
+    platform: process.platform,
+    uid,
+    homedir: home,
+  };
+}
+
+export async function main(argv: string[], ctx?: CLIContext): Promise<number> {
+  const context = ctx ?? await defaultContext();
+  const controller = new AbortController();
+  const onSignal = (signal: NodeJS.Signals) => {
+    controller.abort(signalExitCode(signal));
+  };
+  process.on("SIGINT", onSignal);
+  process.on("SIGTERM", onSignal);
+  process.on("SIGHUP", onSignal);
+  try {
+    const parsed = parseArgv(argv);
+    if (parsed.command === "help") {
+      context.stdout.write(usage());
+      return 0;
+    }
+    if (context.platform !== "darwin" && parsed.command !== "status" && parsed.command !== "help") {
+      throw new CliError("macOS only — the broker and origin use CryptoKit", 1);
+    }
+    await dispatch(parsed, context, controller.signal);
+    return 0;
+  } catch (error) {
+    if (controller.signal.aborted || isAbortError(error)) {
+      const code = error instanceof CliError ? error.exitCode : abortExitCode(controller.signal);
+      return code;
+    }
+    if (error instanceof CliError) {
+      if (error.message !== "cancelled") {
+        context.stderr.write(`@chr33s/shell: ${error.message}\n`);
+      }
+      return error.exitCode;
+    }
+    throw error;
+  } finally {
+    process.off("SIGINT", onSignal);
+    process.off("SIGTERM", onSignal);
+    process.off("SIGHUP", onSignal);
+  }
+}
+
+async function dispatch(parsed: ParsedArgs, ctx: CLIContext, signal: AbortSignal): Promise<void> {
+  switch (parsed.command) {
     case "setup":
-      await setup();
-      break;
+      await cmdSetup(ctx, parsed, signal);
+      return;
+    case "up":
+      await cmdUp(ctx, signal);
+      return;
     case "down":
-      await down();
-      break;
+      await cmdDown(ctx);
+      return;
+    case "restart":
+      await cmdRestart(ctx, parsed.positional[0], signal);
+      return;
+    case "service":
+      await cmdService(ctx, parsed.positional[0], signal);
+      return;
     case "status":
-      await status();
-      break;
+      await cmdStatus(ctx, Boolean(parsed.flags.get("check")), signal);
+      return;
+    case "logs":
+      await cmdLogs(ctx, parsed.positional[0], Boolean(parsed.flags.get("follow")), signal);
+      return;
+    case "pair":
+      await cmdPair(ctx, Boolean(parsed.flags.get("watch")), signal);
+      return;
     case "confirm":
-      await confirmOnce(rest[0]);
-      break;
+      await cmdConfirm(ctx, parsed.positional[0], signal);
+      return;
     case "notify":
     case "request":
     case "receipt":
-      await proxyNative([command, ...rest]);
-      break;
-    case "help":
-      usage();
-      break;
+      await proxyNative(ctx, [parsed.command, ...parsed.positional]);
+      return;
     default:
-      fail(`unknown command ${command}`);
+      throw new CliError(`unknown command ${parsed.command}`, 2);
   }
 }
 
-function usage(): void {
-  process.stdout.write(`Usage: npx @chr33s/shell [setup|down|status|confirm <code>|request|notify|receipt]
-
-  setup     Start broker, HTTPS tunnel, origin daemon, print a pairing QR.
-            Pending devices are listed; type y to approve after the fingerprint.
-  down      Stop broker, tunnel, and origin daemon
-  status    Show pids and the public broker URL
-  confirm   Approve one device code after printing its fingerprint
-  request, notify, receipt
-            Passed through to the native adapter CLI
-
-Run from a chr33s/shell checkout (or npx github:chr33s/shell). Native tools
-are built with Swift on first run. cloudflared is required for a public URL.
-`);
-}
-
-async function setup(): Promise<void> {
-  if (process.platform !== "darwin") fail("macOS only — the broker and origin use CryptoKit");
-  if (!ROOT) {
-    fail("native sources not found — clone chr33s/shell and run from that checkout (npx github:chr33s/shell also works)");
+async function cmdSetup(ctx: CLIContext, parsed: ParsedArgs, signal: AbortSignal): Promise<void> {
+  const lock = await acquireInstallationLock(ctx.stateDir);
+  let ready = false;
+  let inst: LoadedInstallation | undefined;
+  try {
+    inst = await loadOrCreateInstallation(ctx.stateDir);
+    applyConfigurationFlags(inst, parsed, ctx);
+    await saveConfig(ctx.stateDir, inst.config);
+    await reconcileIncomplete(ctx, inst);
+    const created: string[] = [];
+    inst.runtime.incomplete = true;
+    inst.runtime.startup_generation += 1;
+    inst.runtime.created = created;
+    await saveRuntime(ctx.stateDir, inst.runtime);
+    try {
+      await ensureBinaries(ctx, inst);
+      await ensureServices(ctx, inst, {
+        signal,
+        rotateURL: Boolean(parsed.flags.get("rotate-url")),
+        created,
+      });
+      inst.config.desired_state = "running";
+      inst.runtime.incomplete = false;
+      inst.runtime.created = [];
+      await saveConfig(ctx.stateDir, inst.config);
+      await saveSecrets(ctx.stateDir, inst.secrets);
+      await saveRuntime(ctx.stateDir, inst.runtime);
+      ready = true;
+    } catch (error) {
+      if (!ready && isCancelled(error, signal)) {
+        await rollbackCreated(ctx, inst, created);
+      }
+      throw error;
+    }
+  } finally {
+    await lock.release();
   }
-  await mkdir(STATE, { recursive: true, mode: 0o700 });
-  const env = await loadEnv();
-  if (!env.SHELL_CONTROL_PAIRING_TOKEN) env.SHELL_CONTROL_PAIRING_TOKEN = makePairingToken();
-  await writeEnv(env);
-  const bins = await resolveBinaries();
-  await reapStale(env);
-  const publicURL = await ensureTunnel(env);
-  env.SHELL_CONTROL_PUBLIC_URL = publicURL;
-  env.SHELL_CONTROL_VERIFICATION_URI = `${publicURL}/v1/oauth/confirm`;
-  await writeEnv(env);
-  await ensureBroker(bins.broker, env);
-  const origin = await ensureOrigin(env);
-  env.SHELL_CONTROL_ORIGIN_ID = origin.origin_id;
-  env.SHELL_CONTROL_ORIGIN_SECRET = origin.origin_secret;
-  await writeEnv(env);
-  await ensureDaemon(bins.daemon, env, publicURL);
-  await printPairing(publicURL, env.SHELL_CONTROL_PAIRING_TOKEN);
-  process.stderr.write("waiting for iPhone / Watch enrollment — type y to approve after each fingerprint. Ctrl+C stops watching (npx @chr33s/shell down to stop services)\n");
-  const stop = listenSignals();
-  await watchEnrollments(env, stop);
-}
-
-async function reapStale(env: SetupEnv): Promise<void> {
-  if (await pidAlive(BROKER_PID) && !(await brokerUp())) {
-    process.stderr.write("stale broker pid, restarting\n");
-    await killPidFile(BROKER_PID);
+  if (!inst) return;
+  const publicURL = inst.config.public_url || localBrokerURL(inst.config.port);
+  await printPairing(ctx, publicURL, inst.secrets.pairing_token);
+  if (inst.config.address_mode === "loopback") {
+    ctx.stderr.write("loopback address only — physical Watch/iPhone cannot reach this host\n");
   }
-  const publicURL = env.SHELL_CONTROL_PUBLIC_URL;
-  if (await pidAlive(TUNNEL_PID) && publicURL && !(await tunnelUp(publicURL))) {
-    process.stderr.write("stale tunnel URL, restarting cloudflared\n");
-    await killPidFile(TUNNEL_PID);
-    delete env.SHELL_CONTROL_PUBLIC_URL;
+  const monitor = !parsed.flags.get("no-watch");
+  if (!monitor) return;
+  if (!ctx.stdinIsTTY) {
+    ctx.stderr.write("no TTY — not waiting for enrollment; run: npx @chr33s/shell pair --watch\n");
+    ctx.stderr.write("approve a device with: npx @chr33s/shell confirm <USER-CODE>\n");
+    return;
+  }
+  ctx.stderr.write("waiting for iPhone / Watch enrollment — type y to approve after each fingerprint. Ctrl+C stops watching (npx @chr33s/shell down to stop services)\n");
+  await watchEnrollments(ctx, inst.secrets, inst.config.port, signal);
+}
+
+function applyConfigurationFlags(inst: LoadedInstallation, parsed: ParsedArgs, ctx: CLIContext): void {
+  const resolved = resolveAddressMode({
+    explicitMode: flagString(parsed, "tunnel-mode"),
+    explicitPublicURL: flagString(parsed, "public-url"),
+    envPublicURL: ctx.env.SHELL_CONTROL_PUBLIC_URL,
+    stored: { address_mode: inst.config.address_mode, public_url: inst.config.public_url },
+    fresh: inst.created,
+  });
+  const previousMode = inst.config.address_mode;
+  const previousURL = inst.config.public_url;
+  inst.config.address_mode = resolved.mode;
+  if (resolved.publicURL) inst.config.public_url = resolved.publicURL;
+  if (!inst.created && (previousMode !== inst.config.address_mode || previousURL !== inst.config.public_url)) {
+    ctx.stderr.write(
+      `configuration changed (${previousMode} ${previousURL || "(none)"} → ${inst.config.address_mode} ${inst.config.public_url || "(none)"}); services will be reconciled to match\n`,
+    );
+  }
+  const tunnelConfig = flagString(parsed, "tunnel-config");
+  if (tunnelConfig) {
+    inst.config.tunnel_config_path = requireAbsolutePath(tunnelConfig, "--tunnel-config");
+  }
+  if (ctx.env.SHELL_CONTROL_PORT && inst.created) {
+    const port = Number(ctx.env.SHELL_CONTROL_PORT);
+    if (Number.isInteger(port) && port > 0) inst.config.port = port;
   }
 }
 
-async function down(): Promise<void> {
-  await killPidFile(DAEMON_PID);
-  await killPidFile(TUNNEL_PID);
-  await killPidFile(BROKER_PID);
-  process.stderr.write("stopped\n");
+function flagString(parsed: ParsedArgs, name: string): string | undefined {
+  const value = parsed.flags.get(name);
+  return typeof value === "string" ? value : undefined;
 }
 
-async function status(): Promise<void> {
-  const env: Partial<SetupEnv> = (await exists(ENV_FILE)) ? await loadEnv() : {};
-  const [broker, tunnel, daemon] = await Promise.all([
-    pidAlive(BROKER_PID),
-    pidAlive(TUNNEL_PID),
-    pidAlive(DAEMON_PID),
+async function cmdUp(ctx: CLIContext, signal: AbortSignal): Promise<void> {
+  const lock = await acquireInstallationLock(ctx.stateDir);
+  try {
+    const inst = await requireInstallation(ctx);
+    inst.config.desired_state = "running";
+    await saveConfig(ctx.stateDir, inst.config);
+    await ensureBinaries(ctx, inst);
+    await ensureServices(ctx, inst, { signal, rotateURL: false, created: [] });
+    ctx.stderr.write("started\n");
+  } finally {
+    await lock.release();
+  }
+}
+
+async function cmdDown(ctx: CLIContext): Promise<void> {
+  const lock = await acquireInstallationLock(ctx.stateDir);
+  try {
+    const inst = await requireInstallation(ctx);
+    inst.config.desired_state = "stopped";
+    await saveConfig(ctx.stateDir, inst.config);
+    const labels = ctx.manager.labels(inst.config.installation_id);
+    for (const component of ["daemon", "tunnel", "broker"] as const) {
+      const label = labels[component];
+      await ctx.manager.disable(label);
+      await ctx.manager.stop(label);
+    }
+    await verifyStopped(ctx, inst);
+    ctx.stderr.write("stopped\n");
+  } finally {
+    await lock.release();
+  }
+}
+
+async function verifyStopped(ctx: CLIContext, inst: LoadedInstallation): Promise<void> {
+  const labels = ctx.manager.labels(inst.config.installation_id);
+  for (const component of ["broker", "daemon", "tunnel"] as const) {
+    const observed = await ctx.manager.observe(labels[component]);
+    if (observed.pid != null) {
+      throw new CliError(`${component} is still running after down (pid ${observed.pid})`, 1);
+    }
+    if (observed.loaded && observed.enabled) {
+      throw new CliError(`${component} is still enabled after down`, 1);
+    }
+  }
+}
+
+async function cmdRestart(ctx: CLIContext, target: string | undefined, signal: AbortSignal): Promise<void> {
+  if (!target || !["broker", "daemon", "tunnel", "all"].includes(target)) {
+    throw new CliError("usage: npx @chr33s/shell restart broker|daemon|tunnel|all", 2);
+  }
+  const lock = await acquireInstallationLock(ctx.stateDir);
+  try {
+    const inst = await requireInstallation(ctx);
+    if (inst.config.desired_state === "stopped") {
+      throw new CliError("installation is stopped; run up first", 1);
+    }
+    const bins = await ensureBinaries(ctx, inst);
+    const components = target === "all" ? (["broker", "daemon", "tunnel"] as const) : [target as "broker" | "daemon" | "tunnel"];
+    for (const component of components) {
+      if (component === "tunnel" && inst.config.address_mode === "quick") {
+        throw new CliError("restarting a quick tunnel would replace its hostname; use setup --rotate-url", 2);
+      }
+      if (component === "tunnel" && inst.config.address_mode === "external-proxy") continue;
+      const spec = serviceSpec(ctx, inst, bins, component);
+      if (!spec) continue;
+      await ctx.manager.restart(spec);
+    }
+    await waitUntilReady(ctx, inst, signal);
+    ctx.stderr.write("restarted\n");
+  } finally {
+    await lock.release();
+  }
+}
+
+async function cmdService(ctx: CLIContext, action: string | undefined, signal: AbortSignal): Promise<void> {
+  if (action !== "install" && action !== "uninstall") {
+    throw new CliError("usage: npx @chr33s/shell service install|uninstall", 2);
+  }
+  const lock = await acquireInstallationLock(ctx.stateDir);
+  try {
+    const inst = await requireInstallation(ctx);
+    if (action === "install") {
+      if (inst.config.address_mode === "quick" || inst.config.address_mode === "loopback") {
+        throw new CliError("persistent install requires named or external-proxy mode with a stable https URL", 2);
+      }
+      if (!inst.config.public_url || !inst.config.public_url.startsWith("https://")) {
+        throw new CliError("persistent install requires --public-url https://…", 2);
+      }
+      const bins = await ensureBinaries(ctx, inst);
+      inst.config.persistent = true;
+      await saveConfig(ctx.stateDir, inst.config);
+      for (const component of ["broker", "daemon", "tunnel"] as const) {
+        const spec = serviceSpec(ctx, inst, bins, component);
+        if (!spec) continue;
+        await ctx.manager.install(spec);
+      }
+      ctx.stderr.write("persistent agents installed — they resume after login, not before login\n");
+      return;
+    }
+    inst.config.persistent = false;
+    await saveConfig(ctx.stateDir, inst.config);
+    const labels = ctx.manager.labels(inst.config.installation_id);
+    const dummy = {
+      launchAgentsDir: ctx.launchAgentsDir,
+      sessionPlistDir: inst.paths.launchd,
+    };
+    for (const component of ["broker", "daemon", "tunnel"] as const) {
+      await ctx.manager.uninstall(labels[component], dummy);
+    }
+    ctx.stderr.write("persistent agents removed; configuration and journals retained\n");
+  } finally {
+    await lock.release();
+  }
+  void signal;
+}
+
+async function cmdStatus(ctx: CLIContext, check: boolean, signal: AbortSignal): Promise<void> {
+  const status = await collectStatus(ctx, signal);
+  ctx.stdout.write(`${JSON.stringify(status, null, 2)}\n`);
+  if (check && !requiredComponentsReady(status)) {
+    throw new CliError("control path is not ready", 1);
+  }
+}
+
+async function collectStatus(ctx: CLIContext, signal: AbortSignal): Promise<StatusV2> {
+  const paths = pathsFor(ctx.stateDir);
+  if (!(await exists(paths.config))) {
+    const now = ctx.now().toISOString();
+    const empty = { state: "stopped" as const, checked_at: now };
+    return {
+      schema_version: 2,
+      broker: false,
+      tunnel: false,
+      daemon: false,
+      overall: "unavailable",
+      manager: ctx.manager.kind,
+      persistent: false,
+      desired_state: "stopped",
+      public_url: null,
+      components: {
+        broker: empty,
+        daemon: empty,
+        tunnel: empty,
+        public_route: empty,
+        push: pushObservation(await pushConfigured(ctx, ctx.stateDir), now),
+      },
+    };
+  }
+  const config = await loadConfig(ctx.stateDir);
+  const secrets = await loadSecrets(ctx.stateDir);
+  const runtime = await loadRuntime(ctx.stateDir);
+  if (!config || !secrets) {
+    throw new CliError("installation is unreadable — repair required", 1);
+  }
+  const labels = ctx.manager.labels(config.installation_id);
+  const now = ctx.now().toISOString();
+  const [brokerJob, daemonJob, tunnelJob] = await Promise.all([
+    ctx.manager.observe(labels.broker),
+    ctx.manager.observe(labels.daemon),
+    ctx.manager.observe(labels.tunnel),
   ]);
-  process.stdout.write(`${JSON.stringify({
-    broker,
-    tunnel,
-    daemon,
-    public_url: env.SHELL_CONTROL_PUBLIC_URL || null,
-    origin_id: env.SHELL_CONTROL_ORIGIN_ID || null,
-    pairing_token: env.SHELL_CONTROL_PAIRING_TOKEN || null,
-  }, null, 2)}\n`);
+  const deps: ProbeDeps = {
+    fetchImpl: ctx.fetchImpl,
+    now: ctx.now,
+    signal,
+    readHealthSocket: ctx.readHealthSocket,
+  };
+  const local = localBrokerURL(config.port);
+  const brokerReady = await probeLocalBroker(local, deps);
+  let daemonReady = observationFromJob(daemonJob, now);
+  if (daemonJob.pid != null) {
+    daemonReady = await probeDaemonHealth(paths.healthSock, deps);
+  }
+  const publicRoute = config.public_url
+    ? await probePublicRoute(config.public_url, deps)
+    : { state: "not_configured" as const, checked_at: now, diagnostic_id: "public_route" };
+  const tunnel = tunnelObservation({ mode: config.address_mode, job: tunnelJob, runtime, now });
+  const status = projectStatus({
+    config,
+    runtime,
+    manager: ctx.manager.kind,
+    brokerJob: observationFromJob(brokerJob, now),
+    daemonJob: observationFromJob(daemonJob, now),
+    tunnelJob: tunnel,
+    brokerReady,
+    daemonReady,
+    publicRoute,
+    push: pushObservation(await pushConfigured(ctx, paths.root), now),
+  });
+  const text = JSON.stringify(status);
+  if (text.includes(secrets.admin_secret) || text.includes(secrets.pairing_token) || text.includes(secrets.cursor_secret)) {
+    throw new CliError("internal error: status leaked a secret", 1);
+  }
+  return status;
 }
 
-async function confirmOnce(code: string | undefined): Promise<void> {
-  if (!code) fail("usage: npx @chr33s/shell confirm <USER-CODE>");
-  const env = await loadEnv();
-  await confirmCode(env, code, { prompt: false });
+async function cmdLogs(
+  ctx: CLIContext,
+  component: string | undefined,
+  follow: boolean,
+  signal: AbortSignal,
+): Promise<void> {
+  const inst = await requireInstallation(ctx);
+  const names = component ? [component] : ["broker", "daemon", "tunnel"];
+  if (component && !["broker", "daemon", "tunnel"].includes(component)) {
+    throw new CliError("usage: npx @chr33s/shell logs [broker|daemon|tunnel] [--follow]", 2);
+  }
+  for (const name of names) {
+    for (const stream of ["err", "out"]) {
+      const path = join(inst.paths.logs, `${name}.${stream}.log`);
+      if (!(await exists(path))) continue;
+      if (!follow) {
+        ctx.stdout.write(await readFile(path, "utf8"));
+      }
+    }
+  }
+  if (!follow) return;
+  const path = join(inst.paths.logs, `${names[0]}.err.log`);
+  await followFile(path, ctx, signal);
 }
 
-/// The approval prompt abort, while one is open. Ctrl+C has to abort it: the
-/// stop flag is only read between polls, so a signal arriving while the prompt
-/// was open set the flag and then waited forever on an answer that was never
-/// coming — despite the "Ctrl+C stops watching" line above. (Bare rl.close()
-/// never settles readline/promises' question(), hence AbortController.)
-let activePrompt: { abort(): void } | null = null;
-const stopFlag: StopFlag = { value: false };
+async function pushConfigured(ctx: CLIContext, stateDir: string): Promise<boolean> {
+  if (ctx.env.SHELL_CONTROL_APNS_KEY_FILE || ctx.env.SHELL_CONTROL_APNS_KEY_ID) return true;
+  try {
+    const raw = await readFile(join(stateDir, "broker.service.json"), "utf8");
+    const parsed = JSON.parse(raw) as { apns_key_file?: string; apns_key_id?: string };
+    return Boolean(parsed.apns_key_file || parsed.apns_key_id);
+  } catch {
+    return false;
+  }
+}
 
-function listenSignals(): StopFlag {
-  for (const signal of ["SIGINT", "SIGTERM"] as const) {
-    process.on(signal, () => {
-      stopFlag.value = true;
-      activePrompt?.abort();
-      activePrompt = null;
+async function followFile(path: string, ctx: CLIContext, signal: AbortSignal): Promise<void> {
+  let pos = 0;
+  if (await exists(path)) {
+    const st = await stat(path);
+    pos = st.size;
+    ctx.stdout.write(await readFile(path));
+  }
+  try {
+    while (!signal.aborted) {
+      if (await exists(path)) {
+        const st = await stat(path);
+        if (st.size < pos) pos = 0;
+        if (st.size > pos) {
+          const { open } = await import("node:fs/promises");
+          const handle = await open(path, "r");
+          try {
+            const buf = Buffer.alloc(st.size - pos);
+            await handle.read(buf, 0, buf.length, pos);
+            ctx.stdout.write(buf);
+            pos = st.size;
+          } finally {
+            await handle.close();
+          }
+        }
+      }
+      await ctx.sleep(200, signal);
+    }
+  } catch (error) {
+    if (isCancelled(error, signal)) throw new CliError("cancelled", abortExitCode(signal));
+    throw error;
+  }
+}
+
+async function cmdPair(ctx: CLIContext, watch: boolean, signal: AbortSignal): Promise<void> {
+  const inst = await requireInstallation(ctx);
+  const publicURL = inst.config.public_url || localBrokerURL(inst.config.port);
+  await printPairing(ctx, publicURL, inst.secrets.pairing_token);
+  if (!watch) return;
+  if (!ctx.stdinIsTTY) {
+    ctx.stderr.write("no TTY — not waiting for enrollment; run: npx @chr33s/shell confirm <USER-CODE>\n");
+    return;
+  }
+  await watchEnrollments(ctx, inst.secrets, inst.config.port, signal);
+}
+
+async function cmdConfirm(ctx: CLIContext, code: string | undefined, signal: AbortSignal): Promise<void> {
+  if (!code) throw new CliError("usage: npx @chr33s/shell confirm <USER-CODE>", 2);
+  const inst = await requireInstallation(ctx);
+  const approved = await confirmCode(ctx, inst.secrets, inst.config.port, code, { prompt: false, signal });
+  if (!approved) throw new CliError("not approved", 1);
+}
+
+async function requireInstallation(ctx: CLIContext): Promise<LoadedInstallation> {
+  const paths = pathsFor(ctx.stateDir);
+  if (!(await exists(paths.config))) {
+    throw new CliError("no installation — run setup first", 1);
+  }
+  return loadOrCreateInstallation(ctx.stateDir);
+}
+
+async function reconcileIncomplete(ctx: CLIContext, inst: LoadedInstallation): Promise<void> {
+  if (!inst.runtime.incomplete) return;
+  ctx.stderr.write("reconciling incomplete startup from a previous invocation\n");
+  await rollbackCreated(ctx, inst, inst.runtime.created);
+  inst.runtime.incomplete = false;
+  inst.runtime.created = [];
+  await saveRuntime(ctx.stateDir, inst.runtime);
+}
+
+async function rollbackCreated(ctx: CLIContext, inst: LoadedInstallation, created: string[]): Promise<void> {
+  const labels = ctx.manager.labels(inst.config.installation_id);
+  for (const name of [...created].reverse()) {
+    if (name === "broker" || name === "daemon" || name === "tunnel") {
+      await ctx.manager.disable(labels[name]).catch(() => undefined);
+      await ctx.manager.stop(labels[name]).catch(() => undefined);
+    }
+  }
+}
+
+async function ensureBinaries(ctx: CLIContext, inst: LoadedInstallation): Promise<InstalledBinaries> {
+  if (ctx.binaries) return ctx.binaries;
+  const resolved = await resolveBinaries(ctx);
+  const version = ctx.env.SHELL_CONTROL_BUNDLE_VERSION || await binaryGeneration(resolved);
+  const destBroker = join(ctx.libDir, version, "shell-control-broker");
+  if (await exists(destBroker)) {
+    const installed: InstalledBinaries = {
+      version,
+      broker: destBroker,
+      daemon: join(ctx.libDir, version, "shell-controld"),
+      cli: (await exists(join(ctx.libDir, version, "shell-control"))) ? join(ctx.libDir, version, "shell-control") : resolved.cli,
+      cloudflared: (await exists(join(ctx.libDir, version, "cloudflared"))) ? join(ctx.libDir, version, "cloudflared") : resolved.cloudflared,
+      directory: join(ctx.libDir, version),
+    };
+    inst.config.installed_binary_version = version;
+    await saveConfig(ctx.stateDir, inst.config);
+    return installed;
+  }
+  const installed = await installBinaries({
+    libDir: ctx.libDir,
+    version,
+    sources: resolved,
+  });
+  inst.config.installed_binary_version = installed.version;
+  await saveConfig(ctx.stateDir, inst.config);
+  return installed;
+}
+
+async function resolveBinaries(ctx: CLIContext): Promise<{ broker: string; daemon: string; cli?: string; cloudflared?: string }> {
+  const root = ctx.repoRoot;
+  const override = ctx.env.SHELL_CONTROL_BIN;
+  let broker = await firstExisting([
+    override && join(override, "shell-control-broker"),
+    root && join(root, "services/shell-control/.build/release/shell-control-broker"),
+    join(ctx.libDir, "current/shell-control-broker"),
+    ctx.which("shell-control-broker"),
+  ]);
+  let daemon = await firstExisting([
+    override && join(override, "shell-controld"),
+    root && join(root, "cmd/.build/release/shell-controld"),
+    join(ctx.libDir, "current/shell-controld"),
+    ctx.which("shell-controld"),
+  ]);
+  let cli = await firstExisting([
+    override && join(override, "shell-control"),
+    root && join(root, "cmd/.build/release/shell-control"),
+    join(ctx.libDir, "current/shell-control"),
+    ctx.which("shell-control"),
+  ]);
+  if (!broker || !daemon) {
+    ctx.stderr.write("building native tools…\n");
+    if (ctx.buildNative) ctx.buildNative();
+    else buildNative(root);
+    broker = await firstExisting([broker, root && join(root, "services/shell-control/.build/release/shell-control-broker")]);
+    daemon = await firstExisting([daemon, root && join(root, "cmd/.build/release/shell-controld")]);
+    cli = await firstExisting([cli, root && join(root, "cmd/.build/release/shell-control")]);
+  }
+  if (!broker || !daemon) {
+    throw new CliError("could not build shell-control-broker / shell-controld — need Swift 6.2 in this checkout", 1);
+  }
+  const cloudflared = ctx.which("cloudflared") ?? undefined;
+  return { broker, daemon, cli, cloudflared };
+}
+
+function buildNative(root: string | null): void {
+  if (!root) throw new CliError("native sources not found — clone chr33s/shell and run from that checkout", 1);
+  run("swift", ["build", "-c", "release", "--package-path", join(root, "services/shell-control")]);
+  run("swift", ["build", "-c", "release", "--package-path", join(root, "cmd")]);
+}
+
+function run(cmd: string, args: string[]): void {
+  const result = spawnSync(cmd, args, { stdio: "inherit" });
+  if (result.status !== 0) throw new CliError(`${cmd} ${args.join(" ")} failed`, 1);
+}
+
+async function proxyNative(ctx: CLIContext, args: string[]): Promise<void> {
+  const bins = ctx.binaries ?? await resolveBinaries(ctx);
+  if (!bins.cli) throw new CliError("shell-control is not built", 1);
+  const result = spawnSync(bins.cli, args, {
+    stdio: "inherit",
+    env: {
+      ...ctx.env,
+      SHELL_CONTROL_STATE_DIR: ctx.stateDir,
+    },
+  });
+  const status = result.status ?? 1;
+  if (status !== 0) throw new CliError("native CLI failed", status);
+}
+
+type EnsureOptions = {
+  signal: AbortSignal;
+  rotateURL: boolean;
+  created: string[];
+};
+
+async function ensureServices(ctx: CLIContext, inst: LoadedInstallation, options: EnsureOptions): Promise<void> {
+  await maybeAdoptLegacy(ctx, inst);
+  const bins = await ensureBinaries(ctx, inst);
+  if (options.rotateURL) {
+    if (inst.config.address_mode !== "quick") {
+      throw new CliError("--rotate-url is only valid for quick tunnels", 2);
+    }
+    const old = inst.config.public_url;
+    await stopComponent(ctx, inst, "tunnel");
+    inst.config.public_url = null;
+    await startQuickTunnel(ctx, inst, bins, options);
+    ctx.stderr.write(rotationNotice(old, inst.config.public_url || "") + "\n");
+  } else {
+    await ensureTunnel(ctx, inst, bins, options);
+  }
+  const initialConfigChanges = await writeServiceConfigs(ctx, inst);
+  await ensureComponent(ctx, inst, bins, "broker", options, initialConfigChanges.has("broker"));
+  await waitForBroker(ctx, inst, options.signal);
+  await ensureOrigin(ctx, inst, options.signal);
+  const provisionedConfigChanges = await writeServiceConfigs(ctx, inst);
+  await ensureComponent(
+    ctx,
+    inst,
+    bins,
+    "daemon",
+    options,
+    initialConfigChanges.has("daemon") || provisionedConfigChanges.has("daemon"),
+  );
+  await waitUntilReady(ctx, inst, options.signal);
+}
+
+async function maybeAdoptLegacy(ctx: CLIContext, inst: LoadedInstallation): Promise<void> {
+  const reports: string[] = [];
+  for (const [file, name] of [
+    [inst.paths.brokerPid, "shell-control-broker"],
+    [inst.paths.daemonPid, "shell-controld"],
+    [inst.paths.tunnelPid, "cloudflared"],
+  ] as const) {
+    const pid = await readPidFile(file);
+    if (pid == null) continue;
+    const report = await inspectLegacyPid(pid, name, ctx.uid);
+    if (!report.verifiable) {
+      reports.push(`${name} pid ${pid} is unmanaged (${report.reason})`);
+      if (name === "cloudflared") inst.runtime.observations.tunnel_legacy_unmanaged = true;
+      continue;
+    }
+    reports.push(`${name} pid ${pid} is a verifiable legacy process; not signalling it during launchd adoption`);
+    if (name === "cloudflared") inst.runtime.observations.tunnel_legacy_unmanaged = true;
+  }
+  for (const line of reports) ctx.stderr.write(`${line}\n`);
+  await saveRuntime(ctx.stateDir, inst.runtime);
+}
+
+async function ensureTunnel(
+  ctx: CLIContext,
+  inst: LoadedInstallation,
+  bins: InstalledBinaries,
+  options: EnsureOptions,
+): Promise<void> {
+  const mode = inst.config.address_mode;
+  if (mode === "external-proxy") {
+    if (!inst.config.public_url) throw new CliError("external-proxy mode requires --public-url", 2);
+    validatePublicURL(inst.config.public_url, "external-proxy");
+    return;
+  }
+  if (mode === "loopback") {
+    inst.config.public_url = localBrokerURL(inst.config.port);
+    return;
+  }
+  if (mode === "named") {
+    if (!inst.config.tunnel_config_path || !inst.config.public_url) {
+      throw new CliError("named mode requires --public-url and --tunnel-config", 2);
+    }
+    const named = await validateNamedTunnel({
+      configPath: inst.config.tunnel_config_path,
+      publicURL: inst.config.public_url,
+      port: inst.config.port,
+      uid: ctx.uid,
+    });
+    inst.config.tunnel_identity = named.tunnel;
+    await ensureComponent(ctx, inst, bins, "tunnel", options);
+    return;
+  }
+  // quick
+  if (inst.config.public_url) {
+    const labels = ctx.manager.labels(inst.config.installation_id);
+    const job = await ctx.manager.observe(labels.tunnel);
+    if (job.pid != null) return;
+    ctx.stderr.write("quick tunnel is not running; hostname preserved. Use setup --rotate-url to replace it.\n");
+    return;
+  }
+  await startQuickTunnel(ctx, inst, bins, options);
+}
+
+async function startQuickTunnel(
+  ctx: CLIContext,
+  inst: LoadedInstallation,
+  bins: InstalledBinaries,
+  options: EnsureOptions,
+): Promise<void> {
+  const cloudflared = bins.cloudflared || ctx.which("cloudflared");
+  if (!cloudflared) {
+    ctx.stderr.write("cloudflared not found — using http://127.0.0.1 (physical Watch/iPhone cannot reach this). brew install cloudflared\n");
+    inst.config.address_mode = "loopback";
+    inst.config.public_url = localBrokerURL(inst.config.port);
+    return;
+  }
+  const generation = `gen-${inst.runtime.startup_generation}-${randomUUID()}`;
+  const errLog = join(inst.paths.logs, "tunnel.err.log");
+  const outLog = join(inst.paths.logs, "tunnel.out.log");
+  await mkdir(inst.paths.logs, { recursive: true, mode: 0o700 });
+  const marker = `\n--- generation ${generation} ---\n`;
+  for (const logPath of [errLog, outLog]) {
+    await appendFile(logPath, marker).catch(async () => {
+      await writeFile(logPath, marker, { mode: 0o600 });
     });
   }
-  return stopFlag;
+  inst.config.address_mode = "quick";
+  const spec = jobSpecFor("tunnel", inst.config, {
+    executable: cloudflared,
+    arguments: ["tunnel", "--url", `http://127.0.0.1:${inst.config.port}`, "--no-autoupdate"],
+    workingDirectory: inst.paths.root,
+    logsDir: inst.paths.logs,
+    sessionPlistDir: inst.paths.launchd,
+    launchAgentsDir: ctx.launchAgentsDir,
+    environment: { SHELL_CONTROL_STATE_DIR: inst.paths.root },
+  });
+  spec.keepAlive = false;
+  spec.persistent = false;
+  await recordCreatedResource(ctx, inst, options, "tunnel");
+  await ctx.manager.start(spec);
+  const url = await discoverQuickTunnelURL({
+    logPath: errLog,
+    logPaths: [errLog, outLog],
+    generation,
+    signal: options.signal,
+    sleep: ctx.sleep,
+  });
+  inst.config.public_url = url;
 }
 
-async function watchEnrollments(env: SetupEnv, stop: StopFlag): Promise<void> {
-  const seen = new Set<string>();
-  while (!stop.value) {
+async function ensureComponent(
+  ctx: CLIContext,
+  inst: LoadedInstallation,
+  bins: InstalledBinaries,
+  component: "broker" | "daemon" | "tunnel",
+  options: EnsureOptions,
+  forceRestart = false,
+): Promise<void> {
+  const spec = serviceSpec(ctx, inst, bins, component);
+  if (!spec) return;
+  const label = jobLabel(inst.config.installation_id, component);
+  const job = await ctx.manager.observe(label);
+  if (job.pid != null && job.enabled) {
+    if (forceRestart) {
+      await ctx.manager.restart(spec);
+      return;
+    }
+    // This is a no-op for an unchanged registration, but lets the manager
+    // reload a changed executable or ProgramArguments before health is judged.
+    await ctx.manager.start(spec);
+    if (component === "broker") {
+      const ready = await probeLocalBroker(localBrokerURL(inst.config.port), probeDeps(ctx, options.signal));
+      if (ready.state === "ready") return;
+      ctx.stderr.write("broker is registered but not ready, restarting\n");
+      await ctx.manager.restart(spec);
+      return;
+    }
+    if (component === "daemon") {
+      const health = await probeDaemonHealth(inst.paths.healthSock, probeDeps(ctx, options.signal));
+      if (health.state === "ready" || health.state === "recovering" || ctx.manager.kind === "fake") return;
+      await ctx.manager.restart(spec);
+      return;
+    }
+    return;
+  }
+  await recordCreatedResource(ctx, inst, options, component);
+  await ctx.manager.start(spec);
+}
+
+async function recordCreatedResource(
+  ctx: CLIContext,
+  inst: LoadedInstallation,
+  options: EnsureOptions,
+  component: "broker" | "daemon" | "tunnel",
+): Promise<void> {
+  if (!options.created.includes(component)) options.created.push(component);
+  // Persist the intent before launch. After SIGKILL the next invocation can
+  // safely stop a process this invocation may have created.
+  inst.runtime.created = [...options.created];
+  await saveRuntime(ctx.stateDir, inst.runtime);
+}
+
+function serviceSpec(
+  ctx: CLIContext,
+  inst: LoadedInstallation,
+  bins: InstalledBinaries,
+  component: "broker" | "daemon" | "tunnel",
+): JobSpec | null {
+  if (component === "tunnel") {
+    if (inst.config.address_mode === "external-proxy" || inst.config.address_mode === "loopback") return null;
+    if (inst.config.address_mode === "named") {
+      const cloudflared = bins.cloudflared || ctx.which("cloudflared");
+      if (!cloudflared || !inst.config.tunnel_config_path) {
+        throw new CliError("named tunnel requires cloudflared and --tunnel-config", 2);
+      }
+      return jobSpecFor("tunnel", inst.config, {
+        executable: cloudflared,
+        arguments: ["tunnel", "--config", inst.config.tunnel_config_path, "--no-autoupdate", "run"],
+        workingDirectory: inst.paths.root,
+        logsDir: inst.paths.logs,
+        sessionPlistDir: inst.paths.launchd,
+        launchAgentsDir: ctx.launchAgentsDir,
+        environment: {
+          SHELL_CONTROL_STATE_DIR: inst.paths.root,
+          SHELL_CONTROL_CONFIG_GENERATION: fileDigest(inst.config.tunnel_config_path),
+        },
+      });
+    }
+    const cloudflared = bins.cloudflared || ctx.which("cloudflared");
+    if (!cloudflared) return null;
+    return jobSpecFor("tunnel", inst.config, {
+      executable: cloudflared,
+      arguments: ["tunnel", "--url", `http://127.0.0.1:${inst.config.port}`, "--no-autoupdate"],
+      workingDirectory: inst.paths.root,
+      logsDir: inst.paths.logs,
+      sessionPlistDir: inst.paths.launchd,
+      launchAgentsDir: ctx.launchAgentsDir,
+      environment: { SHELL_CONTROL_STATE_DIR: inst.paths.root },
+    });
+  }
+  if (component === "broker") {
+    return jobSpecFor("broker", inst.config, {
+      executable: bins.broker,
+      arguments: ["--config", join(inst.paths.root, "broker.service.json")],
+      workingDirectory: inst.paths.root,
+      logsDir: inst.paths.logs,
+      sessionPlistDir: inst.paths.launchd,
+      launchAgentsDir: ctx.launchAgentsDir,
+      environment: { SHELL_CONTROL_STATE_DIR: inst.paths.root },
+    });
+  }
+  return jobSpecFor("daemon", inst.config, {
+    executable: bins.daemon,
+    arguments: ["--config", join(inst.paths.root, "daemon.service.json")],
+    workingDirectory: inst.paths.root,
+    logsDir: inst.paths.logs,
+    sessionPlistDir: inst.paths.launchd,
+    launchAgentsDir: ctx.launchAgentsDir,
+    environment: { SHELL_CONTROL_STATE_DIR: inst.paths.root },
+  });
+}
+
+function fileDigest(path: string): string {
+  try {
+    return createHash("sha256").update(readFileSync(path)).digest("hex");
+  } catch {
+    return "unreadable";
+  }
+}
+
+async function writeServiceConfigs(
+  ctx: CLIContext,
+  inst: LoadedInstallation,
+): Promise<Set<"broker" | "daemon">> {
+  const broker = {
+    port: inst.config.port,
+    bind_loopback: inst.config.bind_loopback,
+    state_path: inst.paths.brokerLedger,
+    state_directory: inst.paths.root,
+    account_id: inst.secrets.account_id,
+    admin_secret: inst.secrets.admin_secret,
+    cursor_secret: inst.secrets.cursor_secret,
+    public_url: inst.config.public_url || "",
+    verification_uri: inst.config.public_url ? `${inst.config.public_url}/v1/oauth/confirm` : "",
+    identity: "shell-control",
+    apns_topics: ctx.env.SHELL_CONTROL_APNS_TOPICS || "dev.chr33s.shell.watchkitapp,dev.chr33s.shell",
+    apns_key_id: ctx.env.SHELL_CONTROL_APNS_KEY_ID || "",
+    apns_team_id: ctx.env.SHELL_CONTROL_APNS_TEAM_ID || "",
+    apns_key_file: ctx.env.SHELL_CONTROL_APNS_KEY_FILE || "",
+  };
+  const daemon = {
+    broker_url: localBrokerURL(inst.config.port),
+    origin_id: inst.secrets.origin_id,
+    origin_secret: inst.secrets.origin_secret,
+    state_directory: inst.paths.root,
+    socket_path: inst.paths.controlSock,
+    health_socket_path: inst.paths.healthSock,
+    journal_path: inst.paths.journal,
+    recovery_outbox_path: inst.paths.recoveryOutbox,
+  };
+  const changed = new Set<"broker" | "daemon">();
+  const writeIfChanged = async (component: "broker" | "daemon", path: string, value: unknown) => {
+    const contents = JSON.stringify(value, null, 2) + "\n";
+    let previous: string | null = null;
     try {
-      const pending = await adminJSON<PendingList>(env, "GET", "/v1/admin/pending");
+      previous = await readFile(path, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    if (previous === contents) return;
+    await atomicWriteFile(path, contents, 0o600);
+    changed.add(component);
+  };
+  await writeIfChanged("broker", join(inst.paths.root, "broker.service.json"), broker);
+  await writeIfChanged("daemon", join(inst.paths.root, "daemon.service.json"), daemon);
+  return changed;
+}
+
+async function stopComponent(ctx: CLIContext, inst: LoadedInstallation, component: "broker" | "daemon" | "tunnel"): Promise<void> {
+  await ctx.manager.stop(jobLabel(inst.config.installation_id, component));
+}
+
+function probeDeps(ctx: CLIContext, signal: AbortSignal): ProbeDeps {
+  return { fetchImpl: ctx.fetchImpl, now: ctx.now, signal, readHealthSocket: ctx.readHealthSocket };
+}
+
+async function waitForBroker(ctx: CLIContext, inst: LoadedInstallation, signal: AbortSignal): Promise<void> {
+  const url = localBrokerURL(inst.config.port);
+  for (let i = 0; i < 40; i++) {
+    if (signal.aborted) throw new CliError("cancelled", abortExitCode(signal));
+    const ready = await probeLocalBroker(url, probeDeps(ctx, signal));
+    if (ready.state === "ready") return;
+    await ctx.sleep(150, signal);
+  }
+  throw new CliError(`broker did not become ready on 127.0.0.1:${inst.config.port}`, 1);
+}
+
+async function waitUntilReady(ctx: CLIContext, inst: LoadedInstallation, signal: AbortSignal): Promise<void> {
+  await waitForBroker(ctx, inst, signal);
+  if (ctx.manager.kind === "fake") {
+    const labels = ctx.manager.labels(inst.config.installation_id);
+    const daemon = await ctx.manager.observe(labels.daemon);
+    if (daemon.pid == null) throw new CliError("daemon did not start", 1);
+    return;
+  }
+  for (let i = 0; i < 40; i++) {
+    if (signal.aborted) throw new CliError("cancelled", abortExitCode(signal));
+    const health = await probeDaemonHealth(inst.paths.healthSock, probeDeps(ctx, signal));
+    if (health.state === "ready") return;
+    await ctx.sleep(150, signal);
+  }
+  throw new CliError("daemon did not become ready", 1);
+}
+
+async function ensureOrigin(ctx: CLIContext, inst: LoadedInstallation, signal: AbortSignal): Promise<void> {
+  if (inst.secrets.origin_id && inst.secrets.origin_secret) return;
+  const label = ctx.homedir.split("/").pop() || "mac";
+  const created = await adminJSON<{ origin_id: string; origin_secret: string }>(
+    ctx,
+    inst.secrets,
+    inst.config.port,
+    "POST",
+    "/v1/admin/origins",
+    { label },
+    signal,
+  );
+  inst.secrets.origin_id = created.origin_id;
+  inst.secrets.origin_secret = created.origin_secret;
+  await saveSecrets(ctx.stateDir, inst.secrets);
+}
+
+type PendingList = { pending?: Array<{ user_code?: string }> };
+type DeviceDescription = { platform?: string; label?: string; key_fingerprint?: string };
+
+async function watchEnrollments(ctx: CLIContext, secrets: Secrets, port: number, signal: AbortSignal): Promise<void> {
+  const seen = new Set<string>();
+  while (!signal.aborted) {
+    try {
+      const pending = await adminJSON<PendingList>(ctx, secrets, port, "GET", "/v1/admin/pending", undefined, signal);
       for (const item of pending.pending || []) {
-        if (stop.value) return;
+        if (signal.aborted) return;
         const code = item.user_code;
         if (!code || seen.has(code)) continue;
-        // Record the code before acting on it, and contain the failure here:
-        // a grant that expired between the poll and the describe threw out of
-        // the loop, skipping the rest of the batch and leaving the code
-        // unrecorded, so the same error repeated every two seconds forever.
         seen.add(code);
         try {
-          const approved = await confirmCode(env, code, { prompt: true });
-          process.stderr.write(approved ? `enrolled ${code}\n` : `skipped ${code}\n`);
+          const approved = await confirmCode(ctx, secrets, port, code, { prompt: true, signal });
+          ctx.stderr.write(approved ? `enrolled ${code}\n` : `skipped ${code}\n`);
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          process.stderr.write(`confirm ${code}: ${message}\n`);
+          ctx.stderr.write(`confirm ${code}: ${message}\n`);
         }
       }
     } catch (error) {
+      if (isCancelled(error, signal)) throw new CliError("cancelled", abortExitCode(signal));
       const message = error instanceof Error ? error.message : String(error);
-      process.stderr.write(`watch: ${message}\n`);
+      ctx.stderr.write(`watch: ${message}\n`);
     }
-    await sleep(2000);
+    await ctx.sleep(2000, signal);
   }
+  throw new CliError("cancelled", abortExitCode(signal));
 }
 
-async function confirmCode(env: SetupEnv, code: string, { prompt }: { prompt: boolean }): Promise<boolean> {
-  const described = await adminJSON<DeviceDescription>(env, "GET", `/v1/oauth/confirm?user_code=${encodeURIComponent(code)}`);
-  process.stderr.write(
-    `confirm ${code}  ${described.platform || ""} ${described.label || ""}  fingerprint ${described.key_fingerprint || "?"}\n`
+async function confirmCode(
+  ctx: CLIContext,
+  secrets: Secrets,
+  port: number,
+  code: string,
+  options: { prompt: boolean; signal: AbortSignal },
+): Promise<boolean> {
+  const described = await adminJSON<DeviceDescription>(
+    ctx,
+    secrets,
+    port,
+    "GET",
+    `/v1/oauth/confirm?user_code=${encodeURIComponent(code)}`,
+    undefined,
+    options.signal,
   );
-  if (prompt) {
-    if (!process.stdin.isTTY) {
-      process.stderr.write("no TTY — not approving; run: npx @chr33s/shell confirm " + code + "\n");
+  ctx.stderr.write(
+    `confirm ${code}  ${described.platform || ""} ${described.label || ""}  fingerprint ${described.key_fingerprint || "?"}\n`,
+  );
+  if (options.prompt) {
+    if (!ctx.stdinIsTTY) {
+      ctx.stderr.write("no TTY — not approving; run: npx @chr33s/shell confirm " + code + "\n");
       return false;
     }
-    const answer = (await readline("Approve this device? [y/N] ")).trim().toLowerCase();
+    const answer = (await readline(ctx, "Approve this device? [y/N] ", options.signal)).trim().toLowerCase();
     if (answer !== "y" && answer !== "yes") return false;
   }
-  await adminJSON(env, "POST", "/v1/oauth/confirm", { user_code: code, approve: true });
+  await adminJSON(ctx, secrets, port, "POST", "/v1/oauth/confirm", { user_code: code, approve: true }, options.signal);
   return true;
 }
 
-async function readline(question: string): Promise<string> {
-  const rl = createInterface({ input: process.stdin, output: process.stderr });
-  const ac = new AbortController();
-  activePrompt = ac;
-  // A terminal readline swallows Ctrl+C rather than letting it reach the
-  // process handler, so mark the stop here as well.
+async function readline(ctx: CLIContext, question: string, signal: AbortSignal): Promise<string> {
+  const rl = createInterface({ input: ctx.stdin, output: ctx.stderr });
   rl.on("SIGINT", () => {
-    stopFlag.value = true;
-    ac.abort();
+    // Cancellation is owned by the invocation controller.
   });
   try {
-    return await rl.question(question, { signal: ac.signal });
+    return await rl.question(question, { signal });
   } catch (error) {
-    // Only an abort by listenSignals or the rl SIGINT above settles as empty,
-    // which reads as "not approved", matching the answered-with-nothing case.
-    // Anything else is a real readline failure and has to surface rather than
-    // be disguised as a declined approval.
     if (!(error instanceof Error) || error.name !== "AbortError") throw error;
-    return "";
+    throw new CliError("cancelled", abortExitCode(signal));
   } finally {
-    activePrompt = null;
     rl.close();
   }
 }
 
-async function ensureOrigin(env: SetupEnv): Promise<OriginCredentials> {
-  if (env.SHELL_CONTROL_ORIGIN_ID && env.SHELL_CONTROL_ORIGIN_SECRET) {
-    return { origin_id: env.SHELL_CONTROL_ORIGIN_ID, origin_secret: env.SHELL_CONTROL_ORIGIN_SECRET };
-  }
-  const label = homedir().split("/").pop() || "mac";
-  return adminJSON<OriginCredentials>(env, "POST", "/v1/admin/origins", { label });
-}
-
-async function adminJSON<T = unknown>(env: SetupEnv, method: string, path: string, body?: unknown): Promise<T> {
+async function adminJSON<T = unknown>(
+  ctx: CLIContext,
+  secrets: Secrets,
+  port: number,
+  method: string,
+  path: string,
+  body: unknown,
+  signal: AbortSignal,
+): Promise<T> {
   const headers: Record<string, string> = {
-    authorization: `Admin ${env.SHELL_CONTROL_ADMIN_SECRET}`,
+    authorization: `Admin ${secrets.admin_secret}`,
     accept: "application/json",
     host: "127.0.0.1",
   };
   if (body) headers["content-type"] = "application/json";
-  const response = await fetch(`${LOCAL}${path}`, {
+  const timeout = AbortSignal.timeout(8000);
+  const response = await ctx.fetchImpl(`${localBrokerURL(port)}${path}`, {
     method,
     headers,
     body: body ? JSON.stringify(body) : undefined,
+    signal: mergeSignals(signal, timeout),
   });
   const text = await response.text();
   if (!response.ok) {
@@ -292,248 +1256,23 @@ async function adminJSON<T = unknown>(env: SetupEnv, method: string, path: strin
   }
 }
 
-async function ensureBroker(brokerBin: string, env: SetupEnv): Promise<void> {
-  if (await pidAlive(BROKER_PID)) await killPidFile(BROKER_PID);
-  const child = spawn(brokerBin, [], {
-    env: {
-      ...process.env,
-      SHELL_CONTROL_PORT: String(PORT),
-      SHELL_CONTROL_STATE: join(STATE, "broker.json"),
-      SHELL_CONTROL_ACCOUNT_ID: env.SHELL_CONTROL_ACCOUNT_ID,
-      SHELL_CONTROL_ADMIN_SECRET: env.SHELL_CONTROL_ADMIN_SECRET,
-      SHELL_CONTROL_CURSOR_SECRET: env.SHELL_CONTROL_CURSOR_SECRET,
-      SHELL_CONTROL_VERIFICATION_URI: env.SHELL_CONTROL_VERIFICATION_URI,
-      SHELL_CONTROL_PUBLIC_URL: env.SHELL_CONTROL_PUBLIC_URL || "",
-      SHELL_CONTROL_APNS_TOPICS: "dev.chr33s.shell.watchkitapp,dev.chr33s.shell",
-      SHELL_CONTROL_IDENTITY: "shell-control",
-    },
-    stdio: ["ignore", "ignore", "inherit"],
-    detached: true,
-  });
-  child.unref();
-  if (child.pid == null) fail("broker spawn failed");
-  await writeFile(BROKER_PID, String(child.pid));
-  for (let i = 0; i < 40; i++) {
-    if (await brokerUp()) return;
-    await sleep(150);
-  }
-  fail("broker did not become ready on 127.0.0.1:" + PORT);
-}
-
-async function brokerUp(): Promise<boolean> {
-  return urlUp(`${LOCAL}/v1/capabilities`);
-}
-
-/// Whether the quick tunnel itself is still ours, judged WITHOUT requiring the
-/// broker behind it: cloudflared answers 502 on its own while the broker is
-/// down or restarting, and Cloudflare returns 530 (error 1033) only once no
-/// tunnel is registered for the hostname. Asking the broker instead conflated
-/// the two and tore down a healthy tunnel whenever the broker had crashed —
-/// and the replacement gets a fresh random *.trycloudflare.com name, which
-/// strands every already-enrolled iPhone and Watch on a dead host.
-async function tunnelUp(publicURL: string): Promise<boolean> {
-  try {
-    const response = await fetch(`${publicURL}/v1/capabilities`, { signal: AbortSignal.timeout(4000) });
-    return response.status !== 530;
-  } catch {
-    return false;
-  }
-}
-
-async function urlUp(url: string): Promise<boolean> {
-  try {
-    const response = await fetch(url, { signal: AbortSignal.timeout(4000) });
-    return response.ok;
-  } catch {
-    return false;
-  }
-}
-
-async function ensureDaemon(daemonBin: string, env: SetupEnv, publicURL: string): Promise<void> {
-  if (await pidAlive(DAEMON_PID)) await killPidFile(DAEMON_PID);
-  const child = spawn(daemonBin, [], {
-    env: {
-      ...process.env,
-      SHELL_CONTROL_BROKER_URL: publicURL,
-      SHELL_CONTROL_ORIGIN_ID: env.SHELL_CONTROL_ORIGIN_ID,
-      SHELL_CONTROL_ORIGIN_SECRET: env.SHELL_CONTROL_ORIGIN_SECRET,
-      SHELL_CONTROL_STATE_DIR: STATE,
-    },
-    stdio: ["ignore", "ignore", "inherit"],
-    detached: true,
-  });
-  child.unref();
-  if (child.pid == null) fail("daemon spawn failed");
-  await writeFile(DAEMON_PID, String(child.pid));
-}
-
-async function ensureTunnel(env: SetupEnv): Promise<string> {
-  if (process.env.SHELL_CONTROL_PUBLIC_URL) {
-    return process.env.SHELL_CONTROL_PUBLIC_URL.replace(/\/$/, "");
-  }
-  const cloudflared = which("cloudflared");
-  if (!cloudflared) {
-    process.stderr.write("cloudflared not found — using http://127.0.0.1 (physical Watch/iPhone cannot reach this). brew install cloudflared\n");
-    return `http://127.0.0.1:${PORT}`;
-  }
-  if (await pidAlive(TUNNEL_PID) && env.SHELL_CONTROL_PUBLIC_URL && await tunnelUp(env.SHELL_CONTROL_PUBLIC_URL)) {
-    return env.SHELL_CONTROL_PUBLIC_URL;
-  }
-  if (await pidAlive(TUNNEL_PID)) await killPidFile(TUNNEL_PID);
-  process.stderr.write("starting cloudflared quick tunnel…\n");
-  const log = join(tmpdir(), "shell-cloudflared.log");
-  const out = createWriteStream(log);
-  const child = spawn(cloudflared, ["tunnel", "--url", `http://127.0.0.1:${PORT}`, "--no-autoupdate"], {
-    stdio: ["ignore", "pipe", "pipe"],
-    detached: true,
-  });
-  child.unref();
-  if (child.pid == null) fail("cloudflared spawn failed");
-  await writeFile(TUNNEL_PID, String(child.pid));
-  let found = "";
-  const onData = (chunk: Buffer | string) => {
-    out.write(chunk);
-    const match = String(chunk).match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
-    if (match && !found) found = match[0];
-  };
-  child.stdout?.on("data", onData);
-  child.stderr?.on("data", onData);
-  const deadline = Date.now() + 30_000;
-  while (!found && Date.now() < deadline) await sleep(200);
-  if (!found) fail(`cloudflared did not print a trycloudflare URL (log: ${log})`);
-  return found;
-}
-
-async function printPairing(publicURL: string, token: string): Promise<void> {
+async function printPairing(ctx: CLIContext, publicURL: string, token: string): Promise<void> {
   const link = pairingLink(publicURL, token);
   const page = pairingPageURL(publicURL, token);
-  process.stdout.write(`\nbroker  ${publicURL}\npair    ${page}\nlink    ${link}\ntoken   ${token}\n\n`);
-  try {
-    const qrcode = (await import("qrcode-terminal")).default;
-    qrcode.generate(page, { small: true });
-  } catch {
-    process.stderr.write("(npm install to get a terminal QR)\n");
+  ctx.stdout.write(`\nbroker  ${publicURL}\npair    ${page}\nlink    ${link}\ntoken   ${token}\n\n`);
+  const tty = Boolean((ctx.stdout as NodeJS.WriteStream).isTTY);
+  if (tty) {
+    try {
+      const qrcode = (await import("qrcode-terminal")).default;
+      qrcode.generate(page, { small: true });
+    } catch {
+      ctx.stderr.write("(npm install to get a terminal QR)\n");
+    }
   }
-  process.stdout.write("\nOn iPhone: Settings → Control → Scan QR. The pairing code should match `token` above.\nThen Start setup; approve the fingerprint here with y.\n\n");
+  ctx.stdout.write("\nOn iPhone: Settings → Control → Scan QR. The pairing code should match `token` above.\nThen Start setup; approve the fingerprint here with y.\n\n");
 }
 
-async function resolveBinaries(): Promise<Binaries> {
-  if (!ROOT) fail("native sources not found — clone chr33s/shell and run from that checkout");
-  const override = process.env.SHELL_CONTROL_BIN;
-  let broker = await firstExisting([
-    override && join(override, "shell-control-broker"),
-    join(ROOT, "services/shell-control/.build/release/shell-control-broker"),
-    join(homedir(), ".local/lib/chr33s-shell/shell-control-broker"),
-    which("shell-control-broker"),
-  ]);
-  let daemon = await firstExisting([
-    override && join(override, "shell-controld"),
-    join(ROOT, "cmd/.build/release/shell-controld"),
-    join(homedir(), ".local/lib/chr33s-shell/shell-controld"),
-    which("shell-controld"),
-  ]);
-  let cli = await firstExisting([
-    override && join(override, "shell-control"),
-    join(ROOT, "cmd/.build/release/shell-control"),
-    join(homedir(), ".local/lib/chr33s-shell/shell-control"),
-    which("shell-control"),
-  ]);
-  if (!broker || !daemon) {
-    process.stderr.write("building native tools…\n");
-    buildNative();
-    broker = await firstExisting([broker, join(ROOT, "services/shell-control/.build/release/shell-control-broker")]);
-    daemon = await firstExisting([daemon, join(ROOT, "cmd/.build/release/shell-controld")]);
-    cli = await firstExisting([cli, join(ROOT, "cmd/.build/release/shell-control")]);
-  }
-  if (!broker || !daemon) {
-    fail("could not build shell-control-broker / shell-controld — need Swift 6.2 in this checkout");
-  }
-  return { broker, daemon, cli };
-}
-
-function buildNative(): void {
-  if (!ROOT) fail("native sources not found");
-  run("swift", ["build", "-c", "release", "--package-path", join(ROOT, "services/shell-control")]);
-  run("swift", ["build", "-c", "release", "--package-path", join(ROOT, "cmd")]);
-}
-
-async function proxyNative(args: string[]): Promise<void> {
-  const bins = await resolveBinaries();
-  if (!bins.cli) fail("shell-control is not built");
-  const result = spawnSync(bins.cli, args, { stdio: "inherit", env: process.env });
-  process.exit(result.status ?? 1);
-}
-
-function run(cmd: string, args: string[]): void {
-  const result = spawnSync(cmd, args, { stdio: "inherit" });
-  if (result.status !== 0) fail(`${cmd} ${args.join(" ")} failed`);
-}
-
-async function loadEnv(): Promise<SetupEnv> {
-  if (!(await exists(ENV_FILE))) {
-    const env: SetupEnv = {
-      SHELL_CONTROL_ACCOUNT_ID: randomUUID(),
-      SHELL_CONTROL_ADMIN_SECRET: randomBytes(32).toString("hex"),
-      SHELL_CONTROL_CURSOR_SECRET: randomBytes(32).toString("hex"),
-      SHELL_CONTROL_PAIRING_TOKEN: makePairingToken(),
-    };
-    await writeEnv(env);
-    return env;
-  }
-  const env: Record<string, string> = {};
-  for (const line of (await readFile(ENV_FILE, "utf8")).split("\n")) {
-    const cut = line.indexOf("=");
-    if (cut <= 0) continue;
-    env[line.slice(0, cut)] = line.slice(cut + 1);
-  }
-  if (!env.SHELL_CONTROL_ACCOUNT_ID) env.SHELL_CONTROL_ACCOUNT_ID = randomUUID();
-  if (!env.SHELL_CONTROL_ADMIN_SECRET) env.SHELL_CONTROL_ADMIN_SECRET = randomBytes(32).toString("hex");
-  if (!env.SHELL_CONTROL_CURSOR_SECRET) env.SHELL_CONTROL_CURSOR_SECRET = randomBytes(32).toString("hex");
-  if (!env.SHELL_CONTROL_PAIRING_TOKEN) env.SHELL_CONTROL_PAIRING_TOKEN = makePairingToken();
-  return env as SetupEnv;
-}
-
-async function writeEnv(env: SetupEnv): Promise<void> {
-  await mkdir(STATE, { recursive: true, mode: 0o700 });
-  await writeFile(ENV_FILE, Object.entries(env).map(([k, v]) => `${k}=${v}`).join("\n") + "\n", { mode: 0o600 });
-}
-
-async function pidAlive(file: string): Promise<boolean> {
-  if (!(await exists(file))) return false;
-  const pid = Number((await readFile(file, "utf8")).trim());
-  if (!pid) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function killPidFile(file: string): Promise<void> {
-  if (!(await exists(file))) return;
-  const pid = Number((await readFile(file, "utf8")).trim());
-  if (!pid) return;
-  try { process.kill(-pid, "SIGTERM"); } catch {
-    try { process.kill(pid, "SIGTERM"); } catch { /* already gone */ }
-  }
-  try { await unlink(file); } catch { /* ignore */ }
-}
-
-async function firstExisting(paths: Array<string | undefined | null | false>): Promise<string | undefined> {
-  for (const path of paths) {
-    if (typeof path === "string" && (await exists(path))) return path;
-  }
-  return undefined;
-}
-
-function which(name: string): string | null {
-  const result = spawnSync("which", [name], { encoding: "utf8" });
-  if (result.status !== 0) return null;
-  return result.stdout.trim();
-}
-
-function fail(message: string): never {
-  process.stderr.write(`@chr33s/shell: ${message}\n`);
-  process.exit(1);
+function isCancelled(error: unknown, signal: AbortSignal): boolean {
+  if (signal.aborted) return true;
+  return isAbortError(error);
 }

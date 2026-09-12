@@ -38,6 +38,17 @@ final class ControlSession {
     private var key: (any DeviceSigningKey)?
     private var pollTask: Task<Void, Never>?
     private var enrollment: EnrollmentCoordinator?
+    private var sceneActive = true
+    private var screenNeedsData = false
+    private var inFlightRefresh: Task<Void, Never>?
+    private var queuedRefresh = false
+    private var renewTask: Task<Void, Never>?
+    private var consecutiveFailures = 0
+    private static let backoffSchedule: [TimeInterval] = [10, 20, 40, 60]
+
+    /// Test/inspection: polling runs only while the scene is active and a
+    /// relevant screen needs data.
+    var isPolling: Bool { pollTask != nil }
 
     init(
         brokerURL: URL,
@@ -106,8 +117,21 @@ final class ControlSession {
 
     /// Access tokens last ten minutes, so every network path renews first
     /// rather than discovering the expiry as a 401 it cannot recover from
-    /// (spec.watch.md sections 5 and 16).
+    /// (spec.watch.md sections 5 and 16). Concurrent callers share one renewal.
     private func ensureFreshCredentials() async {
+        if let renewTask {
+            await renewTask.value
+            return
+        }
+        let task = Task { @MainActor in
+            await self.renewCredentialsIfNeeded()
+        }
+        renewTask = task
+        await task.value
+        renewTask = nil
+    }
+
+    private func renewCredentialsIfNeeded() async {
         guard let session, let client, let enrollment, let key else { return }
         guard !session.isAccessTokenFresh(at: ControlTimestamp(now())) else { return }
         do {
@@ -126,7 +150,25 @@ final class ControlSession {
     }
 
     /// Full reconciliation: snapshot pages, applied atomically, then deltas.
+    /// Simultaneous launch/foreground/notification/manual triggers coalesce.
     func refresh() async {
+        if let inFlightRefresh {
+            queuedRefresh = true
+            await inFlightRefresh.value
+            return
+        }
+        repeat {
+            queuedRefresh = false
+            let task = Task { @MainActor in
+                await self.refreshOnce()
+            }
+            inFlightRefresh = task
+            defer { inFlightRefresh = nil }
+            await task.value
+        } while queuedRefresh && !Task.isCancelled
+    }
+
+    private func refreshOnce() async {
         await ensureFreshCredentials()
         guard let client else { return }
         do {
@@ -147,15 +189,29 @@ final class ControlSession {
             try? cache.commit(inbox)
             isOffline = false
             lastError = nil
+            consecutiveFailures = 0
         } catch let error as ControlError where error.code == .cursorExpired {
             // A cursor that outlived the log or a permissions change forces a
             // fresh snapshot so stale unauthorized objects are removed.
             inbox.cursor = nil
-            await refresh()
+            await refreshOnce()
         } catch is TransportError {
             isOffline = true
+            consecutiveFailures += 1
         } catch {
             lastError = String(describing: error)
+            consecutiveFailures += 1
+        }
+    }
+
+    func noteSceneActive(_ active: Bool) {
+        sceneActive = active
+        if active {
+            consecutiveFailures = 0
+            Task { await refresh() }
+            startPollingIfNeeded()
+        } else {
+            cancelPolling()
         }
     }
 
@@ -163,18 +219,40 @@ final class ControlSession {
     /// faster than every five seconds; polling pauses when not visible
     /// (spec.watch.md section 7).
     func startPolling() {
-        guard pollTask == nil else { return }
-        pollTask = Task { [weak self] in
-            while !Task.isCancelled {
-                await self?.refresh()
-                try? await Task.sleep(nanoseconds: UInt64(ApprovalPolicy.minimumPollInterval * 1_000_000_000))
-            }
-        }
+        screenNeedsData = true
+        startPollingIfNeeded()
     }
 
     func stopPolling() {
+        screenNeedsData = false
+        cancelPolling()
+    }
+
+    private func startPollingIfNeeded() {
+        guard sceneActive, screenNeedsData, pollTask == nil else { return }
+        pollTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                guard let self, self.sceneActive, self.screenNeedsData else { break }
+                await self.refresh()
+                let interval = self.nextPollInterval()
+                try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
+            }
+            self?.pollTask = nil
+        }
+    }
+
+    private func cancelPolling() {
         pollTask?.cancel()
         pollTask = nil
+    }
+
+    private func nextPollInterval() -> TimeInterval {
+        let minimum = ApprovalPolicy.minimumPollInterval
+        guard consecutiveFailures > 0 else { return minimum }
+        let index = min(consecutiveFailures, Self.backoffSchedule.count) - 1
+        let backoff = Self.backoffSchedule[index]
+        let jitter = Double.random(in: 0...(backoff * 0.1))
+        return max(minimum, backoff + jitter)
     }
 
     /// Always re-fetches before showing the review screen: a digest alone is not

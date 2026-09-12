@@ -8,6 +8,7 @@ import ShellControlClient
 /// green success state (spec.watch.md section 6).
 struct InboxView: View {
     @Environment(ControlSession.self) private var session
+    @Environment(\.scenePhase) private var scenePhase
     @State private var reviewing: ControlID?
 
     var body: some View {
@@ -50,9 +51,13 @@ struct InboxView: View {
                 ApprovalReviewView(requestID: requestID)
             }
         }
-        // Polling runs only while a relevant screen is visible.
+        // Polling runs only while a relevant screen is visible *and* the scene
+        // is active. onDisappear is not the complete backgrounding contract.
         .onAppear { session.startPolling() }
         .onDisappear { session.stopPolling() }
+        .onChange(of: scenePhase) { _, phase in
+            session.noteSceneActive(phase == .active)
+        }
         .task(id: WatchAppDelegate.pendingIntent) {
             // A notification action opens review; it never decides.
             if let intent = WatchAppDelegate.pendingIntent {

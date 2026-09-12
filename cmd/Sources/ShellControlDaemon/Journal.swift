@@ -16,6 +16,9 @@ public struct DispatchJournal: Sendable {
         case dispatchIntent(requestID: ControlID, consumeID: ControlID)
         case dispatchResult(requestID: ControlID, receiptID: ControlID, result: ReceiptResult)
         case withdrawn(requestID: ControlID)
+        /// Persist the recovery payload and mutation ID *before* the network write.
+        case recoveryQueued(mutationID: ControlID, kind: String, requestID: ControlID, payload: String)
+        case recoveryAcknowledged(mutationID: ControlID)
 
         var json: JSONValue {
             switch self {
@@ -59,6 +62,16 @@ public struct DispatchJournal: Sendable {
                 ])
             case .withdrawn(let requestID):
                 return .object(["kind": "withdrawn", "request_id": JSONValue(requestID)])
+            case .recoveryQueued(let mutationID, let kind, let requestID, let payload):
+                return .object([
+                    "kind": "recovery_queued",
+                    "mutation_id": JSONValue(mutationID),
+                    "recovery_kind": .string(kind),
+                    "request_id": JSONValue(requestID),
+                    "payload": .string(payload),
+                ])
+            case .recoveryAcknowledged(let mutationID):
+                return .object(["kind": "recovery_acknowledged", "mutation_id": JSONValue(mutationID)])
             }
         }
 
@@ -99,6 +112,15 @@ public struct DispatchJournal: Sendable {
                 )
             case "withdrawn":
                 return .withdrawn(requestID: try reader.id("request_id"))
+            case "recovery_queued":
+                return .recoveryQueued(
+                    mutationID: try reader.id("mutation_id"),
+                    kind: try reader.string("recovery_kind", maxLength: 32),
+                    requestID: try reader.id("request_id"),
+                    payload: try reader.string("payload", maxLength: 16_384)
+                )
+            case "recovery_acknowledged":
+                return .recoveryAcknowledged(mutationID: try reader.id("mutation_id"))
             default:
                 throw ValidationError.unsupported("journal entry")
             }
@@ -174,5 +196,33 @@ public struct DispatchJournal: Sendable {
         }
         recovery.uncertain = claimed.union(intended)
         return recovery
+    }
+
+    public struct QueuedRecovery: Sendable {
+        public var mutationID: ControlID
+        public var kind: String
+        public var requestID: ControlID
+        public var payload: String
+    }
+
+    public func pendingRecoveries() throws -> [QueuedRecovery] {
+        var queued: [ControlID: QueuedRecovery] = [:]
+        var acknowledged: Set<ControlID> = []
+        for entry in try load() {
+            switch entry {
+            case .recoveryQueued(let mutationID, let kind, let requestID, let payload):
+                queued[mutationID] = QueuedRecovery(
+                    mutationID: mutationID,
+                    kind: kind,
+                    requestID: requestID,
+                    payload: payload
+                )
+            case .recoveryAcknowledged(let mutationID):
+                acknowledged.insert(mutationID)
+            default:
+                break
+            }
+        }
+        return queued.values.filter { !acknowledged.contains($0.mutationID) }
     }
 }

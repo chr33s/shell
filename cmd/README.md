@@ -21,6 +21,19 @@ SHELL_CONTROL_ORIGIN_SECRET=<per-origin-secret> \
 .build/release/shell-controld
 ```
 
+Managed installs pass `--config /absolute/path/daemon.service.json` instead of
+secrets on the command line. The process runs in the foreground (launchd owns
+its lifetime), holds a singleton lock on the state directory, and refuses to
+unlink a control socket that another live instance is serving. SIGTERM stops
+accepting work, cancels heartbeats, and exits; a fifteen-second cooperative
+budget is the target before the service manager kills the process.
+
+A separate `health.sock` answers a same-user, read-only JSON snapshot. It does
+not register a job or mint a run. After a restart, recovery receipts and
+withdrawals are persisted with their original mutation IDs *before* the network
+write and stay queued until the broker acknowledges them. Uncertain post-claim
+effects are reported `unknown` and never replayed.
+
 It listens on a Unix-domain socket under a private state directory (directory
 mode 0700, socket mode 0600), verifies the peer's uid, and issues a per-run
 unguessable capability. Frames are a four-byte big-endian length followed by one
@@ -33,7 +46,8 @@ watchOS clients.
 On start it reconciles its journal: anything claimed but never receipted is
 reported `unknown` rather than replayed, and any request still unresolved from a
 previous process is withdrawn, because safe continuation of the exact prior wait
-cannot be proven.
+cannot be proven. Those recovery writes are retried with the same identifiers
+until acknowledged.
 
 ## CLI
 

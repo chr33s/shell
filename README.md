@@ -148,11 +148,19 @@ device. Testers run the companion CLI from a checkout (or `npx github:chr33s/she
 npx @chr33s/shell          # broker on 127.0.0.1 + HTTPS tunnel + origin + pairing QR
 ```
 
+Once setup reports readiness, closing that CLI or terminal does **not** stop the
+broker, origin daemon, or managed tunnel. `npx @chr33s/shell down` is what stops
+them, and they stay stopped until `up`. Quick tunnels are a development
+convenience: a lost `*.trycloudflare.com` hostname is never replaced silently
+(`setup --rotate-url` plus re-pairing). Login persistence is opt-in via
+`service install` and requires a named tunnel or an external reverse proxy to
+the same local broker.
+
 On the phone: **Settings → Control → Scan QR** (or paste the printed URL).
 The CLI prints each device fingerprint; type `y` to approve. It will not
 auto-approve — a public tunnel would otherwise enrol strangers.
-`npx @chr33s/shell down` stops the broker. Without `cloudflared`, the broker
-stays on loopback.
+`npx @chr33s/shell down` stops the broker and prevents automatic relaunch.
+Without `cloudflared`, the broker stays on loopback.
 
 Locally without the npm CLI, open the printed verification URI in a browser,
 check the key fingerprint against the one on the device, and approve.
@@ -271,7 +279,8 @@ synced.
 ./scripts/test.sh           # run the ShellTests bundle (124 tests) on the iOS Simulator
 ./scripts/build-watch.sh    # build ShellWatch for the watchOS Simulator
 ./scripts/test-watch.sh     # run the ShellWatchTests bundle (16 tests) on the watchOS Simulator
-./scripts/test-control.sh   # run the control packages: core (44), broker (34), host (9)
+./scripts/test-control.sh   # run the control packages: core, broker, host
+./scripts/test-lifecycle.sh # isolated CLI lifecycle tests (never touch real enrollment)
 ```
 
 Xcode 26 or newer is required. The 26.0 deployment target aside, Citadel's

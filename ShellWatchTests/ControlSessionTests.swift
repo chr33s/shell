@@ -249,4 +249,76 @@ final class ControlSessionTests: XCTestCase {
         let requests = await service.requests
         XCTAssertTrue(requests.isEmpty)
     }
+
+    // MARK: Lifecycle coalescing
+
+    func testConcurrentRefreshRenewsOnce() async throws {
+        final class Clock: @unchecked Sendable {
+            var date: Date
+            init(_ date: Date) { self.date = date }
+        }
+        let clock = Clock(now.date)
+        let service = makeService()
+        await service.setTokenDelay(40_000_000)
+        let credentials = InMemoryCredentialStore()
+        try credentials.storeSigningKey(InMemoryDeviceKey())
+        try credentials.storeSession(await service.session())
+        let defaults = UserDefaults(suiteName: "watch-concurrent-\(UUID().uuidString)")!
+        defaults.set("https://control.test", forKey: ControlBrokerAddress.defaultsKey)
+        let session = try ControlSession(
+            brokerURL: URL(string: "https://control.test")!,
+            credentials: credentials,
+            cache: InMemoryInboxCache(),
+            journalStore: InMemoryCommandJournal(),
+            transport: service,
+            defaults: defaults,
+            now: { clock.date }
+        )
+        await session.start()
+        let refreshesBeforeExpiry = await service.refreshCount
+        XCTAssertEqual(refreshesBeforeExpiry, 0)
+        clock.date = clock.date.addingTimeInterval(3600)
+        await service.setNow(ControlTimestamp(clock.date))
+        async let first = session.refresh()
+        async let second = session.refresh()
+        _ = await (first, second)
+        let refreshesAfterExpiry = await service.refreshCount
+        XCTAssertEqual(refreshesAfterExpiry, 1)
+    }
+
+    func testBackgroundingCancelsPolling() async throws {
+        let service = makeService()
+        let credentials = InMemoryCredentialStore()
+        try credentials.storeSigningKey(InMemoryDeviceKey())
+        try credentials.storeSession(await service.session())
+        let session = try makeSession(service: service, credentials: credentials)
+        await session.start()
+        session.noteSceneActive(false)
+        session.startPolling()
+        XCTAssertFalse(session.isPolling)
+        session.noteSceneActive(true)
+        session.startPolling()
+        XCTAssertTrue(session.isPolling)
+        session.stopPolling()
+        XCTAssertFalse(session.isPolling)
+    }
+
+    func testTransientFailureKeepsCacheAndIdentity() async throws {
+        let service = makeService()
+        let credentials = InMemoryCredentialStore()
+        try credentials.storeSigningKey(InMemoryDeviceKey())
+        try credentials.storeSession(await service.session())
+        let cache = InMemoryInboxCache()
+        var seeded = InboxState()
+        let record = try WatchTestFixtures.makeRecord(createdAt: now, presentAt: now)
+        seeded.approvals[record.spec.requestID] = record
+        seeded.lastRefreshedAt = now.adding(-30)
+        try cache.commit(seeded)
+        await service.setTransportFailure(.offline)
+        let session = try makeSession(service: service, credentials: credentials, cache: cache)
+        await session.start()
+        XCTAssertTrue(session.isOffline)
+        XCTAssertEqual(session.inbox.pendingApprovals.count, 1)
+        XCTAssertNotNil(try credentials.loadSession())
+    }
 }

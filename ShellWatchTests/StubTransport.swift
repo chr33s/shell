@@ -31,6 +31,8 @@ actor StubControlService: ControlHTTPTransport {
     var refreshFailure: ControlError?
     /// When true, the first `/v1/changes` call answers `410 cursor_expired`.
     var expireNextCursor = false
+    /// Artificial delay on refresh so concurrent callers can overlap.
+    var tokenDelayNanoseconds: UInt64 = 0
     var now: ControlTimestamp
 
     init(
@@ -59,6 +61,8 @@ actor StubControlService: ControlHTTPTransport {
     func setTransportFailure(_ failure: TransportError?) { transportFailure = failure }
     func setRefreshFailure(_ failure: ControlError?) { refreshFailure = failure }
     func setExpireNextCursor(_ flag: Bool) { expireNextCursor = flag }
+    func setTokenDelay(_ nanoseconds: UInt64) { tokenDelayNanoseconds = nanoseconds }
+    func setNow(_ value: ControlTimestamp) { now = value }
 
     func send(_ request: ControlHTTPRequest, baseURL: URL) async throws -> ControlHTTPResponse {
         if let transportFailure { throw transportFailure }
@@ -71,6 +75,9 @@ actor StubControlService: ControlHTTPTransport {
 
         // The OAuth token endpoint is the documented form-encoded exception.
         if request.path == "/v1/oauth/token" {
+            if tokenDelayNanoseconds > 0 {
+                try await Task.sleep(nanoseconds: tokenDelayNanoseconds)
+            }
             refreshCount += 1
             if let refreshFailure { return try json(refreshFailure.code.httpStatus, refreshFailure.json) }
             let body = String(decoding: request.body ?? Data(), as: UTF8.self)
