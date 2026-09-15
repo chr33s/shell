@@ -23,17 +23,13 @@
 			</array>
 		</dict>
 	</array>
-	<key>ITSAppUsesNonExemptEncryption</key>
-	<false/>
-	<key>ShellKeychainAccessGroup</key>
-	<string>$(SHELL_KEYCHAIN_ACCESS_GROUP)</string>
-	<key>ShellCloudKitContainer</key>
-	<string>$(SHELL_CLOUDKIT_CONTAINER)</string>
 	<key>SHELLControlBrokerURL</key>
 	<string>$(SHELL_CONTROL_BROKER_URL)</string>
+	<key>ShellCloudKitContainer</key>
+	<string>$(SHELL_CLOUDKIT_CONTAINER)</string>
+	<key>ShellKeychainAccessGroup</key>
+	<string>$(SHELL_KEYCHAIN_ACCESS_GROUP)</string>
 	<key>UIFileSharingEnabled</key>
-	<true/>
-	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
 	<key>UILaunchScreen</key>
 	<dict>

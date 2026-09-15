@@ -71,7 +71,6 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "AE00000000000000000030"
             BuildableName = "ShellWatch.app"
-            BlueprintName = "ShellWatch"
             ReferencedContainer = "container:shell.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
@@ -88,7 +87,6 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "AE00000000000000000030"
             BuildableName = "ShellWatch.app"
-            BlueprintName = "ShellWatch"
             ReferencedContainer = "container:shell.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
