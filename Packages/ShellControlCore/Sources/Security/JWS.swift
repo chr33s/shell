@@ -39,7 +39,7 @@ public enum ControlJWS {
             .object([
                 "alg": .string(algorithm),
                 "kid": JSONValue(keyID),
-                "typ": .string(type),
+                "typ": .string(type)
             ])
         }
     }

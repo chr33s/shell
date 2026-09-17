@@ -116,8 +116,7 @@ public enum JSONCanonicalization {
         let mantissa = String(text[text.startIndex..<range.lowerBound])
         var exponent = String(text[range.upperBound...])
         var sign = "+"
-        if exponent.hasPrefix("-") { sign = "-"; exponent.removeFirst() }
-        else if exponent.hasPrefix("+") { exponent.removeFirst() }
+        if exponent.hasPrefix("-") { sign = "-"; exponent.removeFirst() } else if exponent.hasPrefix("+") { exponent.removeFirst() }
         while exponent.count > 1 && exponent.hasPrefix("0") { exponent.removeFirst() }
         return "\(mantissa)e\(sign)\(exponent)"
     }

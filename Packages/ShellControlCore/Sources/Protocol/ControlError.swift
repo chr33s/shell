@@ -110,10 +110,10 @@ public struct ControlError: Error, Sendable, Hashable {
             "error": .object([
                 "code": .string(code.rawValue),
                 "message": .string(message),
-                "retryable": .bool(retryable),
+                "retryable": .bool(retryable)
             ]),
             "server_time": serverTime.map { JSONValue($0) } ?? JSONValue(ControlTimestamp(Date())),
-            "current_projection": currentProjection,
+            "current_projection": currentProjection
         ])
     }
 

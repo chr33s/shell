@@ -30,7 +30,6 @@ struct SSHKeyDetailView: View {
 
     // OpenPGP public key export
 
-
     // User certificate
     @State private var showingCertImport = false
     @State private var showingCertRemoveConfirmation = false
@@ -504,7 +503,6 @@ struct SSHKeyDetailView: View {
     }
 
     // MARK: - Actions
-
 
     private func loadPublicKey() {
         isLoadingPublicKey = true

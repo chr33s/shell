@@ -47,7 +47,7 @@ public struct PendingCommand: Sendable, Hashable {
             "type": .string(type.rawValue),
             "target_id": JSONValue(targetID),
             "not_after": JSONValue(notAfter),
-            "status": .string(status.rawValue),
+            "status": .string(status.rawValue)
         ])
     }
 

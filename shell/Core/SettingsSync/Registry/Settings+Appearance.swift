@@ -28,7 +28,7 @@ nonisolated extension Settings {
             title: String(localized: "Theme-Aware UI", comment: "Setting title"))
 
         static let all: [AnySettingDefinition] = [
-            selected.erased, appearanceMode.erased, themedUI.erased,
+            selected.erased, appearanceMode.erased, themedUI.erased
         ]
     }
 
@@ -50,7 +50,7 @@ nonisolated extension Settings {
             title: String(localized: "Cell Width & Height", comment: "Setting title"))
 
         static let all: [AnySettingDefinition] = [
-            size.erased, family.erased, ligatures.erased, featurePrefs.erased, cellAdjustmentPrefs.erased,
+            size.erased, family.erased, ligatures.erased, featurePrefs.erased, cellAdjustmentPrefs.erased
         ]
     }
 
@@ -87,7 +87,7 @@ nonisolated extension Settings {
 
         static let all: [AnySettingDefinition] = [
             style.erased, blinkEnabled.erased, blinkMode.erased, effect.erased, color.erased,
-            textColor.erased, opacity.erased, thickness.erased, height.erased,
+            textColor.erased, opacity.erased, thickness.erased, height.erased
         ]
     }
 
@@ -110,7 +110,7 @@ nonisolated extension Settings {
             title: String(localized: "Use Native Selection Loupe", comment: "Setting title"))
 
         static let all: [AnySettingDefinition] = [
-            appearanceMode.erased, foregroundHex.erased, backgroundHex.erased, copyOnSelect.erased, useNativeLoupe.erased,
+            appearanceMode.erased, foregroundHex.erased, backgroundHex.erased, copyOnSelect.erased, useNativeLoupe.erased
         ]
     }
 
@@ -139,7 +139,7 @@ nonisolated extension Settings {
 
         static let all: [AnySettingDefinition] = [
             backgroundOpacity.erased, backgroundBlurRadius.erased, blurEnabled.erased, blurStyle.erased,
-            pinnedSidebarTransparency.erased,
+            pinnedSidebarTransparency.erased
         ]
     }
 }

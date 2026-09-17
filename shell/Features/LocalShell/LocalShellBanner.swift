@@ -82,7 +82,7 @@ enum LocalShellBanner {
             "\(barPrefix)\(headerColored)",
             barOnly,
             "\(barPrefix)\(tryColored)",
-            "\(barPrefix)\(editColored)",
+            "\(barPrefix)\(editColored)"
         ]
         return lines.joined(separator: "\n") + "\n\n"
     }

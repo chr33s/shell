@@ -53,7 +53,7 @@ final class SSHEscapeFilter {
     private var pasteState: PasteState = .idle
 
     private static let pasteStart: [UInt8] = [0x1B, 0x5B, 0x32, 0x30, 0x30, 0x7E]  // ESC [ 2 0 0 ~
-    private static let pasteEnd:   [UInt8] = [0x1B, 0x5B, 0x32, 0x30, 0x31, 0x7E]  // ESC [ 2 0 1 ~
+    private static let pasteEnd: [UInt8] = [0x1B, 0x5B, 0x32, 0x30, 0x31, 0x7E]  // ESC [ 2 0 1 ~
 
     /// Filter `data` and return the bytes to forward to the remote channel.
     /// Side effects (echo, disconnect) fire synchronously via the closures above.
@@ -275,7 +275,7 @@ final class SSHEscapeFilter {
                 localized: "(The escape character is only recognized at the start of a line.)",
                 comment: "Footer for the SSH ~? escape help output"
             ),
-            "",
+            ""
         ]
         return lines.joined(separator: "\r\n")
     }

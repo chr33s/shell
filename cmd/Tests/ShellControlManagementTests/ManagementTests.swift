@@ -124,9 +124,7 @@ final class ManagementTests: XCTestCase {
 
         let bounded = ProcessRunner(outputLimit: 1024)
         let clock = ContinuousClock(), start = clock.now
-        do { _ = try await bounded.run("/usr/bin/yes", [], timeout: 10); XCTFail("unbounded output should fail") }
-        catch ProcessRunnerError.outputTooLarge {}
-        catch { XCTFail("unexpected process error: \(error)") }
+        do { _ = try await bounded.run("/usr/bin/yes", [], timeout: 10); XCTFail("unbounded output should fail") } catch ProcessRunnerError.outputTooLarge {} catch { XCTFail("unexpected process error: \(error)") }
         XCTAssertLessThan(start.duration(to: clock.now), .seconds(3))
     }
 
@@ -284,7 +282,10 @@ final class ManagementTests: XCTestCase {
         let store = InstallationStore(root: root), lock = try store.lock(); defer { lock.release() }
         _ = try store.create(releaseID: "r", mode: .loopback, publicURL: nil, port: 8443, tunnel: .init())
         for path in [store.paths.installation.path, store.paths.secrets.path, store.paths.runtime.path] {
-            let mode = (try FileManager.default.attributesOfItem(atPath: path)[.posixPermissions] as! NSNumber).intValue
+            guard let mode = (try FileManager.default.attributesOfItem(atPath: path)[.posixPermissions] as? NSNumber)?.intValue else {
+                XCTFail("Missing POSIX permissions for \(path)")
+                return
+            }
             XCTAssertEqual(mode, 0o600)
         }
     }

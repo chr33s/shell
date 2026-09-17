@@ -214,7 +214,7 @@ extension Ghostty {
         @Published private(set) var config: Config
 
         /// The ghostty app instance
-        nonisolated(unsafe) var app: ghostty_app_t? = nil
+        nonisolated(unsafe) var app: ghostty_app_t?
 
         /// Mapping of surface pointers to their action delegates
         /// Using Int (pointer address) as key instead of ObjectIdentifier to avoid wrapper object issues
@@ -604,7 +604,7 @@ extension Ghostty {
         /// Set up subscription to theme changes
         private func setupThemeSubscription() {
             themeSubscription = ThemeManager.shared.themeDidChange
-                .sink { [weak self] theme in
+                .sink { [weak self] _ in
                     self?.applyCurrentTheme()
                 }
         }
@@ -671,7 +671,7 @@ extension Ghostty {
         /// Set up subscription to font size changes
         private func setupFontSizeSubscription() {
             fontSizeSubscription = FontManager.shared.fontSizeDidChange
-                .sink { [weak self] fontSize in
+                .sink { [weak self] _ in
                     self?.applyCurrentFontSize()
                 }
         }
@@ -705,7 +705,7 @@ extension Ghostty {
         /// Set up subscription to font family changes
         private func setupFontFamilySubscription() {
             fontFamilySubscription = FontManager.shared.fontFamilyDidChange
-                .sink { [weak self] fontFamily in
+                .sink { [weak self] _ in
                     self?.applyCurrentFontFamily()
                 }
         }

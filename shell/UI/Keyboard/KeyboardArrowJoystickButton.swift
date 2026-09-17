@@ -117,7 +117,7 @@ class KeyboardArrowJoystickButton: UIView {
             iconView.centerXAnchor.constraint(equalTo: centerXAnchor),
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
             iconView.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, multiplier: 0.6),
-            iconView.heightAnchor.constraint(lessThanOrEqualTo: heightAnchor, multiplier: 0.6),
+            iconView.heightAnchor.constraint(lessThanOrEqualTo: heightAnchor, multiplier: 0.6)
         ])
 
         updateAppearance()

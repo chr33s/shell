@@ -33,15 +33,14 @@ public struct ControlAdminClient: Sendable {
             throw ManagementError.unavailable("\(method) \(path) returned HTTP \(response.status): \(detail)")
         }
         guard !response.body.isEmpty else { throw ManagementError.unavailable("\(method) \(path) returned an empty response") }
-        do { return try JSONValue.parse(response.body) }
-        catch { throw ManagementError.unavailable("\(method) \(path) returned invalid JSON") }
+        do { return try JSONValue.parse(response.body) } catch { throw ManagementError.unavailable("\(method) \(path) returned invalid JSON") }
     }
 
     public func provisionOrigin(label: String, originID: UUID, originSecret: String) async throws {
         let value = try await send(method: "POST", path: "/v1/admin/origins", body: .object([
             "label": .string(label),
             "origin_id": .string(originID.uuidString.lowercased()),
-            "origin_secret": .string(originSecret),
+            "origin_secret": .string(originSecret)
         ]))
         var reader = try JSONReader(value)
         let returned = try reader.id("origin_id")

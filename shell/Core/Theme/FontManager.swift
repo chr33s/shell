@@ -46,13 +46,13 @@ class FontManager: ObservableObject {
     /// Sentinel key for cell adjustments stored against the Ghostty default font (nil family).
     static let defaultFontKey = "__default__"
 
-    /// A user-imported custom font family with one or more style variants
+    // A user-imported custom font family with one or more style variants
     // MARK: - Keys
 
     /// Registered keys this manager reloads from the store; file-backed font lists stay raw.
     private static let ownedKeys: Set<String> = [
         Settings.Font.size.name, Settings.Font.family.name, Settings.Font.ligatures.name,
-        Settings.Font.featurePrefs.name, Settings.Font.cellAdjustmentPrefs.name,
+        Settings.Font.featurePrefs.name, Settings.Font.cellAdjustmentPrefs.name
     ]
 
     /// True while `reload(keys:)` re-assigns properties from the store.
@@ -61,7 +61,7 @@ class FontManager: ObservableObject {
     /// Bundled fonts used only for UI glyph rendering (profile icons, etc.).
     /// Registered with CoreText but never offered as terminal fonts.
     private static let hiddenUtilityFontFamilies: Set<String> = [
-        "Symbols Nerd Font Mono",
+        "Symbols Nerd Font Mono"
     ]
 
     // MARK: - Published Properties
@@ -561,7 +561,7 @@ class FontManager: ObservableObject {
         (35, 36, 37, "ss18"),
         (35, 38, 39, "ss19"),
         (35, 40, 41, "ss20"),
-        (14, 4, 5, "zero"),
+        (14, 4, 5, "zero")
     ]
 
     /// Discover available OpenType font features for the given font family.

@@ -23,7 +23,7 @@ enum TwoFingerLongPressSetting {
         Option(label: String(localized: "0.5s", comment: "Two-finger long press duration: 0.5 seconds (the original default)"), value: 0.5),
         Option(label: String(localized: "1.0s", comment: "Two-finger long press duration: 1 second"), value: 1.0),
         Option(label: String(localized: "2.0s", comment: "Two-finger long press duration: 2 seconds"), value: 2.0),
-        Option(label: String(localized: "Off", comment: "Two-finger long press: gesture disabled"), value: 0.0),
+        Option(label: String(localized: "Off", comment: "Two-finger long press: gesture disabled"), value: 0.0)
     ]
 
     nonisolated static func storedDuration() -> Double {

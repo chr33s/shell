@@ -142,7 +142,7 @@ extension SplitTree where ViewType == SplitPaneView {
         }
 
         // Serialize zoomed path if present
-        var zoomedPath: [SerializableSplitTree.PathComponent]? = nil
+        var zoomedPath: [SerializableSplitTree.PathComponent]?
         if let zoomed = self.zoomed {
             zoomedPath = pathToNode(zoomed)
         }

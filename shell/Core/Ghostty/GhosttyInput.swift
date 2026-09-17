@@ -140,7 +140,7 @@ extension Ghostty.Input {
         .keyboardLeftArrow: 0x7B, .keyboardRightArrow: 0x7C,
         .keyboardHome: 0x73, .keyboardEnd: 0x77,
         .keyboardPageUp: 0x74, .keyboardPageDown: 0x79,
-        .keyboardDeleteForward: 0x75, .keyboardInsert: 0x72,
+        .keyboardDeleteForward: 0x75, .keyboardInsert: 0x72
     ]
 }
 

@@ -147,10 +147,18 @@ nonisolated extension CodableValue {
         switch self {
         case .string(let v): v
         case .int(let v): String(v)
-        case .double(let v): v.rounded() == v ? String(Int(v)) : String(format: "%.2f", v)
-        case .bool(let v): v
-            ? String(localized: "On", comment: "Setting value display")
-            : String(localized: "Off", comment: "Setting value display")
+        case .double(let v):
+            if v.rounded() == v {
+                String(Int(v))
+            } else {
+                String(format: "%.2f", v)
+            }
+        case .bool(let v):
+            if v {
+                String(localized: "On", comment: "Setting value display")
+            } else {
+                String(localized: "Off", comment: "Setting value display")
+            }
         case .data(let v): String(localized: "\(v.count) bytes", comment: "Setting value display for binary data")
         case .stringArray(let v): v.joined(separator: ", ")
         }

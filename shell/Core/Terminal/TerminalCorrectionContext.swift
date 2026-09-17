@@ -30,8 +30,8 @@ nonisolated struct TerminalCorrectionContext {
               range.location <= text.utf16.count,
               range.length <= text.utf16.count - range.location,
               let result = Range(range, in: text),
-              (result.lowerBound == text.endIndex || text.indices.contains(result.lowerBound)),
-              (result.upperBound == text.endIndex || text.indices.contains(result.upperBound)) else { return nil }
+              result.lowerBound == text.endIndex || text.indices.contains(result.lowerBound),
+              result.upperBound == text.endIndex || text.indices.contains(result.upperBound) else { return nil }
         return result
     }
 

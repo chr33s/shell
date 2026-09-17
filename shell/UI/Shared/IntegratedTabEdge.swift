@@ -182,7 +182,7 @@ struct IntegratedTabGeometry {
 /// foreground can trace one continuous path without publishing frames into
 /// `MainView` state on every scrolling-tab layout pass.
 struct IntegratedActiveTabBoundsPreferenceKey: PreferenceKey {
-    static var defaultValue: Anchor<CGRect>? = nil
+    static var defaultValue: Anchor<CGRect>?
 
     static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
         value = nextValue() ?? value

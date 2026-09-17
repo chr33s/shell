@@ -521,7 +521,7 @@ final class CloudKitSyncManager {
              isKnownHostsSyncEnabled,
              { KnownHostsManager.shared.allRecordsForSync.count },
              { KnownHostsManager.shared.lastDiskLoadFailed },
-             { KnownHostsManager.shared.reload() }),
+             { KnownHostsManager.shared.reload() })
         ]
 
         var refetchCandidates: [(recordType: String, count: () -> Int)] = []

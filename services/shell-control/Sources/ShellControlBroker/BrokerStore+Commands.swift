@@ -305,8 +305,7 @@ extension BrokerStore {
                 append(.approvalResolved, resourceID: id, version: entry.projection.stateVersion, projection: entry.record.json, accountID: entry.accountID, originID: entry.spec.originID)
             } else if entry.projection.resolution == .approved,
                       entry.projection.dispatch == .awaitingOrigin,
-                      entry.consumedBy == nil
-            {
+                      entry.consumedBy == nil {
                 // An unconsumed approval loses its grant; one already claimed is
                 // left alone, because cancellation is best effort and must not
                 // claim it prevented execution.
@@ -324,7 +323,7 @@ extension BrokerStore {
                 "job_id": JSONValue(command.jobID),
                 "run_id": JSONValue(command.runID),
                 "state": .string(run.jobState.rawValue),
-                "job_version": .number(.int(run.jobVersion)),
+                "job_version": .number(.int(run.jobVersion))
             ]),
             accountID: principal.accountID,
             originID: run.originID

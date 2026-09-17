@@ -70,7 +70,7 @@ final class ThemeManager {
                 // Pick from palette indices 1-6 (skip 0=black, 7=white)
                 let candidates = palette.enumerated()
                     .filter { $0.offset >= 1 && $0.offset <= 6 }
-                    .compactMap { (offset, hex) -> (Color, CGFloat)? in
+                    .compactMap { (_, hex) -> (Color, CGFloat)? in
                         guard let color = Color(hex: hex), color.saturation >= 0.20 else { return nil }
                         return (color, color.saturation)
                     }

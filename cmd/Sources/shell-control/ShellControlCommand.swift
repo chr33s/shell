@@ -15,7 +15,7 @@ struct ShellControlCommand: AsyncParsableCommand {
         subcommands: [
             SetupCommand.self, UpCommand.self, DownCommand.self, RestartCommand.self,
             ServiceCommand.self, StatusCommand.self, LogsCommand.self, PairCommand.self,
-            ConfirmCommand.self, PushCommand.self, NotifyCommand.self, RequestCommand.self, ReceiptCommand.self,
+            ConfirmCommand.self, PushCommand.self, NotifyCommand.self, RequestCommand.self, ReceiptCommand.self
         ]
     )
     mutating func run() async throws { print(Self.helpMessage()) }
@@ -26,12 +26,10 @@ struct ShellControlCommand: AsyncParsableCommand {
         #endif
         do {
             var command = try await asyncParseAsRoot()
-            if var asyncCommand = command as? any AsyncParsableCommand { try await asyncCommand.run() }
-            else { try command.run() }
+            if var asyncCommand = command as? any AsyncParsableCommand { try await asyncCommand.run() } else { try command.run() }
         } catch let error as ManagementError {
             let code = error.exitCode
-            do { try FileHandle.standardError.write(contentsOf: Data("shell-control: \(error)\n".utf8)) }
-            catch { Foundation.exit(code == 0 ? 1 : code) }
+            do { try FileHandle.standardError.write(contentsOf: Data("shell-control: \(error)\n".utf8)) } catch { Foundation.exit(code == 0 ? 1 : code) }
             Foundation.exit(code)
         } catch {
             let parserCode = exitCode(for: error).rawValue

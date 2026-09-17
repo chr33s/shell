@@ -63,7 +63,7 @@ public struct ControlPairingMessage: Sendable, Hashable {
             "v": 1,
             "type": .string(Self.messageType),
             "broker_url": .string(brokerURL.absoluteString),
-            "start_enrollment": .bool(startEnrollment),
+            "start_enrollment": .bool(startEnrollment)
         ]
         if let enrollment {
             var reference: [String: JSONValue] = [
@@ -72,7 +72,7 @@ public struct ControlPairingMessage: Sendable, Hashable {
                 "key_fingerprint": .string(enrollment.fingerprint),
                 "expires_at": JSONValue(enrollment.expiresAt),
                 "platform": .string(enrollment.platform),
-                "label": .string(enrollment.label),
+                "label": .string(enrollment.label)
             ]
             if let complete = enrollment.verificationURIComplete {
                 reference["verification_uri_complete"] = .string(complete)

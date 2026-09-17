@@ -7,9 +7,13 @@ struct MacSupportSmoke {
     @MainActor static func main() throws {
         _ = NSApplication.shared
         precondition(CommandLine.arguments.count == 2, "Pass the built ShellMacSupport.bundle path")
-        let bundle = Bundle(path: CommandLine.arguments[1])!
+        guard let bundle = Bundle(path: CommandLine.arguments[1]) else {
+            throw NSError(domain: "MacSupportSmoke", code: 1, userInfo: [NSLocalizedDescriptionKey: "Unable to load bundle"])
+        }
         try bundle.loadAndReturnError()
-        let type = bundle.principalClass as! any MacBridge.Type
+        guard let type = bundle.principalClass as? any MacBridge.Type else {
+            throw NSError(domain: "MacSupportSmoke", code: 2, userInfo: [NSLocalizedDescriptionKey: "Bundle has no MacBridge principal class"])
+        }
         let bridge = type.init()
         let first = NSWindow(contentRect: NSRect(x: 10, y: 20, width: 640, height: 480),
                              styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)

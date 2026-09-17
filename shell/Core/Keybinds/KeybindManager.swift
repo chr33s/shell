@@ -185,7 +185,7 @@ final class KeybindManager: ObservableObject {
             Keybind(key: .w, modifiers: .control, action: .ctrl_w),
             Keybind(key: .x, modifiers: .control, action: .ctrl_x),
             Keybind(key: .y, modifiers: .control, action: .ctrl_y),
-            Keybind(key: .z, modifiers: .control, action: .ctrl_z),
+            Keybind(key: .z, modifiers: .control, action: .ctrl_z)
         ]
     }
 

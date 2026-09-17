@@ -57,7 +57,7 @@ class SSHPasswordManager {
 
         SettingsRefreshHub.shared.register(keys: [
             Settings.Connections.passwordDefaultStorageLevel.name,
-            Settings.Connections.passwordDefaultAuthRequirement.name,
+            Settings.Connections.passwordDefaultAuthRequirement.name
         ]) { [weak self] keys in self?.reload(keys: keys) }
     }
 

@@ -79,8 +79,7 @@ public actor LifecycleCoordinator {
             loaded = try store.load()
             if options.mode != nil { loaded.installation.addressMode = mode; loaded.installation.publicURL = normalizedURL }
             if options.port != nil { loaded.installation.port = port }
-            if mode == .loopback, options.port != nil { loaded.installation.publicURL = ControlLoopback.url(port: port) }
-            else if let normalizedURL { loaded.installation.publicURL = normalizedURL }
+            if mode == .loopback, options.port != nil { loaded.installation.publicURL = ControlLoopback.url(port: port) } else if let normalizedURL { loaded.installation.publicURL = normalizedURL }
             if let id = options.tunnelID { loaded.installation.tunnel.id = id }
             if let cloudflared { loaded.installation.tunnel.cloudflaredPath = cloudflared }
             if mode != .named {
@@ -224,8 +223,7 @@ public actor LifecycleCoordinator {
         }
         try SecureFileSystem.validateAbsolute(keyFile); try SecureFileSystem.validateOwnedPath(keyFile, type: .typeRegular)
         let pem = try String(contentsOfFile: keyFile, encoding: .utf8)
-        do { _ = try P256.Signing.PrivateKey(pemRepresentation: pem) }
-        catch { throw ManagementError.invalid("APNs key is not a valid P-256 PKCS#8 private key") }
+        do { _ = try P256.Signing.PrivateKey(pemRepresentation: pem) } catch { throw ManagementError.invalid("APNs key is not a valid P-256 PKCS#8 private key") }
         let lock = try store.lock(cancelled: { Task.isCancelled }); defer { lock.release() }
         var loaded = try store.load()
         try await reconcileIncompleteOperation(&loaded)
@@ -257,8 +255,7 @@ public actor LifecycleCoordinator {
                                     components: ["broker": absent, "daemon": absent, "tunnel": absent,
                                                  "public_route": absent, "push": .init(state: "not_configured", checkedAt: stamp, reason: "push is disabled")])
         }
-        do { return await status(loaded: try store.load()) }
-        catch {
+        do { return await status(loaded: try store.load()) } catch {
             let stamp = timestamp(), failed = ComponentObservation(state: "not_ready", checkedAt: stamp, reason: String(describing: error))
             return ManagementStatus(overall: "unavailable", readinessScope: "unknown", desiredState: "unknown",
                                     persistent: false, publicURL: nil, components: ["installation": failed])
@@ -500,9 +497,7 @@ public actor LifecycleCoordinator {
                                             mode: loaded.installation.addressMode.rawValue)
         }
         let publicRoute: ComponentObservation
-        if loaded.installation.addressMode == .loopback { publicRoute = broker }
-        else if let text = loaded.installation.publicURL, let url = URL(string: text) { publicRoute = await health.broker(url: url, expectedIdentity: serviceIdentity(id)) }
-        else { publicRoute = .init(state: "not_ready", checkedAt: stamp, reason: "public origin is not configured") }
+        if loaded.installation.addressMode == .loopback { publicRoute = broker } else if let text = loaded.installation.publicURL, let url = URL(string: text) { publicRoute = await health.broker(url: url, expectedIdentity: serviceIdentity(id)) } else { publicRoute = .init(state: "not_ready", checkedAt: stamp, reason: "public origin is not configured") }
         let push = ComponentObservation(state: loaded.installation.push.enabled ? "configured" : "not_configured", checkedAt: stamp,
                                         reason: loaded.installation.push.enabled ? "provider credentials present; delivery is not proven" : "push is disabled")
         let localReady = broker.state == "ready" && daemon.state == "ready"

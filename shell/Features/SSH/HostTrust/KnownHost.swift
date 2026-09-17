@@ -111,9 +111,4 @@ struct KnownHost: Codable, Identifiable, Equatable, Hashable, SyncableRecord {
 struct HostIdentifier: Hashable, Codable {
     let hostname: String
     let port: Int
-
-    init(hostname: String, port: Int) {
-        self.hostname = hostname
-        self.port = port
-    }
 }

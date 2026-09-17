@@ -227,6 +227,7 @@ extension Ghostty.TerminalView {
         set {
             // The terminal cursor is always at the end of the committed
             // document; UIKit does not get to move it.
+            _ = newValue
         }
     }
 

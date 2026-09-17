@@ -50,7 +50,6 @@ final class ControlCompanion {
         ControlBrokerAddress.url(from: Bundle.main.object(forInfoDictionaryKey: "SHELLControlBrokerURL"))
     }
 
-
     var resolvedBrokerURL: URL? {
         injectedBrokerURL ?? ControlBrokerAddress.effective(
             runtime: defaults.string(forKey: ControlBrokerAddress.runtimeDefaultsKey),
@@ -196,7 +195,7 @@ final class ControlCompanion {
             "type": .string(ControlCommandType.handoffRequest.rawValue),
             "request_id": JSONValue(record.spec.requestID),
             "job_id": JSONValue(record.spec.jobID),
-            "expires_at": JSONValue(record.spec.expiresAt),
+            "expires_at": JSONValue(record.spec.expiresAt)
         ])
     }
 }

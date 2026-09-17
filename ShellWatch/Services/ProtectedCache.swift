@@ -48,7 +48,7 @@ final class ProtectedInboxCache: InboxCacheStore, @unchecked Sendable {
             "notifications": .array(state.notifications.values.map(\.json)),
             "cursor": state.cursor.map { .string($0.rawValue) },
             "last_refreshed_at": state.lastRefreshedAt.map { JSONValue($0) },
-            "seen_event_ids": JSONValue(strings: state.seenEventIDs.map(\.rawValue).sorted()),
+            "seen_event_ids": JSONValue(strings: state.seenEventIDs.map(\.rawValue).sorted())
         ])
     }
 

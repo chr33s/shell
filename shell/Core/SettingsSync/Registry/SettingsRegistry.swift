@@ -80,7 +80,7 @@ nonisolated final class SettingsRegistry: Sendable {
     static let registeredVolatileDefaults: [String: CodableValue] = [
         "scrollModeEnabled": .bool(true),
         "lineScrollbackEnabled": .bool(false),
-        "rubberBandScrollbackEnabled": .bool(true),
+        "rubberBandScrollbackEnabled": .bool(true)
     ]
 
     /// Returns human-readable violations; empty when the registry is consistent.

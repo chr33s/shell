@@ -71,7 +71,7 @@ final class EmptyStateView: UIView {
             manager.keyCommand(for: .new_local_shell, selector: #selector(handleNewLocalShell),
                                title: "New Local Shell", wantsPriority: true),
             manager.keyCommand(for: .new_tab, selector: #selector(handleNewTab), title: "New Tab"),
-            manager.keyCommand(for: .new_window, selector: #selector(handleNewWindow), title: "New Window"),
+            manager.keyCommand(for: .new_window, selector: #selector(handleNewWindow), title: "New Window")
         ].compactMap { $0 }
     }
 

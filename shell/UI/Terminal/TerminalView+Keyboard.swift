@@ -825,7 +825,7 @@ extension Ghostty.TerminalView {
 
                 // For printable keys, provide the SHIFTED character as text.
                 // For special keys (arrows, F-keys), text=nil is correct.
-                var keyText: String? = nil
+                var keyText: String?
                 var consumed = Ghostty.Input.Mods.none
                 if !isSpecialKey {
                     let shifted = effectiveModifiers.contains(.shift)
@@ -1126,7 +1126,7 @@ extension Ghostty.TerminalView {
         .keyboardF5, .keyboardF6, .keyboardF7, .keyboardF8,
         .keyboardF9, .keyboardF10, .keyboardF11, .keyboardF12,
         .keyboardF13, .keyboardF14, .keyboardF15, .keyboardF16,
-        .keyboardF17, .keyboardF18, .keyboardF19,
+        .keyboardF17, .keyboardF18, .keyboardF19
     ]
 
     /// Reverse map from UIKeyCommand input character to HID usage.
@@ -1146,7 +1146,7 @@ extension Ghostty.TerminalView {
         "[": .keyboardOpenBracket, "]": .keyboardCloseBracket,
         "\\": .keyboardBackslash, ";": .keyboardSemicolon, "'": .keyboardQuote,
         ",": .keyboardComma, ".": .keyboardPeriod, "/": .keyboardSlash,
-        "`": .keyboardGraveAccentAndTilde, " ": .keyboardSpacebar,
+        "`": .keyboardGraveAccentAndTilde, " ": .keyboardSpacebar
     ]
 
     #if targetEnvironment(macCatalyst)
@@ -1654,9 +1654,7 @@ extension Ghostty.TerminalView {
         }
 
         // Send \r (CR, 0x0D) to session
-        if let data = "\r".data(using: .utf8) {
-            sendUserInput(data)
-        }
+        sendUserInput(Data("\r".utf8))
     }
 
     @objc func handleModifiedReturnKey(_ command: UIKeyCommand) {
@@ -1798,9 +1796,7 @@ extension Ghostty.TerminalView {
     @objc func handleShiftTabKey(_ command: UIKeyCommand) {
         commitKoreanCompositionIfNeeded(external: true)
         // Send backtab escape sequence \e[Z to session
-        if let data = "\u{1B}[Z".data(using: .utf8) {
-            sendUserInput(data)
-        }
+        sendUserInput(Data("\u{1B}[Z".utf8))
     }
 
     /// Handle function key UIKeyCommands (F1-F12 with optional modifiers).

@@ -123,8 +123,8 @@ public struct ApprovalProjection: Sendable, Hashable {
             "watch_review_allowed": .bool(watchReviewAllowed),
             "source_presence": JSONWriter.object([
                 "last_seen_at": presence.lastSeenAt.map { JSONValue($0) },
-                "waiting": .bool(presence.isWaiting),
-            ]),
+                "waiting": .bool(presence.isWaiting)
+            ])
         ])
     }
 
@@ -192,7 +192,7 @@ public struct ApprovalRecord: Sendable, Hashable {
         .object([
             "spec": spec.json,
             "request_hash": .string(requestHash),
-            "projection": projection.json,
+            "projection": projection.json
         ])
     }
 }

@@ -29,7 +29,7 @@ final class SettingsRefreshHub {
 
     /// Groups whose keys feed the generated GhosttyKit config.
     static let ghosttyGroups: Set<SettingGroup> = [
-        .theme, .font, .cursor, .selection, .transparency, .keybinds, .terminal, .keyboard,
+        .theme, .font, .cursor, .selection, .transparency, .keybinds, .terminal, .keyboard
     ]
 
     /// Live-apply consumers that are per-instance (terminal views, keyboard
@@ -45,7 +45,7 @@ final class SettingsRefreshHub {
     /// start), so posting for them would be exactly that no-op.
     private static let liveApplyNotifications: [String: Notification.Name] = [
         Settings.Keyboard.forceASCIIKeyboard.name: .forceASCIIKeyboardChanged,
-        Settings.KeyboardToolbar.showWithHardwareKeyboard.name: .keyboardToolbarHardwareSettingChanged,
+        Settings.KeyboardToolbar.showWithHardwareKeyboard.name: .keyboardToolbarHardwareSettingChanged
     ]
 
     @discardableResult

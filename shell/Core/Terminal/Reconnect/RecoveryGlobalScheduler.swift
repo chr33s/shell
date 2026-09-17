@@ -140,8 +140,7 @@ final class RecoveryGlobalScheduler {
     fileprivate func release(routeKey: String) {
         activeTotal = max(0, activeTotal - 1)
         if let count = activePerRoute[routeKey] {
-            if count <= 1 { activePerRoute.removeValue(forKey: routeKey) }
-            else { activePerRoute[routeKey] = count - 1 }
+            if count <= 1 { activePerRoute.removeValue(forKey: routeKey) } else { activePerRoute[routeKey] = count - 1 }
         }
         drain()
     }

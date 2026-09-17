@@ -309,7 +309,7 @@ enum KeyCode: String, Codable, CaseIterable, Hashable, Sendable {
             // Carbon is unavailable these chords retain the base-layout
             // fallback; do not guess a US key from a composed character.
             let characters = uiKey.characters
-            if modifiers.intersection([.control, .alternate]).isEmpty,
+            if modifiers.isDisjoint(with: [.control, .alternate]),
                let characterKey = Self.printableKey(for: characters),
                !modifiers.contains(.shift) || characters.first?.isLetter == true {
                 logicalKey = characterKey

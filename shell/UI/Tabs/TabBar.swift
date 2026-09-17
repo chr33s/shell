@@ -354,7 +354,7 @@ struct TabBar: View {
     /// can be retired — see the note in the unfinished-features run).
     @State private var tabHover = TabHoverController()
 
-    /// Gates the attention dot on tabs. (id=agent-attention)
+    // Gates the attention dot on tabs. (id=agent-attention)
 
     // MARK: - Body
 

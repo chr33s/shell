@@ -16,9 +16,9 @@ class AppearanceManager: ObservableObject {
 
     /// Appearance mode options
     enum AppearanceMode: String, CaseIterable {
-        case automatic = "automatic"
-        case light = "light"
-        case dark = "dark"
+        case automatic
+        case light
+        case dark
 
         var displayName: String {
             switch self {
@@ -50,7 +50,7 @@ class AppearanceManager: ObservableObject {
     }
 
     private static let ownedKeys: Set<String> = [
-        Settings.Theme.appearanceMode.name, Settings.Theme.themedUI.name,
+        Settings.Theme.appearanceMode.name, Settings.Theme.themedUI.name
     ]
 
     /// True while `reload(keys:)` re-assigns properties from the store.

@@ -24,7 +24,7 @@ struct WindowSceneReporter: UIViewRepresentable {
     /// Catalyst: reports this window's current system frame on every layout pass
     /// (covers resize + initial appearance), so the frame is tracked continuously
     /// rather than only at save time.
-    var onFrameUpdate: ((CGRect) -> Void)? = nil
+    var onFrameUpdate: ((CGRect) -> Void)?
 
     func makeUIView(context: Context) -> WindowSceneReportingView {
         let view = WindowSceneReportingView()

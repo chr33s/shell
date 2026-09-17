@@ -94,7 +94,7 @@ struct RecoveryDiagnosticRing: Sendable {
                 event.kind.rawValue,
                 Self.describe(event.state),
                 "gen=\(event.generation)",
-                "attempt=\(event.attemptOrdinal)",
+                "attempt=\(event.attemptOrdinal)"
             ]
             if let stage = event.stage { parts.append("stage=\(stage.rawValue)") }
             if let failure = event.failure {

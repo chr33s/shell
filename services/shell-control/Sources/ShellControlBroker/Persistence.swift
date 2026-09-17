@@ -72,7 +72,7 @@ public enum BrokerSnapshotCodec {
             "notifications": .array(store.notifications.values.map { event in
                 .object([
                     "account_id": JSONValue(store.notificationAccounts[event.eventID] ?? event.originID),
-                    "event": event.json,
+                    "event": event.json
                 ])
             }),
             "challenges": .array(store.challenges.values.map(encodeChallenge)),
@@ -82,7 +82,7 @@ public enum BrokerSnapshotCodec {
                     "origin_id": JSONValue(record.originID),
                     "mutation_id": JSONValue(record.mutationID),
                     "body_hash": .string(record.bodyHash),
-                    "result": record.result,
+                    "result": record.result
                 ])
             }),
             "receipts": JSONValue(strings: store.receipts.map(\.rawValue).sorted()),
@@ -102,16 +102,16 @@ public enum BrokerSnapshotCodec {
                     "request_id": JSONValue(tombstone.requestID),
                     "request_hash": .string(tombstone.requestHash),
                     "resolution": .string(tombstone.resolution.rawValue),
-                    "consumed_by": tombstone.consumedBy.map { JSONValue($0) },
+                    "consumed_by": tombstone.consumedBy.map { JSONValue($0) }
                 ])
             }),
             "change_log": .array(store.changeLog.map { event in
                 JSONWriter.object([
                     "event": event.json,
                     "account_id": store.scopes[event.eventID].map { JSONValue($0.accountID) },
-                    "origin_id": store.scopes[event.eventID]?.originID.map { JSONValue($0) },
+                    "origin_id": store.scopes[event.eventID]?.originID.map { JSONValue($0) }
                 ])
-            }),
+            })
         ])
     }
 
@@ -124,7 +124,7 @@ public enum BrokerSnapshotCodec {
             "label": .string(device.label),
             "grants": JSONValue(strings: device.grants.map(\.rawValue).sorted()),
             "revoked_at": device.revokedAt.map { JSONValue($0) },
-            "push": device.push?.json,
+            "push": device.push?.json
         ])
     }
 
@@ -152,7 +152,7 @@ public enum BrokerSnapshotCodec {
             "account_id": JSONValue(origin.accountID),
             "label": .string(origin.label),
             "secret_verifier": .string(origin.secretVerifier),
-            "revoked_at": origin.revokedAt.map { JSONValue($0) },
+            "revoked_at": origin.revokedAt.map { JSONValue($0) }
         ])
     }
 
@@ -175,7 +175,7 @@ public enum BrokerSnapshotCodec {
             "waiting_request_ids": JSONValue(strings: run.waitingRequestIDs.map(\.rawValue).sorted()),
             "job_version": .number(.int(run.jobVersion)),
             "job_state": .string(run.jobState.rawValue),
-            "cancellation_requested_at": run.cancellationRequestedAt.map { JSONValue($0) },
+            "cancellation_requested_at": run.cancellationRequestedAt.map { JSONValue($0) }
         ])
     }
 
@@ -207,7 +207,7 @@ public enum BrokerSnapshotCodec {
             "consumed_by": entry.consumedBy.map { JSONValue($0) },
             "permit": entry.permit?.json,
             "receipt_id": entry.receiptID.map { JSONValue($0) },
-            "withdrawn_at": entry.withdrawnAt.map { JSONValue($0) },
+            "withdrawn_at": entry.withdrawnAt.map { JSONValue($0) }
         ])
     }
 
@@ -235,7 +235,7 @@ public enum BrokerSnapshotCodec {
             "action": .string(challenge.action.rawValue),
             "request": challenge.request.json,
             "expires_at": JSONValue(challenge.expiresAt),
-            "consumed_at": challenge.consumedAt.map { JSONValue($0) },
+            "consumed_at": challenge.consumedAt.map { JSONValue($0) }
         ])
     }
 
@@ -265,7 +265,7 @@ public enum BrokerSnapshotCodec {
             "is_refresh": .bool(record.isRefresh),
             "enrollment_id": record.enrollmentID.map { JSONValue($0) },
             "device_code": record.deviceCode.map { .string($0) },
-            "revoked": .bool(record.revoked),
+            "revoked": .bool(record.revoked)
         ])
     }
 
@@ -292,7 +292,7 @@ public enum BrokerSnapshotCodec {
             "label": .string(record.label),
             "challenge": .string(record.challenge),
             "expires_at": JSONValue(record.expiresAt),
-            "completed_at": record.completedAt.map { JSONValue($0) },
+            "completed_at": record.completedAt.map { JSONValue($0) }
         ])
     }
 
@@ -325,7 +325,7 @@ public enum BrokerSnapshotCodec {
             "approved_account_id": record.approvedAccountID.map { JSONValue($0) },
             "grants": JSONValue(strings: record.grants.map(\.rawValue).sorted()),
             "denied_at": record.deniedAt.map { JSONValue($0) },
-            "issued_token_verifier": record.issuedTokenVerifier.map { .string($0) },
+            "issued_token_verifier": record.issuedTokenVerifier.map { .string($0) }
         ])
     }
 
@@ -354,7 +354,7 @@ public enum BrokerSnapshotCodec {
             "command_id": JSONValue(record.commandID),
             "payload_hash": .string(record.payloadHash),
             "result": record.result.json,
-            "recorded_at": JSONValue(record.recordedAt),
+            "recorded_at": JSONValue(record.recordedAt)
         ])
     }
 

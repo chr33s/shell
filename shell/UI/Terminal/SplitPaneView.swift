@@ -165,7 +165,7 @@ extension SplitPaneView {
             "direction": direction,
             "translationX": translationX,
             "velocityX": velocityX,
-            "width": max(bounds.width, 1),
+            "width": max(bounds.width, 1)
         ]
         if let accept {
             userInfo["accept"] = accept

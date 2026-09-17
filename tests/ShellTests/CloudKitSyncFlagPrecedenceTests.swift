@@ -30,7 +30,7 @@ final class CloudKitSyncFlagPrecedenceTests: XCTestCase {
         CloudKitSyncSettings.syncIdentityMetadataKey,
         CloudKitSyncSettings.syncHistoryKey,
         CloudKitSyncSettings.syncKnownHostsKey,
-        CloudKitSyncSettings.syncProfilesKey,
+        CloudKitSyncSettings.syncProfilesKey
     ]
 
     override func setUpWithError() throws {

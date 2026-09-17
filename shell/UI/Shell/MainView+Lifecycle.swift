@@ -334,7 +334,7 @@ extension MainView {
             ("caller", reason),
             ("selected", String(selectedID.uuidString.prefix(8))),
             ("preserved", preserveIDs.count),
-            ("tabs", terminals.count),
+            ("tabs", terminals.count)
         ]
         if let swipe = appTabSwipeState {
             kv.append(("swipeAgeMs", Int((CACurrentMediaTime() - swipe.lastEventAt) * 1000)))
@@ -422,7 +422,6 @@ extension MainView {
         Ghostty.isAppBackgroundedAtomic = true
         #endif
         pauseNetworkMonitorsForBackground()
-
 
         // Defer the heavier MainActor transition off the FrontBoard scene-update
         // transaction. The persistence work inside that transition is then
@@ -837,7 +836,6 @@ extension MainView {
         // search for `FG.gate.flipped`). Subscribers drop network events
         // while that atomic is true; a replay before the gate flip would be
         // drained without effect.
-
 
         // Refresh SSH keys in case new ones synced via iCloud.
         //

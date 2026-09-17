@@ -104,8 +104,7 @@ public actor ProcessRunner: ProcessRunning {
         let stdoutDrain = BoundedPipeDrain(output.fileHandleForReading, limit: outputLimit)
         let stderrDrain = BoundedPipeDrain(errors.fileHandleForReading, limit: outputLimit)
         stdoutDrain.start(); stderrDrain.start()
-        do { try process.run() }
-        catch {
+        do { try process.run() } catch {
             output.fileHandleForReading.readabilityHandler = nil
             errors.fileHandleForReading.readabilityHandler = nil
             try? output.fileHandleForReading.close(); try? errors.fileHandleForReading.close()

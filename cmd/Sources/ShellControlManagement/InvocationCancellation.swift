@@ -43,8 +43,7 @@ public final class InvocationCancellation: @unchecked Sendable {
         let (id, signal) = register { task.cancel() }
         if signal != nil { task.cancel() }
         defer { unregister(id) }
-        do { return try await task.value }
-        catch {
+        do { return try await task.value } catch {
             if let number = caughtSignal() { throw SignalCancellation(signal: number) }
             if task.isCancelled { throw CancellationError() }
             throw error

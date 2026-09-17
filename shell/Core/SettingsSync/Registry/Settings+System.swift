@@ -48,7 +48,7 @@ nonisolated extension Settings {
         /// Key families whose full names are composed at runtime.
         static let prefixRules: [SettingsRegistry.PrefixRule] = [
             .init(prefix: "cloudKitEmptyRecoveryAttempted.", valueType: .bool, policy: .deviceOnly, group: .system,
-                  title: String(localized: "Sync Empty-Store Recovery", comment: "Setting title")),
+                  title: String(localized: "Sync Empty-Store Recovery", comment: "Setting title"))
         ]
 
         static let all: [AnySettingDefinition] = [
@@ -57,7 +57,7 @@ nonisolated extension Settings {
             cloudKitSyncIdentityMetadata.erased, syncSoftwareKeys.erased,
             cloudKitDeviceID.erased,
             cloudKitZoneChangeToken.erased, cloudKitLastSyncDate,
-            applePressAndHold.erased,
+            applePressAndHold.erased
         ]
     }
 
@@ -68,6 +68,6 @@ nonisolated extension Settings {
         Terminal.all, Gestures.all, Prompt.all, SessionRestore.all,
         Keyboard.all, KeyboardToolbar.all, Keybinds.all,
         Connections.all, Tmux.all,
-        System.all,
+        System.all
     ]
 }

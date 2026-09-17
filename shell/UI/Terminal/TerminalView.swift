@@ -22,10 +22,10 @@ extension Ghostty {
     /// or as a character-producing modifier (sends OS-translated character, e.g., @ for ⌥L on German).
     /// Matches Ghostty's `macos-option-as-alt` setting.
     enum OptionKeyAsAlt: String, CaseIterable, Sendable {
-        case off = "off"        // Option produces OS characters (default, correct for international layouts)
-        case on = "on"          // Both Option keys act as terminal Alt (ESC prefix)
-        case left = "left"      // Only left Option acts as Alt
-        case right = "right"    // Only right Option acts as Alt
+        case off                 // Option produces OS characters (default, correct for international layouts)
+        case on                  // Both Option keys act as terminal Alt (ESC prefix)
+        case left                // Only left Option acts as Alt
+        case right               // Only right Option acts as Alt
 
         var displayName: String {
             switch self {
@@ -68,7 +68,6 @@ extension Ghostty {
             }
         }
 
-
         // MARK: - Properties
 
         /// Standard terminal control character mappings for Ctrl+key.
@@ -88,7 +87,7 @@ extension Ghostty {
             "/": 31,   // US
             "?": 127,  // DEL
             "8": 127,  // DEL
-            "`": 0,    // NUL
+            "`": 0    // NUL
         ]
 
         /// US keyboard layout shift mappings for digits and symbols.
@@ -101,7 +100,7 @@ extension Ghostty {
             "\\": "|",
             ";": ":", "'": "\"",
             ",": "<", ".": ">", "/": "?",
-            "`": "~",
+            "`": "~"
         ]
 
         /// Returns the shifted version of a character using US keyboard layout.
@@ -127,7 +126,7 @@ extension Ghostty {
                 "'": .keyboardQuote,
                 ",": .keyboardComma,
                 ".": .keyboardPeriod,
-                " ": .keyboardSpacebar,
+                " ": .keyboardSpacebar
             ]
             // a-z
             let letters: [(Character, UIKeyboardHIDUsage)] = [
@@ -139,13 +138,13 @@ extension Ghostty {
                 ("p", .keyboardP), ("q", .keyboardQ), ("r", .keyboardR),
                 ("s", .keyboardS), ("t", .keyboardT), ("u", .keyboardU),
                 ("v", .keyboardV), ("w", .keyboardW), ("x", .keyboardX),
-                ("y", .keyboardY), ("z", .keyboardZ),
+                ("y", .keyboardY), ("z", .keyboardZ)
             ]
             for (ch, key) in letters { map[ch] = key }
             // 0-9
             let digits: [UIKeyboardHIDUsage] = [
                 .keyboard0, .keyboard1, .keyboard2, .keyboard3, .keyboard4,
-                .keyboard5, .keyboard6, .keyboard7, .keyboard8, .keyboard9,
+                .keyboard5, .keyboard6, .keyboard7, .keyboard8, .keyboard9
             ]
             for (i, key) in digits.enumerated() {
                 map[Character("\(i)")] = key
@@ -181,7 +180,7 @@ extension Ghostty {
 
         /// Cancellables for Combine subscriptions
         var cancellables = Set<AnyCancellable>()
-        
+
         // Window focus observers (multi-window cursor syncing)
         private weak var observedWindow: UIWindow?
         private weak var observedScene: UIScene?
@@ -272,16 +271,16 @@ extension Ghostty {
         var sessionProvidedPwd: String?
 
         /// The current working directory
-        @Published var pwd: String? = nil
+        @Published var pwd: String?
 
         /// The cell size of this surface
         @Published var cellSize: CGSize = .zero
 
         /// Any error while initializing the surface
-        @Published var error: Error? = nil
+        @Published var error: Error?
 
         /// Search state for scrollback search
-        @Published var searchState: Ghostty.SearchState? = nil {
+        @Published var searchState: Ghostty.SearchState? {
             didSet {
                 #if !targetEnvironment(macCatalyst)
                 syncSelectionHandlesForSurfaceActivity()
@@ -319,7 +318,7 @@ extension Ghostty {
         var mouseCaptureOverrideActive: Bool = false
 
         /// Progress report state (for OSC 9;4 progress indicators)
-        @Published var progressReport: Ghostty.Action.ProgressReport? = nil {
+        @Published var progressReport: Ghostty.Action.ProgressReport? {
             didSet {
                 // Cancel any existing timer
                 progressReportTimer?.invalidate()
@@ -347,7 +346,7 @@ extension Ghostty {
             guard let surface = self.surface else { return nil }
             return ghostty_surface_size(surface)
         }
-        
+
         // MARK: Session State
 
         var surface: ghostty_surface_t? {
@@ -637,7 +636,7 @@ extension Ghostty {
 
         // Callback for when SSH authentication is required (auth failure)
         var onAuthenticationRequired: (@MainActor @Sendable (SSHConfig) -> Void)?
-        
+
         // Callback for SSH host key validation
         var onHostKeyValidationRequired: (@MainActor @Sendable (HostKeyValidationRequest, Ghostty.TerminalView) async -> HostKeyValidationResult)?
 
@@ -845,7 +844,7 @@ extension Ghostty {
             ("shell pipe", "|"),
             ("shell tick", "`"),
             ("shell greater", ">"),
-            ("shell less", "<"),
+            ("shell less", "<")
         ]
 
         /// Replace dictation phrases like "shell pipe" with their terminal characters.
@@ -1213,7 +1212,7 @@ extension Ghostty {
         private var nativeScrollbarSnapshotTotal: UInt64?
         private var nativeScrollbarSnapshotOffset: UInt64?
         private var nativeScrollbarSnapshotLen: UInt64?
-        
+
         /// Current scrollbar state (exposed for TerminalScrollView)
         var scrollbar: Ghostty.Action.Scrollbar? {
             // tmux control-mode panes render a viewer-owned terminal while the
@@ -1236,7 +1235,7 @@ extension Ghostty {
                 len: scrollbarLen
             )
         }
-        
+
         /// Whether user is actively selecting text (exposed for TerminalScrollView)
         var isActivelySelecting: Bool {
             #if targetEnvironment(macCatalyst)
@@ -1245,7 +1244,7 @@ extension Ghostty {
             return isSelecting || activeHandleDrag != nil || selectionMouseDragActive
             #endif
         }
-        
+
         // MARK: - Hit Testing
 
         override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
@@ -1263,7 +1262,7 @@ extension Ghostty {
 
         var ghosttyAppRef: Ghostty.App?
         var appPtr: ghostty_app_t?
-        
+
         init(_ app: ghostty_app_t, ghosttyApp: Ghostty.App, uuid: UUID? = nil, connectionConfig: ConnectionConfig = .local(), windowId: String) {
             self.windowId = windowId
             self.ghosttyApp = ghosttyApp
@@ -1282,7 +1281,7 @@ extension Ghostty {
                 UTType.fileURL.identifier,
                 UTType.url.identifier,
                 UTType.pdf.identifier,
-                UTType.plainText.identifier,
+                UTType.plainText.identifier
             ])
             pasteConfiguration = terminalPasteConfiguration
             refreshPanePresentationTitle()
@@ -1325,18 +1324,18 @@ extension Ghostty {
             }
 
             Ghostty.logger.info("TerminalView initialized for window \(windowId), deferring surface creation until view is in window")
-            
+
             // Setup view properties
             setupView()
-            
+
             // Setup keyboard
             setupKeyboard()
         }
-        
+
         required init?(coder: NSCoder) {
             fatalError("init(coder:) is not supported for this view")
         }
-        
+
         nonisolated deinit {
             // Safety net - surface should already be freed by cleanup()
             // This handles edge cases where cleanup() wasn't called
@@ -1525,10 +1524,10 @@ extension Ghostty {
             // Use clear background to allow window-level transparency to show through
             backgroundColor = .clear
             isOpaque = false
-            
+
             // Enable user interaction
             isUserInteractionEnabled = true
-            
+
             // FIX: Set content scale to match screen for Retina rendering
             // By default UIView has contentScaleFactor = 1.0, but we need 2.0+ for Retina
 #if os(visionOS)
@@ -1545,7 +1544,7 @@ extension Ghostty {
                 self.contentScaleFactor = displayScale
             }
 #endif
-            
+
             // Log display properties
             Ghostty.logger.info("Display properties:")
             Ghostty.logger.info("   contentScaleFactor: \(self.contentScaleFactor) (set to match screen)")
@@ -1559,7 +1558,7 @@ extension Ghostty {
                 Ghostty.logger.info("   Screen nativeScale: \(screen.nativeScale)")
             }
 #endif
-            
+
             // Add tap gesture to show keyboard
             // Configure to not interfere with touch delivery for mouse capture mode
             let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleTap))
@@ -1599,7 +1598,7 @@ extension Ghostty {
             // Finger or pencil contacts, not mouse/trackpad
             selectionPan.allowedTouchTypes = [
                 NSNumber(value: UITouch.TouchType.direct.rawValue),
-                NSNumber(value: UITouch.TouchType.pencil.rawValue),
+                NSNumber(value: UITouch.TouchType.pencil.rawValue)
             ]
             addGestureRecognizer(selectionPan)
             self.selectionPanGesture = selectionPan
@@ -1609,7 +1608,7 @@ extension Ghostty {
             selectionLongPress.minimumPressDuration = 0.5
             selectionLongPress.allowedTouchTypes = [
                 NSNumber(value: UITouch.TouchType.direct.rawValue),
-                NSNumber(value: UITouch.TouchType.pencil.rawValue),
+                NSNumber(value: UITouch.TouchType.pencil.rawValue)
             ]
             selectionLongPress.isEnabled = false
             selectionLongPress.delegate = self
@@ -1779,7 +1778,7 @@ extension Ghostty {
             setupCollapsedKeyboardToolbarButton()
 
         }
-        
+
         #if !targetEnvironment(macCatalyst)
         /// Apply current touch mode settings to gesture recognizers
         func applyTouchMode() {
@@ -2022,9 +2021,9 @@ extension Ghostty {
                 }
             }
         }
-        
+
         // MARK: - Window Focus Management
-        
+
         private func windowIsActiveForFocus() -> Bool {
             // The override may only NARROW focus, never claim it while the scene
             // is not foreground-active. `updateWindowFocusState` leaves it armed
@@ -2208,11 +2207,11 @@ extension Ghostty {
         private func registerWindowFocusObservers() {
             guard let window = window else { return }
             if observedWindow === window { return }
-            
+
             unregisterWindowFocusObservers()
             observedWindow = window
             observedScene = window.windowScene
-            
+
             let center = NotificationCenter.default
             let didBecomeKey = center.addObserver(
                 forName: UIWindow.didBecomeKeyNotification,
@@ -2228,9 +2227,9 @@ extension Ghostty {
             ) { [weak self] _ in
                 MainActor.assumeIsolated { self?.syncFocusForWindowStateChange() }
             }
-            
+
             windowFocusObservers = [didBecomeKey, didResignKey]
-            
+
             if let scene = observedScene {
                 let didActivate = center.addObserver(
                     forName: UIScene.didActivateNotification,
@@ -2259,7 +2258,7 @@ extension Ghostty {
                 windowFocusObservers.append(contentsOf: [didActivate, willDeactivate])
             }
         }
-        
+
         private func unregisterWindowFocusObservers() {
             guard !windowFocusObservers.isEmpty else { return }
             let center = NotificationCenter.default
@@ -2270,7 +2269,7 @@ extension Ghostty {
             observedWindow = nil
             observedScene = nil
         }
-        
+
         /// Background queue for Ghostty surface API calls that may block on the termio mailbox.
         /// When the mailbox is full (e.g., during heavy zellij output), calls like `ghostty_surface_set_focus`,
         /// `ghostty_surface_mouse_button`, and `ghostty_surface_key` can block indefinitely.
@@ -2747,7 +2746,7 @@ extension Ghostty {
         private func syncFocusForWindowStateChange(sceneIsDeactivating: Bool = false) {
             let windowActive = windowIsActiveForFocus()
             #if !targetEnvironment(macCatalyst)
-            if (!windowActive || sceneIsDeactivating),
+            if !windowActive || sceneIsDeactivating,
                shouldPreserveFirstResponderForSoftwareKeyboardAppTransition(sceneIsDeactivating: sceneIsDeactivating) {
                 applyGhosttyFocus(true)
                 return
@@ -2971,7 +2970,7 @@ extension Ghostty {
                 addSubview(host.view)
                 NSLayoutConstraint.activate([
                     host.view.centerXAnchor.constraint(equalTo: centerXAnchor),
-                    host.view.centerYAnchor.constraint(equalTo: centerYAnchor),
+                    host.view.centerYAnchor.constraint(equalTo: centerYAnchor)
                 ])
                 inputModeOverlayHost = host
 
@@ -3021,7 +3020,7 @@ extension Ghostty {
                 addSubview(host.view)
                 NSLayoutConstraint.activate([
                     host.view.centerXAnchor.constraint(equalTo: centerXAnchor),
-                    host.view.centerYAnchor.constraint(equalTo: centerYAnchor),
+                    host.view.centerYAnchor.constraint(equalTo: centerYAnchor)
                 ])
                 mouseCaptureOverlayHost = host
 
@@ -3054,7 +3053,7 @@ extension Ghostty {
         // NOTE: We do NOT override layerClass to CAMetalLayer.
         // Ghostty's Metal renderer creates and manages its own CAMetalLayer,
         // which it adds as a sublayer to our view's default layer (per Metal.zig iOS path)
-        
+
         override func didMoveToWindow() {
             super.didMoveToWindow()
 
@@ -3071,7 +3070,7 @@ extension Ghostty {
                 #endif
                 return
             }
-            
+
             registerWindowFocusObservers()
 
             clearInputAssistantsRecursively()
@@ -3083,7 +3082,7 @@ extension Ghostty {
                 Ghostty.logger.info("View added to window, creating Ghostty surface now...")
                 createSurface()
             }
-            
+
             syncFocusForWindowStateChange()
 
             // Defense-in-depth for cold start: if this terminal should be focused
@@ -3111,7 +3110,7 @@ extension Ghostty {
 
             sizeDidChange(frame.size)
         }
-        
+
         // MARK: - First Frame Readiness
 
         /// True once the renderer has presented at least one frame for the
@@ -3142,7 +3141,7 @@ extension Ghostty {
         private func createSurface() {
             surfaceController.createSurfaceIfNeeded()
         }
-        
+
         override func layoutSubviews() {
             super.layoutSubviews()
 
@@ -3209,7 +3208,7 @@ extension Ghostty {
             }
             #endif
         }
-        
+
         override var canBecomeFirstResponder: Bool {
             return true
         }
@@ -3247,7 +3246,7 @@ extension Ghostty {
                 Ghostty.logger.info("becomeFirstResponder() BLOCKED on terminal \(self.uuid.uuidString.prefix(8)) - not logically focused")
                 return false
             }
-            
+
             guard windowIsActiveForFocus() else {
                 Ghostty.logger.info("becomeFirstResponder() BLOCKED on terminal \(self.uuid.uuidString.prefix(8)) - window inactive")
                 return false
@@ -3523,7 +3522,7 @@ extension Ghostty {
             }
         }
         #endif
-        
+
         func insertText(_ text: String) {
             // Sentinel key names are not text. Drop before any flag is consumed.
             if KeyCode.sentinelKey(for: text) != nil {
@@ -3548,7 +3547,6 @@ extension Ghostty {
                 didHandleSessionPickerKey = false
                 return
             }
-
 
             var finalText = text.precomposedStringWithCanonicalMapping
             #if targetEnvironment(macCatalyst)
@@ -3617,13 +3615,9 @@ extension Ghostty {
                Date().timeIntervalSince(lastSpace) < 0.3 {
                 lastSpaceInsertTime = nil
                 // Delete the previous space from the terminal
-                if let del = "\u{7F}".data(using: .utf8) {
-                    sendUserInput(del, documentMutation: .backspace)
-                }
+                sendUserInput(Data("\u{7F}".utf8), documentMutation: .backspace)
                 // Send ". " to the terminal
-                if let data = ". ".data(using: .utf8) {
-                    sendUserInput(data, documentMutation: .text(". "))
-                }
+                sendUserInput(Data(". ".utf8), documentMutation: .text(". "))
                 return
             }
             lastSpaceInsertTime = (finalText == " ") ? Date() : nil
@@ -3637,8 +3631,8 @@ extension Ghostty {
                 syncIMEPreedit(nil)
             }
 
-            if (finalText == "\n" || finalText == "\r"),
-               (!activeKeyboardModifiers.isEmpty || virtualModTapModifier != nil),
+            if finalText == "\n" || finalText == "\r",
+               !activeKeyboardModifiers.isEmpty || virtualModTapModifier != nil,
                sendEnterKeyViaGhostty(toolbarModifiers: activeKeyboardModifiers, virtualModifier: virtualModTapModifier) {
                 mutateInputDocument(.reset)
                 DispatchQueue.main.async { [weak self] in
@@ -3661,7 +3655,7 @@ extension Ghostty {
                     self.notifyInputDelegateOfExternalChange { /* buffer already reset */ }
                 }
             }
-            
+
             // Apply active toolbar modifiers to the typed character.
             // Route through Ghostty's key encoding pipeline when possible for
             // correct CSI u / kitty protocol support.
@@ -3762,7 +3756,7 @@ extension Ghostty {
                     break
                 }
             }
-            
+
             // Check for Ctrl-C (ASCII 3) and interrupt local shell if applicable
             #if !targetEnvironment(macCatalyst)
             if finalText == "\u{03}", let localSession = session as? LocalShellSession,
@@ -3771,10 +3765,10 @@ extension Ghostty {
                 return
             }
             #endif
-            
+
             // Send input to Ghostty which will route it appropriately
             guard let data = finalText.data(using: .utf8) else { return }
-            //Ghostty.logger.debug("TerminalView.insertText: Sending bytes: \(data.hexDescription)")
+            // Ghostty.logger.debug("TerminalView.insertText: Sending bytes: \(data.hexDescription)")
             sendUserInput(data, documentMutation: .text(finalText))
             // Some dictation deliveries have no placeholder or alternatives.
             // Retain a narrowly scoped fallback for their immediate replace.
@@ -3790,7 +3784,7 @@ extension Ghostty {
                 bulkDictationDocumentGeneration = correctionContext.documentGeneration
             }
         }
-        
+
         func deleteBackward() {
             if handleKoreanCompositionDeleteIfNeeded() {
                 return
@@ -3807,13 +3801,12 @@ extension Ghostty {
             NotificationCenter.default.post(name: .ghosttyDidReceiveInput, object: self)
 
             // Send backspace/delete character (DEL = 0x7F)
-            guard let data = "\u{7F}".data(using: .utf8) else { return }
-            sendUserInput(data, documentMutation: .backspace)
+            sendUserInput(Data("\u{7F}".utf8), documentMutation: .backspace)
 
             // Clear one-shot modifiers (backspace consumes them too)
             activeToolbarView?.clearOneShotModifiers()
         }
-        
+
         func handleSpecialKey(_ key: UIKey) -> String? {
             let modifiers = key.modifierFlags
             // Sentinel characters are a key name; the keyCode branches below
@@ -3825,7 +3818,7 @@ extension Ghostty {
             if key.keyCode == .keyboardTab && modifiers.contains(.shift) {
                 return "\u{1B}[Z" // Shift-Tab (backtab escape sequence)
             }
-            
+
             // Check for forward delete before character fallback. Some iPadOS
             // hardware keyboards expose Forward Delete with a DEL character,
             // so checking `characters` first collapses it into backspace.
@@ -3852,7 +3845,7 @@ extension Ghostty {
                     return String(char)
                 }
             }
-            
+
             // Handle Ctrl combinations explicitly
             if modifiers.contains(.control) {
                 if let char = characters.lowercased().first {
@@ -3863,7 +3856,7 @@ extension Ghostty {
                     }
                 }
             }
-            
+
             // Handle arrow keys and navigation keys
             // IMPORTANT: Don't handle keys with Command modifier - return nil to let UIKeyCommand handle them
             // This allows CMD+arrow for split navigation to work properly
@@ -3908,12 +3901,12 @@ extension Ghostty {
             default:
                 break
             }
-            
+
             return nil
         }
-        
+
         // MARK: - Size Management
-        
+
         /// Updates the PTY/SSH session with the current terminal grid size
         /// Note: Only needed for external I/O mode (SSH, iOS local shell)
         /// In Catalyst PTY mode, Ghostty manages window size internally
@@ -4075,7 +4068,7 @@ extension Ghostty {
             }
             surfaceController.sizeDidChange(size)
         }
-        
+
         /// Returns `true` when `focused == true` and `becomeFirstResponder()`
         /// succeeded synchronously (meaning UIKit already auto-resigned the
         /// previous first responder). Callers use this to decide whether
@@ -4346,7 +4339,7 @@ extension Ghostty.TerminalView: GhosttyActionDelegate {
             connectionHealth = health
         }
     }
-    
+
     func handleBell() {
         ringBell()
     }
@@ -4375,7 +4368,7 @@ extension Ghostty.TerminalView: GhosttyActionDelegate {
             controller.notePaneContentChanged()
         }
     }
-    
+
     func handleCellSizeChange(width: CGFloat, height: CGFloat) {
         self.cellSize = CGSize(width: width, height: height)
         Ghostty.logger.info("Cell size changed: \(width)x\(height)")
@@ -4402,7 +4395,7 @@ extension Ghostty.TerminalView: GhosttyActionDelegate {
             NotificationCenter.default.post(name: .terminalLayoutInvalidation, object: nil)
         }
     }
-    
+
     func handleMouseShape(shape: Int) {
         #if targetEnvironment(macCatalyst)
         let newCursor = nsCursorForShape(shape)
@@ -4631,7 +4624,7 @@ extension Ghostty.TerminalView: GhosttyActionDelegate {
         // Notify MainView to re-render without search overlay
         NotificationCenter.default.post(name: .ghosttySearchStateChanged, object: self)
         Ghostty.logger.info("Search ended")
-        
+
         // Restore focus to terminal
         self.becomeFirstResponder()
     }
@@ -4700,7 +4693,7 @@ extension Ghostty.TerminalView: GhosttyActionDelegate {
             return action.hasPrefix("scroll_to_row:")
         }
     }
-    
+
     private func updateScrollIndicatorLayout() {
         guard let indicator = scrollIndicator else { return }
 
@@ -5002,7 +4995,7 @@ extension Ghostty.TerminalView: KeyboardButtonDelegate {
         // Notify that input was received (for scroll-to-bottom behavior)
         NotificationCenter.default.post(name: .ghosttyDidReceiveInput, object: self)
 
-        if (key == "\r" || key == "\n"),
+        if key == "\r" || key == "\n",
            !modifiers.isEmpty,
            sendEnterKeyViaGhostty(toolbarModifiers: modifiers) {
             notifyInputDelegateOfExternalChange {

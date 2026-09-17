@@ -31,7 +31,7 @@ nonisolated extension Settings {
 
         static let all: [AnySettingDefinition] = [
             terminalTypeLocal.erased, terminalTypeRemote.erased, localShellCommand.erased,
-            scrollbackLimit.erased,
+            scrollbackLimit.erased
         ]
     }
 
@@ -55,7 +55,7 @@ nonisolated extension Settings {
 
         static let all: [AnySettingDefinition] = [
             scrollMode.erased, lineScrollback.erased, rubberBandScrollback.erased,
-            twoFingerLongPressDuration.erased,
+            twoFingerLongPressDuration.erased
         ]
     }
 
@@ -69,7 +69,7 @@ nonisolated extension Settings {
             title: String(localized: "Blank Line Before Prompt", comment: "Setting title"))
 
         static let all: [AnySettingDefinition] = [
-            useTransientPrompt.erased, addNewline.erased,
+            useTransientPrompt.erased, addNewline.erased
         ]
     }
 
@@ -94,7 +94,7 @@ nonisolated extension Settings {
 
         static let all: [AnySettingDefinition] = [
             sessionPersistence.erased, scrollbackPersistence.erased, restorationInProgress.erased,
-            restorationConsecutiveFailures.erased, restorationLastFailureTimestamp.erased,
+            restorationConsecutiveFailures.erased, restorationLastFailureTimestamp.erased
         ]
     }
 }

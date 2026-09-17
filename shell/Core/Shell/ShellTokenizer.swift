@@ -20,9 +20,9 @@ nonisolated final class ShellTokenizer: @unchecked Sendable {
     // These are embedded into word text so the parser can reconstruct
     // .singleQuoted / .doubleQuoted ShellWord nodes.
     static let singleQuoteStart: Character = "\u{E001}"
-    static let singleQuoteEnd:   Character = "\u{E002}"
+    static let singleQuoteEnd: Character = "\u{E002}"
     static let doubleQuoteStart: Character = "\u{E003}"
-    static let doubleQuoteEnd:   Character = "\u{E004}"
+    static let doubleQuoteEnd: Character = "\u{E004}"
 
     // `$@` expansion markers (interpreter-side): `fieldSeparator` joins the
     // positional params and forces a field break even inside double quotes —
@@ -31,7 +31,7 @@ nonisolated final class ShellTokenizer: @unchecked Sendable {
     // `"$@"` can vanish instead of yielding one empty field. Both are scrubbed
     // from any expansion that doesn't field-split (see finalizeScalarExpansion).
     static let fieldSeparator: Character = "\u{E005}"
-    static let emptyAtMarker:  Character = "\u{E006}"
+    static let emptyAtMarker: Character = "\u{E006}"
 
     private let source: String
     private var chars: String.UnicodeScalarView
@@ -542,14 +542,13 @@ nonisolated final class ShellTokenizer: @unchecked Sendable {
         // `> >(cmd)`. Consume the whole `<(…)` or `>(…)` (with matching
         // parens) so the parser doesn't misread `<` as another redirection.
         if let first = currentChar(),
-           (first == "<" || first == ">"),
+           first == "<" || first == ">",
            let next = peekChar(), next == "(" {
             result.append(String(advance()!))  // `<` or `>`
             result.append(String(advance()!))  // `(`
             var depth = 1
             while let c = currentChar(), depth > 0 {
-                if c == "(" { depth += 1 }
-                else if c == ")" {
+                if c == "(" { depth += 1 } else if c == ")" {
                     depth -= 1
                     if depth == 0 {
                         result.append(String(advance()!))

@@ -176,7 +176,7 @@ final class ToolbarLayoutEditorController: UIViewController {
             collectionView.topAnchor.constraint(equalTo: view.topAnchor),
             collectionView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            collectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            collectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor)
         ])
     }
 
@@ -196,7 +196,7 @@ final class ToolbarLayoutEditorController: UIViewController {
                 .delete(displayed: .whenEditing, actionHandler: { [weak self] in
                     self?.removeSlot(slot)
                 }),
-                .reorder(displayed: .whenEditing),
+                .reorder(displayed: .whenEditing)
             ]
         }
 
@@ -472,7 +472,7 @@ final class ToolbarLayoutEditorController: UIViewController {
                 let font = UIFont.monospacedSystemFont(ofSize: 13, weight: .regular)
                 let attributes: [NSAttributedString.Key: Any] = [
                     .font: font,
-                    .foregroundColor: foreground,
+                    .foregroundColor: foreground
                 ]
                 let attributed = NSAttributedString(string: text, attributes: attributes)
                 let textSize = attributed.size()

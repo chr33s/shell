@@ -29,7 +29,7 @@ class KeyboardToolbarManager {
         Settings.KeyboardToolbar.config.name,
         Settings.KeyboardToolbar.customKeys.name,
         Settings.KeyboardToolbar.drawerOpenByDefault.name,
-        Settings.KeyboardToolbar.drawerToggleMode.name,
+        Settings.KeyboardToolbar.drawerToggleMode.name
     ]
 
     @ObservationIgnored private var isReloading = false

@@ -190,7 +190,7 @@ class KeyboardAccessoryView: UIInputView {
             bottomStripTintView.topAnchor.constraint(equalTo: bottomStripBlurView.contentView.topAnchor),
             bottomStripTintView.leadingAnchor.constraint(equalTo: bottomStripBlurView.contentView.leadingAnchor),
             bottomStripTintView.trailingAnchor.constraint(equalTo: bottomStripBlurView.contentView.trailingAnchor),
-            bottomStripTintView.bottomAnchor.constraint(equalTo: bottomStripBlurView.contentView.bottomAnchor),
+            bottomStripTintView.bottomAnchor.constraint(equalTo: bottomStripBlurView.contentView.bottomAnchor)
         ])
         registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (self: KeyboardAccessoryView, _: UITraitCollection) in
             self.bottomStripTintView.backgroundColor = self.toolbarView.glassTintColor(for: self.traitCollection)

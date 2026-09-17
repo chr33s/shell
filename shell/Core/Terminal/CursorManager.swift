@@ -130,7 +130,7 @@ class CursorManager {
     private static let ownedKeys: Set<String> = [
         Settings.Cursor.blinkEnabled.name, Settings.Cursor.blinkMode.name, Settings.Cursor.style.name,
         Settings.Cursor.effect.name, Settings.Cursor.color.name, Settings.Cursor.textColor.name,
-        Settings.Cursor.opacity.name, Settings.Cursor.thickness.name, Settings.Cursor.height.name,
+        Settings.Cursor.opacity.name, Settings.Cursor.thickness.name, Settings.Cursor.height.name
     ]
 
     /// True while `reload(keys:)` re-assigns properties from the store.
@@ -227,7 +227,6 @@ class CursorManager {
         }
     }
 
-
     // MARK: - Cursor Effect State
 
     /// Returns true if a cursor effect is enabled
@@ -290,7 +289,7 @@ class CursorManager {
             // Mac Catalyst explicit path
             Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/shaders/\(filename)"),
             // Fallback paths
-            Bundle.main.bundleURL.appendingPathComponent("Resources/shaders/\(filename)"),
+            Bundle.main.bundleURL.appendingPathComponent("Resources/shaders/\(filename)")
         ]
 
         for path in possiblePaths.compactMap({ $0 }) {
@@ -391,7 +390,7 @@ class CursorManager {
             Bundle.main.bundleURL.appendingPathComponent("shaders/cursor_aurora_template.glsl"),
             Bundle.main.resourceURL?.appendingPathComponent("shaders/cursor_aurora_template.glsl"),
             Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/shaders/cursor_aurora_template.glsl"),
-            Bundle.main.bundleURL.appendingPathComponent("Resources/shaders/cursor_aurora_template.glsl"),
+            Bundle.main.bundleURL.appendingPathComponent("Resources/shaders/cursor_aurora_template.glsl")
         ]
 
         var templateSource: String?

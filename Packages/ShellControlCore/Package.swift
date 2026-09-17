@@ -9,12 +9,12 @@ let package = Package(
         .macOS(.v26),
         .iOS(.v26),
         .watchOS(.v26),
-        .visionOS(.v26),
+        .visionOS(.v26)
     ],
     products: [
         .library(name: "ShellControlProtocol", targets: ["ShellControlProtocol"]),
         .library(name: "ShellControlSecurity", targets: ["ShellControlSecurity"]),
-        .library(name: "ShellControlClient", targets: ["ShellControlClient"]),
+        .library(name: "ShellControlClient", targets: ["ShellControlClient"])
     ],
     targets: [
         .target(name: "ShellControlProtocol", path: "Sources/Protocol"),
@@ -32,6 +32,6 @@ let package = Package(
             name: "ShellControlCoreTests",
             dependencies: ["ShellControlProtocol", "ShellControlSecurity", "ShellControlClient"],
             path: "Tests/ShellControlCoreTests"
-        ),
+        )
     ]
 )

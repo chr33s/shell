@@ -129,8 +129,7 @@ public actor DaemonCore {
                 continue
             }
             let record: ApprovalRecord
-            do { record = try await client.approval(requestID) }
-            catch { continue } // no authenticated state: retain the candidate
+            do { record = try await client.approval(requestID) } catch { continue } // no authenticated state: retain the candidate
 
             if classification == "uncertain" {
                 let receipt = Receipt(
@@ -146,7 +145,7 @@ public actor DaemonCore {
                 let mutationID = ControlID.random()
                 let payloadValue = JSONValue.object([
                     "mutation_id": JSONValue(mutationID), "run_id": JSONValue(record.spec.runID),
-                    "request_hash": .string(record.requestHash),
+                    "request_hash": .string(record.requestHash)
                 ])
                 let payload = String(decoding: try JSONCanonicalization.canonicalize(payloadValue), as: UTF8.self)
                 try journal.append(.recoveryQueued(mutationID: mutationID, kind: "withdraw", requestID: requestID, payload: payload))
@@ -215,7 +214,7 @@ public actor DaemonCore {
             "store_loaded": .bool(true),
             "ipc_responsive": .bool(true),
             "origin_authenticated": .bool(originAuthenticationIsFresh),
-            "recovery_pending": .number(.int(Int64(recoveryPendingCount))),
+            "recovery_pending": .number(.int(Int64(recoveryPendingCount)))
         ])
     }
 
@@ -333,7 +332,7 @@ public actor DaemonCore {
             "run_id": JSONValue(runID),
             "job_id": JSONValue(jobID),
             "run_capability": .string(capability),
-            "operation_schemas": JSONValue(strings: [ExecOperation.schema]),
+            "operation_schemas": JSONValue(strings: [ExecOperation.schema])
         ])
     }
 

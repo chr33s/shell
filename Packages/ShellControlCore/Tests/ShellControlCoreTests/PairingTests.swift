@@ -105,7 +105,7 @@ final class PairingTests: XCTestCase {
             "v": 1,
             "type": "control.pairing.v1",
             "broker_url": "https://control.example",
-            "start_enrollment": false,
+            "start_enrollment": false
         ]
         XCTAssertNoThrow(try ControlPairingMessage(json: valid))
 
@@ -113,7 +113,7 @@ final class PairingTests: XCTestCase {
             "v": 1,
             "type": "control.pairing.v1",
             "broker_url": "https://control.example",
-            "access_token": "nope",
+            "access_token": "nope"
         ]
         XCTAssertThrowsError(try ControlPairingMessage(json: withToken))
 
@@ -121,7 +121,7 @@ final class PairingTests: XCTestCase {
             "v": 1,
             "type": "control.pairing.v1",
             "broker_url": "https://control.example",
-            "private_key": "nope",
+            "private_key": "nope"
         ]
         XCTAssertThrowsError(try ControlPairingMessage(json: withKey))
     }
@@ -130,14 +130,14 @@ final class PairingTests: XCTestCase {
         let placeholder: JSONValue = [
             "v": 1,
             "type": "control.pairing.v1",
-            "broker_url": "https://control.invalid",
+            "broker_url": "https://control.invalid"
         ]
         XCTAssertThrowsError(try ControlPairingMessage(json: placeholder))
 
         let lan: JSONValue = [
             "v": 1,
             "type": "control.pairing.v1",
-            "broker_url": "http://192.168.1.8:8443",
+            "broker_url": "http://192.168.1.8:8443"
         ]
         XCTAssertThrowsError(try ControlPairingMessage(json: lan))
     }

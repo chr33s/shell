@@ -29,7 +29,6 @@ protocol RecoverySleeper: Sendable {
 }
 
 struct SystemRecoverySleeper: RecoverySleeper {
-    nonisolated init() {}
     func sleep(seconds: TimeInterval) async throws {
         guard seconds > 0 else { return }
         try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))

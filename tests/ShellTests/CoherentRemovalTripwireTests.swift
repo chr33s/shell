@@ -114,7 +114,7 @@ final class CoherentRemovalTripwireTests: XCTestCase {
 
         let kinds = [
             "topTabBar", "groupMode", "transparency", "titleBar",
-            "fullScreen", "splitZoom", "compose", "mouseCapture",
+            "fullScreen", "splitZoom", "compose", "mouseCapture"
         ]
         let missing = kinds.filter { !source.contains("MenuToggleItem(kind: .\($0)") }
 

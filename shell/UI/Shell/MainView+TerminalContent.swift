@@ -461,8 +461,6 @@ extension MainView {
         }
     }
 
-
-
     /// Theme-colored fill shown while no tab content is displayable: a tab
     /// swap is mid-reveal with nothing to hold on screen (first tab at
     /// launch, the displayed tab was just closed, reveal timeout). Prevents

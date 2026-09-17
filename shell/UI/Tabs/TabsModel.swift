@@ -630,7 +630,6 @@ final class TabModel: Identifiable {
         return title.isEmpty || title == "ghostty"
     }
 
-
     /// Allow callers to force a fallback title (used during restoration when
     /// the saved tab title should be displayed until the session reconnects).
     func setFallbackTitle(_ newTitle: String) {

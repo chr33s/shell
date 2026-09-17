@@ -24,8 +24,8 @@ extension Ghostty {
     @MainActor
     final class SearchState: ObservableObject {
         @Published var needle: String = ""
-        @Published var selected: UInt? = nil
-        @Published var total: UInt? = nil
+        @Published var selected: UInt?
+        @Published var total: UInt?
 
         init(from startSearch: Ghostty.Action.StartSearch) {
             self.needle = startSearch.needle ?? ""

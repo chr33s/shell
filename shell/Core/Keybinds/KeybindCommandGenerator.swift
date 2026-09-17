@@ -230,10 +230,10 @@ final class KeybindCommandGenerator: ObservableObject {
             (UIKeyCommand.inputUpArrow, .up),
             (UIKeyCommand.inputDownArrow, .down),
             (UIKeyCommand.inputLeftArrow, .left),
-            (UIKeyCommand.inputRightArrow, .right),
+            (UIKeyCommand.inputRightArrow, .right)
         ]
         let arrowModifierVariants: [UIKeyModifierFlags] = [
-            [], .alternate, .shift, [.alternate, .shift],
+            [], .alternate, .shift, [.alternate, .shift]
         ]
 
         for (arrowInput, arrowKeyCode) in arrowKeyCodes {
@@ -278,7 +278,7 @@ final class KeybindCommandGenerator: ObservableObject {
             [.alternate, .shift],
             [.control, .shift],
             [.control, .alternate],
-            [.control, .alternate, .shift],
+            [.control, .alternate, .shift]
         ]
         for flags in modifiedReturnFlags {
             let trigger = KeyTrigger(
@@ -354,7 +354,7 @@ final class KeybindCommandGenerator: ObservableObject {
         let tabVariants: [(UIKeyModifierFlags, Selector)] = [
             ([], #selector(Ghostty.TerminalView.handleTabKey(_:))),
             (.shift, #selector(Ghostty.TerminalView.handleShiftTabKey(_:))),
-            (.alternate, #selector(Ghostty.TerminalView.handleTabKey(_:))),
+            (.alternate, #selector(Ghostty.TerminalView.handleTabKey(_:)))
         ]
         for (flags, selector) in tabVariants {
             let trigger = KeyTrigger(
@@ -381,7 +381,7 @@ final class KeybindCommandGenerator: ObservableObject {
             (UIKeyCommand.f1, .f1), (UIKeyCommand.f2, .f2), (UIKeyCommand.f3, .f3),
             (UIKeyCommand.f4, .f4), (UIKeyCommand.f5, .f5), (UIKeyCommand.f6, .f6),
             (UIKeyCommand.f7, .f7), (UIKeyCommand.f8, .f8), (UIKeyCommand.f9, .f9),
-            (UIKeyCommand.f10, .f10), (UIKeyCommand.f11, .f11), (UIKeyCommand.f12, .f12),
+            (UIKeyCommand.f10, .f10), (UIKeyCommand.f11, .f11), (UIKeyCommand.f12, .f12)
         ]
 
         for (fKeyInput, keyCode) in functionKeyPairs {
@@ -427,7 +427,7 @@ final class KeybindCommandGenerator: ObservableObject {
                 UIKeyCommand.inputEscape, "\r", "\t",
                 UIKeyCommand.f1, UIKeyCommand.f2, UIKeyCommand.f3, UIKeyCommand.f4,
                 UIKeyCommand.f5, UIKeyCommand.f6, UIKeyCommand.f7, UIKeyCommand.f8,
-                UIKeyCommand.f9, UIKeyCommand.f10, UIKeyCommand.f11, UIKeyCommand.f12,
+                UIKeyCommand.f9, UIKeyCommand.f10, UIKeyCommand.f11, UIKeyCommand.f12
             ]
             let isSpecialKeyInput = specialKeyInputs.contains(command.input ?? "")
             let hasCommandModifier = command.modifierFlags.contains(.command)

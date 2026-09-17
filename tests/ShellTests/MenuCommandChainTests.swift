@@ -108,7 +108,7 @@ final class MenuCommandChainTests: XCTestCase {
         Command("increaseFontSize:", posts: "dev.chr33s.shell.increaseFontSize", userInfo: [:]),
         Command("decreaseFontSize:", posts: "dev.chr33s.shell.decreaseFontSize", userInfo: [:]),
         Command("resetFontSizeToDefault:", posts: "dev.chr33s.shell.resetFontSize", userInfo: [:]),
-        Command("findInTerminal:", posts: "dev.chr33s.shell.startSearch", userInfo: [:]),
+        Command("findInTerminal:", posts: "dev.chr33s.shell.startSearch", userInfo: [:])
     ]
 
     // MARK: - Helpers
@@ -209,7 +209,7 @@ final class MenuCommandChainTests: XCTestCase {
         var directions: [String: String] = [:]
         for selector in [
             "menuNavigateSplitLeft:", "menuNavigateSplitRight:",
-            "menuNavigateSplitUp:", "menuNavigateSplitDown:",
+            "menuNavigateSplitUp:", "menuNavigateSplitDown:"
         ] {
             let received = notifications(
                 named: "dev.chr33s.shell.navigateSplit",
@@ -298,7 +298,7 @@ final class MenuCommandChainTests: XCTestCase {
             "menuToggleTransparency:", "menuToggleTitleBar:", "menuToggleFullScreen:",
             "menuClearScreen:", "menuScrollPageUp:", "menuScrollPageDown:",
             "menuScrollToTop:", "menuScrollToBottom:",
-            "menuToggleCompose:", "menuToggleMouseCapture:", "menuCycleInputSource:",
+            "menuToggleCompose:", "menuToggleMouseCapture:", "menuCycleInputSource:"
         ]
 
         let missing = responderSelectors.filter {
@@ -322,7 +322,7 @@ final class MenuCommandChainTests: XCTestCase {
     func testGroupNavigationCommandsSurviveOnBothResponderPaths() {
         for (selector, name) in [
             ("menuPreviousGroup:", "dev.chr33s.shell.previousGroup"),
-            ("menuNextGroup:", "dev.chr33s.shell.nextGroup"),
+            ("menuNextGroup:", "dev.chr33s.shell.nextGroup")
         ] {
             let sel = NSSelectorFromString(selector)
             XCTAssertTrue(

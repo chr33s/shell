@@ -83,11 +83,11 @@ public struct APNsClient: PushSender {
         }
         let header = try JSONCanonicalization.canonicalize(.object([
             "alg": "ES256",
-            "kid": .string(credentials.keyID),
+            "kid": .string(credentials.keyID)
         ]))
         let claims = try JSONCanonicalization.canonicalize(.object([
             "iss": .string(credentials.teamID),
-            "iat": .number(.int(Int64(now.timeIntervalSince1970))),
+            "iat": .number(.int(Int64(now.timeIntervalSince1970)))
         ]))
         let signingInput = "\(Base64URL.encode(header)).\(Base64URL.encode(claims))"
         let signature = try key.signature(for: Data(signingInput.utf8)).rawRepresentation

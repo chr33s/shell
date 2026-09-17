@@ -363,7 +363,6 @@ final class NetworkReachabilityMonitor: ObservableObject {
         latestPathLock.unlock()
         guard let path else { return }
 
-
         guard !Ghostty.isAppBackgroundedAtomic, !Ghostty.isInResumeQuietWindowAtomic else {
             deferredPath = path
             deferredPathSynthesizesConnectivityRestored = false

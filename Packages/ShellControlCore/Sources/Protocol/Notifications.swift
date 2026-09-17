@@ -69,7 +69,7 @@ public struct InformationalEvent: Sendable, Hashable {
             "title": .string(title),
             "body": .string(body),
             "occurred_at": JSONValue(occurredAt),
-            "acknowledged_at": acknowledgedAt.map { JSONValue($0) },
+            "acknowledged_at": acknowledgedAt.map { JSONValue($0) }
         ])
     }
 
@@ -114,7 +114,7 @@ public struct InformationalEvent: Sendable, Hashable {
             "severity": .string(severity.rawValue),
             "title": .string(title),
             "body": .string(body),
-            "occurred_at": JSONValue(occurredAt),
+            "occurred_at": JSONValue(occurredAt)
         ]))
     }
 }
@@ -164,15 +164,15 @@ public struct ApprovalPushPayload: Sendable, Hashable {
             "aps": .object([
                 "alert": .object([
                     "title": .string(title),
-                    "body": .string(body),
+                    "body": .string(body)
                 ]),
                 "category": .string(PushCategory.approval),
                 "thread-id": .string(PushCategory.approvalThread),
-                "sound": "default",
+                "sound": "default"
             ]),
             "v": 1,
             "event_id": JSONValue(eventID),
-            "request_id": JSONValue(requestID),
+            "request_id": JSONValue(requestID)
         ])
     }
 
@@ -210,7 +210,7 @@ public struct APNsRequestHeaders: Sendable, Hashable {
             "apns-push-type": pushType,
             "apns-priority": String(priority),
             "apns-expiration": String(expiration),
-            "apns-collapse-id": collapseID,
+            "apns-collapse-id": collapseID
         ]
     }
 }
@@ -251,7 +251,7 @@ public struct PushRegistration: Sendable, Hashable {
             "token": .string(token),
             "platform": .string(platform.rawValue),
             "environment": .string(environment.rawValue),
-            "topic": .string(topic),
+            "topic": .string(topic)
         ])
     }
 

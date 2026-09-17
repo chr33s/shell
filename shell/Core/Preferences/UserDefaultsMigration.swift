@@ -17,7 +17,7 @@ enum LaunchDefaults {
         UserDefaults.standard.register(defaults: [
             "scrollModeEnabled": true,
             "lineScrollbackEnabled": false,
-            "rubberBandScrollbackEnabled": true,
+            "rubberBandScrollbackEnabled": true
         ])
     }
 

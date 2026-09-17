@@ -411,7 +411,6 @@ final class WindowStateManager {
 
             Self.logger.info("Loaded saved state: \(state.summary), saved \(self.formatAge(state.savedAt)) ago")
 
-
             pendingRestoration = state
             restoredWindowIds.removeAll()
             requestedWindowIds.removeAll()

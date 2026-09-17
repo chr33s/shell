@@ -150,7 +150,6 @@ final class TerminalSessionController {
             return true
         }
 
-
         guard prepareRestoredConnectionIfNeeded() else {
             return true
         }

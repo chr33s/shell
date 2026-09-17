@@ -10,7 +10,7 @@ public struct AdapterClient: Sendable {
         let response = try await client.exchangeAsync(IPCRequest(messageID: .random(), type: .hello, runCapability: nil, body: JSONWriter.object([
             "protocol": .string(ServiceCapabilities.protocolName), "adapter": .string(adapter), "job_label": .string(jobLabel),
             "job_id": jobID.map(JSONValue.init), "capabilities": JSONValue(strings: capabilities),
-            "operation_schemas": JSONValue(strings: [ExecOperation.schema]),
+            "operation_schemas": JSONValue(strings: [ExecOperation.schema])
         ])), timeout: 8)
         guard response.ok else { throw ManagementError.unavailable(response.errorMessage ?? "adapter hello rejected") }
         var reader = try JSONReader(response.body)
@@ -20,7 +20,7 @@ public struct AdapterClient: Sendable {
     public func notify(title: String, body: String?, kind: String, adapter: String, jobLabel: String?, jobID: ControlID?) async throws -> JSONValue {
         let (capability, _) = try await hello(adapter: adapter, jobLabel: jobLabel ?? title, jobID: jobID, capabilities: [])
         let response = try await client.exchangeAsync(IPCRequest(messageID: .random(), type: .notify, runCapability: capability, body: JSONWriter.object([
-            "kind": .string(kind), "title": .string(title), "body": body.map(JSONValue.string),
+            "kind": .string(kind), "title": .string(title), "body": body.map(JSONValue.string)
         ])), timeout: 8)
         guard response.ok else { throw ManagementError.unavailable(response.errorMessage ?? "notification rejected") }
         return response.body
@@ -60,14 +60,14 @@ public struct AdapterClient: Sendable {
         let created = try await client.exchangeAsync(IPCRequest(messageID: .random(), type: .approvalRequest, runCapability: capability, body: JSONWriter.object([
             "summary": .string(summary), "operation": operation,
             "lifetime_seconds": lifetime.map { .number(.int($0)) },
-            "minimum_review": minimumReview.map(JSONValue.string),
+            "minimum_review": minimumReview.map(JSONValue.string)
         ])), timeout: 8)
         guard created.ok else { throw ManagementError.unavailable(created.errorMessage ?? "request rejected") }
         guard wait else { return (created.body, 0) }
         var createdReader = try JSONReader(created.body)
         let id = try createdReader.id("request_id"), hash = try createdReader.string("request_hash", maxLength: 80)
         let waited = try await client.exchangeAsync(IPCRequest(messageID: .random(), type: .approvalWait, runCapability: capability, body: .object([
-            "request_id": JSONValue(id), "request_hash": .string(hash), "timeout_seconds": .number(.int(Int64(timeout))),
+            "request_id": JSONValue(id), "request_hash": .string(hash), "timeout_seconds": .number(.int(Int64(timeout)))
         ])), timeout: TimeInterval(timeout + 30))
         guard waited.ok else { throw ManagementError.unavailable(waited.errorMessage ?? "wait failed") }
         let outcome = try ApprovalWaitOutcome(json: waited.body)
@@ -79,7 +79,7 @@ public struct AdapterClient: Sendable {
         let response = try await client.exchangeAsync(IPCRequest(messageID: .random(), type: .receipt, runCapability: capability, body: JSONWriter.object([
             "result": .string(result), "request_id": request.map(JSONValue.init), "decision_id": decision.map(JSONValue.init),
             "consume_id": consume.map(JSONValue.init), "request_hash": requestHash.map(JSONValue.string),
-            "reason_code": reason.map(JSONValue.string),
+            "reason_code": reason.map(JSONValue.string)
         ])), timeout: 8)
         guard response.ok else { throw ManagementError.unavailable(response.errorMessage ?? "receipt rejected") }
         return response.body

@@ -20,7 +20,7 @@ struct TerminalSearchOverlay: View {
     @FocusState private var isSearchFieldFocused: Bool
 
     // Debouncing for search input
-    @State private var searchDebounceTask: Task<Void, Never>? = nil
+    @State private var searchDebounceTask: Task<Void, Never>?
 
     private var isPhone: Bool {
         #if os(visionOS)

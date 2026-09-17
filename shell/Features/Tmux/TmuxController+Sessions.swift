@@ -50,7 +50,6 @@ extension TmuxController {
         // Skip 0 on wraparound so a tag is always nonzero.
         nextReplyTag = nextReplyTag == UInt32.max ? 1 : nextReplyTag + 1
 
-
         let reply: TmuxCommandReply = try await withCheckedThrowingContinuation { continuation in
             pendingReplies[tag] = continuation
             replyTimeouts[tag] = Task { @MainActor [weak self] in

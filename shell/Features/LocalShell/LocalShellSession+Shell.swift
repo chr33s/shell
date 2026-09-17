@@ -286,7 +286,7 @@ extension LocalShellSession {
 
         while true {
             switch tokenizer.next() {
-            case .assignmentWord(_, _), .redirect(_), .heredoc(_, _):
+            case .assignmentWord, .redirect, .heredoc:
                 continue
             case .word(let word):
                 return word.lowercased()

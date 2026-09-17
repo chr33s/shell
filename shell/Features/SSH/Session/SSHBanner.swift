@@ -263,7 +263,7 @@ nonisolated enum SSHBanner {
             "\(barPrefix)\(headline)",
             barOnly,
             "\(barPrefix)\(subline1)",
-            "\(barPrefix)\(subline2)",
+            "\(barPrefix)\(subline2)"
         ]
 
         // Optional: show the negotiated algorithm so the user can see what

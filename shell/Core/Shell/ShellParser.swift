@@ -966,10 +966,7 @@ nonisolated final class ShellParser: @unchecked Sendable {
         if rest.hasPrefix("/") {
             var spec = String(rest.dropFirst())
             let mode: ReplaceMode
-            if spec.hasPrefix("/") { mode = .all; spec.removeFirst() }
-            else if spec.hasPrefix("#") { mode = .prefix; spec.removeFirst() }
-            else if spec.hasPrefix("%") { mode = .suffix; spec.removeFirst() }
-            else { mode = .first }
+            if spec.hasPrefix("/") { mode = .all; spec.removeFirst() } else if spec.hasPrefix("#") { mode = .prefix; spec.removeFirst() } else if spec.hasPrefix("%") { mode = .suffix; spec.removeFirst() } else { mode = .first }
             let (pattern, replacement) = Self.splitReplaceSpec(spec)
             let replWord = parseShellWord(from: replacement)
             return .paramExpansion(.replace(name: name, pattern: pattern,
@@ -988,9 +985,7 @@ nonisolated final class ShellParser: @unchecked Sendable {
         var index = spec.startIndex
         while index < spec.endIndex {
             let c = spec[index]
-            if c == "(" { depth += 1 }
-            else if c == ")" { depth -= 1 }
-            else if c == ":" && depth == 0 {
+            if c == "(" { depth += 1 } else if c == ")" { depth -= 1 } else if c == ":" && depth == 0 {
                 return (String(spec[..<index]), String(spec[spec.index(after: index)...]))
             }
             index = spec.index(after: index)
@@ -1290,9 +1285,7 @@ nonisolated final class ShellParser: @unchecked Sendable {
                 i += 2
                 continue
             }
-            if c == "'" && !inDouble { inSingle.toggle() }
-            else if c == "\"" && !inSingle { inDouble.toggle() }
-            else if c == "&" && !inSingle && !inDouble {
+            if c == "'" && !inDouble { inSingle.toggle() } else if c == "\"" && !inSingle { inDouble.toggle() } else if c == "&" && !inSingle && !inDouble {
                 let prev = i > 0 ? chars[i - 1] : " "
                 let next = i + 1 < chars.count ? chars[i + 1] : " "
                 if next == "&" || next == ">" {
@@ -1329,7 +1322,7 @@ nonisolated final class ShellParser: @unchecked Sendable {
         "-nt", "-ot", "-ef",
         "-z", "-n", "-e", "-f", "-d", "-r", "-w", "-x", "-s",
         "-L", "-h", "-p", "-S", "-b", "-c", "-g", "-k", "-u",
-        "-O", "-G", "-N", "-t", "-o", "-v",
+        "-O", "-G", "-N", "-t", "-o", "-v"
     ]
 
     /// Parse a slurped `[[ ... ]]` word into classified tokens. The interior

@@ -106,7 +106,7 @@ public struct BrokerService: Sendable {
             return json(status: 201, .object([
                 "origin_id": JSONValue(created.originID),
                 "origin_secret": .string(created.secret),
-                "label": .string(label),
+                "label": .string(label)
             ]))
 
         // MARK: Enrollment (no control authority)
@@ -124,7 +124,7 @@ public struct BrokerService: Sendable {
             return json(status: 201, .object([
                 "enrollment_id": JSONValue(created.enrollmentID),
                 "challenge": .string(created.challenge),
-                "expires_at": JSONValue(created.expiresAt),
+                "expires_at": JSONValue(created.expiresAt)
             ]))
 
         case ("POST", "/v1/oauth/device_authorization"):
@@ -424,7 +424,7 @@ public struct BrokerService: Sendable {
     /// tunnel whatever its `Host` claims.
     private static let forwardingHeaders = [
         "cf-connecting-ip", "cf-ray", "cf-ipcountry", "cf-visitor",
-        "x-forwarded-for", "x-forwarded-proto", "forwarded",
+        "x-forwarded-for", "x-forwarded-proto", "forwarded"
     ]
 
     /// Admin routes are loopback-only. The listening socket is already bound to
@@ -474,7 +474,7 @@ public struct BrokerService: Sendable {
                 "Cache-Control": "no-store",
                 "X-Frame-Options": "DENY",
                 "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'",
-                "Referrer-Policy": "no-referrer",
+                "Referrer-Policy": "no-referrer"
             ],
             body: Data(body.utf8)
         )

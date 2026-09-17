@@ -9,7 +9,6 @@
 import SwiftUI
 import os
 
-
 // MARK: - Color Extension for Hex Parsing
 
 /// Cached parsed result for `Color(hex:)`.

@@ -43,7 +43,7 @@ public struct DeviceSession: Sendable, Hashable {
             "access_token": .string(accessToken),
             "access_token_expires_at": JSONValue(accessTokenExpiresAt),
             "refresh_token": .string(refreshToken),
-            "grants": JSONValue(strings: grants.map(\.rawValue).sorted()),
+            "grants": JSONValue(strings: grants.map(\.rawValue).sorted())
         ])
     }
 
@@ -72,7 +72,7 @@ public enum DeviceGrant: String, Sendable, Hashable, CaseIterable {
     /// Device enrollment and policy changes require account administration, not
     /// ordinary decision credentials, so they have no device grant at all.
     public static let watchDefault: Set<DeviceGrant> = [
-        .requestsRead, .approvalsDecide, .notificationsRead, .notificationsAck,
+        .requestsRead, .approvalsDecide, .notificationsRead, .notificationsAck
     ]
 }
 

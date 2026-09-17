@@ -55,7 +55,7 @@ extension UIPasteboard {
         UTType.utf8PlainText.identifier,
         UTType.utf16PlainText.identifier,
         UTType.utf16ExternalPlainText.identifier,
-        UTType.plainText.identifier,
+        UTType.plainText.identifier
     ]
 
     /// Reads plain text from the pasteboard, accepting ONLY values registered under

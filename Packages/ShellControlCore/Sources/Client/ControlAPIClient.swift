@@ -61,7 +61,7 @@ public actor ControlAPIClient {
         let query = [
             ("cursor", cursor.rawValue),
             ("limit", String(min(limit, ChangePage.maximumEvents))),
-            ("wait", String(wait)),
+            ("wait", String(wait))
         ]
         // A long poll needs a transport timeout beyond the server's wait window.
         return try ChangePage(json: try await get("/v1/changes", query: query, timeout: wait > 0 ? TimeInterval(wait) + 10 : 15))
@@ -106,7 +106,7 @@ public actor ControlAPIClient {
             path: "/v1/origins/me/heartbeat",
             body: .object([
                 "run_ids": JSONValue(strings: runIDs.map(\.rawValue)),
-                "waiting_request_ids": JSONValue(strings: waitingRequestIDs.map(\.rawValue)),
+                "waiting_request_ids": JSONValue(strings: waitingRequestIDs.map(\.rawValue))
             ])
         )
     }
@@ -132,7 +132,7 @@ public actor ControlAPIClient {
             body: .object([
                 "mutation_id": JSONValue(mutationID),
                 "run_id": JSONValue(runID),
-                "request_hash": .string(requestHash),
+                "request_hash": .string(requestHash)
             ])
         )
         return try ApprovalProjection(json: value["projection"] ?? value)

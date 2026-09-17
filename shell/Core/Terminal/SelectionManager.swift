@@ -31,7 +31,7 @@ class SelectionManager {
     private static let ownedKeys: Set<String> = [
         Settings.Selection.appearanceMode.name,
         Settings.Selection.foregroundHex.name,
-        Settings.Selection.backgroundHex.name,
+        Settings.Selection.backgroundHex.name
     ]
 
     /// True while `reload(keys:)` re-assigns properties from the store.
@@ -97,7 +97,7 @@ class SelectionManager {
             return [
                 "selection-foreground = \"#\(Self.selectionForegroundHex)\"",
                 "selection-background = \"#\(Self.selectionBackgroundHex)\"",
-                "selection-invert-fg-bg = false",
+                "selection-invert-fg-bg = false"
             ]
 
         case .themeDefault:
@@ -111,7 +111,7 @@ class SelectionManager {
             return [
                 "selection-foreground = \"#\(customForegroundHex)\"",
                 "selection-background = \"#\(customBackgroundHex)\"",
-                "selection-invert-fg-bg = false",
+                "selection-invert-fg-bg = false"
             ]
         }
     }

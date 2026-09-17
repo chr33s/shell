@@ -244,7 +244,7 @@ extension Ghostty {
             rimGradientLayer.colors = [
                 UIColor.white.withAlphaComponent(0.72).cgColor,
                 UIColor.white.withAlphaComponent(0.12).cgColor,
-                UIColor.black.withAlphaComponent(0.24).cgColor,
+                UIColor.black.withAlphaComponent(0.24).cgColor
             ]
             rimGradientLayer.locations = [0, 0.48, 1]
             rimMaskLayer.path = shapePath

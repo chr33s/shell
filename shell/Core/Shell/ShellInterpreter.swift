@@ -2457,7 +2457,7 @@ nonisolated enum ShellArithmeticEvaluator {
                     ("%=", nil),  // special: division by zero check
                     ("&=", { $0 & $1 }),
                     ("|=", { $0 | $1 }),
-                    ("^=", { $0 ^ $1 }),
+                    ("^=", { $0 ^ $1 })
                 ]
 
                 for (opStr, opFunc) in assignOps {
@@ -2724,11 +2724,11 @@ nonisolated enum ShellArithmeticEvaluator {
                 if peek() == "+", peekAt(1) != "=" {
                     advance()
                     let rhs = try parseMultiplicative()
-                    result = result + rhs
+                    result += rhs
                 } else if peek() == "-", peekAt(1) != "=" {
                     advance()
                     let rhs = try parseMultiplicative()
-                    result = result - rhs
+                    result -= rhs
                 } else {
                     break
                 }
@@ -2744,17 +2744,17 @@ nonisolated enum ShellArithmeticEvaluator {
                 if peek() == "*", peekAt(1) != "=" {
                     advance()
                     let rhs = try parseUnary()
-                    result = result * rhs
+                    result *= rhs
                 } else if peek() == "/", peekAt(1) != "=" {
                     advance()
                     let rhs = try parseUnary()
                     guard rhs != 0 else { throw ShellError.divisionByZero }
-                    result = result / rhs
+                    result /= rhs
                 } else if peek() == "%", peekAt(1) != "=" {
                     advance()
                     let rhs = try parseUnary()
                     guard rhs != 0 else { throw ShellError.divisionByZero }
-                    result = result % rhs
+                    result %= rhs
                 } else {
                     break
                 }

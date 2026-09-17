@@ -690,7 +690,7 @@ class SSHKeyManager: ObservableObject {
         let authManager = SSHKeyAuthManager.shared
         let reason = "Authenticate to use '\(savedKey.name)'"
 
-        var context: LAContext? = nil
+        var context: LAContext?
         if savedKey.authRequirement != .none {
             if savedKey.authRequirement == .perSession,
                !authManager.needsAuthentication(for: savedKey),

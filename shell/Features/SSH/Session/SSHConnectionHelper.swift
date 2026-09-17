@@ -81,7 +81,7 @@ enum SSHConnectionHelper {
         .ONLCR: 1,
         .CS8: 1,
         .TTY_OP_ISPEED: 38400,
-        .TTY_OP_OSPEED: 38400,
+        .TTY_OP_OSPEED: 38400
     ])
 
     // MARK: - Auth Method Building
@@ -103,7 +103,7 @@ enum SSHConnectionHelper {
         // even under password/key auth.
         if let onChallenge = onKeyboardInteractiveChallenge {
             let inner = try await makeInnerOfferDelegate(username: username, authMethod: authMethod)
-            var autoAnswer: String? = nil
+            var autoAnswer: String?
             if case .password(let password) = authMethod { autoAnswer = password }
             return .custom(KeyboardInteractiveAuthDelegate(
                 username: username,

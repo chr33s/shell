@@ -51,12 +51,7 @@ func emitJSON(_ value: JSONValue) throws {
 func terminal(_ descriptor: Int32) -> Bool { isatty(descriptor) == 1 }
 
 func execute(_ body: @escaping @Sendable () async throws -> Void) async throws {
-    do { try await InvocationCancellation.shared.run(body) }
-    catch let error as SignalCancellation { throw ExitCode(error.exitCode) }
-    catch let code as ExitCode { throw code }
-    catch let error as ManagementError { stderr("shell-control: \(error)"); throw ExitCode(error.exitCode) }
-    catch is CancellationError { throw ExitCode(130) }
-    catch { stderr("shell-control: \(error)"); throw ExitCode.failure }
+    do { try await InvocationCancellation.shared.run(body) } catch let error as SignalCancellation { throw ExitCode(error.exitCode) } catch let code as ExitCode { throw code } catch let error as ManagementError { stderr("shell-control: \(error)"); throw ExitCode(error.exitCode) } catch is CancellationError { throw ExitCode(130) } catch { stderr("shell-control: \(error)"); throw ExitCode.failure }
 }
 
 func coordinator(_ state: StateOptions, inherited: String? = nil) throws -> LifecycleCoordinator {
@@ -100,7 +95,7 @@ enum EnrollmentCommands {
             }
         }
         _ = try await admin.send(method: "POST", path: "/v1/oauth/confirm", body: .object([
-            "user_code": .string(code), "approve": .bool(true),
+            "user_code": .string(code), "approve": .bool(true)
         ]))
         stderr("approved \(code)")
     }

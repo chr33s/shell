@@ -174,7 +174,7 @@ private final class DrawerRowView: UIView {
 
             stackView.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
             stackView.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
-            stackView.heightAnchor.constraint(equalTo: scrollView.frameLayoutGuide.heightAnchor),
+            stackView.heightAnchor.constraint(equalTo: scrollView.frameLayoutGuide.heightAnchor)
         ])
 
         stackLeadingConstraint = stackView.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor)
@@ -469,7 +469,7 @@ class KeyboardToolbarView: UIView {
             mainRowLeading,
             mainRowTrailing,
             mainRowStackView.centerYAnchor.constraint(equalTo: mainToolbarContainer.centerYAnchor),
-            mainRowStackView.heightAnchor.constraint(equalToConstant: sizes.button.height),
+            mainRowStackView.heightAnchor.constraint(equalToConstant: sizes.button.height)
         ]
 
         NSLayoutConstraint.activate(constraints)

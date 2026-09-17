@@ -399,7 +399,7 @@ struct CustomKeyEditorView: View {
             ("Return", "\u{23CE}", .returnKey),
             ("Tab", "\u{21E5}", .tab),
             ("Escape", "\u{238B}", .escape),
-            ("Space", "\u{2423}", .space),
+            ("Space", "\u{2423}", .space)
         ]
     }
 
@@ -551,7 +551,6 @@ struct CustomKeyEditorView: View {
     }
 }
 
-
 // MARK: - SF Symbol Picker Sheet
 
 private struct SFSymbolPickerSheet: View {
@@ -568,7 +567,7 @@ private struct SFSymbolPickerSheet: View {
         "chevron.left.forwardslash.chevron.right",
         "arrow.right", "arrow.left", "arrow.up", "arrow.down",
         "star.fill", "heart.fill", "flag.fill", "bookmark.fill",
-        "cube", "cylinder", "shippingbox",
+        "cube", "cylinder", "shippingbox"
     ]
 
     private var filteredSymbols: [String] {

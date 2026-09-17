@@ -122,7 +122,7 @@ extension BrokerStore {
             "verification_uri": .string(verificationURI),
             "verification_uri_complete": .string("\(verificationURI)?user_code=\(record.userCode)"),
             "expires_in": .number(.int(Int64(record.expiresAt.date.timeIntervalSince(now())))),
-            "interval": .number(.int(Int64(record.interval))),
+            "interval": .number(.int(Int64(record.interval)))
         ])
     }
 
@@ -141,7 +141,7 @@ extension BrokerStore {
             "label": .string(enrollment.label),
             "key_fingerprint": .string(try enrollment.publicJWK.displayFingerprint()),
             "requested_grants": JSONValue(strings: record.grants.map(\.rawValue).sorted()),
-            "expires_at": JSONValue(record.expiresAt),
+            "expires_at": JSONValue(record.expiresAt)
         ])
     }
 
@@ -174,7 +174,7 @@ extension BrokerStore {
                 "platform": .string(enrollment.platform.rawValue),
                 "label": .string(enrollment.label),
                 "key_fingerprint": .string(try enrollment.publicJWK.displayFingerprint()),
-                "expires_at": JSONValue(record.expiresAt),
+                "expires_at": JSONValue(record.expiresAt)
             ]))
         }
         return .object(["pending": .array(items)])
@@ -224,7 +224,7 @@ extension BrokerStore {
             "access_token": .string(token),
             "token_type": "Bearer",
             "scope": .string(record.scope),
-            "expires_in": .number(.int(Int64(record.expiresAt.date.timeIntervalSince(self.now())))),
+            "expires_in": .number(.int(Int64(record.expiresAt.date.timeIntervalSince(self.now()))))
         ])
     }
 

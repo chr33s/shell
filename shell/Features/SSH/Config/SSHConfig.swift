@@ -59,7 +59,7 @@ struct SSHConfig: Codable, Hashable {
     var authMethod: AuthMethod = .password("")
 
     /// Optional jump host (ProxyJump / bastion)
-    var jumpHost: JumpHostConfig? = nil
+    var jumpHost: JumpHostConfig?
 
     /// Whether to auto-start tmux on connect
     var tmuxAutoEnable: Bool = false
@@ -68,16 +68,16 @@ struct SSHConfig: Codable, Hashable {
     var tmuxAutoMode: TmuxAutoMode = .regular
 
     /// Per-profile tmux session name override (nil = use the global default)
-    var tmuxSessionName: String? = nil
+    var tmuxSessionName: String?
 
     /// Per-profile `TERM` override (nil = use the global default)
-    var terminalType: String? = nil
+    var terminalType: String?
 
     /// Additional identities to try if the primary one fails
-    var fallbackKeyIDs: [UUID]? = nil
+    var fallbackKeyIDs: [UUID]?
 
     /// Resolution hints for cross-device key matching (keyed by UUID string)
-    var keyResolutionHints: [String: KeyResolutionHint]? = nil
+    var keyResolutionHints: [String: KeyResolutionHint]?
 
     /// Set during `resolvedConfig()` when the password came from the Keychain.
     var usedSavedPassword: Bool = false
@@ -271,10 +271,10 @@ struct SSHConfig: Codable, Hashable {
         var authMethod: AuthMethod
 
         /// Additional identities to try if the primary one fails
-        var fallbackKeyIDs: [UUID]? = nil
+        var fallbackKeyIDs: [UUID]?
 
         /// Resolution hints for cross-device key matching (keyed by UUID string)
-        var keyResolutionHints: [String: KeyResolutionHint]? = nil
+        var keyResolutionHints: [String: KeyResolutionHint]?
 
         private enum CodingKeys: String, CodingKey {
             case host, port, username, authMethod, fallbackKeyIDs, keyResolutionHints

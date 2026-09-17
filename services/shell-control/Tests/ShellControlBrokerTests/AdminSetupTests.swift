@@ -34,7 +34,7 @@ final class AdminSetupTests: XCTestCase {
             query: [:],
             headers: [
                 "authorization": "Admin admin-secret",
-                "host": "random.trycloudflare.com",
+                "host": "random.trycloudflare.com"
             ],
             body: Data()
         ))
@@ -55,7 +55,7 @@ final class AdminSetupTests: XCTestCase {
             query: [:],
             headers: [
                 "authorization": "Admin admin-secret",
-                "host": "127.0.0.1:8443",
+                "host": "127.0.0.1:8443"
             ],
             body: Data()
         ))
@@ -77,7 +77,7 @@ final class AdminSetupTests: XCTestCase {
             headers: [
                 "authorization": "Admin admin-secret",
                 "content-type": "application/json",
-                "host": "localhost",
+                "host": "localhost"
             ],
             body: body
         ))
@@ -96,7 +96,7 @@ final class AdminSetupTests: XCTestCase {
         let originID = ControlID.random()
         func request(secret: String) async throws -> HTTPServer.Response {
             let body = try JSONCanonicalization.canonicalize(.object([
-                "label": "native mac", "origin_id": JSONValue(originID), "origin_secret": .string(secret),
+                "label": "native mac", "origin_id": JSONValue(originID), "origin_secret": .string(secret)
             ]))
             return await service.handle(HTTPServer.Request(
                 method: "POST", path: "/v1/admin/origins", query: [:],
@@ -132,7 +132,7 @@ final class AdminSetupTests: XCTestCase {
                 headers: [
                     "authorization": "Admin admin-secret",
                     "host": "127.0.0.1:8443",
-                    header: "203.0.113.7",
+                    header: "203.0.113.7"
                 ],
                 body: Data()
             ))
@@ -150,7 +150,7 @@ final class AdminSetupTests: XCTestCase {
             query: [:],
             headers: [
                 "authorization": "Admin admin-secret",
-                "host": "[::1]:8443",
+                "host": "[::1]:8443"
             ],
             body: Data()
         ))
@@ -166,7 +166,7 @@ final class AdminSetupTests: XCTestCase {
             query: [:],
             headers: [
                 "accept": "text/html",
-                "host": "evil.example",
+                "host": "evil.example"
             ],
             body: Data()
         ))
@@ -186,7 +186,7 @@ final class AdminSetupTests: XCTestCase {
             query: [:],
             headers: [
                 "accept": "text/html",
-                "host": "evil.example",
+                "host": "evil.example"
             ],
             body: Data()
         ))

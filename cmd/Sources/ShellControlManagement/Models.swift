@@ -118,6 +118,9 @@ public enum ManagementError: Error, CustomStringConvertible, Sendable {
         }
     }
     public var exitCode: Int32 {
-        switch self { case .invalid, .unsupported: 2; case .unavailable, .corrupt: 1 }
+        switch self {
+        case .invalid, .unsupported: 2
+        case .unavailable, .corrupt: 1
+        }
     }
 }

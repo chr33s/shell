@@ -40,9 +40,9 @@ import UIKit
 #endif
 
 struct MainView: View {
-    
+
     // MARK: - Properties
-    
+
     @EnvironmentObject var ghosttyApp: Ghostty.App
     @Environment(\.openWindow) var openWindow
     @Environment(\.dismissWindow) var dismissWindow
@@ -154,7 +154,7 @@ struct MainView: View {
 
     // Namespace for glass effect tab transitions (iOS 26+)
     @Namespace var tabNamespace
-    
+
     // Theme observation for tab bar styling
     @State var connectionInfoToShow: ConnectionInfo?
     @State var tmuxDashboardRequest: TmuxDashboardRequest?
@@ -219,8 +219,7 @@ struct MainView: View {
     // rounds, presented one at a time via a sheet (needs free-form text entry).
     @State var keyboardInteractiveQueue: [PendingKeyboardInteractiveChallenge] = []
     @State var showKeyboardInteractivePrompt = false
-    
-    
+
     // Search state change trigger - incremented to force re-render when search opens/closes
     @State var searchStateVersion: Int = 0
     @State var composeStateVersion: Int = 0
@@ -246,7 +245,7 @@ struct MainView: View {
     // serializeWindowState reads this instead, giving each window its own frame.
     @State var lastKnownWindowFrame: CGRect?
 #endif
-    
+
     /// Holds tokens from NotificationCenter's block-based addObserver API so
     /// they can be removed on `handleOnDisappear`. See MainViewObserverBag
     /// doc for the leak this fixes.
@@ -254,7 +253,7 @@ struct MainView: View {
     @State var didCleanUpWindow = false
     @State var windowClosingAfterTabTransfer = false
     @State var tabTransferDropOverlayVisible = false
-    
+
     var body: some View {
         // Bump the body-evaluation counter at the very top so even early-exit
         // paths are counted. Snapshot+reset on each BG/FG transition prints the
@@ -374,7 +373,7 @@ struct MainView: View {
                             }
                         }
                     }
-                    
+
                     // Terminal view
                     if ghosttyApp.readiness == .ready, !terminals.isEmpty {
                         terminalAndSidebarContent(geometry: geometry)

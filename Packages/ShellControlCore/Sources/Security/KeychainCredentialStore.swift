@@ -58,7 +58,7 @@ public final class KeychainCredentialStore: DeviceCredentialStore, @unchecked Se
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
-            kSecAttrSynchronizable as String: false,
+            kSecAttrSynchronizable as String: false
         ]
         if let accessGroup { query[kSecAttrAccessGroup as String] = accessGroup }
         return query
@@ -85,7 +85,7 @@ public final class KeychainCredentialStore: DeviceCredentialStore, @unchecked Se
         let query = baseQuery(account: account)
         let attributes: [String: Any] = [
             kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
         ]
         let updateStatus = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
         if updateStatus == errSecSuccess { return }

@@ -146,7 +146,7 @@ final class SSHAuthBannerCardHostView: UIView {
                 hc.view.topAnchor.constraint(equalTo: topAnchor),
                 hc.view.bottomAnchor.constraint(equalTo: bottomAnchor),
                 hc.view.leadingAnchor.constraint(equalTo: leadingAnchor),
-                hc.view.trailingAnchor.constraint(equalTo: trailingAnchor),
+                hc.view.trailingAnchor.constraint(equalTo: trailingAnchor)
             ])
 
             hostingController = hc

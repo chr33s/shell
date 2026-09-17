@@ -30,7 +30,6 @@ extension MainView {
     }
 }
 
-
 // MARK: - Focus Management
 
 extension MainView {

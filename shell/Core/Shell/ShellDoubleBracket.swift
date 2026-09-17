@@ -220,13 +220,13 @@ private nonisolated struct DoubleBracketParser {
     private static let unaryOps: Set<String> = [
         "-z", "-n", "-e", "-f", "-d", "-r", "-w", "-x", "-s",
         "-L", "-h", "-p", "-S", "-b", "-c", "-g", "-k", "-u",
-        "-O", "-G", "-N", "-t", "-o", "-v",
+        "-O", "-G", "-N", "-t", "-o", "-v"
     ]
 
     private static let binaryOps: Set<String> = [
         "=", "==", "!=", "=~", "<", ">",
         "-eq", "-ne", "-lt", "-le", "-gt", "-ge",
-        "-nt", "-ot", "-ef",
+        "-nt", "-ot", "-ef"
     ]
 
     mutating func parseExpression() throws -> DBExpr {

@@ -197,7 +197,6 @@ public class CatalystLocalShellSession: TerminalSession {
         return (output, didExit)
     }
 
-
     // MARK: - TerminalSession Protocol Implementation
 
     public func start() async throws {

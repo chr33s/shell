@@ -34,7 +34,7 @@ public struct DispatchJournal: Sendable {
                     "kind": "request_persisted",
                     "request_id": JSONValue(requestID),
                     "request_hash": .string(hash),
-                    "run_id": JSONValue(runID),
+                    "run_id": JSONValue(runID)
                 ])
             case .requestPublished(let requestID):
                 return .object(["kind": "request_published", "request_id": JSONValue(requestID)])
@@ -43,27 +43,27 @@ public struct DispatchJournal: Sendable {
                     "kind": "decision_observed",
                     "request_id": JSONValue(requestID),
                     "decision_id": JSONValue(decisionID),
-                    "resolution": .string(resolution.rawValue),
+                    "resolution": .string(resolution.rawValue)
                 ])
             case .claimed(let requestID, let consumeID, let applyBefore):
                 return .object([
                     "kind": "claimed",
                     "request_id": JSONValue(requestID),
                     "consume_id": JSONValue(consumeID),
-                    "apply_before": JSONValue(applyBefore),
+                    "apply_before": JSONValue(applyBefore)
                 ])
             case .dispatchIntent(let requestID, let consumeID):
                 return .object([
                     "kind": "dispatch_intent",
                     "request_id": JSONValue(requestID),
-                    "consume_id": JSONValue(consumeID),
+                    "consume_id": JSONValue(consumeID)
                 ])
             case .dispatchResult(let requestID, let receiptID, let result):
                 return .object([
                     "kind": "dispatch_result",
                     "request_id": JSONValue(requestID),
                     "receipt_id": JSONValue(receiptID),
-                    "result": .string(result.rawValue),
+                    "result": .string(result.rawValue)
                 ])
             case .withdrawn(let requestID):
                 return .object(["kind": "withdrawn", "request_id": JSONValue(requestID)])
@@ -77,7 +77,7 @@ public struct DispatchJournal: Sendable {
                     "mutation_id": JSONValue(mutationID),
                     "recovery_kind": .string(kind),
                     "request_id": JSONValue(requestID),
-                    "payload": .string(payload),
+                    "payload": .string(payload)
                 ])
             case .recoveryAcknowledged(let mutationID):
                 return .object(["kind": "recovery_acknowledged", "mutation_id": JSONValue(mutationID)])
@@ -178,8 +178,7 @@ public struct DispatchJournal: Sendable {
                 if index == lines.count - 1 { continue }
                 throw ValidationError.invalid("journal", "contains an empty record at line \(index + 1)")
             }
-            do { entries.append(try Entry.decode(try JSONValue.parse(Data(line)))) }
-            catch { throw ValidationError.invalid("journal", "has a corrupt record at line \(index + 1): \(error)") }
+            do { entries.append(try Entry.decode(try JSONValue.parse(Data(line)))) } catch { throw ValidationError.invalid("journal", "has a corrupt record at line \(index + 1): \(error)") }
         }
         return entries
     }

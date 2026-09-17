@@ -243,7 +243,7 @@ final class MenuFocusState {
             UIWindow.didResignKeyNotification,
             UIScene.didActivateNotification,
             UIScene.willDeactivateNotification,
-            UIScene.didDisconnectNotification,
+            UIScene.didDisconnectNotification
         ])
         #if targetEnvironment(macCatalyst)
         // Catalyst raises AppKit's key/main changes as well, and the reporter
@@ -252,7 +252,7 @@ final class MenuFocusState {
             Notification.Name("NSWindowDidBecomeKeyNotification"),
             Notification.Name("NSWindowDidResignKeyNotification"),
             Notification.Name("NSWindowDidBecomeMainNotification"),
-            Notification.Name("NSWindowDidResignMainNotification"),
+            Notification.Name("NSWindowDidResignMainNotification")
         ])
         #endif
 
@@ -274,7 +274,7 @@ final class MenuFocusState {
             .closeSplit,
             .selectTab,
             .nextTab,
-            .previousTab,
+            .previousTab
         ] {
             observers.observeOnMainActor(name) { [weak self] _ in
                 self?.schedulePaneTrackingRefresh()

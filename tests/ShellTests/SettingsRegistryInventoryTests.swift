@@ -158,7 +158,7 @@ final class SettingsRegistryInventoryTests: XCTestCase {
         Setting("topTabStyle", configKey: "top-tab-style", policy: .synced),
         Setting("twoFingerLongPressDuration", configKey: "two-finger-long-press-duration", policy: .synced),
         Setting("useNativeSelectionLoupe", configKey: "use-native-selection-loupe", policy: .synced),
-        Setting("useTransientPrompt", configKey: "use-transient-prompt", policy: .synced),
+        Setting("useTransientPrompt", configKey: "use-transient-prompt", policy: .synced)
     ]
 
     private var registry: SettingsRegistry { .shared }

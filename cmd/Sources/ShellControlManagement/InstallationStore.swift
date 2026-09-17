@@ -52,8 +52,7 @@ public struct InstallationStore: Sendable {
                 installation.publicURL = try AddressPolicy.validate(saved, mode: installation.addressMode)
             }
             return LoadedInstallation(installation: installation, secrets: secrets, runtime: runtime, paths: paths)
-        } catch let error as ManagementError { throw error }
-        catch { throw ManagementError.corrupt("native installation is malformed: \(error)") }
+        } catch let error as ManagementError { throw error } catch { throw ManagementError.corrupt("native installation is malformed: \(error)") }
     }
 
     public func create(releaseID: String, mode: AddressMode, publicURL: String?, port: Int,

@@ -19,7 +19,7 @@ enum UserDefaultsBackup {
         "selectedTheme",
         "fontSize",
         "cursorStyle",
-        "cloudKitDeviceID",
+        "cloudKitDeviceID"
     ]
 
     /// Latched for the rest of the process the first time `detectAndRecover()` sees the

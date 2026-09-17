@@ -340,7 +340,7 @@ struct ToolbarLayoutConfig: Equatable, Sendable {
             .builtIn(.tab),
             .builtIn(.arrowDrawerToggle),
             .builtIn(.drawerToggle),
-            .builtIn(.toolbarSettings),
+            .builtIn(.toolbarSettings)
         ],
         drawerRows: [[
             .builtIn(.alt),
@@ -379,7 +379,7 @@ struct ToolbarLayoutConfig: Equatable, Sendable {
             .builtIn(.toggleTabBar),
             .builtIn(.newConnection),
             .builtIn(.toggleMouseCapture),
-            .builtIn(.appSettings),
+            .builtIn(.appSettings)
         ]],
         hiddenKeys: []
     )
@@ -397,7 +397,7 @@ struct ToolbarLayoutConfig: Equatable, Sendable {
             .builtIn(.singleQuote),
             .builtIn(.semicolon),
             .builtIn(.leftBracket),
-            .builtIn(.rightBracket),
+            .builtIn(.rightBracket)
         ],
         drawerRows: [[
             .builtIn(.tilde),
@@ -427,7 +427,7 @@ struct ToolbarLayoutConfig: Equatable, Sendable {
             .builtIn(.toggleTabBar),
             .builtIn(.newConnection),
             .builtIn(.toggleMouseCapture),
-            .builtIn(.appSettings),
+            .builtIn(.appSettings)
         ]],
         hiddenKeys: []
     )
@@ -843,7 +843,7 @@ extension SequenceStep.KeyCombo {
 
         if ctrl {
             // Ctrl+letter = letter - 0x60 (e.g. Ctrl+A = 0x01)
-            byte = byte - 0x60
+            byte -= 0x60
         } else if shift {
             // Shift+letter = uppercase
             byte = (char.uppercased().first ?? char).asciiValue ?? byte

@@ -231,7 +231,7 @@ final class ForegroundActivationGate: Sendable {
                 ("activationGateUnsafe", state.activeToken != 0 || now < state.settlingUntil),
                 ("activationToken", state.activeToken),
                 ("activationLastEvent", state.lastEvent),
-                ("activationSettlingMs", max(0, (state.settlingUntil - now) * 1000)),
+                ("activationSettlingMs", max(0, (state.settlingUntil - now) * 1000))
             ]
         }
     }
@@ -265,7 +265,6 @@ final class ForegroundActivationGate: Sendable {
             state.lastEvent = "didBecomeActive.settling"
             return state.activeToken
         }
-
 
         DispatchQueue.main.asyncAfter(deadline: .now() + settlingDelay) { [self] in
             clearIfSettled(token: token, appState: String(describing: UIApplication.shared.applicationState))
@@ -369,8 +368,6 @@ private final class ForegroundTransitionWatchdog: Sendable {
             return state.token
         }
 
-
-
         scheduleHeartbeat(token: token, ordinal: 1)
         queue.asyncAfter(deadline: .now() + 8.0) { [self] in
             fireIfStillArmed(token: token)
@@ -403,7 +400,6 @@ private final class ForegroundTransitionWatchdog: Sendable {
             }
             guard snapshot.active else { return }
 
-
             Task { @MainActor in
             }
 
@@ -428,7 +424,6 @@ private final class ForegroundTransitionWatchdog: Sendable {
         // Keep sampling for one more interval after the fire to capture the
         // last main-thread state, then stop. We rely on the cap (40 samples =
         // 10 s) and the disarm path to bound total samples.
-
 
     }
 }

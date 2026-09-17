@@ -249,8 +249,7 @@ final class TerminalResponsePipeline {
             case .csi:
                 if b >= 0x40 && b <= 0x7E { state = .ground }
             case .str:
-                if b == 0x07 { state = .ground }
-                else if b == 0x1B { state = .strEsc }
+                if b == 0x07 { state = .ground } else if b == 0x1B { state = .strEsc }
             case .strEsc:
                 state = .ground
             }

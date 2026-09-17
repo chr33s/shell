@@ -778,7 +778,6 @@ final class TmuxController {
             switch op {
             case .syncBegin:
                 batchFocus = nil
-                break
             case .syncEnd:
                 // Order this gateway's tmux tabs by tmux window index now that all
                 // ensure_window ops in the batch have refreshed the indices.

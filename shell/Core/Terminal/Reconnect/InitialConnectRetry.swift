@@ -56,7 +56,7 @@ enum InitialConnectRetry {
             AttemptPolicy(timeout: .seconds(30), backoffBefore: .seconds(15)),
             AttemptPolicy(timeout: .seconds(30), backoffBefore: .seconds(30)),
             AttemptPolicy(timeout: .seconds(30), backoffBefore: .seconds(30)),
-            AttemptPolicy(timeout: .seconds(30), backoffBefore: .seconds(30)),
+            AttemptPolicy(timeout: .seconds(30), backoffBefore: .seconds(30))
         ])
 
         /// Exactly one attempt, with the standard TCP connect cap.
@@ -67,7 +67,7 @@ enum InitialConnectRetry {
         /// — the nested retry the spec calls out (§7.1). Initial,
         /// user-initiated connects keep their own bounded startup ramp below.
         nonisolated static let singleAttempt = Config(attempts: [
-            AttemptPolicy(timeout: .seconds(30), backoffBefore: .zero),
+            AttemptPolicy(timeout: .seconds(30), backoffBefore: .zero)
         ])
 
         /// Conservative ramp for app-side interactive connects. Used by
@@ -90,7 +90,7 @@ enum InitialConnectRetry {
         nonisolated static let interactive = Config(attempts: [
             AttemptPolicy(timeout: .seconds( 30), backoffBefore: .zero),
             AttemptPolicy(timeout: .seconds( 90), backoffBefore: .seconds(2)),
-            AttemptPolicy(timeout: .seconds(180), backoffBefore: .seconds(5)),
+            AttemptPolicy(timeout: .seconds(180), backoffBefore: .seconds(5))
         ])
     }
 

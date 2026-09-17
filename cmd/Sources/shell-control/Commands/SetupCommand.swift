@@ -38,8 +38,7 @@ struct SetupCommand: AsyncParsableCommand {
             if loaded.installation.addressMode == .loopback {
                 stderr("loopback readiness is local only; physical devices cannot reach this origin")
             }
-            if !noWatch && terminal(STDIN_FILENO) { try await EnrollmentCommands.watch(loaded) }
-            else if !noWatch { stderr("non-interactive setup does not monitor or approve enrollment") }
+            if !noWatch && terminal(STDIN_FILENO) { try await EnrollmentCommands.watch(loaded) } else if !noWatch { stderr("non-interactive setup does not monitor or approve enrollment") }
         }
     }
 }

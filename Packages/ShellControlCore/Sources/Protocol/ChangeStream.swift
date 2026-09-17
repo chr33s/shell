@@ -53,7 +53,7 @@ public struct ChangeEvent: Sendable, Hashable {
             "resource_id": JSONValue(resourceID),
             "resource_version": .number(.int(resourceVersion)),
             "server_time": JSONValue(serverTime),
-            "projection": projection,
+            "projection": projection
         ])
     }
 
@@ -104,7 +104,7 @@ public struct ChangePage: Sendable, Hashable {
         .object([
             "events": .array(events.map(\.json)),
             "cursor": .string(cursor.rawValue),
-            "server_time": JSONValue(serverTime),
+            "server_time": JSONValue(serverTime)
         ])
     }
 
@@ -158,7 +158,7 @@ public struct SnapshotPage: Sendable, Hashable {
             "snapshot_token": .string(snapshotToken),
             "next_page_token": nextPageToken.map { .string($0) },
             "cursor": .string(cursor.rawValue),
-            "server_time": JSONValue(serverTime),
+            "server_time": JSONValue(serverTime)
         ])
     }
 
@@ -222,7 +222,7 @@ public struct RunRegistration: Sendable, Hashable {
             "job_label": .string(jobLabel),
             "adapter": .string(adapter),
             "capabilities": JSONValue(strings: capabilities),
-            "started_at": JSONValue(startedAt),
+            "started_at": JSONValue(startedAt)
         ])
     }
 

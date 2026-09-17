@@ -143,8 +143,7 @@ public struct InboxReconciler: Sendable {
     private mutating func apply(_ event: ChangeEvent) -> Bool {
         guard !state.seenEventIDs.contains(event.eventID) else { return false }
         if let applied = appliedVersions[event.resourceID], applied >= event.resourceVersion,
-           event.type != .notificationAcknowledged
-        {
+           event.type != .notificationAcknowledged {
             state.seenEventIDs.insert(event.eventID)
             return false
         }
@@ -154,8 +153,7 @@ public struct InboxReconciler: Sendable {
                 state.approvals[record.spec.requestID] = record
                 appliedVersions[event.resourceID] = event.resourceVersion
             } else if var existing = state.approvals[event.resourceID],
-                      let projection = try? ApprovalProjection(json: event.projection)
-            {
+                      let projection = try? ApprovalProjection(json: event.projection) {
                 // A projection-only delta updates the mutable half; the
                 // immutable spec is never rewritten in place.
                 existing.projection = projection

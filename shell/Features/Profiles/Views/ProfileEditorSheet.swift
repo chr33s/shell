@@ -16,7 +16,7 @@ struct ProfileEditorSheet: View {
     var initialConfig: SSHConfig?
 
     /// The failed connection's reason, retained while editing its credentials.
-    var connectionError: String? = nil
+    var connectionError: String?
 
     /// Connect with the edited config without necessarily saving.
     var onConnect: ((SSHConfig) -> Void)?

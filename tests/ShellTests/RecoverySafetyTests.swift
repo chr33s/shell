@@ -364,7 +364,7 @@ final class RecoverySafetyTests: XCTestCase {
             samples: [
                 PingSample(timestamp: now, rttMilliseconds: 20),
                 PingSample(timestamp: now, rttMilliseconds: nil, wasCancelled: true),
-                PingSample(timestamp: now, rttMilliseconds: nil, wasCancelled: true),
+                PingSample(timestamp: now, rttMilliseconds: nil, wasCancelled: true)
             ])
 
         let counted = health.samples.filter(\.countsTowardFailureRate)

@@ -44,7 +44,7 @@ public struct ServiceCapabilities: Sendable, Hashable {
                 "max_change_events": .number(.int(Int64(maxChangeEvents))),
                 "challenge_ttl_seconds": .number(.int(Int64(challengeTTLSeconds))),
                 "max_approval_lifetime_seconds": .number(.int(Int64(maxApprovalLifetimeSeconds))),
-                "min_poll_interval_seconds": .number(.int(Int64(minPollIntervalSeconds))),
+                "min_poll_interval_seconds": .number(.int(Int64(minPollIntervalSeconds)))
             ])
         }
 
@@ -86,7 +86,7 @@ public struct ServiceCapabilities: Sendable, Hashable {
             "required_features": JSONValue(strings: requiredFeatures),
             "limits": limits.json,
             "service_identity": .string(serviceIdentity),
-            "server_time": JSONValue(serverTime),
+            "server_time": JSONValue(serverTime)
         ])
     }
 

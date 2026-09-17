@@ -1616,7 +1616,7 @@ class KeychainManager {
             kSecAttrSynchronizable as String: kSecAttrSynchronizableAny,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
-            kSecUseAuthenticationContext as String: context,
+            kSecUseAuthenticationContext as String: context
         ]
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
@@ -1959,7 +1959,7 @@ class KeychainManager {
             kSecAttrAccessGroup as String: accessGroup,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
-            kSecAttrSynchronizable as String: kSecAttrSynchronizableAny,
+            kSecAttrSynchronizable as String: kSecAttrSynchronizableAny
         ]
 
         var result: AnyObject?

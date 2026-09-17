@@ -27,7 +27,7 @@ public struct ReviewChallengeRequest: Sendable, Hashable {
                 "request_id": JSONValue(requestID),
                 "request_hash": .string(requestHash),
                 "expected_state_version": .number(.int(stateVersion)),
-                "policy_version": .number(.int(policyVersion)),
+                "policy_version": .number(.int(policyVersion))
             ])
         case .job(let jobID, let runID, let jobVersion):
             return .object([
@@ -35,7 +35,7 @@ public struct ReviewChallengeRequest: Sendable, Hashable {
                 "action": .string(action.rawValue),
                 "job_id": JSONValue(jobID),
                 "run_id": JSONValue(runID),
-                "expected_job_version": .number(.int(jobVersion)),
+                "expected_job_version": .number(.int(jobVersion))
             ])
         }
     }
@@ -108,7 +108,7 @@ public struct ReviewChallenge: Sendable, Hashable {
             "challenge_id": .string(challengeID),
             "device_id": JSONValue(deviceID),
             "action": .string(action.rawValue),
-            "expires_at": JSONValue(expiresAt),
+            "expires_at": JSONValue(expiresAt)
         ])
     }
 }
@@ -155,7 +155,7 @@ public struct CommandResult: Sendable, Hashable {
             "state_version": stateVersion.map { .number(.int($0)) },
             "resolution": resolution.map { .string($0.rawValue) },
             "dispatch": dispatch.map { .string($0.rawValue) },
-            "server_time": JSONValue(serverTime),
+            "server_time": JSONValue(serverTime)
         ])
     }
 

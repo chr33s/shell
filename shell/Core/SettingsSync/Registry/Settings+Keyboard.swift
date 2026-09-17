@@ -28,7 +28,7 @@ nonisolated extension Settings {
             title: String(localized: "Compose Autocorrect", comment: "Setting title"))
 
         static let all: [AnySettingDefinition] = [
-            optionKeyAsAlt.erased, forceASCIIKeyboard.erased, doubleSpaceForPeriod.erased, composeAutocorrect.erased,
+            optionKeyAsAlt.erased, forceASCIIKeyboard.erased, doubleSpaceForPeriod.erased, composeAutocorrect.erased
         ]
     }
 
@@ -65,7 +65,7 @@ nonisolated extension Settings {
 
         static let all: [AnySettingDefinition] = [
             config.erased, customKeys.erased, deviceIdiom.erased, drawerOpenByDefault.erased, drawerToggleMode.erased,
-            persistent.erased, showWithHardwareKeyboard.erased, arrowJoystickMode.erased,
+            persistent.erased, showWithHardwareKeyboard.erased, arrowJoystickMode.erased
         ]
     }
 
@@ -92,7 +92,7 @@ nonisolated extension Settings {
 
         static let all: [AnySettingDefinition] = [
             overrides.erased, modTapRules.erased, externalConfigPath.erased,
-            externalConfigOriginalFilename.erased, externalConfigBookmark.erased,
+            externalConfigOriginalFilename.erased, externalConfigBookmark.erased
         ]
     }
 }

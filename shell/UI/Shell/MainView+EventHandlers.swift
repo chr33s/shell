@@ -133,7 +133,7 @@ extension MainView {
         // it needs exist as of the line above.
         MacDockMenu.drainPendingAction()
 #endif
-        
+
         // Notify session tracker of initial state
         notifySessionCountChanged()
 
@@ -167,12 +167,12 @@ extension MainView {
         WindowStateManager.shared.unregisterWindow(windowId: windowId)
         TerminalWindowRegistry.unregister(windowId: windowId)
         TmuxWindowRegistry.unregister(windowId: windowId)
-        
+
         // Clean up all terminals for this window
         let cleanupWindowId = windowId
         let terminalCount = terminals.count
         Ghostty.logger.info("MainView for window \(cleanupWindowId) cleaning up \(terminalCount) terminals, reason: \(reason)")
-        
+
         // Terminal surfaces have a scene-specific synchronous cleanup path.
         // Non-terminal panes may own nested view controllers (VNC does); do
         // not remove those children or tear down their SwiftUI roots from
@@ -204,7 +204,7 @@ extension MainView {
                 }
             }
         }
-        
+
         // Remove this window from session tracker
         SessionTracker.shared.removeWindow(windowId)
     }
@@ -386,7 +386,7 @@ extension MainView {
                 Ghostty.logger.warning("Sheet dismissed but no focusedTerminal!")
                 return
             }
-            
+
             // Grant UIKit focus to the terminal after sheet dismissal
             if terminal.isLogicallyFocused && !terminal.isFirstResponder {
                 _ = terminal.becomeFirstResponder()

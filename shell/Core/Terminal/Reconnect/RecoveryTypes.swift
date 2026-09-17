@@ -229,8 +229,6 @@ struct MonotonicInstant: Equatable, Comparable, Hashable, Sendable {
     /// Seconds since an arbitrary fixed origin.
     var seconds: TimeInterval
 
-    init(seconds: TimeInterval) { self.seconds = seconds }
-
     static func < (lhs: MonotonicInstant, rhs: MonotonicInstant) -> Bool {
         lhs.seconds < rhs.seconds
     }
@@ -265,7 +263,6 @@ protocol RecoveryJitterSource: Sendable {
 }
 
 struct SystemRecoveryJitter: RecoveryJitterSource {
-    nonisolated init() {}
     func nextUnitInterval() -> Double { Double.random(in: 0..<1) }
 }
 

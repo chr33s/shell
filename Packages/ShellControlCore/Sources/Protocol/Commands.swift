@@ -122,7 +122,7 @@ private func envelopeMembers(_ envelope: ControlCommandEnvelope) -> [String: JSO
         "device_id": JSONValue(envelope.deviceID),
         "aud": .string(envelope.audience),
         "issued_at": JSONValue(envelope.issuedAt),
-        "not_after": JSONValue(envelope.notAfter),
+        "not_after": JSONValue(envelope.notAfter)
     ]
 }
 

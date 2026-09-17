@@ -57,7 +57,7 @@ enum GlibcLocales: Sendable {
         "tr_CY", "tr_TR", "ts_ZA", "tt_RU", "ug_CN", "uk_UA", "unm_US", "ur_IN",
         "ur_PK", "uz_UZ", "ve_ZA", "vi_VN", "wa_BE", "wae_CH", "wal_ET", "wo_SN",
         "xh_ZA", "yi_US", "yo_NG", "yue_HK", "yuw_PG", "zgh_MA", "zh_CN", "zh_HK",
-        "zh_SG", "zh_TW", "zu_ZA",
+        "zh_SG", "zh_TW", "zu_ZA"
     ]
 
     /// Locales glibc ships without a region component (Esperanto, Syriac, Toki Pona).
@@ -74,7 +74,7 @@ enum GlibcLocales: Sendable {
         "sd_IN-Deva": "devanagari",
         "sr_RS-Latn": "latin",
         "tt_RU-Latn": "iqtelif",
-        "uz_UZ-Cyrl": "cyrillic",
+        "uz_UZ-Cyrl": "cyrillic"
     ]
 
     /// CLDR macro-region tags mapped to a concrete glibc pair. iOS offers
@@ -82,7 +82,7 @@ enum GlibcLocales: Sendable {
     /// mechanical fallback would pick European es_ES — the wrong variant —
     /// so route it to the largest Latin American Spanish locale instead.
     nonisolated static let macroRegionPairs: [String: String] = [
-        "es_419": "es_MX",
+        "es_419": "es_MX"
     ]
 
     /// Regions that can express a given language+script combination:
@@ -99,7 +99,7 @@ enum GlibcLocales: Sendable {
         "sr-Cyrl": ["RS", "ME"],
         "sr-Latn": ["RS"],
         "zh-Hans": ["CN", "SG"],
-        "zh-Hant": ["TW", "HK"],
+        "zh-Hant": ["TW", "HK"]
     ]
 
     /// Preferred region for languages where the mechanical guess
@@ -131,6 +131,6 @@ enum GlibcLocales: Sendable {
         "uk": "UA",
         "ur": "PK",
         "vi": "VN",
-        "zh": "CN",
+        "zh": "CN"
     ]
 }

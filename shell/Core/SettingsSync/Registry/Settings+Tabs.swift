@@ -36,7 +36,7 @@ nonisolated extension Settings {
 
         static let all: [AnySettingDefinition] = [
             barHidden.erased, barAnimationsDisabled.erased, topTabStyle.erased, compactPillSpacing.erased,
-            showScopeMenu.erased, showShortcutIndicators.erased,
+            showScopeMenu.erased, showShortcutIndicators.erased
         ]
     }
 
@@ -92,7 +92,7 @@ nonisolated extension Settings {
             hideTitleBar.erased, tabsInTitlebar.erased, fullScreenMode.erased, extendUnderHomeIndicator.erased,
             splitFocusBorderStyle.erased, splitFocusBorderColor.erased, splitFocusBorderCustomColor.erased,
             lastWidth.erased, lastHeight.erased, lastOriginX.erased, lastOriginY.erased, lastHasOrigin.erased,
-            titlebarLeadingInset.erased,
+            titlebarLeadingInset.erased
         ]
     }
 
@@ -112,7 +112,7 @@ nonisolated extension Settings {
             title: String(localized: "Refresh Rate on Battery", comment: "Setting title"))
 
         static let all: [AnySettingDefinition] = [
-            autoSaver.erased, maxRefreshRate.erased, batteryRefreshRate.erased,
+            autoSaver.erased, maxRefreshRate.erased, batteryRefreshRate.erased
         ]
     }
 }

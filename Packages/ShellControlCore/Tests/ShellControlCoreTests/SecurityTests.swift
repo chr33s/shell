@@ -58,7 +58,7 @@ final class SecurityTests: XCTestCase {
         let header = try JSONCanonicalization.canonicalize(.object([
             "alg": "none",
             "kid": JSONValue(ControlID.random()),
-            "typ": .string(ControlJWS.type),
+            "typ": .string(ControlJWS.type)
         ]))
         let forged = "\(Base64URL.encode(header)).\(Base64URL.encode(payload)).\(Base64URL.encode(Data(repeating: 0, count: 64)))"
         XCTAssertThrowsError(try ControlJWS.verify(compactSerialization: forged) { _ in InMemoryDeviceKey().publicJWK })
@@ -72,7 +72,7 @@ final class SecurityTests: XCTestCase {
             "alg": "ES256",
             "kid": JSONValue(deviceID),
             "typ": .string(ControlJWS.type),
-            "jwk": key.publicJWK.json,
+            "jwk": key.publicJWK.json
         ]))
         let input = "\(Base64URL.encode(header)).\(Base64URL.encode(payload))"
         let signature = try key.signature(for: Data(input.utf8))

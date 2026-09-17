@@ -34,7 +34,6 @@ final class PowerManager {
 
     private static let logger = Logger(subsystem: "dev.chr33s.shell", category: "PowerManager")
 
-
     // MARK: - Types
 
     enum RefreshRateSetting: String, CaseIterable {
@@ -124,7 +123,7 @@ final class PowerManager {
     }
 
     private static let ownedKeys: Set<String> = [
-        Settings.Power.maxRefreshRate.name, Settings.Power.batteryRefreshRate.name, Settings.Power.autoSaver.name,
+        Settings.Power.maxRefreshRate.name, Settings.Power.batteryRefreshRate.name, Settings.Power.autoSaver.name
     ]
 
     /// True while `reload(keys:)` re-assigns properties from the store.

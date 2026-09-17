@@ -48,16 +48,6 @@ public final class ReconnectionManager {
         /// Whether a restored path may trigger an opportunistic attempt.
         var reconnectOnNetworkRestored: Bool = true
 
-        nonisolated init(
-            enabled: Bool = true,
-            maxAttempts: Int = 5,
-            reconnectOnNetworkRestored: Bool = true
-        ) {
-            self.enabled = enabled
-            self.maxAttempts = maxAttempts
-            self.reconnectOnNetworkRestored = reconnectOnNetworkRestored
-        }
-
         nonisolated static let `default` = Config()
     }
 

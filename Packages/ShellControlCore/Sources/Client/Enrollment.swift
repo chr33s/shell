@@ -70,7 +70,7 @@ public actor EnrollmentCoordinator {
         let enrollment = try await postJSON("/v1/enrollments", body: .object([
             "public_jwk": jwk.json,
             "platform": .string(platform.rawValue),
-            "label": .string(label),
+            "label": .string(label)
         ]))
         var reader = try JSONReader(enrollment)
         let enrollmentID = try reader.id("enrollment_id")
@@ -93,7 +93,7 @@ public actor EnrollmentCoordinator {
     public func poll(deviceCode: String) async throws -> String {
         let response = try await postFormRaw("/v1/oauth/token", fields: [
             "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
-            "device_code": deviceCode,
+            "device_code": deviceCode
         ])
         let value = try JSONValue.parse(response.body, limits: JSONLimits(maxDocumentBytes: 1 << 16))
         if response.isSuccess {
@@ -133,7 +133,7 @@ public actor EnrollmentCoordinator {
     public func refresh(session: DeviceSession) async throws -> DeviceSession {
         let value = try await postFormJSON("/v1/oauth/token", fields: [
             "grant_type": "refresh_token",
-            "refresh_token": session.refreshToken,
+            "refresh_token": session.refreshToken
         ])
         return try DeviceSession(json: value)
     }

@@ -1138,16 +1138,14 @@ extension LocalShellSession {
                 let v = next.value
                 if next == "_"
                     || (v >= 0x41 && v <= 0x5A) // A–Z
-                    || (v >= 0x61 && v <= 0x7A) // a–z
-                {
+                    || (v >= 0x61 && v <= 0x7A) { // a–z
                     return true
                 }
                 // Positional parameters ($0–$9) and special parameters
                 // ($@, $*, $#, $?, $$, $!, $-).
                 if (v >= 0x30 && v <= 0x39)
                     || next == "@" || next == "*" || next == "#"
-                    || next == "?" || next == "$" || next == "!" || next == "-"
-                {
+                    || next == "?" || next == "$" || next == "!" || next == "-" {
                     return true
                 }
             }
@@ -1246,7 +1244,7 @@ extension LocalShellSession {
         // that's inside bash comments / single-quoted literals — corrupting
         // the heap on long inputs (Homebrew `install.sh` repro).
         let normalizedName = (commandName as NSString).lastPathComponent.lowercased()
-        if (normalizedName == "bash" || normalizedName == "sh"),
+        if normalizedName == "bash" || normalizedName == "sh",
            let scriptBody = Self.dashCScriptBody(argv: argv) {
             Task { @MainActor [weak self] in
                 await publishedThrowaway.value

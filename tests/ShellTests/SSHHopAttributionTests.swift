@@ -207,7 +207,7 @@ final class SSHHopAttributionTests: XCTestCase {
             .unsupportedPasswordAuthentication,
             .unsupportedPrivateKeyAuthentication,
             .unsupportedKeyboardInteractiveAuthentication,
-            .unsupportedHostBasedAuthentication,
+            .unsupportedHostBasedAuthentication
         ]
 
         for variant in variants {

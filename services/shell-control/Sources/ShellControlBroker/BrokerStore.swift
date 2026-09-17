@@ -284,7 +284,7 @@ public actor BrokerStore {
             "state": .string(storeLoaded ? "ready" : "not_ready"),
             "store_loaded": .bool(storeLoaded),
             "service_identity": .string(serviceIdentity),
-            "policy_version": .number(.int(policyVersion)),
+            "policy_version": .number(.int(policyVersion))
         ])
     }
 
@@ -382,8 +382,7 @@ public actor BrokerStore {
             }
             if entry.projection.resolution == .approved,
                entry.projection.dispatch == .awaitingOrigin,
-               entry.spec.isExpired(at: now)
-            {
+               entry.spec.isExpired(at: now) {
                 // An unconsumed approval that expires is not applied.
                 entry.projection.dispatch = .notApplied
                 entry.projection.stateVersion += 1

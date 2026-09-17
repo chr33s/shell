@@ -89,7 +89,7 @@ public struct ExecOperation: Sendable, Hashable {
             "schema": .string(ExecOperation.schema),
             "argv": JSONValue(strings: argv),
             "cwd": .string(cwd),
-            "context_sha256": .string(contextSHA256),
+            "context_sha256": .string(contextSHA256)
         ])
     }
 

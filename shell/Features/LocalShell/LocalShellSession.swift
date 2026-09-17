@@ -936,7 +936,6 @@ final class LocalShellSession: TerminalSession, EmbeddedConnectionConfigProvidin
             return
         }
 
-
         // Terminal responses (cursor position reports, etc.) should ALWAYS go to command stdin
         // if a command is running. This bypasses the lineEditor/commandStdin mode check because
         // programs like vim need to receive cursor position reports immediately.

@@ -140,7 +140,7 @@ final class DaemonTests: XCTestCase {
                 "adapter": "test-adapter",
                 "job_label": "build",
                 "capabilities": .array(["consume.v1"]),
-                "operation_schemas": .array([.string(ExecOperation.schema)]),
+                "operation_schemas": .array([.string(ExecOperation.schema)])
             ])
         ))
         XCTAssertTrue(hello.ok)
@@ -158,8 +158,8 @@ final class DaemonTests: XCTestCase {
                     "schema": .string(ExecOperation.schema),
                     "argv": .array(["/usr/bin/git", "push"]),
                     "cwd": "/srv/work/shell",
-                    "context_sha256": .string(String(repeating: "0", count: 64)),
-                ]),
+                    "context_sha256": .string(String(repeating: "0", count: 64))
+                ])
             ])
         ))
         XCTAssertTrue(created.ok)
@@ -178,7 +178,7 @@ final class DaemonTests: XCTestCase {
             body: .object([
                 "request_id": JSONValue(requestID),
                 "request_hash": .string(requestHash),
-                "timeout_seconds": 30,
+                "timeout_seconds": 30
             ])
         ))
         XCTAssertTrue(waited.ok)
@@ -196,7 +196,7 @@ final class DaemonTests: XCTestCase {
                 "request_id": JSONValue(requestID),
                 "decision_id": JSONValue(decisionID),
                 "consume_id": JSONValue(permit.consumeID),
-                "request_hash": .string(requestHash),
+                "request_hash": .string(requestHash)
             ])
         ))
         XCTAssertTrue(receipt.ok)
@@ -219,7 +219,7 @@ final class DaemonTests: XCTestCase {
                 "adapter": "test-adapter",
                 "job_label": "build",
                 "capabilities": .array([]),
-                "operation_schemas": .array([.string(ExecOperation.schema)]),
+                "operation_schemas": .array([.string(ExecOperation.schema)])
             ])
         ))
         var helloReader = try JSONReader(hello.body)
@@ -234,8 +234,8 @@ final class DaemonTests: XCTestCase {
                     "schema": .string(ExecOperation.schema),
                     "argv": .array(["/usr/bin/git", "push"]),
                     "cwd": "/srv/work/shell",
-                    "context_sha256": .string(String(repeating: "0", count: 64)),
-                ]),
+                    "context_sha256": .string(String(repeating: "0", count: 64))
+                ])
             ])
         ))
         var createdReader = try JSONReader(created.body)
@@ -249,7 +249,7 @@ final class DaemonTests: XCTestCase {
             body: .object([
                 "request_id": JSONValue(requestID),
                 "request_hash": .string(requestHash),
-                "timeout_seconds": 30,
+                "timeout_seconds": 30
             ])
         ))
         let outcome = try ApprovalWaitOutcome(json: waited.body)
@@ -288,7 +288,7 @@ final class DaemonTests: XCTestCase {
                 "adapter": "test-adapter",
                 "job_label": "build",
                 "capabilities": .array([]),
-                "operation_schemas": .array([.string(ExecOperation.schema)]),
+                "operation_schemas": .array([.string(ExecOperation.schema)])
             ])
         )
         let first = await core.handle(hello)
@@ -302,7 +302,7 @@ final class DaemonTests: XCTestCase {
                 "adapter": "other-adapter",
                 "job_label": "build",
                 "capabilities": .array([]),
-                "operation_schemas": .array([.string(ExecOperation.schema)]),
+                "operation_schemas": .array([.string(ExecOperation.schema)])
             ])
         )
         let response = await core.handle(changed)
@@ -324,7 +324,7 @@ final class DaemonTests: XCTestCase {
                 "adapter": "kubectl",
                 "job_label": "deploy",
                 "capabilities": .array([]),
-                "operation_schemas": .array(["k8s.apply.v1"]),
+                "operation_schemas": .array(["k8s.apply.v1"])
             ])
         ))
         XCTAssertFalse(response.ok)
@@ -347,7 +347,7 @@ final class DaemonTests: XCTestCase {
                 "adapter": "test-adapter",
                 "job_label": "build",
                 "capabilities": .array([]),
-                "operation_schemas": .array([.string(ExecOperation.schema)]),
+                "operation_schemas": .array([.string(ExecOperation.schema)])
             ])
         ))
         var helloReader = try JSONReader(hello.body)
@@ -362,8 +362,8 @@ final class DaemonTests: XCTestCase {
                     "schema": .string(ExecOperation.schema),
                     "argv": .array(["/usr/bin/git", "push"]),
                     "cwd": "/srv/work/shell",
-                    "context_sha256": .string(String(repeating: "0", count: 64)),
-                ]),
+                    "context_sha256": .string(String(repeating: "0", count: 64))
+                ])
             ])
         )
         let first = await core.handle(request)
@@ -390,7 +390,7 @@ final class DaemonTests: XCTestCase {
                 "adapter": "test-adapter",
                 "job_label": "build",
                 "capabilities": .array([]),
-                "operation_schemas": .array([.string(ExecOperation.schema)]),
+                "operation_schemas": .array([.string(ExecOperation.schema)])
             ])
         ))
         var helloReader = try JSONReader(hello.body)
@@ -407,8 +407,8 @@ final class DaemonTests: XCTestCase {
                         "schema": .string(ExecOperation.schema),
                         "argv": .array(["/usr/bin/git", "push"]),
                         "cwd": "/srv/work/shell",
-                        "context_sha256": .string(String(repeating: "0", count: 64)),
-                    ]),
+                        "context_sha256": .string(String(repeating: "0", count: 64))
+                    ])
                 ])
             ))
             var reader = try JSONReader(created.body)
@@ -426,7 +426,7 @@ final class DaemonTests: XCTestCase {
             body: .object([
                 "request_id": JSONValue(firstID),
                 "request_hash": .string(firstHash),
-                "timeout_seconds": 5,
+                "timeout_seconds": 5
             ])
         ))
         async let secondWait = core.handle(IPCRequest(
@@ -436,7 +436,7 @@ final class DaemonTests: XCTestCase {
             body: .object([
                 "request_id": JSONValue(secondID),
                 "request_hash": .string(secondHash),
-                "timeout_seconds": 5,
+                "timeout_seconds": 5
             ])
         ))
         _ = await firstWait
@@ -582,7 +582,7 @@ final class DaemonTests: XCTestCase {
         try await broker.resolve(created.id, as: .approved, decisionID: .random())
         _ = await core.handle(IPCRequest(messageID: .random(), type: .approvalWait,
             runCapability: created.capability, body: .object([
-                "request_id": JSONValue(created.id), "request_hash": .string(created.hash), "timeout_seconds": 2,
+                "request_id": JSONValue(created.id), "request_hash": .string(created.hash), "timeout_seconds": 2
             ])))
         let task = Task { await core.runHeartbeats() }
         try await Task.sleep(for: .milliseconds(30)); task.cancel()
@@ -617,7 +617,7 @@ final class DaemonTests: XCTestCase {
     private func createPending(on core: DaemonCore) async throws -> (id: ControlID, hash: String, capability: String) {
         let hello = await core.handle(IPCRequest(messageID: .random(), type: .hello, runCapability: nil, body: .object([
             "protocol": .string(ServiceCapabilities.protocolName), "adapter": "test", "job_label": "live",
-            "capabilities": .array([]), "operation_schemas": .array([.string(ExecOperation.schema)]),
+            "capabilities": .array([]), "operation_schemas": .array([.string(ExecOperation.schema)])
         ])))
         var helloReader = try JSONReader(hello.body)
         let capability = try helloReader.string("run_capability", maxLength: 128)
@@ -625,8 +625,8 @@ final class DaemonTests: XCTestCase {
             runCapability: capability, body: .object([
                 "summary": "Live request", "operation": .object([
                     "schema": .string(ExecOperation.schema), "argv": .array(["/usr/bin/true"]),
-                    "cwd": "/tmp", "context_sha256": .string(String(repeating: "0", count: 64)),
-                ]),
+                    "cwd": "/tmp", "context_sha256": .string(String(repeating: "0", count: 64))
+                ])
             ])))
         var reader = try JSONReader(created.body)
         return (try reader.id("request_id"), try reader.string("request_hash", maxLength: 80), capability)

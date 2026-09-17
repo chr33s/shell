@@ -141,7 +141,7 @@ final class RecoveryCoordinatorTests: XCTestCase {
         let scheduler = VirtualRecoveryScheduler()
         let transport = ScriptedTransport([
             .fail(RecoveryFailure(domain: .transportUnavailable)),
-            .succeed(.terminalReady),
+            .succeed(.terminalReady)
         ])
 
         let coordinator = RecoveryTestFactory.makeCoordinator(
@@ -178,7 +178,7 @@ final class RecoveryCoordinatorTests: XCTestCase {
         let transport = ScriptedTransport([
             .fail(RecoveryFailure(domain: .transportUnavailable)),
             .fail(RecoveryFailure(domain: .transportUnavailable)),
-            .fail(RecoveryFailure(domain: .transportUnavailable)),
+            .fail(RecoveryFailure(domain: .transportUnavailable))
         ])
 
         // A short coalescing window keeps the debounce strictly shorter than
@@ -287,7 +287,7 @@ final class RecoveryCoordinatorTests: XCTestCase {
         let scheduler = VirtualRecoveryScheduler()
         let transport = ScriptedTransport([
             .fail(RecoveryFailure(domain: .transportUnavailable)),
-            .succeed(.terminalReady),
+            .succeed(.terminalReady)
         ])
         let coordinator = RecoveryTestFactory.makeCoordinator(
             scheduler: scheduler,
@@ -481,7 +481,7 @@ final class RecoveryCoordinatorTests: XCTestCase {
             (RecoveryFailure(domain: .hostTrustRejected), .hostTrustRejected),
             (RecoveryFailure(domain: .authenticationNeeded), .credentialUnavailable),
             (RecoveryFailure(domain: .authenticationRejected), .authenticationCancelled),
-            (RecoveryFailure(domain: .sessionMissing), .tmuxSessionMissing),
+            (RecoveryFailure(domain: .sessionMissing), .tmuxSessionMissing)
         ]
 
         for (failure, expected) in cases {
@@ -605,7 +605,7 @@ final class RecoveryCoordinatorTests: XCTestCase {
     func testManualRetryWorksWhileAutomaticRecoveryIsDisabled() async throws {
         let scheduler = VirtualRecoveryScheduler()
         let transport = ScriptedTransport([
-            .fail(RecoveryFailure(domain: .transportUnavailable)),
+            .fail(RecoveryFailure(domain: .transportUnavailable))
         ])
         let coordinator = RecoveryTestFactory.makeCoordinator(
             scheduler: scheduler,

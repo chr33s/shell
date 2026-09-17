@@ -20,7 +20,7 @@ public struct ConsumeRequest: Sendable, Hashable {
             "consume_id": JSONValue(consumeID),
             "decision_id": JSONValue(decisionID),
             "request_hash": .string(requestHash),
-            "run_id": JSONValue(runID),
+            "run_id": JSONValue(runID)
         ])
     }
 
@@ -78,7 +78,7 @@ public struct ConsumePermit: Sendable, Hashable {
             "request_hash": .string(requestHash),
             "apply_before": JSONValue(applyBefore),
             "decision": .string(decision.rawValue),
-            "decision_jws": .string(decisionJWS),
+            "decision_jws": .string(decisionJWS)
         ])
     }
 
@@ -168,7 +168,7 @@ public struct Receipt: Sendable, Hashable {
             "result": .string(result.rawValue),
             "reason_code": .string(reasonCode),
             "occurred_at": JSONValue(occurredAt),
-            "job_state": jobState.map { .string($0) },
+            "job_state": jobState.map { .string($0) }
         ])
     }
 

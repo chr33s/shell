@@ -63,7 +63,7 @@ enum Ghostty {
         #endif
 
         // Call ghostty_init with empty arguments
-        var argv: UnsafeMutablePointer<CChar>? = nil
+        var argv: UnsafeMutablePointer<CChar>?
         let result = ghostty_init(0, &argv)
 
         if result != GHOSTTY_SUCCESS {

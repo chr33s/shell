@@ -833,7 +833,7 @@ enum OpenSSHImporter {
     private static func parseProxyJumpHop(_ raw: String) -> ParsedJumpHost {
         var host = raw.trimmingCharacters(in: .whitespaces)
         var port = 22
-        var username: String? = nil
+        var username: String?
         if let atIdx = host.lastIndex(of: "@") {
             username = String(host[..<atIdx])
             host = String(host[host.index(after: atIdx)...])

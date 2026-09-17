@@ -80,7 +80,7 @@ final class KeybindOverrideDecodingTests: XCTestCase {
                 actionParameter: "2",
                 isUserOverride: true,
                 source: .userOverride
-            ),
+            )
         ]
 
         let data = try JSONEncoder().encode(overrides)

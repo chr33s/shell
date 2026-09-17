@@ -302,11 +302,11 @@ struct TabButton: View {
     var isWiggling: Bool = false
     var connectionHealth: ConnectionHealth?
     var showHealthIndicator: Bool = true
-    var keyboardShortcut: String? = nil  // e.g., "⌘1" - shown when tab shortcuts setting enabled
+    var keyboardShortcut: String?  // e.g., "⌘1" - shown when tab shortcuts setting enabled
     var onHoverChange: ((Bool) -> Void)?
     var trackFrame: Bool = true  // Whether to report frame via TabFramePreferenceKey
     var hasThemeOverride: Bool = false  // Whether this tab has a theme override
-    var tmuxBadge: TmuxTabBadge? = nil  // tmux control-mode gateway/window badge
+    var tmuxBadge: TmuxTabBadge?  // tmux control-mode gateway/window badge
     var tmuxBadgePalette: TmuxTabBadgePalette = .fallback
     var style: TopTabStyle = .pills
     var tabWidth: CGFloat = 240
@@ -1016,7 +1016,7 @@ final class TabStyleContextMenuCoordinator: NSObject, UIContextMenuInteractionDe
                     selectedLayout: selectedLayout
                 ),
                 self.action(for: .ledger, systemImage: "underline", selectedLayout: selectedLayout),
-                self.action(for: .trough, systemImage: "rectangle.split.3x1", selectedLayout: selectedLayout),
+                self.action(for: .trough, systemImage: "rectangle.split.3x1", selectedLayout: selectedLayout)
             ]
             return UIMenu(children: actions)
         }

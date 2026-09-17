@@ -152,7 +152,7 @@ public struct ApprovalSpec: Sendable, Hashable {
             "operation": operation.json,
             "minimum_review": .string(minimumReview.rawValue),
             "allowed_decisions": JSONValue(strings: allowedDecisions.map(\.rawValue)),
-            "required_features": JSONValue(strings: requiredFeatures),
+            "required_features": JSONValue(strings: requiredFeatures)
         ])
     }
 

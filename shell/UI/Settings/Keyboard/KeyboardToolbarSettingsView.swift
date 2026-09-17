@@ -294,7 +294,6 @@ struct KeyboardToolbarSettingsView: View {
         }
     }
 
-
     // MARK: - Reset Section
 
     private var resetSection: some View {

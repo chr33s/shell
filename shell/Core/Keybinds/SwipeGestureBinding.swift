@@ -77,37 +77,37 @@ enum SwipeGesturePreset: String, Codable, CaseIterable, Identifiable, Hashable, 
         case .tmuxNextWindow:
             return [
                 .keyCombo(SequenceStep.KeyCombo(modifiers: [.ctrl], key: .letter("b"))),
-                .text("n"),
+                .text("n")
             ]
         case .tmuxPreviousWindow:
             return [
                 .keyCombo(SequenceStep.KeyCombo(modifiers: [.ctrl], key: .letter("b"))),
-                .text("p"),
+                .text("p")
             ]
         case .tmuxNextSession:
             // Ctrl+B then ')' switches to the next attached session via switch-client
             return [
                 .keyCombo(SequenceStep.KeyCombo(modifiers: [.ctrl], key: .letter("b"))),
-                .text(")"),
+                .text(")")
             ]
         case .tmuxPreviousSession:
             // Ctrl+B then '(' switches to the previous session
             return [
                 .keyCombo(SequenceStep.KeyCombo(modifiers: [.ctrl], key: .letter("b"))),
-                .text("("),
+                .text("(")
             ]
         case .zellijNextTab:
             // Enter Tab mode (Ctrl+T), move right, then Esc to return to Normal mode
             return [
                 .keyCombo(SequenceStep.KeyCombo(modifiers: [.ctrl], key: .letter("t"))),
                 .text("l"),
-                .keyCombo(SequenceStep.KeyCombo(modifiers: [], key: .special(.escape))),
+                .keyCombo(SequenceStep.KeyCombo(modifiers: [], key: .special(.escape)))
             ]
         case .zellijPreviousTab:
             return [
                 .keyCombo(SequenceStep.KeyCombo(modifiers: [.ctrl], key: .letter("t"))),
                 .text("h"),
-                .keyCombo(SequenceStep.KeyCombo(modifiers: [], key: .special(.escape))),
+                .keyCombo(SequenceStep.KeyCombo(modifiers: [], key: .special(.escape)))
             ]
         default:
             return nil

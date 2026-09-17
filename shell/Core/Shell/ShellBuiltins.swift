@@ -687,7 +687,7 @@ nonisolated enum ShellBuiltins {
                 return 0
             }
 
-            guard (arg.hasPrefix("-") || arg.hasPrefix("+")), arg.count >= 2 else {
+            guard arg.hasPrefix("-") || arg.hasPrefix("+"), arg.count >= 2 else {
                 // First non-option argument: it and the rest become positionals
                 env.setPositionalParams(Array(args[i...]), scriptName: env.getScriptName())
                 return 0

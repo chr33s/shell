@@ -117,8 +117,7 @@ let sender: any PushSender
 if let keyID = optional("apns_key_id", from: fileConfig, env: "SHELL_CONTROL_APNS_KEY_ID"),
    let teamID = optional("apns_team_id", from: fileConfig, env: "SHELL_CONTROL_APNS_TEAM_ID"),
    let keyPath = optional("apns_key_file", from: fileConfig, env: "SHELL_CONTROL_APNS_KEY_FILE"),
-   let pem = try? String(contentsOfFile: keyPath, encoding: .utf8)
-{
+   let pem = try? String(contentsOfFile: keyPath, encoding: .utf8) {
     sender = APNsClient(credentials: APNsClient.Credentials(keyID: keyID, teamID: teamID, privateKeyPEM: pem))
 } else {
     FileHandle.standardError.write(Data("shell-control-broker: APNs credentials absent, pushes will be recorded only\n".utf8))

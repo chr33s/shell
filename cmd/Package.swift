@@ -9,11 +9,11 @@ let package = Package(
         .library(name: "ShellControlManagement", targets: ["ShellControlManagement"]),
         .library(name: "ShellControlDaemon", targets: ["ShellControlDaemon"]),
         .executable(name: "shell-controld", targets: ["shell-controld"]),
-        .executable(name: "shell-control", targets: ["shell-control"]),
+        .executable(name: "shell-control", targets: ["shell-control"])
     ],
     dependencies: [
         .package(path: "../Packages/ShellControlCore"),
-        .package(path: "../vendor/swift-argument-parser"),
+        .package(path: "../vendor/swift-argument-parser")
     ],
     targets: [
         .target(
@@ -26,7 +26,7 @@ let package = Package(
                 "ShellControlHostSupport",
                 .product(name: "ShellControlProtocol", package: "ShellControlCore"),
                 .product(name: "ShellControlSecurity", package: "ShellControlCore"),
-                .product(name: "ShellControlClient", package: "ShellControlCore"),
+                .product(name: "ShellControlClient", package: "ShellControlCore")
             ]
         ),
         .target(
@@ -35,17 +35,17 @@ let package = Package(
                 "ShellControlHostSupport",
                 .product(name: "ShellControlProtocol", package: "ShellControlCore"),
                 .product(name: "ShellControlSecurity", package: "ShellControlCore"),
-                .product(name: "ShellControlClient", package: "ShellControlCore"),
+                .product(name: "ShellControlClient", package: "ShellControlCore")
             ]
         ),
         .executableTarget(name: "shell-controld", dependencies: ["ShellControlDaemon", "ShellControlHostSupport"]),
         .executableTarget(name: "shell-control", dependencies: [
             "ShellControlManagement", "ShellControlHostSupport",
             .product(name: "ShellControlProtocol", package: "ShellControlCore"),
-            .product(name: "ArgumentParser", package: "swift-argument-parser"),
+            .product(name: "ArgumentParser", package: "swift-argument-parser")
         ]),
         .testTarget(name: "ShellControlDaemonTests", dependencies: ["ShellControlDaemon"]),
         .testTarget(name: "ShellControlManagementTests", dependencies: ["ShellControlManagement", "ShellControlHostSupport"]),
-        .testTarget(name: "ShellControlCommandTests", dependencies: ["ShellControlManagement"]),
+        .testTarget(name: "ShellControlCommandTests", dependencies: ["ShellControlManagement"])
     ]
 )

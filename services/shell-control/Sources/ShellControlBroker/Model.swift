@@ -61,7 +61,11 @@ struct ApprovalRecordEntry: Sendable {
     var record: ApprovalRecord {
         // Safe: the entry was built from a validated spec whose digest was
         // computed at creation time.
-        try! ApprovalRecord(spec: spec, projection: projection)
+        do {
+            return try ApprovalRecord(spec: spec, projection: projection)
+        } catch {
+            preconditionFailure("Validated approval record could not be reconstructed: \(error)")
+        }
     }
 }
 

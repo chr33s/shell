@@ -47,7 +47,7 @@ final class TransparencyManager {
     private static let ownedKeys: Set<String> = [
         Settings.Transparency.backgroundOpacity.name, Settings.Transparency.backgroundBlurRadius.name,
         Settings.Transparency.blurEnabled.name, Settings.Transparency.blurStyle.name,
-        Settings.Transparency.pinnedSidebarTransparency.name,
+        Settings.Transparency.pinnedSidebarTransparency.name
     ]
     private static let defaultBackgroundOpacity: Double = 0.92
     private static let defaultBackgroundBlurRadius: Double = 30.0

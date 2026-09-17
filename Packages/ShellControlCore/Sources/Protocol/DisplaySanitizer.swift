@@ -11,7 +11,7 @@ public enum DisplaySanitizer {
     private static let bidiControls: Set<UInt32> = [
         0x200E, 0x200F, 0x061C,
         0x202A, 0x202B, 0x202C, 0x202D, 0x202E,
-        0x2066, 0x2067, 0x2068, 0x2069,
+        0x2066, 0x2067, 0x2068, 0x2069
     ]
 
     public struct Result: Sendable, Hashable {
@@ -32,8 +32,7 @@ public enum DisplaySanitizer {
             if count >= maxScalars { isTruncated = true; break }
             count += 1
             if bidiControls.contains(scalar.value) || scalar.value < 0x20 || scalar.value == 0x7F
-                || (scalar.value >= 0x80 && scalar.value <= 0x9F)
-            {
+                || (scalar.value >= 0x80 && scalar.value <= 0x9F) {
                 didEscape = true
                 output += String(format: "<U+%04X>", scalar.value)
             } else {

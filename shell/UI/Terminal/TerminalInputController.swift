@@ -179,7 +179,7 @@ final class TerminalInputController {
         return commands.filter { command in
             guard let input = command.input, imeConflictInputs.contains(input) else { return true }
             // Keep commands with CMD or Ctrl (Cmd+Arrow for split nav, etc.).
-            return !command.modifierFlags.intersection([.command, .control]).isEmpty
+            return !command.modifierFlags.isDisjoint(with: [.command, .control])
         }
     }
 

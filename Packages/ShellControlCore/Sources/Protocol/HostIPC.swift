@@ -68,7 +68,7 @@ public struct IPCRequest: Sendable, Hashable {
             "message_id": JSONValue(messageID),
             "type": .string(type.rawValue),
             "run_capability": runCapability.map { .string($0) },
-            "body": body,
+            "body": body
         ])
     }
 
@@ -111,7 +111,7 @@ public struct IPCResponse: Sendable, Hashable {
             "ok": .bool(ok),
             "body": body,
             "error_code": errorCode.map { .string($0) },
-            "error_message": errorMessage.map { .string($0) },
+            "error_message": errorMessage.map { .string($0) }
         ])
     }
 

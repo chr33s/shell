@@ -98,8 +98,6 @@ struct RecoveryPolicy: Equatable, Sendable {
     /// Bounded in-memory diagnostic ring depth per coordinator.
     var diagnosticRingDepth: Int = 128
 
-    init() {}
-
     nonisolated static let `default` = RecoveryPolicy()
 
     // MARK: - Derived schedule

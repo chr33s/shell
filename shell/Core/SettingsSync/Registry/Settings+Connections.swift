@@ -66,7 +66,7 @@ nonisolated extension Settings {
             backgroundKeepalive.erased, autoReconnectEnabled.erased,
             autoReconnectMaxAttempts.erased, passwordDefaultAuthRequirement.erased,
             passwordDefaultStorageLevel.erased,
-            passwordLastUsedDates.erased, defaultKeyIDs.erased,
+            passwordLastUsedDates.erased, defaultKeyIDs.erased
         ]
     }
 
@@ -96,7 +96,7 @@ nonisolated extension Settings {
 
         static let all: [AnySettingDefinition] = [
             defaultMode.erased, defaultSessionName.erased, newTabAction.erased, tabCloseAction.erased,
-            discoveryAttachMode.erased, lastSessionByConnection,
+            discoveryAttachMode.erased, lastSessionByConnection
         ]
     }
 }

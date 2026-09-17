@@ -13,7 +13,6 @@ import NIOSSH
 import NIOPosix
 import NIOTransportServices
 import Crypto
-import os.log
 import os
 
 /// SSH session that uses Citadel's high-level API for connections
@@ -1215,7 +1214,6 @@ final class CitadelSSHSession: SSHTerminalSession {
         }
     }
 
-
     // MARK: - Health Monitoring
 
     /// Start connection health monitoring
@@ -1743,7 +1741,6 @@ final class NIOKeyAuthDelegate: NIOSSHClientUserAuthenticationDelegate {
 
 // MARK: - None Auth Delegate (Tailscale/WireGuard)
 
-
 // MARK: - Citadel Host Key Validator
 
 /// Host key validator that performs validation inline without nested Tasks
@@ -2078,4 +2075,3 @@ final class CitadelHostKeyValidatorDelegate: NIOSSHClientServerAuthenticationDel
 /// `authBannerCardModel`, which the session stores and feeds from
 /// `authBannerBuffer`.
 extension CitadelSSHSession: SSHAuthBannerCardProviding {}
-

@@ -534,7 +534,7 @@ extension MainView {
 extension MainView {
 
     // MARK: - Window Filtering Helper
-    
+
     /// Check if a TerminalView belongs to this window
     private func belongsToThisWindow(_ pane: SplitPaneView?) -> Bool {
         guard let pane = pane else { return false }
@@ -547,7 +547,7 @@ extension MainView {
         }
         return false
     }
-    
+
     /// Check if notification should be handled by this window
     /// Notifications may include a terminal object or a window scene identifier
     func shouldHandleNotification(_ notification: Notification) -> Bool {
@@ -578,7 +578,7 @@ extension MainView {
         }
         return belongsToThisWindow(pane)
     }
-    
+
     // MARK: - Title Observation
     //
     // Title and connection-health observation moved into `TabModel.startObserving()`

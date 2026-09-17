@@ -393,6 +393,8 @@ class KeyboardTracker {
     func stopTracking() {
         guard isTrackingKeyboard else { return }
         isTrackingKeyboard = false
+        // stopTracking intentionally tears down the active session; deinit handles the final cleanup.
+        // swiftlint:disable:next notification_center_detachment
         NotificationCenter.default.removeObserver(self)
     }
 
@@ -709,7 +711,7 @@ class KeyboardTracker {
 
         refreshHardwareModifierState()
 
-        keyboardInput.keyChangedHandler = { [weak self] _, key, keyCode, pressed in
+        keyboardInput.keyChangedHandler = { [weak self] _, _, keyCode, pressed in
             // Detect modifier key changes to refresh link detection
             // (e.g., Cmd+hover should highlight links without requiring mouse movement)
             let isModifierKey = keyCode == .leftGUI || keyCode == .rightGUI ||
@@ -1073,7 +1075,7 @@ class KeyboardTracker {
 
     private nonisolated static let modifierKeyCodes: [GCKeyCode] = [
         .leftGUI, .rightGUI, .leftControl, .rightControl,
-        .leftShift, .rightShift, .leftAlt, .rightAlt,
+        .leftShift, .rightShift, .leftAlt, .rightAlt
     ]
 
     private static func isModifierKey(_ keyCode: GCKeyCode) -> Bool {

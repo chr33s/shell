@@ -28,7 +28,7 @@ extension BrokerStore {
                 "job_id": JSONValue(registration.jobID),
                 "run_id": JSONValue(registration.runID),
                 "state": .string(run.jobState.rawValue),
-                "job_version": .number(.int(run.jobVersion)),
+                "job_version": .number(.int(run.jobVersion))
             ]),
             accountID: principal.accountID,
             originID: originID
@@ -55,7 +55,7 @@ extension BrokerStore {
                 projection: .object([
                     "run_id": JSONValue(runID),
                     "last_seen_at": JSONValue(now),
-                    "waiting": .bool(!run.waitingRequestIDs.isEmpty),
+                    "waiting": .bool(!run.waitingRequestIDs.isEmpty)
                 ]),
                 accountID: principal.accountID,
                 originID: originID
@@ -319,7 +319,7 @@ extension BrokerStore {
                     "job_id": JSONValue(jobID),
                     "run_id": JSONValue(receipt.runID),
                     "state": .string(updated.jobState.rawValue),
-                    "job_version": .number(.int(updated.jobVersion)),
+                    "job_version": .number(.int(updated.jobVersion))
                 ]),
                 accountID: principal.accountID,
                 originID: originID
@@ -428,10 +428,10 @@ extension BrokerStore {
             "aps": .object([
                 "alert": .object(["title": .string(event.title), "body": .string(event.body)]),
                 "category": .string(PushCategory.informational),
-                "thread-id": .string(event.jobID.map { "shell-job-\($0.rawValue)" } ?? "shell-events"),
+                "thread-id": .string(event.jobID.map { "shell-job-\($0.rawValue)" } ?? "shell-events")
             ]),
             "v": 1,
-            "event_id": JSONValue(event.eventID),
+            "event_id": JSONValue(event.eventID)
         ])
         guard let body = try? JSONCanonicalization.canonicalize(json), body.count <= ApprovalPushPayload.maximumBytes else { return }
         for device in devices.values where device.accountID == accountID && !device.isRevoked {

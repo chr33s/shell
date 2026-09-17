@@ -615,7 +615,7 @@ extension Ghostty.TerminalView {
         addSubview(host.view)
         NSLayoutConstraint.activate([
             host.view.centerXAnchor.constraint(equalTo: centerXAnchor),
-            host.view.centerYAnchor.constraint(equalTo: centerYAnchor),
+            host.view.centerYAnchor.constraint(equalTo: centerYAnchor)
         ])
         self.dimensionOverlayHost = host
 
@@ -972,7 +972,7 @@ extension Ghostty.TerminalView {
     ) {
         let group = DispatchGroup()
         let lock = NSLock()
-        var values = Array<String?>(repeating: nil, count: providers.count)
+        var values = [String?](repeating: nil, count: providers.count)
 
         for (index, provider) in providers.enumerated() {
             group.enter()
@@ -1002,7 +1002,7 @@ extension Ghostty.TerminalView {
             UTType.utf8PlainText.identifier,
             UTType.utf16PlainText.identifier,
             UTType.utf16ExternalPlainText.identifier,
-            UTType.plainText.identifier,
+            UTType.plainText.identifier
         ]
         var candidates: [(provider: NSItemProvider, typeIdentifier: String)] = []
 
@@ -1277,7 +1277,7 @@ extension Ghostty.TerminalView {
         // on-screen toolbar Esc key all funnel through here — so it catches what
         // the per-platform key handlers miss. Only the gateway view has a
         // controller, so panes/normal terminals are unaffected.
-        if data.count == 1, data.first == 0x1b, (tmuxController?.isActive == true || isTmuxGatewaySurfaceActive) {
+        if data.count == 1, data.first == 0x1b, tmuxController?.isActive == true || isTmuxGatewaySurfaceActive {
             sendTmuxDetach()
             return
         }
@@ -2435,7 +2435,7 @@ extension Ghostty.TerminalView: UIGestureRecognizerDelegate {
 
         // Block tab swipes when handles are visible and touch is near a handle
         if selectionHandlesVisible,
-           (gestureRecognizer === tabSwipeLeftGesture || gestureRecognizer === tabSwipeRightGesture || gestureRecognizer === appTabSwipePanGesture) {
+           gestureRecognizer === tabSwipeLeftGesture || gestureRecognizer === tabSwipeRightGesture || gestureRecognizer === appTabSwipePanGesture {
             let point = gestureRecognizer.location(in: self)
             if hitSelectionHandle(at: point) != nil {
                 return false

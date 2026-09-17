@@ -9,17 +9,17 @@ let package = Package(
     platforms: [.macOS(.v26)],
     products: [
         .library(name: "ShellControlBroker", targets: ["ShellControlBroker"]),
-        .executable(name: "shell-control-broker", targets: ["shell-control-broker"]),
+        .executable(name: "shell-control-broker", targets: ["shell-control-broker"])
     ],
     dependencies: [
-        .package(path: "../../Packages/ShellControlCore"),
+        .package(path: "../../Packages/ShellControlCore")
     ],
     targets: [
         .target(
             name: "ShellControlBroker",
             dependencies: [
                 .product(name: "ShellControlProtocol", package: "ShellControlCore"),
-                .product(name: "ShellControlSecurity", package: "ShellControlCore"),
+                .product(name: "ShellControlSecurity", package: "ShellControlCore")
             ]
         ),
         .executableTarget(name: "shell-control-broker", dependencies: ["ShellControlBroker"]),
@@ -27,8 +27,8 @@ let package = Package(
             name: "ShellControlBrokerTests",
             dependencies: [
                 "ShellControlBroker",
-                .product(name: "ShellControlClient", package: "ShellControlCore"),
+                .product(name: "ShellControlClient", package: "ShellControlCore")
             ]
-        ),
+        )
     ]
 )

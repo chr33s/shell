@@ -31,7 +31,7 @@ public struct DeviceJWK: Sendable, Hashable {
             "kty": "EC",
             "crv": "P-256",
             "x": .string(Base64URL.encode(x)),
-            "y": .string(Base64URL.encode(y)),
+            "y": .string(Base64URL.encode(y))
         ])
     }
 
@@ -59,7 +59,7 @@ public struct DeviceJWK: Sendable, Hashable {
             "crv": "P-256",
             "kty": "EC",
             "x": .string(Base64URL.encode(x)),
-            "y": .string(Base64URL.encode(y)),
+            "y": .string(Base64URL.encode(y))
         ]))
         return Base64URL.encode(Data(SHA256.hash(data: canonical)))
     }
