@@ -2,8 +2,8 @@ import SwiftUI
 import ShellControlProtocol
 import ShellControlClient
 
-/// The review screen. It fetches the current request before enabling any
-/// decision, shows the exact argument vector and working directory, escapes
+/// The review screen. It fetches the current request live through the iPhone
+/// before enabling any decision, shows the exact argument vector and working directory, escapes
 /// control and bidi characters, and never silently truncates an
 /// authorization-relevant argument (spec.watch.md section 6).
 struct ApprovalReviewView: View {
@@ -107,7 +107,7 @@ struct ApprovalReviewView: View {
                 switch approvability {
                 case .approvable:
                     Button(String(localized: "Approve once")) { confirming = .approve }
-                        .disabled(session.isOffline)
+                        .disabled(!session.isGatewayReachable)
                 case .reviewElsewhere(let reason):
                     // No approval path: the Watch says so instead of degrading
                     // to a weaker check.
@@ -116,12 +116,22 @@ struct ApprovalReviewView: View {
                 }
                 if record.canReject(at: now) {
                     Button(String(localized: "Reject"), role: .destructive) { confirming = .reject }
-                        .disabled(session.isOffline)
+                        .disabled(!session.isGatewayReachable)
                 }
-                if session.isOffline {
-                    Text(String(localized: "Offline — no new control command is queued"))
+                if !session.isGatewayReachable {
+                    // Decisions need a live iPhone round trip; nothing is
+                    // queued for later (spec.iphone-gateway.md 11.3).
+                    Text(String(localized: "iPhone unavailable — no decision is queued"))
                         .font(.caption2)
                         .foregroundStyle(.secondary)
+                } else if let problem = session.gatewayProblem {
+                    Text(problem)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                if let problem = session.decisionProblems[record.spec.requestID] {
+                    Label(problem, systemImage: "exclamationmark.triangle")
+                        .font(.caption2)
                 }
             }
         }

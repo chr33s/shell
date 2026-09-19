@@ -14,8 +14,6 @@
 	<string>dev.chr33s.shell</string>
 	<key>WKRunsIndependentlyOfCompanionApp</key>
 	<true/>
-	<key>SHELLControlBrokerURL</key>
-	<string>$(SHELL_CONTROL_BROKER_URL)</string>
 	<key>SHELLWatchKeychainAccessGroup</key>
 	<string>$(SHELL_WATCH_KEYCHAIN_ACCESS_GROUP)</string>
 </dict>

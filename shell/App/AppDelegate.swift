@@ -37,6 +37,16 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         ControlNotifications.registerCategories()
         UNUserNotificationCenter.current().delegate = self
 
+        // WatchConnectivity is the Watch's only transport, and a Watch message
+        // can launch this app in the background while the phone is locked. The
+        // session is activated here, before the protected-data gate and before
+        // any network work, so that message gets its live reply
+        // (spec.iphone-gateway.md section 11.1). Everything a Watch message
+        // reads — the binding, pinned origin, and session — is in the Keychain
+        // after first unlock; before first unlock those reads fail and the
+        // Watch is told the gateway is unavailable, never that it is unbound.
+        ControlPairingSupport.activate()
+
         installLifecycleObservers()
 
         // Register the keyboard-window visibility observer before the first
@@ -80,11 +90,18 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
                 await CloudKitSyncManager.shared.logDiagnostics()
                 await CloudKitSyncManager.shared.revalidateSubscriptionsIfNeeded()
                 await ControlCompanion.shared.start()
-                ControlPairingSupport.activate()
             }
         }
 
         return true
+    }
+
+    /// The APNs token becomes a relay push capability for the Mac. A token is
+    /// a delivery address, never authentication (spec.iphone-gateway.md 16).
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        Task { @MainActor in
+            await ControlCompanion.shared.didRegisterForRemoteNotifications(deviceToken: deviceToken)
+        }
     }
 
     func application(
@@ -92,6 +109,16 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         didReceiveRemoteNotification userInfo: [AnyHashable: Any],
         fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
     ) {
+        // A Shell approval hint: fetch over Tailscale and stage the Watch's
+        // cache if the system grants the time. It authorizes nothing, and
+        // correctness never depends on this callback running.
+        if ControlPushCapability.isApprovalHint(userInfo) {
+            Task { @MainActor in
+                await ControlCompanion.shared.handleApprovalHint()
+                completionHandler(.newData)
+            }
+            return
+        }
         // Best-effort deferral: if the process survives until unlock, the observer
         // fires and we sync immediately. If iOS kills the process first, the observer
         // is lost — but ShellApp's activation observer calls syncNow()

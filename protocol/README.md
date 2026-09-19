@@ -47,6 +47,42 @@ and the RFC 8628 pair `POST /v1/oauth/device_authorization` and
 `POST /v1/oauth/token`, plus the authenticated confirmation surface at
 `/v1/oauth/confirm`.
 
+## The iPhone-gateway profile
+
+[`../spec.iphone-gateway.md`](../spec.iphone-gateway.md) runs the same protocol
+on a Mac-local broker reached over Tailscale, and adds:
+
+| Endpoint | Caller |
+|---|---|
+| `GET /v1/origin/proof?nonce=N` | anyone; returns `N` signed by the origin key |
+| `POST /v1/pairings/{pairing_id}/claim` | a new iPhone holding the setup QR |
+| `PUT /v1/devices/me/push-capability` | iPhone |
+| `POST /v1/gateways/me/watch-reviewers` | iPhone gateway, for its Watch |
+| `GET /v1/gateways/me/watch-reviewers/{watch_id}` | that gateway |
+| `GET …/{watch_id}/snapshot`, `GET …/{watch_id}/changes` | that gateway, as the Watch |
+| `GET …/{watch_id}/approvals/{request_id}` | that gateway, as the Watch |
+| `POST …/{watch_id}/review-challenges` | that gateway, as the Watch |
+| `POST …/{watch_id}/commands`, `GET …/{watch_id}/commands/{command_id}` | that gateway, carrying the Watch's JWS unchanged |
+
+In this profile `POST /v1/enrollments` is closed: an iPhone enrolls only by
+claiming a one-use pairing, and a Watch only through its gateway.
+
+Signed documents (`shell-control.origin-proof`, `shell-control.route-update`)
+are flat JSON objects whose `signature` member is ES256 (`R || S`, base64url)
+over the JCS encoding of every other member; `type` is the domain separator.
+The setup QR (`shell-control.pairing`) and route QR travel as
+`shell-control://pair?invite=` and `shell-control://route?update=` links whose
+value is the base64url JCS document. A route update changes routing only.
+
+`shell-watch-gateway/1` frames Watch ↔ iPhone WatchConnectivity messages: at
+most 64 KiB, strict JSON (no duplicate names, no unknown members, known `type`
+values only), `message_id` for gateway idempotency, and a named
+`watch_device_id` that must match the iPhone's binding. Interactive operations
+(`enrollment.request`, `enrollment.status`, `snapshot.fetch`, `changes.fetch`,
+`approval.fetch`, `review.challenge`, `command.submit`, `command.query`) use
+`sendMessageData` only. Background channels carry a `gateway.context` summary and
+never a command.
+
 ## Rules an implementation cannot skip
 
 - **Digests.** `request_hash = "sha256:" + lowercase_hex(SHA256(JCS(spec)))`,

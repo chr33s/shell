@@ -2,8 +2,11 @@
 //  ControlPairingSession.swift
 //  shell
 //
-//  Phone-side WatchConnectivity for setup assistance. It never carries private
-//  keys, session tokens, or approval commands (spec.watch.md sections 5 and 7).
+//  Phone-side WatchConnectivity: the required transport of the
+//  `shell-watch-gateway/1` profile. Interactive Watch requests arrive as
+//  `sendMessageData` and are answered from a live Mac round trip; background
+//  channels carry only stale-tolerant context out, and nothing they deliver
+//  in is acted on (spec.iphone-gateway.md section 11).
 //
 
 import Foundation
@@ -18,10 +21,11 @@ enum ControlPairingSupport {
         #endif
     }
 
+    /// Sends the Watch its stale-tolerant inbox summary.
     @MainActor
-    static func publishBroker(brokerURL: URL, startEnrollment: Bool) {
+    static func publish(_ context: WatchGatewayContext) {
         #if os(iOS) && !targetEnvironment(macCatalyst)
-        ControlPairingSession.shared.publishBrokerContext(brokerURL: brokerURL, startEnrollment: startEnrollment)
+        ControlPairingSession.shared.publish(context)
         #endif
     }
 }
@@ -36,7 +40,7 @@ final class ControlPairingSession: NSObject, WCSessionDelegate {
 
     private(set) var isWatchAppInstalled = false
     private(set) var isReachable = false
-    private(set) var inboundEnrollment: ControlPairingMessage.EnrollmentReference?
+    private(set) var isPaired = false
 
     private override init() {
         super.init()
@@ -48,45 +52,20 @@ final class ControlPairingSession: NSObject, WCSessionDelegate {
         session.delegate = self
         session.activate()
         refreshState(from: session)
-        if let inbound = ControlPairingMessage(applicationContext: session.receivedApplicationContext) {
-            adopt(inbound)
-        }
-        if let brokerURL = ControlCompanion.shared.resolvedBrokerURL {
-            publishBrokerContext(brokerURL: brokerURL, startEnrollment: false)
-        }
     }
 
-    /// Ask the Watch to begin independent enrollment. The Watch still generates
-    /// its own key; this only delivers a hint (spec.watch.md section 5).
-    func requestWatchEnrollment() {
-        guard let brokerURL = ControlCompanion.shared.resolvedBrokerURL else { return }
-        publishBrokerContext(brokerURL: brokerURL, startEnrollment: true)
-        guard WCSession.default.activationState == .activated, WCSession.default.isReachable else { return }
-        WCSession.default.sendMessage(
-            ["type": ControlPairingMessage.messageType, "start_enrollment": true],
-            replyHandler: nil,
-            errorHandler: nil
-        )
-    }
-
-    func publishBrokerContext(brokerURL: URL, startEnrollment: Bool) {
-        guard WCSession.isSupported(), WCSession.default.activationState == .activated else { return }
-        let message = ControlPairingMessage(brokerURL: brokerURL, startEnrollment: startEnrollment)
-        guard let context = try? message.applicationContext() else { return }
-        try? WCSession.default.updateApplicationContext(context)
+    func publish(_ context: WatchGatewayContext) {
+        guard WCSession.isSupported(), WCSession.default.activationState == .activated,
+              WCSession.default.isWatchAppInstalled,
+              let payload = try? context.applicationContext()
+        else { return }
+        try? WCSession.default.updateApplicationContext(payload)
     }
 
     private func refreshState(from session: WCSession) {
+        isPaired = session.isPaired
         isWatchAppInstalled = session.isWatchAppInstalled
         isReachable = session.isReachable
-    }
-
-    private func adopt(_ message: ControlPairingMessage) {
-        if let enrollment = message.enrollment, !enrollment.isExpired() {
-            inboundEnrollment = enrollment
-        } else {
-            inboundEnrollment = nil
-        }
     }
 
     nonisolated func session(
@@ -94,15 +73,7 @@ final class ControlPairingSession: NSObject, WCSessionDelegate {
         activationDidCompleteWith activationState: WCSessionActivationState,
         error: (any Error)?
     ) {
-        Task { @MainActor in
-            refreshState(from: session)
-            if activationState == .activated, let brokerURL = ControlCompanion.shared.resolvedBrokerURL {
-                publishBrokerContext(brokerURL: brokerURL, startEnrollment: false)
-            }
-            if let inbound = ControlPairingMessage(applicationContext: session.receivedApplicationContext) {
-                adopt(inbound)
-            }
-        }
+        Task { @MainActor in refreshState(from: session) }
     }
 
     nonisolated func sessionDidBecomeInactive(_ session: WCSession) {}
@@ -119,12 +90,36 @@ final class ControlPairingSession: NSObject, WCSessionDelegate {
         Task { @MainActor in refreshState(from: session) }
     }
 
-    nonisolated func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {
-        Task { @MainActor in
-            if let inbound = ControlPairingMessage(applicationContext: applicationContext) {
-                adopt(inbound)
-            }
+    /// The interactive channel: every Watch read, challenge, and decision
+    /// arrives here and is answered only after a live Mac round trip.
+    nonisolated func session(_ session: WCSession, didReceiveMessageData messageData: Data, replyHandler: @escaping (Data) -> Void) {
+        let reply = UncheckedReply(replyHandler)
+        Task {
+            let gateway = await ControlWatchGateway.shared
+            reply.send(await gateway.handle(messageData))
         }
     }
+
+    /// Queued delivery never authorizes: a Watch command that arrives this way
+    /// is dropped, not deferred (spec.iphone-gateway.md section 11.3).
+    nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any]) {
+        _ = WatchGatewayRouter.refusesBackground(userInfo)
+    }
+
+    nonisolated func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {
+        _ = WatchGatewayRouter.refusesBackground(applicationContext)
+    }
+
+    /// A reply-less message is not the interactive channel either.
+    nonisolated func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
+        _ = WatchGatewayRouter.refusesBackground(message)
+    }
+}
+
+/// `WCSession` reply handlers are not `Sendable`; each is called exactly once.
+private nonisolated struct UncheckedReply: @unchecked Sendable {
+    let handler: (Data) -> Void
+    init(_ handler: @escaping (Data) -> Void) { self.handler = handler }
+    func send(_ data: Data) { handler(data) }
 }
 #endif

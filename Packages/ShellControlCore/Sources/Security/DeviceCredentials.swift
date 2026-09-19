@@ -68,11 +68,20 @@ public enum DeviceGrant: String, Sendable, Hashable, CaseIterable {
     case notificationsAck = "notifications.ack"
     /// Optional; job cancellation is capability-gated.
     case jobsCancel = "jobs.cancel"
+    /// A Watch reviewer reads only through its bound iPhone gateway; it holds
+    /// no standalone network credential (spec.iphone-gateway.md section 10.4).
+    case requestsReadViaGateway = "requests.read-via-gateway"
+    case notificationsReadViaGateway = "notifications.read-via-gateway"
 
     /// Device enrollment and policy changes require account administration, not
     /// ordinary decision credentials, so they have no device grant at all.
     public static let watchDefault: Set<DeviceGrant> = [
         .requestsRead, .approvalsDecide, .notificationsRead, .notificationsAck
+    ]
+
+    /// What a Watch enrolled behind a gateway iPhone is granted by default.
+    public static let watchReviewerDefault: Set<DeviceGrant> = [
+        .requestsReadViaGateway, .approvalsDecide, .notificationsReadViaGateway, .notificationsAck
     ]
 }
 

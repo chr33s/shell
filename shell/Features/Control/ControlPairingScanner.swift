@@ -2,8 +2,8 @@
 //  ControlPairingScanner.swift
 //  shell
 //
-//  In-app QR scanner for `shell-control setup` pairing. The system Camera app
-//  cannot open a custom URL scheme; this reads the same payload.
+//  In-app QR scanner for the `shell-control setup` pairing QR and the
+//  `shell-control route` route-update QR.
 //
 
 #if os(iOS) && !targetEnvironment(macCatalyst)
@@ -12,7 +12,7 @@ import VisionKit
 import ShellControlClient
 
 struct ControlPairingScanner: UIViewControllerRepresentable {
-    var onBroker: (URL) -> Void
+    var onBroker: (String) -> Void
     var onFailed: (String) -> Void
 
     func makeUIViewController(context: Context) -> DataScannerViewController {
@@ -43,11 +43,11 @@ struct ControlPairingScanner: UIViewControllerRepresentable {
     }
 
     final class Coordinator: NSObject, DataScannerViewControllerDelegate {
-        let onBroker: (URL) -> Void
+        let onBroker: (String) -> Void
         let onFailed: (String) -> Void
         private var handled = false
 
-        init(onBroker: @escaping (URL) -> Void, onFailed: @escaping (String) -> Void) {
+        init(onBroker: @escaping (String) -> Void, onFailed: @escaping (String) -> Void) {
             self.onBroker = onBroker
             self.onFailed = onFailed
         }
@@ -63,17 +63,16 @@ struct ControlPairingScanner: UIViewControllerRepresentable {
         private func handle(_ item: RecognizedItem) {
             guard !handled else { return }
             guard case .barcode(let barcode) = item, let payload = barcode.payloadStringValue,
-                  let scanned = URL(string: payload.trimmingCharacters(in: .whitespacesAndNewlines)),
-                  ControlBrokerAddress.parsePairing(scanned) != nil
+                  ControlScannedPayload(payload) != nil
             else { return }
             handled = true
-            onBroker(scanned)
+            onBroker(payload)
         }
     }
 }
 
 struct ControlPairingScannerSheet: View {
-    var onBroker: (URL) -> Void
+    var onBroker: (String) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var failure: String?
 
@@ -88,8 +87,8 @@ struct ControlPairingScannerSheet: View {
                     )
                 } else if DataScannerViewController.isSupported, DataScannerViewController.isAvailable {
                     ControlPairingScanner(
-                        onBroker: { url in
-                            onBroker(url)
+                        onBroker: { payload in
+                            onBroker(payload)
                             dismiss()
                         },
                         onFailed: { failure = $0 }
@@ -99,7 +98,7 @@ struct ControlPairingScannerSheet: View {
                     ContentUnavailableView(
                         String(localized: "Camera unavailable"),
                         systemImage: "qrcode.viewfinder",
-                        description: Text(String(localized: "Paste the broker URL from the terminal instead."))
+                        description: Text(String(localized: "Paste the shell-control:// link from the terminal instead."))
                     )
                 }
             }

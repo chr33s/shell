@@ -3,11 +3,32 @@
 The durable broker described in [`../../spec.watch.md`](../../spec.watch.md)
 section 3: enrollment, authorization policy, immutable request documents,
 resolution and dispatch records, the ordered change log, idempotency records,
-and the APNs outbox.
+and the push outbox.
+
+Under [`../../spec.iphone-gateway.md`](../../spec.iphone-gateway.md) it runs on
+the execution Mac as the sole authority, on loopback, published only inside the
+tailnet by Tailscale Serve. Given an origin identity (`origin_id` plus
+`origin_key_file`) it additionally:
+
+- answers `GET /v1/origin/proof?nonce=` with the nonce signed by the origin key,
+  so a route can prove it reaches the pinned origin;
+- mints one-use pairings (`POST /v1/admin/pairings`, loopback admin only) and
+  accepts `POST /v1/pairings/{id}/claim`, which proves the pairing secret by HMAC
+  and the new key by signature, then waits for explicit confirmation on the Mac;
+- closes the unauthenticated `POST /v1/enrollments` path, so no device is
+  enrolled without the setup QR and no Watch ever gets its own HTTPS credential;
+- enrolls Watch reviewers bound to one gateway iPhone
+  (`POST /v1/gateways/me/watch-reviewers`, confirmed on the Mac) and serves their
+  proxied snapshot, changes, approval, review-challenge, command, and
+  command-status calls under `/v1/gateways/me/watch-reviewers/{id}/…`, checking
+  the gateway credential, the binding, revocation, and the grant on every call
+  and verifying the Watch's own JWS;
+- stores relay push capabilities (`PUT /v1/devices/me/push-capability`) and sends
+  approval hints to the Shell Push Relay.
 
 ## Trust boundary
 
-V1 trusts the broker operator. TLS protects transport, device signatures bind
+V1 trusts the broker operator — in the gateway profile, the Mac itself. TLS protects transport, device signatures bind
 control commands, and durable records support audit — but this is **not**
 end-to-end encryption, and the broker can read request details. A signed
 decision is not proof of biometric authentication and says nothing about whether
@@ -42,11 +63,15 @@ The health route is loopback-admin only and does not mint work.
 | `SHELL_CONTROL_CURSOR_SECRET` | Key for authenticating snapshot tokens and change cursors; set it so cursors survive a restart. |
 | `SHELL_CONTROL_APNS_TOPICS` | Comma-separated allowlist of APNs topics a device may register. Registration fails closed when it is unset, so no device can register at all. |
 | `SHELL_CONTROL_VERIFICATION_URI` | Where the RFC 8628 user code is confirmed. |
-| `SHELL_CONTROL_APNS_KEY_ID`, `SHELL_CONTROL_APNS_TEAM_ID`, `SHELL_CONTROL_APNS_KEY_FILE` | Provider token credentials. Absent, the broker still records everything and only the push hint is missing. |
+| `SHELL_CONTROL_APNS_KEY_ID`, `SHELL_CONTROL_APNS_TEAM_ID`, `SHELL_CONTROL_APNS_KEY_FILE` | Legacy direct-APNs credentials. Absent, the broker still records everything and only the push hint is missing. |
+| `SHELL_CONTROL_ORIGIN_ID`, `SHELL_CONTROL_ORIGIN_KEY_FILE` | The Mac's origin identity: a UUID and a P-256 PEM key. Setting them enables the iPhone-gateway profile. |
+| `SHELL_CONTROL_PUSH_RELAY_URL` | HTTPS base URL of the Shell Push Relay that approval hints are sent to. |
 
-**The listener speaks plain HTTP and must sit behind TLS termination**, or on
-loopback for development. Devices refuse a non-HTTPS base URL that is not
-loopback.
+**The listener speaks plain HTTP and must sit behind TLS termination** —
+Tailscale Serve in the gateway profile — or on loopback for development. Devices
+refuse a non-HTTPS route that is not loopback. Admin routes answer only a
+loopback `Host` with no proxy headers (including Tailscale Serve's), on top of
+the admin secret.
 
 ## Platform
 

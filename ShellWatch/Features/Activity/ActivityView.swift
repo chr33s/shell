@@ -9,8 +9,13 @@ struct ActivityView: View {
     var body: some View {
         List {
             Section(String(localized: "Connectivity")) {
-                LabeledContent(String(localized: "Service")) {
-                    Text(session.isOffline ? String(localized: "Unreachable") : String(localized: "Reachable"))
+                LabeledContent(String(localized: "iPhone")) {
+                    Text(session.isGatewayReachable ? String(localized: "Reachable") : String(localized: "Unavailable"))
+                }
+                if let problem = session.gatewayProblem {
+                    Text(problem)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
                 FreshnessFooter(lastRefreshedAt: session.lastRefreshedAt)
             }
@@ -43,7 +48,7 @@ struct ActivityView: View {
             Section {
                 Button(String(localized: "Sign out"), role: .destructive) { session.signOut() }
             } footer: {
-                Text(String(localized: "Signing out revokes this device's session and removes its local credentials."))
+                Text(String(localized: "Signing out removes this Watch's key and cache. Revoke it on the Mac with shell-control revoke."))
             }
         }
         .navigationTitle(String(localized: "Activity"))

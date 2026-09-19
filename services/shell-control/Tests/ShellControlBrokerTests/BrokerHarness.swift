@@ -31,13 +31,16 @@ final class BrokerHarness {
     let originSecret = "origin-secret-value"
     var originID = ControlID.random()
 
-    init(persistence: (any BrokerPersistence)? = nil) {
+    init(persistence: (any BrokerPersistence)? = nil, originKey: OriginSigningKey? = nil) {
         let clock = Clock(Date(timeIntervalSince1970: 1_788_000_000))
         self.clock = clock
+        let originID = ControlID.random()
+        self.originID = originID
         self.store = BrokerStore(
             serviceIdentity: "test-broker",
             cursorSecret: Data(repeating: 7, count: 32),
             persistence: persistence,
+            originSigner: originKey.map { OriginSigner(originID: originID, key: $0) },
             now: { clock.now }
         )
     }
@@ -45,7 +48,7 @@ final class BrokerHarness {
     var timestamp: ControlTimestamp { ControlTimestamp(clock.now) }
 
     func bootstrap() async throws {
-        originID = try await store.enrollOrigin(accountID: accountID, label: "build host", secret: originSecret)
+        originID = try await store.enrollOrigin(originID: originID, accountID: accountID, label: "build host", secret: originSecret)
     }
 
     struct Device {

@@ -130,6 +130,7 @@ extension BrokerStore {
     /// permissions, platform, device label, and key fingerprint
     /// (spec.watch.md section 5).
     public func describeUserCode(_ userCode: String) throws -> JSONValue {
+        if let reviewer = reviewerRequest(userCode: userCode) { return try describeReviewer(reviewer) }
         guard let record = deviceAuthorizations.values.first(where: { $0.userCode == userCode }),
               let enrollment = enrollments[record.enrollmentID]
         else {
@@ -149,6 +150,10 @@ extension BrokerStore {
     public func approveDeviceAuthorization(userCode: String, principal: Principal, grants: Set<DeviceGrant>? = nil) throws {
         guard case .admin(let accountID) = principal else {
             throw ControlError(code: .notAuthorized, message: "enrollment requires account administration")
+        }
+        if let reviewer = reviewerRequest(userCode: userCode) {
+            try approveReviewer(reviewer, principal: principal, grants: grants)
+            return
         }
         guard let deviceCode = deviceAuthorizations.first(where: { $0.value.userCode == userCode })?.key else {
             throw ControlError(code: .notFound, message: "unknown code")
@@ -177,10 +182,15 @@ extension BrokerStore {
                 "expires_at": JSONValue(record.expiresAt)
             ]))
         }
+        items.append(contentsOf: try pendingReviewerItems())
         return .object(["pending": .array(items)])
     }
 
     public func denyDeviceAuthorization(userCode: String) throws {
+        if let reviewer = reviewerRequest(userCode: userCode) {
+            try denyReviewer(reviewer)
+            return
+        }
         guard let deviceCode = deviceAuthorizations.first(where: { $0.value.userCode == userCode })?.key else {
             throw ControlError(code: .notFound, message: "unknown code")
         }

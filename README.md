@@ -33,9 +33,9 @@ The design rule the fork is held to:
 > belong in the fork.
 
 **Amendment: the optional control companion.** That rule is extended, once and
-explicitly, to allow **Shell Watch** — an independent watchOS app for reviewing
-and answering permission requests raised by programs running on a host, plus the
-broker and host service it needs. It does not restore the upstream AI or push
+explicitly, to allow **Shell Watch** — a watchOS app for reviewing and answering
+permission requests raised by programs running on a host, reached through the
+paired iPhone — plus the Mac-local authority and host service it needs. It does not restore the upstream AI or push
 feature set: there is no terminal on the Watch, no SSH client, no stored SSH
 identity, no unrestricted remote input, and no automatic or bulk approval. The
 companion is optional at every layer — the terminal app builds and runs exactly
@@ -43,7 +43,9 @@ as before without a broker configured.
 
 See [spec.md](spec.md) for the extraction spec this fork implements,
 [spec.connectivity.md](spec.connectivity.md) for mobile connectivity and session
-recovery, and [spec.watch.md](spec.watch.md) for the control companion.
+recovery, [spec.watch.md](spec.watch.md) for the control protocol, and
+[spec.iphone-gateway.md](spec.iphone-gateway.md) for the iPhone-gateway profile
+the apps implement.
 
 ## Requirements
 
@@ -91,27 +93,43 @@ visionOS builds do not contain it.
 ### Control companion
 
 ```text
-Watch  --HTTPS-->  Shell Control broker  <--HTTPS--  shell-controld  --IPC-->  adapter
-        APNs alert                                        (execution host)
+adapter --IPC--> shell-controld --loopback--> Mac-local broker
+                                                   | Tailscale Serve (HTTPS, tailnet only)
+                                                   v
+                                                iPhone --WatchConnectivity--> Watch
+optional: Mac broker --push capability--> Shell Push Relay --APNs--> iPhone
 ```
 
-The Watch owns its own P-256 key, APNs registration, and HTTPS client, and
-enrols independently over OAuth device authorization: it works with the iPhone
-app absent. TestFlight onboarding is phone-first: Settings → Control starts
-setup on this device, opens Safari to confirm, and WatchConnectivity only
-forwards the Watch's enrollment code so the same Safari page can approve the
-Watch. It never copies private keys or session tokens. A decision is a JWS
-(`ES256`, JCS payload) that commits to one request digest and the versions the
-reviewer saw; the host claims that decision exactly once and reports a receipt
-saying what it actually applied. A push notification is a hint — the ledger is
-the snapshot and change stream.
+The Mac is the authority. Its broker listens on loopback and is published only
+inside the user's tailnet by Tailscale Serve; there is no public listener, tunnel,
+or shared cloud ledger. The iPhone reaches the Mac over Tailscale and is both a
+full review client and the network gateway for its paired Watch. The Watch talks
+only to its iPhone over WatchConnectivity: it has no URL, no Tailscale session, and
+no network credential.
+
+Identity is not routing. `shell-control setup` generates a long-lived origin
+signing key; pairing pins `origin_id` plus that public key, and the Tailscale URL
+is only a cached route. A renamed Mac, a new Wi-Fi network, a Tailscale restart,
+or a changed address never requires pairing again: every route must prove the
+pinned key, and a changed route can be adopted from an origin-signed route QR
+(`shell-control route`). Only a replaced origin key, a revoked device, or an
+explicit reset needs a new pairing.
+
+Every device owns its own P-256 key. A decision is a JWS (`ES256`, JCS payload)
+that commits to one request digest and the versions the reviewer saw. A Watch
+decision is signed by the Watch and carried unchanged by the iPhone, which cannot
+substitute its own approval; the Mac checks the Watch-to-iPhone binding on every
+proxied call. Decisions need a live iPhone round trip — nothing is queued for
+later — and the host claims a decision exactly once and reports a receipt of what
+it applied. A push notification is only a hint.
 
 ```text
-Packages/ShellControlCore/   portable protocol, security, and client code
+Packages/ShellControlCore/   portable protocol, security, gateway, and client code
 ShellWatch/                  the watchOS app
 ShellWatchTests/             its unit tests, hosted by ShellWatch.app
-shell/Features/Control/      optional phone setup, larger review, handoff
-services/shell-control/      the broker: durable store, HTTP front end, APNs outbox
+shell/Features/Control/      iPhone pairing, review, and the Watch gateway
+services/shell-control/      the Mac-local broker: durable ledger and HTTP front end
+services/push-relay/         the optional, stateless Shell Push Relay
 cmd/                         shell-controld (host service) and shell-control (CLI)
 adapters/                    example blocking-hook integrations
 protocol/                    published schemas and interoperability fixtures
@@ -122,51 +140,53 @@ the Watch target does not inherit the iOS bridging header, bundle identity, or
 Ghostty linker flags. Configuration lives in `Configuration/Watch.xcconfig`,
 which deliberately does not include `Base.xcconfig`.
 
-### Trying the companion locally
+### Setting up the companion
 
-Debug builds of the phone and Watch apps point at `http://localhost:8443`, which
-is what `./scripts/run-broker.sh` serves — so Xcode's Run button works against a
-local broker with no extra setup. Release builds carry the placeholder
-`https://control.invalid`, which the app recognises as "not configured" and says
-so rather than dialling it, so nothing ships pointing at a laptop. A TestFlight
-build bakes a real HTTPS host via `SHELL_CONTROL_BROKER_URL` (see Releasing).
+Prerequisites: Tailscale installed and signed in on the Mac and the iPhone, with
+MagicDNS and HTTPS certificates enabled for the tailnet. VPN On Demand on the
+iPhone is recommended so Shell's requests bring the tunnel up. Download the signed
+native Shell Control disk image for the Mac's architecture and run its CLI:
 
 ```sh
-./scripts/run-broker.sh                 # dev broker on http://localhost:8443
-./scripts/run-watch.sh                  # build + install + launch, pointed at it
-./scripts/dev-confirm.sh <USER-CODE>    # confirm the code the Watch shows
-```
-
-`run-broker.sh` generates an account id, an admin secret, and a cursor secret
-into `.derivedData/dev-broker.env` on first run. The simulator shares the Mac's
-network stack, and loopback is the one case the client accepts without TLS.
-
-Enrollment is confirmed by an account administrator, not by the enrolling
-device. Download the signed native Shell Control disk image for the Mac's
-architecture and invoke its prebuilt CLI:
-
-```sh
-bin/shell-control setup    # broker on loopback + HTTPS tunnel + origin + pairing QR
+bin/shell-control setup    # Tailscale check, loopback broker, Tailscale Serve, origin key, pairing QR
 ```
 
 Setup installs the verified native executables under `~/.local/lib/chr33s-shell`;
-it does not need Node, npm, a compiler, or a checkout. Once readiness is reported,
-closing that CLI or terminal does **not** stop the broker, origin daemon, or managed
-tunnel. `shell-control down` stops and persistently disables them until an explicit
-`up`. A lost quick-tunnel hostname is never replaced silently; use
-`shell-control up --rotate-url` and re-pair devices. Login persistence is opt-in via
-`service install` and requires a named tunnel or an external reverse proxy.
+it does not need Node, npm, a compiler, or a checkout. It reports missing
+Tailscale prerequisites precisely, configures Tailscale Serve, and then verifies
+the resulting Serve state (and refuses Funnel). Closing the CLI does **not** stop
+the broker or origin daemon; `shell-control down` stops and persistently disables
+them until an explicit `up`. `service install` adds login persistence.
 
-On the phone: **Settings → Control → Scan QR** (or paste the printed URL).
-The CLI displays each device fingerprint and permissions before explicit approval;
-it never auto-approves. Missing `cloudflared` is an error for managed modes—use
-`--tunnel-mode loopback` deliberately for local-only testing. See
-[`cmd/README.md`](cmd/README.md) for the complete native command and release guide.
+On the iPhone: **Settings → Control → Scan QR**. Compare the code and fingerprints
+with the Mac and confirm there; the CLI never auto-approves. Then open Shell on the
+Watch and choose **Start setup**: the Watch generates its own key, the iPhone
+carries the public half to the Mac, and the Mac confirms it. `shell-control status
+--text` summarises Tailscale, Serve, origin, enrolled devices, and pending requests.
+See [`cmd/README.md`](cmd/README.md) for every command, and
+[`services/push-relay/README.md`](services/push-relay/README.md) for optional
+remote alerts.
 
-For a persistent address, create `Configuration/Local.xcconfig` (untracked):
+### Trying the companion locally
+
+```sh
+./scripts/run-broker.sh                 # dev broker with an origin key on http://127.0.0.1:8443
+./scripts/dev-pair.sh                   # print a loopback pairing link
+./scripts/dev-confirm.sh <USER-CODE>    # confirm the code the phone or Watch shows
+```
+
+Paste the `shell-control://pair?invite=…` link into **Settings → Control** in the
+iPhone simulator; the simulator shares the Mac's loopback, the one route accepted
+without TLS. Run the Watch app on the paired Watch simulator with
+`./scripts/run-watch.sh`. WatchConnectivity reachability, iOS suspension,
+Tailscale VPN behaviour, and notification routing still need the physical-device
+checks in spec.iphone-gateway.md section 33.
+
+Remote alerts are optional. To enable them, run the relay and point the phone at
+it in `Configuration/Local.xcconfig` (untracked):
 
 ```text
-SHELL_CONTROL_BROKER_URL = https:/$()/control.example
+SHELL_CONTROL_PUSH_RELAY_URL = https:/$()/relay.example
 ```
 
 The `$()` splits the `//`, which xcconfig would otherwise read as a comment.
@@ -224,8 +244,9 @@ Four sections, nothing else:
 - **SSH** — profiles, SSH identities, known hosts, saved passwords, recovery
 - **tmux** — default mode, default session name, close-window behavior
 - **Sync** — iCloud sync toggles per data class, plus last-sync status
-- **Control** — optional Watch companion: pair a Mac broker (`shell-control setup`
-  QR or paste), enroll this device, confirm the Watch
+- **Control** — optional companion: pair with the Mac over Tailscale
+  (`shell-control setup` QR), apply route updates, and see the Watch this iPhone
+  gateways for
 
 ## Losing the network
 
@@ -346,7 +367,7 @@ the repository provides is the shared schemes those workflows build and the
 
 | Script | When | What it does |
 | --- | --- | --- |
-| `ci_scripts/ci_post_clone.sh` | after clone | Runs `./scripts/vendor.py verify` so a build fails fast if `vendor/` and `vendor/manifest` disagree, then writes `Configuration/Local.xcconfig` from the `SHELL_CONTROL_BROKER_URL` environment variable, so Release Watch builds reach a real broker instead of the `control.invalid` placeholder |
+| `ci_scripts/ci_post_clone.sh` | after clone | Runs `./scripts/vendor.py verify` so a build fails fast if `vendor/` and `vendor/manifest` disagree, then writes `Configuration/Local.xcconfig` from the optional `SHELL_CONTROL_PUSH_RELAY_URL` environment variable, so Release phone builds can register with a Shell Push Relay instead of the `relay.invalid` placeholder |
 | `ci_scripts/ci_pre_xcodebuild.sh` | before build | Stamps `CI_BUILD_NUMBER` into `CURRENT_PROJECT_VERSION` in `Configuration/Base.xcconfig` and `Configuration/Watch.xcconfig` |
 | `ci_scripts/ci_post_xcodebuild.sh` | after build | Runs `./scripts/test-control.sh` on test actions — the control packages are plain SwiftPM packages that no Xcode scheme covers |
 
@@ -384,17 +405,18 @@ install from TestFlight. That build file and the target dependency both carry
 watch content. Those two reuse `dev.chr33s.shell`, which works by universal
 purchase once the platforms are enabled on the app record.
 
-Embedding is a distribution choice and does not weaken the independence
-spec.watch.md requires: `WKRunsIndependentlyOfCompanionApp` in
-`ShellWatch/Info.plist` keeps the Watch app usable with the phone app absent.
+Embedding is a distribution choice. `WKRunsIndependentlyOfCompanionApp` in
+`ShellWatch/Info.plist` still lets the Watch app install and show its cached
+inbox on its own, but under spec.iphone-gateway.md every Watch read and decision
+goes through the paired iPhone.
 The cost is a version lock — an embedded watch app must carry the same
 `MARKETING_VERSION` as its host, so `Configuration/Base.xcconfig` and
 `Configuration/Watch.xcconfig` have to be bumped together.
 
 Signing and upload are Xcode Cloud's own — there are no certificates, API keys,
-or repository secrets to manage. The one setting worth adding is the environment
-variable `SHELL_CONTROL_BROKER_URL` on the TestFlight workflow (mark it secret if
-the endpoint is not public).
+or repository secrets to manage. The one optional setting is the environment
+variable `SHELL_CONTROL_PUSH_RELAY_URL` on the TestFlight workflow, for prompt
+approval alerts through a Shell Push Relay.
 
 ### Archiving by hand
 

@@ -12,11 +12,6 @@ ONLY_ACTIVE_ARCH = YES
 SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG $(inherited)
 SWIFT_OPTIMIZATION_LEVEL = -Onone
 
-// What ./scripts/run-broker.sh serves, so Xcode's Run button works against a
-// local broker with no extra setup. The `$()` splits the `//`, which xcconfig
-// would otherwise read as a comment.
-SHELL_CONTROL_BROKER_URL = http:/$()/localhost:8443
-
 // An untracked local override, if the developer has one. It must come after
 // the default above to win.
 #include? "Local.xcconfig"

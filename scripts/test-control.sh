@@ -1,5 +1,6 @@
 #!/bin/bash
-# Test the control protocol package, the broker, and the host daemon/CLI.
+# Test the control protocol package, the broker, the push relay, and the host
+# daemon/CLI.
 #
 # Usage: ./scripts/test-control.sh
 #
@@ -10,7 +11,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 status=0
 
-for package in "Packages/ShellControlCore" "services/shell-control" "cmd"; do
+for package in "Packages/ShellControlCore" "services/shell-control" "services/push-relay" "cmd"; do
     echo "=== $package ==="
     ( cd "$ROOT/$package" && swift test 2>&1 ) | tee "/tmp/shell-control-$(basename "$package").log" \
         | grep -E "error:|Executed [0-9]+ tests" | sort -u

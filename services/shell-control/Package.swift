@@ -19,10 +19,14 @@ let package = Package(
             name: "ShellControlBroker",
             dependencies: [
                 .product(name: "ShellControlProtocol", package: "ShellControlCore"),
-                .product(name: "ShellControlSecurity", package: "ShellControlCore")
+                .product(name: "ShellControlSecurity", package: "ShellControlCore"),
+                .product(name: "ShellControlHTTPServer", package: "ShellControlCore")
             ]
         ),
-        .executableTarget(name: "shell-control-broker", dependencies: ["ShellControlBroker"]),
+        .executableTarget(name: "shell-control-broker", dependencies: [
+            "ShellControlBroker",
+            .product(name: "ShellControlSecurity", package: "ShellControlCore")
+        ]),
         .testTarget(
             name: "ShellControlBrokerTests",
             dependencies: [

@@ -50,26 +50,9 @@ final class NotificationRoutingTests: XCTestCase {
         ))
     }
 
-    func testConfigurationTreatsThePlaceholderBrokerAsUnconfigured() {
-        // The shipped placeholder must read as "not set up" rather than being
-        // dialled during enrollment.
-        XCTAssertEqual(ShellWatchConfiguration.unconfiguredHost, "control.invalid")
-    }
-
-    /// A Debug build must carry a usable broker address, or every developer
-    /// running from Xcode lands on "no control service configured" — which is
-    /// exactly what happened before the Debug configuration set one.
-    func testDebugBuildsCarryAUsableBrokerAddress() throws {
-        #if DEBUG
-        let url = try XCTUnwrap(
-            ShellWatchConfiguration.brokerURL,
-            "the Debug configuration must set SHELL_CONTROL_BROKER_URL"
-        )
-        XCTAssertNotEqual(url.host, ShellWatchConfiguration.unconfiguredHost)
-        // Loopback is the one case the client accepts without TLS.
-        if url.scheme != "https" {
-            XCTAssertEqual(url.host, "localhost", "a non-HTTPS broker is only accepted on loopback")
-        }
-        #endif
+    /// The Watch has no route of its own: no broker URL is baked into it and
+    /// none can be configured (spec.iphone-gateway.md section 4.6).
+    func testTheWatchBundleCarriesNoBrokerAddress() {
+        XCTAssertNil(Bundle.main.object(forInfoDictionaryKey: "SHELLControlBrokerURL"))
     }
 }

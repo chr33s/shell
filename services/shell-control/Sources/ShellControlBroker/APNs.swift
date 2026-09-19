@@ -109,21 +109,62 @@ public actor RecordingPushSender: PushSender {
     public var delivered: [OutboxEntry] { sent }
 }
 
+/// Hands approval hints to the stateless Shell Push Relay. The relay owns no
+/// approval state and builds the APNs payload itself; a relay outage only
+/// loses a hint (spec.iphone-gateway.md section 16).
+public protocol RelaySender: Sendable {
+    func send(_ entry: RelayPushEntry) async throws
+}
+
+public struct PushRelayClient: RelaySender {
+    public let endpoint: URL
+    private let session: URLSession
+
+    public init(endpoint: URL, session: URLSession = .shared) {
+        self.endpoint = endpoint
+        self.session = session
+    }
+
+    public func send(_ entry: RelayPushEntry) async throws {
+        var request = URLRequest(url: endpoint.appendingPathComponent("v1/push"), timeoutInterval: 10)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONCanonicalization.canonicalize(entry.json)
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw APNsClient.PushError.status((response as? HTTPURLResponse)?.statusCode ?? 0, String(decoding: data.prefix(200), as: UTF8.self))
+        }
+    }
+}
+
+public actor RecordingRelaySender: RelaySender {
+    private var sent: [RelayPushEntry] = []
+    public init() {}
+    public func send(_ entry: RelayPushEntry) async throws { sent.append(entry) }
+    public var delivered: [RelayPushEntry] { sent }
+}
+
 /// Drains the outbox. A failed push is dropped rather than retried forever:
 /// push is a hint, and the client reconciles from the change stream
 /// (spec.watch.md section 14).
 public struct OutboxWorker: Sendable {
     let store: BrokerStore
     let sender: any PushSender
+    let relay: (any RelaySender)?
 
-    public init(store: BrokerStore, sender: any PushSender) {
+    public init(store: BrokerStore, sender: any PushSender, relay: (any RelaySender)? = nil) {
         self.store = store
         self.sender = sender
+        self.relay = relay
     }
 
     public func drainOnce() async {
         for entry in await store.drainOutbox() {
             try? await sender.send(entry)
+        }
+        let relayed = await store.drainRelayOutbox()
+        if let relay {
+            for entry in relayed { try? await relay.send(entry) }
         }
     }
 

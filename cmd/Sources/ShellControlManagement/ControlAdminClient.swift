@@ -70,9 +70,62 @@ public struct ManagementStatus: Codable, Sendable {
     public var persistent: Bool
     public var publicURL: String?
     public var components: [String: ComponentObservation]
+    public var origin: OriginSummary?
+    public var enrollment: EnrollmentSummary?
     enum CodingKeys: String, CodingKey {
         case schema, overall, readinessScope = "readiness_scope", desiredState = "desired_state"
-        case persistent, publicURL = "public_url", components
+        case persistent, publicURL = "public_url", components, origin, enrollment
+    }
+
+    public init(overall: String, readinessScope: String, desiredState: String, persistent: Bool,
+                publicURL: String?, components: [String: ComponentObservation]) {
+        self.overall = overall; self.readinessScope = readinessScope; self.desiredState = desiredState
+        self.persistent = persistent; self.publicURL = publicURL; self.components = components
+    }
+}
+
+/// The Shell origin identity: what a phone pins. The route is separate.
+public struct OriginSummary: Codable, Sendable, Equatable {
+    public var originID: String
+    public var fingerprint: String
+    enum CodingKeys: String, CodingKey { case originID = "origin_id", fingerprint }
+}
+
+/// Enrolled devices by role, as `shell-control status` reports them
+/// (spec.iphone-gateway.md section 25.2).
+public struct EnrollmentSummary: Codable, Sendable, Equatable {
+    public struct Device: Codable, Sendable, Equatable {
+        public var deviceID: String
+        public var platform: String
+        public var label: String
+        public var fingerprint: String
+        public var gatewayDeviceID: String?
+        public var push: Bool
+        enum CodingKeys: String, CodingKey {
+            case deviceID = "device_id", platform, label, fingerprint = "key_fingerprint"
+            case gatewayDeviceID = "gateway_device_id", push
+        }
+    }
+
+    public var iphones: [Device]
+    public var watches: [Device]
+    public var pendingApprovals: Int
+    enum CodingKeys: String, CodingKey { case iphones, watches, pendingApprovals = "pending_approvals" }
+
+    public init(adminDevices value: JSONValue) {
+        let devices = (value["devices"]?.arrayValue ?? []).compactMap { item -> Device? in
+            guard let id = item["device_id"]?.stringValue, let platform = item["platform"]?.stringValue else { return nil }
+            return Device(
+                deviceID: id, platform: platform,
+                label: DisplaySanitizer.sanitize(item["label"]?.stringValue ?? "", maxScalars: 120).text,
+                fingerprint: item["key_fingerprint"]?.stringValue ?? "",
+                gatewayDeviceID: item["gateway_device_id"]?.stringValue,
+                push: item["push"]?.boolValue ?? false
+            )
+        }
+        iphones = devices.filter { $0.gatewayDeviceID == nil && $0.platform == "iOS" }
+        watches = devices.filter { $0.gatewayDeviceID != nil }
+        pendingApprovals = value["pending_approvals"]?.intValue ?? 0
     }
 }
 

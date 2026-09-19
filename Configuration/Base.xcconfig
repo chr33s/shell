@@ -34,12 +34,14 @@ INFOPLIST_FILE = shell/Info.plist
 SHELL_KEYCHAIN_ACCESS_GROUP = $(AppIdentifierPrefix)dev.chr33s.shell
 SHELL_CLOUDKIT_CONTAINER = iCloud.dev.chr33s.shell
 
-// Runtime configuration the phone and Watch read back from Info.plist.
-// The placeholder is recognised as "no broker configured". A real host is
-// supplied by Configuration/Local.xcconfig (untracked) or by the Xcode Cloud
-// SHELL_CONTROL_BROKER_URL environment variable. The `$()` splits `//`, which
-// xcconfig would otherwise treat as a comment.
-SHELL_CONTROL_BROKER_URL = https:/$()/control.invalid
+// The optional Shell Push Relay the phone trades its APNs token with. The
+// `.invalid` placeholder means "no relay": pairing and approval still work,
+// only prompt remote alerts are missing (spec.iphone-gateway.md 16.5). A real
+// host is supplied by Configuration/Local.xcconfig (untracked) or by the Xcode
+// Cloud SHELL_CONTROL_PUSH_RELAY_URL environment variable. There is no broker
+// URL: the phone pairs with its Mac from the setup QR. The `$()` splits `//`,
+// which xcconfig would otherwise treat as a comment.
+SHELL_CONTROL_PUSH_RELAY_URL = https:/$()/relay.invalid
 
 // Entitlements
 CODE_SIGN_ENTITLEMENTS = shell/Entitlements/Shell.entitlements

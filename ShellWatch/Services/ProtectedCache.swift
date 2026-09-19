@@ -73,32 +73,3 @@ final class ProtectedInboxCache: InboxCacheStore, @unchecked Sendable {
         return state
     }
 }
-
-/// Unresolved local command IDs, persisted separately from the projection cache
-/// so a snapshot refresh cannot erase an ambiguous submitted decision
-/// (spec.watch.md section 15).
-final class FileCommandJournalStore: CommandJournalStore, @unchecked Sendable {
-    private let url: URL
-
-    init(directory: URL? = nil) throws {
-        let base = try directory ?? FileManager.default.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )
-        try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
-        url = base.appendingPathComponent("control-commands.json")
-    }
-
-    func load() throws -> [PendingCommand] {
-        guard let data = try? Data(contentsOf: url), !data.isEmpty else { return [] }
-        let value = try JSONValue.parse(data)
-        return (value.arrayValue ?? []).compactMap { try? PendingCommand(json: $0) }
-    }
-
-    func save(_ commands: [PendingCommand]) throws {
-        let data = try JSONCanonicalization.canonicalize(.array(commands.map(\.json)))
-        try data.write(to: url, options: [.atomic, .completeFileProtection])
-    }
-}

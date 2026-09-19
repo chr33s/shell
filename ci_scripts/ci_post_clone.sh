@@ -5,12 +5,12 @@
 # Package resolution needs no network: every SwiftPM dependency is checked in
 # under vendor/.
 #
-# The phone and Watch apps read the broker endpoint from a build setting that
-# defaults to a `control.invalid` placeholder (Configuration/Base.xcconfig and
-# Configuration/Watch.xcconfig). Point a build at a real service by defining
-# SHELL_CONTROL_BROKER_URL as an environment variable on the Xcode Cloud
-# workflow; this writes it into the untracked Local.xcconfig that both files
-# optionally include, which is the same hook a developer uses locally.
+# The phone reads the optional Shell Push Relay from a build setting that
+# defaults to a `relay.invalid` placeholder (Configuration/Base.xcconfig).
+# Define SHELL_CONTROL_PUSH_RELAY_URL on the Xcode Cloud workflow to enable
+# prompt approval alerts; this writes it into the untracked Local.xcconfig,
+# the same hook a developer uses locally. There is no broker URL to bake: the
+# phone pairs with its Mac over Tailscale from the setup QR.
 set -eu
 
 cd "$CI_PRIMARY_REPOSITORY_PATH"
@@ -20,12 +20,12 @@ cd "$CI_PRIMARY_REPOSITORY_PATH"
 # rather than letting Xcode's resolve step report a missing local package.
 ./scripts/vendor.py verify
 
-if [ -n "${SHELL_CONTROL_BROKER_URL:-}" ]; then
+if [ -n "${SHELL_CONTROL_PUSH_RELAY_URL:-}" ]; then
     # `$()` splits the `//`, which xcconfig would otherwise read as the start of
     # a comment and truncate the URL to "https:".
-    url=$(printf '%s' "$SHELL_CONTROL_BROKER_URL" | sed 's|//|/$()/|')
-    echo "SHELL_CONTROL_BROKER_URL = $url" > Configuration/Local.xcconfig
-    echo "broker: $url"
+    url=$(printf '%s' "$SHELL_CONTROL_PUSH_RELAY_URL" | sed 's|//|/$()/|')
+    echo "SHELL_CONTROL_PUSH_RELAY_URL = $url" > Configuration/Local.xcconfig
+    echo "push relay: $url"
 else
-    echo "broker: unset, Release Watch builds ship the placeholder"
+    echo "push relay: unset, builds work without prompt remote alerts"
 fi

@@ -14,11 +14,20 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOG="${1:-$ROOT/.derivedData/watch-test.log}"
 mkdir -p "$(dirname "$LOG")"
 
+# Resolve the simulator to its UDID: with several watchOS runtimes installed a
+# bare name can fail to match any destination.
+NAME="${SHELL_WATCH_SIMULATOR:-Apple Watch Series 11 (46mm)}"
+UDID="$(xcrun simctl list devices available | grep -F "    $NAME (" | head -1 | grep -oE '[0-9A-F]{8}-([0-9A-F]{4}-){3}[0-9A-F]{12}')"
+if [ -z "$UDID" ]; then
+    echo "no available simulator named \"$NAME\" (set SHELL_WATCH_SIMULATOR)"
+    exit 1
+fi
+
 xcodebuild \
     -project "$ROOT/shell.xcodeproj" \
     -scheme ShellWatch \
     -configuration Debug \
-    -destination 'platform=watchOS Simulator,name=Apple Watch Series 11 (46mm)' \
+    -destination "id=$UDID" \
     -derivedDataPath "$ROOT/.derivedData" \
     test > "$LOG" 2>&1
 status=$?

@@ -119,115 +119,261 @@ final class ControlCompanionWiringTests: XCTestCase {
         return SourceTree.allAppSource()
     }
 
-    // MARK: - Baked broker and phone-first setup
+    // MARK: - iPhone gateway profile: origin identity versus route
 
-    func testThePhoneInfoPlistCarriesTheBrokerURLKey() {
-        XCTAssertNotNil(
-            Bundle.main.object(forInfoDictionaryKey: "SHELLControlBrokerURL"),
-            "the iOS Info.plist must substitute SHELL_CONTROL_BROKER_URL so TestFlight can bake a host"
-        )
-        if let url = ControlCompanion.shared.resolvedBrokerURL {
-            XCTAssertTrue(
-                ControlBrokerAddress.isAcceptable(url),
-                "a baked broker must be HTTPS or loopback HTTP, not the placeholder"
-            )
-        }
+    /// The phone carries no broker URL: it pairs with its Mac from the setup
+    /// QR. The relay is optional and the placeholder means "none".
+    func testThePhoneCarriesNoBrokerURLAndTheRelayIsOptional() {
+        XCTAssertNil(Bundle.main.object(forInfoDictionaryKey: "SHELLControlBrokerURL"))
+        XCTAssertNotNil(Bundle.main.object(forInfoDictionaryKey: "SHELLControlPushRelayURL"))
+        #if DEBUG
+        XCTAssertNil(ControlPushCapability.relayURL, "the placeholder relay must read as not configured")
+        #endif
     }
 
-    func testThePlaceholderBrokerLeavesTheCompanionInert() {
-        XCTAssertNil(ControlBrokerAddress.url(from: "https://control.invalid"))
-        XCTAssertEqual(ControlBrokerAddress.unconfiguredHost, "control.invalid")
+    func testScannedPayloadsAreClassifiedAsPairingOrRouteOnly() throws {
+        let key = OriginSigningKey()
+        let origin = OriginIdentity(originID: .random(), publicJWK: key.publicJWK)
+        let invitation = try PairingInvitation(
+            origin: origin, route: try OriginRoute("https://mac.example.ts.net"), pairingID: .random(),
+            pairingSecret: Base64URL.encode(Data(repeating: 4, count: 32)), expiresAt: ControlTimestamp(Date().addingTimeInterval(600))
+        )
+        guard case .pairing = ControlScannedPayload(try invitation.link().absoluteString) else { return XCTFail("expected pairing") }
+        let update = try OriginRouteUpdate.sign(originID: origin.originID, route: try OriginRoute("https://renamed.example.ts.net"), issuedAt: ControlTimestamp(Date()), key: key)
+        guard case .routeUpdate = ControlScannedPayload(try update.link().absoluteString) else { return XCTFail("expected route update") }
+        XCTAssertNil(ControlScannedPayload("https://abc.trycloudflare.com"))
+        XCTAssertTrue(ControlScannedPayload.isControlLink(try invitation.link()))
+        XCTAssertTrue(ControlScannedPayload.isControlLink(try update.link()))
     }
 
-    func testChangingTheBakedBrokerURLClearsCredentials() async throws {
-        let suiteName = "control-companion-wipe-\(UUID().uuidString)"
-        let suite = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defer { suite.removePersistentDomain(forName: suiteName) }
-        let credentials = InMemoryCredentialStore()
-        try credentials.storeSigningKey(InMemoryDeviceKey())
-        try credentials.storeSession(
-            DeviceSession(
-                deviceID: .random(),
-                accountID: .random(),
-                accessToken: "access",
-                accessTokenExpiresAt: ControlTimestamp(Date().addingTimeInterval(600)),
-                refreshToken: "refresh",
-                grants: DeviceGrant.watchDefault
-            )
-        )
-        let old = try XCTUnwrap(URL(string: "https://old.example"))
-        let new = try XCTUnwrap(URL(string: "https://control.example"))
-        suite.set(old.absoluteString, forKey: ControlBrokerAddress.defaultsKey)
-
-        let companion = ControlCompanion(credentials: credentials, defaults: suite, brokerURL: new)
+    /// A setup QR or link is only staged: nothing is contacted or trusted
+    /// until the user confirms, and a different Mac key is flagged.
+    func testAScannedInvitationWaitsForExplicitConfirmation() async throws {
+        let key = OriginSigningKey()
+        let origins = InMemoryPinnedOriginStore(try pinned(key))
+        var stub = OriginStub(key: key)
+        stub.unreachable = true
+        let companion = ControlCompanion(credentials: try enrolledCredentials(), origins: origins, transport: stub)
         await companion.start()
+        let other = OriginSigningKey()
+        let invitation = try PairingInvitation(
+            origin: OriginIdentity(originID: .random(), publicJWK: other.publicJWK),
+            route: try OriginRoute("https://evil.example.ts.net"), pairingID: .random(),
+            pairingSecret: Base64URL.encode(Data(repeating: 5, count: 32)), expiresAt: ControlTimestamp(Date().addingTimeInterval(600))
+        )
+        let staged = await companion.handleScanned(try invitation.link().absoluteString, fromLink: true)
+        XCTAssertTrue(staged)
+        XCTAssertEqual(companion.pendingPairing?.assessment, .differentOrigin)
+        XCTAssertEqual(companion.pendingPairing?.fromLink, true)
+        XCTAssertFalse(companion.isPairing)
+        XCTAssertEqual(try origins.load()?.origin.publicJWK, key.publicJWK, "the trusted Mac is untouched")
+        companion.cancelPendingPairing()
+        XCTAssertNil(companion.pendingPairing)
+    }
 
-        XCTAssertNil(try credentials.loadSession())
+    func testWithoutAPinnedOriginTheCompanionIsNotConfigured() async throws {
+        let companion = ControlCompanion(credentials: InMemoryCredentialStore(), origins: InMemoryPinnedOriginStore(), transport: OriginStub(key: OriginSigningKey()))
+        await companion.start()
+        XCTAssertEqual(companion.phase, .notConfigured)
+    }
+
+    func testAPinnedOriginWithoutASessionNeedsPairing() async throws {
+        let key = OriginSigningKey()
+        let companion = ControlCompanion(
+            credentials: InMemoryCredentialStore(),
+            origins: InMemoryPinnedOriginStore(try pinned(key)),
+            transport: OriginStub(key: key)
+        )
+        await companion.start()
         XCTAssertEqual(companion.phase, .needsEnrollment)
-        XCTAssertEqual(suite.string(forKey: ControlBrokerAddress.defaultsKey), new.absoluteString)
     }
 
-    func testTheSameBrokerURLKeepsCredentials() async throws {
-        let suite = try XCTUnwrap(UserDefaults(suiteName: "control-companion-keep-\(UUID().uuidString)"))
-        let credentials = InMemoryCredentialStore()
-        try credentials.storeSigningKey(InMemoryDeviceKey())
-        try credentials.storeSession(
-            DeviceSession(
-                deviceID: .random(),
-                accountID: .random(),
-                accessToken: "access",
-                accessTokenExpiresAt: ControlTimestamp(Date().addingTimeInterval(600)),
-                refreshToken: "refresh",
-                grants: DeviceGrant.watchDefault
-            )
-        )
-        let url = try XCTUnwrap(URL(string: "https://control.example"))
-        suite.set(url.absoluteString, forKey: ControlBrokerAddress.defaultsKey)
-        let companion = ControlCompanion(credentials: credentials, defaults: suite, brokerURL: url)
+    /// A route change signed by the pinned key moves routing only: the
+    /// session, key, and pin all survive (spec.iphone-gateway.md 7.3, 24).
+    func testSignedRouteUpdateKeepsShellCredentials() async throws {
+        let key = OriginSigningKey()
+        let credentials = try enrolledCredentials()
+        let origins = InMemoryPinnedOriginStore(try pinned(key))
+        let companion = ControlCompanion(credentials: credentials, origins: origins, transport: OriginStub(key: key))
         await companion.start()
+        XCTAssertEqual(companion.phase, .ready)
+
+        let originID = try XCTUnwrap(try origins.load()).origin.originID
+        let update = try OriginRouteUpdate.sign(originID: originID, route: try OriginRoute("https://renamed.example.ts.net"), issuedAt: ControlTimestamp(Date()), key: key)
+        let applied = await companion.applyRouteUpdate(update)
+        XCTAssertTrue(applied)
+        XCTAssertEqual(try origins.load()?.routes.first?.url.host, "renamed.example.ts.net")
         XCTAssertNotNil(try credentials.loadSession())
         XCTAssertEqual(companion.phase, .ready)
     }
 
-    func testSettingsExposesAControlSectionAndSafariConfirm() throws {
+    func testRouteUpdateFromAnotherKeyIsRejected() async throws {
+        let key = OriginSigningKey()
+        let credentials = try enrolledCredentials()
+        let origins = InMemoryPinnedOriginStore(try pinned(key))
+        let companion = ControlCompanion(credentials: credentials, origins: origins, transport: OriginStub(key: key))
+        await companion.start()
+        let originID = try XCTUnwrap(try origins.load()).origin.originID
+        let forged = try OriginRouteUpdate.sign(originID: originID, route: try OriginRoute("https://evil.example.ts.net"), issuedAt: ControlTimestamp(Date()), key: OriginSigningKey())
+        let applied = await companion.applyRouteUpdate(forged)
+        XCTAssertFalse(applied)
+        XCTAssertEqual(try origins.load()?.routes.first?.url.host, "mac.example.ts.net")
+        XCTAssertNotNil(try credentials.loadSession())
+    }
+
+    /// Tailscale being off is a connectivity state, never a reason to drop
+    /// Shell enrollment (spec.iphone-gateway.md section 28).
+    func testUnreachableRouteKeepsCredentials() async throws {
+        let key = OriginSigningKey()
+        let credentials = try enrolledCredentials()
+        let origins = InMemoryPinnedOriginStore(try pinned(key))
+        var stub = OriginStub(key: key)
+        stub.unreachable = true
+        let companion = ControlCompanion(credentials: credentials, origins: origins, transport: stub)
+        await companion.start()
+        XCTAssertEqual(companion.phase, .ready)
+        guard case .unavailable = companion.routeState else { return XCTFail("expected an unavailable route, got \(companion.routeState)") }
+        XCTAssertNotNil(try credentials.loadSession())
+        XCTAssertNotNil(try origins.load())
+    }
+
+    /// A refresh spends the old refresh token on the Mac. If the Keychain
+    /// refuses the renewed session (the phone is locked), it is kept and used
+    /// in memory, and saved once the Keychain accepts it — never lost.
+    func testARefreshedSessionTheKeychainRefusesIsKeptAndSavedLater() async throws {
+        let key = OriginSigningKey()
+        let stale = DeviceSession(
+            deviceID: .random(), accountID: .random(), accessToken: "old",
+            accessTokenExpiresAt: ControlTimestamp(Date().addingTimeInterval(-60)),
+            refreshToken: "refresh-1", grants: DeviceGrant.watchDefault
+        )
+        let renewed = DeviceSession(
+            deviceID: stale.deviceID, accountID: stale.accountID, accessToken: "new",
+            accessTokenExpiresAt: ControlTimestamp(Date().addingTimeInterval(600)),
+            refreshToken: "refresh-2", grants: stale.grants
+        )
+        let credentials = LockableCredentialStore()
+        try credentials.storeSession(stale)
+        credentials.locked = true
+        var stub = OriginStub(key: key)
+        stub.refreshed = renewed
+        let gateway = ControlGatewaySession(credentials: credentials, origins: InMemoryPinnedOriginStore(try pinned(key)), transport: stub)
+
+        _ = try await gateway.authenticatedClient()
+        let inMemory = await gateway.deviceSession
+        XCTAssertEqual(inMemory?.refreshToken, "refresh-2")
+        _ = try await gateway.authenticatedClient()
+        XCTAssertEqual(stub.refreshes.count, 1, "the renewed session is reused, not refreshed again")
+
+        credentials.locked = false
+        _ = try await gateway.authenticatedClient()
+        XCTAssertEqual(try credentials.loadSession()?.refreshToken, "refresh-2")
+    }
+
+    func testSettingsExposesAControlSectionAndGatewayPairing() throws {
         let source = try controlSource()
         XCTAssertTrue(source.contains("case control"), "Settings must include the Control companion section")
         XCTAssertTrue(source.contains("SettingsControlSection"))
         XCTAssertTrue(source.contains("ControlPairingSupport.activate()"))
         XCTAssertTrue(source.contains("shell-control setup"))
         XCTAssertTrue(source.contains("Scan QR"))
-        XCTAssertTrue(source.contains("Waiting for confirmation on your Mac"))
-        XCTAssertTrue(source.contains("shell-control"))
+        XCTAssertTrue(source.contains("didReceiveMessageData"), "the Watch gateway answers interactive messages")
     }
 
-    func testApplyPairedBrokerStoresARuntimeURLAndWipesOnChange() async throws {
-        let suiteName = "control-companion-pair-\(UUID().uuidString)"
-        let suite = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defer { suite.removePersistentDomain(forName: suiteName) }
+    // MARK: Helpers
+
+    private func pinned(_ key: OriginSigningKey) throws -> PinnedOrigin {
+        PinnedOrigin(
+            origin: OriginIdentity(originID: OriginStub.originID(for: key), publicJWK: key.publicJWK),
+            routes: [try OriginRoute("https://mac.example.ts.net")],
+            pairedAt: ControlTimestamp(Date())
+        )
+    }
+
+    private func enrolledCredentials() throws -> InMemoryCredentialStore {
         let credentials = InMemoryCredentialStore()
         try credentials.storeSigningKey(InMemoryDeviceKey())
-        try credentials.storeSession(
-            DeviceSession(
-                deviceID: .random(),
-                accountID: .random(),
-                accessToken: "access",
-                accessTokenExpiresAt: ControlTimestamp(Date().addingTimeInterval(600)),
-                refreshToken: "refresh",
-                grants: DeviceGrant.watchDefault
-            )
-        )
-        let first = try XCTUnwrap(URL(string: "https://old.example"))
-        suite.set(first.absoluteString, forKey: ControlBrokerAddress.defaultsKey)
-        let companion = ControlCompanion(credentials: credentials, defaults: suite, brokerURL: first)
-        await companion.start()
-        XCTAssertEqual(companion.phase, .ready)
-
-        let next = try XCTUnwrap(URL(string: "https://random.trycloudflare.com"))
-        let companion2 = ControlCompanion(credentials: credentials, defaults: suite, brokerURL: nil)
-        let applied = await companion2.applyPairedBroker(next)
-        XCTAssertTrue(applied)
-        XCTAssertEqual(suite.string(forKey: ControlBrokerAddress.runtimeDefaultsKey), next.absoluteString)
-        XCTAssertNil(try credentials.loadSession())
-        XCTAssertEqual(companion2.phase, .needsEnrollment)
+        try credentials.storeSession(DeviceSession(
+            deviceID: .random(),
+            accountID: .random(),
+            accessToken: "access",
+            accessTokenExpiresAt: ControlTimestamp(Date().addingTimeInterval(600)),
+            refreshToken: "refresh",
+            grants: DeviceGrant.watchDefault
+        ))
+        return credentials
     }
+}
+
+/// A Mac that proves `key` on every host and serves an empty inbox.
+private struct OriginStub: ControlHTTPTransport {
+    let key: OriginSigningKey
+    var unreachable = false
+    /// The session `/v1/oauth/token` hands back.
+    var refreshed: DeviceSession?
+    let refreshes = RefreshCounter()
+
+    func send(_ request: ControlHTTPRequest, baseURL: URL) async throws -> ControlHTTPResponse {
+        if unreachable { throw TailnetUnavailable(reason: "Tailscale is off") }
+        func json(_ value: JSONValue) throws -> ControlHTTPResponse {
+            ControlHTTPResponse(status: 200, body: try JSONCanonicalization.canonicalize(value))
+        }
+        switch request.path {
+        case "/v1/origin/proof":
+            // Each test key stands for exactly one origin ID.
+            let nonce = request.query.first { $0.0 == "nonce" }?.1 ?? ""
+            return try json(try OriginProof.sign(originID: OriginStub.originID(for: key), nonce: nonce, issuedAt: ControlTimestamp(Date()), key: key).document)
+        case "/v1/oauth/token":
+            guard let refreshed else { break }
+            refreshes.increment()
+            return try json(refreshed.json)
+        case "/v1/snapshot":
+            return try json(SnapshotPage(approvals: [], notifications: [], snapshotToken: "s1.1.t", nextPageToken: nil,
+                                         cursor: ChangeCursor("c1.1.t"), serverTime: ControlTimestamp(Date())).json)
+        default:
+            return ControlHTTPResponse(status: 404, body: try JSONCanonicalization.canonicalize(ControlError(code: .notFound, message: "no such endpoint").json))
+        }
+        return ControlHTTPResponse(status: 404, body: try JSONCanonicalization.canonicalize(ControlError(code: .notFound, message: "no such endpoint").json))
+    }
+
+    private static let registry = OriginRegistry()
+    static func originID(for key: OriginSigningKey) -> ControlID { registry.id(for: key) }
+}
+
+private final class OriginRegistry: @unchecked Sendable {
+    private let lock = NSLock()
+    private var ids: [String: ControlID] = [:]
+    func id(for key: OriginSigningKey) -> ControlID {
+        lock.withLock {
+            let thumbprint = (try? key.publicJWK.thumbprint()) ?? ""
+            if let id = ids[thumbprint] { return id }
+            let id = ControlID.random()
+            ids[thumbprint] = id
+            return id
+        }
+    }
+}
+
+final class RefreshCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+    var count: Int { lock.withLock { value } }
+    func increment() { lock.withLock { value += 1 } }
+}
+
+/// Credentials whose session writes fail while `locked`, the way a
+/// `WhenUnlocked` Keychain item refuses writes on a locked phone.
+private final class LockableCredentialStore: DeviceCredentialStore, @unchecked Sendable {
+    private let inner = InMemoryCredentialStore()
+    var locked = false
+    struct Locked: Error {}
+
+    func loadSigningKey() throws -> (any DeviceSigningKey)? { try inner.loadSigningKey() }
+    func storeSigningKey(_ key: InMemoryDeviceKey) throws { try inner.storeSigningKey(key) }
+    func loadSession() throws -> DeviceSession? { try inner.loadSession() }
+    func storeSession(_ session: DeviceSession) throws {
+        if locked { throw Locked() }
+        try inner.storeSession(session)
+    }
+    func removeAll() throws { try inner.removeAll() }
 }

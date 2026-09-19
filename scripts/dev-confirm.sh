@@ -1,5 +1,6 @@
 #!/bin/bash
-# Confirm a pending Watch enrollment against the development broker.
+# Confirm a pending iPhone pairing or Watch reviewer enrollment against the
+# development broker.
 #
 # Usage: ./scripts/dev-confirm.sh <USER-CODE> [port]
 #

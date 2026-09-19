@@ -5,320 +5,273 @@ import ShellControlClient
 
 @testable import ShellWatch
 
-/// The Watch's session: credential renewal, offline behaviour, and cache
-/// handling (spec.watch.md sections 5, 7, and 15).
+/// The Watch session behind the iPhone gateway: enrollment through the
+/// iPhone, live-only decisions, stale cache, and command reconciliation
+/// (spec.iphone-gateway.md sections 10, 11, 14, 15, and 18).
 @MainActor
 final class ControlSessionTests: XCTestCase {
     private let now = ControlTimestamp(Date(timeIntervalSince1970: 1_788_000_000))
 
-    private func makeSession(
-        service: StubControlService,
-        credentials: InMemoryCredentialStore,
-        cache: InMemoryInboxCache = InMemoryInboxCache(),
-        defaults: UserDefaults? = nil
-    ) throws -> ControlSession {
-        let defaults = defaults ?? {
-            // A device holding credentials has necessarily already started
-            // against the broker that issued them, so record it. Credentials
-            // with NO stored broker means they came from somewhere else — the
-            // reinstall case — and `start()` correctly wipes them.
-            let fresh = UserDefaults(suiteName: "watch-session-\(UUID().uuidString)")!
-            fresh.set("https://control.test", forKey: ControlBrokerAddress.defaultsKey)
-            return fresh
-        }()
-        return try ControlSession(
-            brokerURL: URL(string: "https://control.test")!,
-            credentials: credentials,
-            cache: cache,
-            journalStore: InMemoryCommandJournal(),
-            transport: service,
-            defaults: defaults,
-            now: { [now] in now.date }
+    private struct Rig {
+        let session: ControlSession
+        let gateway: StubGateway
+        let keys: InMemoryCredentialStore
+        let reviewers: InMemoryWatchReviewerStore
+        let cache: InMemoryInboxCache
+        let journal: InMemoryCommandJournal
+    }
+
+    private func rig(enrolled: Bool = true, cache: InMemoryInboxCache = InMemoryInboxCache()) async throws -> Rig {
+        let gateway = StubGateway(now: now)
+        let keys = InMemoryCredentialStore()
+        let reviewers = InMemoryWatchReviewerStore()
+        if enrolled {
+            let key = InMemoryDeviceKey()
+            try keys.storeSigningKey(key)
+            let reviewer = WatchTestFixtures.activeReviewer(accountID: gateway.accountID, key: key)
+            try reviewers.store(reviewer)
+            await gateway.setReviewer(reviewer)
+        }
+        let journal = InMemoryCommandJournal()
+        let session = try ControlSession(
+            link: gateway, keys: keys, reviewerStore: reviewers, cache: cache,
+            journalStore: journal, now: { [now] in now.date }
         )
+        return Rig(session: session, gateway: gateway, keys: keys, reviewers: reviewers, cache: cache, journal: journal)
     }
 
-    private func makeService(deviceID: ControlID = .random(), accountID: ControlID = .random()) -> StubControlService {
-        StubControlService(
-            validAccessToken: "access-1",
-            refreshToken: "refresh-1",
-            nextAccessToken: "access-2",
-            deviceID: deviceID,
-            accountID: accountID,
-            now: now
-        )
+    // MARK: Enrollment through the iPhone
+
+    func testWithoutAReviewerIdentityTheWatchAsksForSetup() async throws {
+        let rig = try await rig(enrolled: false)
+        await rig.session.start()
+        XCTAssertEqual(rig.session.phase, .needsEnrollment)
+        let sent = await rig.gateway.requestTypes()
+        XCTAssertTrue(sent.isEmpty, "nothing is fetched without an identity")
     }
 
-    // MARK: Credential renewal
+    /// The Watch makes its own key; only the public half and a signature
+    /// travel. The Mac's confirmation is what makes it active.
+    func testEnrollmentGoesThroughTheIPhoneAndWaitsForTheMac() async throws {
+        let rig = try await rig(enrolled: false)
+        await rig.session.start()
+        await rig.session.enroll(label: "Apple Watch")
+        guard case .awaitingConfirmation(let pending) = rig.session.phase else {
+            return XCTFail("expected awaiting confirmation, got \(rig.session.phase)")
+        }
+        XCTAssertEqual(pending.userCode, "BCDF-GHJK")
+        let key = try XCTUnwrap(try rig.keys.loadSigningKey())
+        XCTAssertEqual(pending.fingerprint, try key.publicJWK.displayFingerprint())
+        let requests = await rig.gateway.requests
+        let request = try XCTUnwrap(requests.first)
+        XCTAssertNil(request.body["private_key"], "no private material leaves the Watch")
 
-    /// Access tokens last ten minutes. A stale one must be renewed before the
-    /// request goes out, not discovered as an unrecoverable 401.
-    func testAStaleAccessTokenIsRenewedBeforeAnyRequest() async throws {
-        let service = makeService()
-        let credentials = InMemoryCredentialStore()
-        let key = InMemoryDeviceKey()
-        try credentials.storeSigningKey(key)
-        // Already expired, as it would be after the app was closed for an hour.
-        var stored = await service.session(accessTokenExpiresAt: now.adding(-60))
-        stored.accessToken = "access-1"
-        try credentials.storeSession(stored)
-
-        let record = try WatchTestFixtures.makeRecord(createdAt: now, presentAt: now)
-        await service.setApprovals([record])
-        await service.setValidToken("access-2-only")
-
-        let session = try makeSession(service: service, credentials: credentials)
-        await session.start()
-
-        XCTAssertEqual(session.phase, .ready)
-        let refreshes = await service.refreshCount
-        XCTAssertEqual(refreshes, 1)
-        XCTAssertEqual(session.inbox.pendingApprovals.count, 1)
-        // Every authorized call used the renewed token.
-        let headers = await service.authorizationHeaders().compactMap { $0 }
-        XCTAssertFalse(headers.contains("Bearer access-1"))
-        // The rotated credentials were persisted, so a relaunch does not repeat
-        // the renewal from a spent refresh token.
-        let persisted = try XCTUnwrap(try credentials.loadSession())
-        XCTAssertEqual(persisted.accessToken, "access-2-only")
-        XCTAssertNotEqual(persisted.refreshToken, "refresh-1")
+        await rig.gateway.setNextReviewerState(.active)
+        await rig.session.checkEnrollment()
+        XCTAssertEqual(rig.session.phase, .ready)
+        XCTAssertEqual(rig.reviewers.load()?.state, .active)
+        XCTAssertEqual(rig.reviewers.load()?.accountID, rig.gateway.accountID)
     }
 
-    func testAFreshAccessTokenIsNotRenewed() async throws {
-        let service = makeService()
-        let credentials = InMemoryCredentialStore()
-        try credentials.storeSigningKey(InMemoryDeviceKey())
-        try credentials.storeSession(await service.session())
-
-        let session = try makeSession(service: service, credentials: credentials)
-        await session.start()
-
-        let refreshes = await service.refreshCount
-        XCTAssertEqual(refreshes, 0)
-        XCTAssertFalse(session.isOffline)
+    func testEnrollmentNeedsAReachableIPhone() async throws {
+        let rig = try await rig(enrolled: false)
+        await rig.gateway.setReachable(false)
+        await rig.session.start()
+        await rig.session.enroll(label: "Apple Watch")
+        XCTAssertEqual(rig.session.phase, .needsEnrollment)
+        XCTAssertEqual(rig.session.enrollmentMessage, "iPhone unavailable")
     }
 
-    /// A revoked device cannot recover by refreshing: the local credentials and
-    /// cache go away and the app returns to enrollment.
-    func testRevocationDuringRenewalSignsOutAndClearsLocalState() async throws {
-        let service = makeService()
-        await service.setRefreshFailure(ControlError(code: .deviceRevoked, message: "device revoked"))
-        let credentials = InMemoryCredentialStore()
-        try credentials.storeSigningKey(InMemoryDeviceKey())
-        var stored = await service.session(accessTokenExpiresAt: now.adding(-60))
-        stored.accessToken = "access-1"
-        try credentials.storeSession(stored)
-        let cache = InMemoryInboxCache()
-        var seeded = InboxState()
-        seeded.approvals[.random()] = try WatchTestFixtures.makeRecord(createdAt: now)
-        try cache.commit(seeded)
+    // MARK: Live-only decisions
 
-        let session = try makeSession(service: service, credentials: credentials, cache: cache)
-        await session.start()
-
-        XCTAssertEqual(session.phase, .needsEnrollment)
-        XCTAssertTrue(session.inbox.approvals.isEmpty)
-        XCTAssertNil(try credentials.loadSession())
-        XCTAssertNil(try cache.load())
-    }
-
-    // MARK: Offline
-
-    /// Cached viewing is allowed offline; no new control command is queued.
-    func testOfflineKeepsTheCacheAndDisablesNewCommands() async throws {
-        let service = makeService()
-        let credentials = InMemoryCredentialStore()
-        try credentials.storeSigningKey(InMemoryDeviceKey())
-        try credentials.storeSession(await service.session())
+    func testUnreachableIPhoneKeepsTheCacheAndQueuesNothing() async throws {
         let cache = InMemoryInboxCache()
         var seeded = InboxState()
         let record = try WatchTestFixtures.makeRecord(createdAt: now, presentAt: now)
         seeded.approvals[record.spec.requestID] = record
-        seeded.lastRefreshedAt = now.adding(-120)
+        seeded.lastRefreshedAt = now
         try cache.commit(seeded)
-        await service.setTransportFailure(.offline)
+        let rig = try await rig(cache: cache)
+        await rig.gateway.setReachable(false)
+        await rig.session.start()
 
-        let session = try makeSession(service: service, credentials: credentials, cache: cache)
-        await session.start()
+        XCTAssertFalse(rig.session.isGatewayReachable)
+        XCTAssertFalse(rig.session.isShowingLiveState, "cached material is shown as stale")
+        XCTAssertEqual(rig.session.inbox.pendingApprovals.count, 1)
 
-        XCTAssertTrue(session.isOffline)
-        XCTAssertEqual(session.inbox.pendingApprovals.count, 1)
-        // The staleness is visible rather than presented as current.
-        XCTAssertEqual(session.lastRefreshedAt, now.adding(-120))
-        // A review fetch fails rather than deciding from the cache.
-        do {
-            _ = try await session.fetchForReview(record.spec.requestID)
-            XCTFail("a review fetch must not succeed offline")
-        } catch {}
-        XCTAssertTrue(session.pendingCommands.isEmpty)
+        await rig.session.decide(.approve, on: record)
+        let submitted = await rig.gateway.submitted
+        XCTAssertTrue(submitted.isEmpty)
+        XCTAssertTrue(try rig.journal.load().isEmpty, "no authorization is held for later delivery")
+        XCTAssertNil(rig.session.submissions[record.spec.requestID])
+        XCTAssertEqual(rig.session.inbox.pendingApprovals.count, 1)
     }
 
-    // MARK: Reconciliation
-
-    /// An expired cursor forces a fresh snapshot rather than a silent gap.
-    func testExpiredCursorFallsBackToAFullSnapshot() async throws {
-        let service = makeService()
-        let credentials = InMemoryCredentialStore()
-        try credentials.storeSigningKey(InMemoryDeviceKey())
-        try credentials.storeSession(await service.session())
+    /// A Watch decision is signed by the Watch key and carried unchanged.
+    func testDecisionIsSignedByTheWatchKeyAndSentLive() async throws {
+        let rig = try await rig()
         let record = try WatchTestFixtures.makeRecord(createdAt: now, presentAt: now)
-        await service.setApprovals([record])
+        await rig.gateway.setApprovals([record])
+        await rig.session.start()
+        XCTAssertEqual(rig.session.phase, .ready)
 
-        let session = try makeSession(service: service, credentials: credentials)
-        await session.start()
-        XCTAssertEqual(session.inbox.cursor?.rawValue, "c1.1.tag")
-
-        await service.setExpireNextCursor(true)
-        await session.refresh()
-
-        XCTAssertEqual(session.inbox.pendingApprovals.count, 1)
-        let recorded = await service.requests
-        let paths = recorded.map(\.path)
-        XCTAssertEqual(paths.filter { $0 == "/v1/snapshot" }.count, 2)
-    }
-
-    func testAReviewFetchAlwaysAsksTheService() async throws {
-        let service = makeService()
-        let credentials = InMemoryCredentialStore()
-        try credentials.storeSigningKey(InMemoryDeviceKey())
-        try credentials.storeSession(await service.session())
-        let record = try WatchTestFixtures.makeRecord(createdAt: now, presentAt: now)
-        await service.setApprovals([record])
-
-        let session = try makeSession(service: service, credentials: credentials)
-        await session.start()
-        let fetched = try await session.fetchForReview(record.spec.requestID)
-
-        XCTAssertEqual(fetched.requestHash, record.requestHash)
-        let recorded = await service.requests
-        let paths = recorded.map(\.path)
-        XCTAssertTrue(paths.contains("/v1/approvals/\(record.spec.requestID.rawValue)"))
-    }
-
-    func testWithoutCredentialsTheAppAsksForEnrollment() async throws {
-        let service = makeService()
-        let session = try makeSession(service: service, credentials: InMemoryCredentialStore())
-        await session.start()
-        XCTAssertEqual(session.phase, .needsEnrollment)
-        let requests = await service.requests
-        XCTAssertTrue(requests.isEmpty)
-    }
-
-    func testChangingTheBakedBrokerURLClearsWatchCredentials() async throws {
-        let service = makeService()
-        let credentials = InMemoryCredentialStore()
-        try credentials.storeSigningKey(InMemoryDeviceKey())
-        try credentials.storeSession(await service.session())
-        let cache = InMemoryInboxCache()
-        var seeded = InboxState()
-        seeded.approvals[.random()] = try WatchTestFixtures.makeRecord(createdAt: now)
-        try cache.commit(seeded)
-        let suiteName = "watch-broker-wipe-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-        defaults.set("https://old.example", forKey: ControlBrokerAddress.defaultsKey)
-
-        let session = try makeSession(service: service, credentials: credentials, cache: cache, defaults: defaults)
-        await session.start()
-
-        XCTAssertEqual(session.phase, .needsEnrollment)
-        XCTAssertNil(try credentials.loadSession())
-        XCTAssertTrue(session.inbox.approvals.isEmpty)
-        XCTAssertEqual(defaults.string(forKey: ControlBrokerAddress.defaultsKey), "https://control.test")
-    }
-
-    /// Deleting the app drops `UserDefaults` but leaves the Keychain, so a
-    /// reinstall that pairs with a different broker arrives with credentials
-    /// and nothing stored. Those credentials belong to the previous broker and
-    /// must never be presented to the new one.
-    func testCredentialsWithoutAStoredBrokerAreTreatedAsAnotherBrokers() async throws {
-        let service = makeService()
-        let credentials = InMemoryCredentialStore()
-        try credentials.storeSigningKey(InMemoryDeviceKey())
-        try credentials.storeSession(await service.session())
-        let cache = InMemoryInboxCache()
-        var seeded = InboxState()
-        seeded.approvals[.random()] = try WatchTestFixtures.makeRecord(createdAt: now)
-        try cache.commit(seeded)
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: "watch-reinstall-\(UUID().uuidString)"))
-
-        let session = try makeSession(service: service, credentials: credentials, cache: cache, defaults: defaults)
-        await session.start()
-
-        XCTAssertEqual(session.phase, .needsEnrollment)
-        XCTAssertNil(try credentials.loadSession())
-        XCTAssertTrue(session.inbox.approvals.isEmpty)
-        let requests = await service.requests
-        XCTAssertTrue(requests.isEmpty)
-    }
-
-    // MARK: Lifecycle coalescing
-
-    func testConcurrentRefreshRenewsOnce() async throws {
-        final class Clock: @unchecked Sendable {
-            var date: Date
-            init(_ date: Date) { self.date = date }
+        await rig.session.decide(.approve, on: record)
+        let submitted = await rig.gateway.submitted
+        let jws = try XCTUnwrap(submitted.first)
+        let reviewer = try XCTUnwrap(rig.reviewers.load())
+        let key = try XCTUnwrap(try rig.keys.loadSigningKey())
+        let verified = try ControlJWS.verify(compactSerialization: jws) { id in
+            id == reviewer.watchDeviceID ? key.publicJWK : nil
         }
-        let clock = Clock(now.date)
-        let service = makeService()
-        await service.setTokenDelay(40_000_000)
-        let credentials = InMemoryCredentialStore()
-        try credentials.storeSigningKey(InMemoryDeviceKey())
-        try credentials.storeSession(await service.session())
-        let defaults = UserDefaults(suiteName: "watch-concurrent-\(UUID().uuidString)")!
-        defaults.set("https://control.test", forKey: ControlBrokerAddress.defaultsKey)
+        XCTAssertEqual(verified.deviceID, reviewer.watchDeviceID)
+        XCTAssertEqual(verified.command.envelope.audience, reviewer.audience)
+        let types = await rig.gateway.requestTypes()
+        // Fetch before deciding, then a fresh challenge, then the command.
+        XCTAssertEqual(Array(types.suffix(4).prefix(3)), [.approvalFetch, .reviewChallenge, .commandSubmit])
+    }
+
+    /// A WatchConnectivity error before submission leaves nothing unknown:
+    /// no command was signed or sent.
+    func testDeliveryErrorBeforeSubmissionIsNotAnUnknownOutcome() async throws {
+        let rig = try await rig()
+        let record = try WatchTestFixtures.makeRecord(createdAt: now, presentAt: now)
+        await rig.gateway.setApprovals([record])
+        await rig.session.start()
+        await rig.gateway.setDeliveryFailure(true)
+        await rig.session.decide(.approve, on: record)
+        XCTAssertNil(rig.session.submissions[record.spec.requestID])
+        XCTAssertTrue(try rig.journal.load().isEmpty)
+        XCTAssertEqual(rig.session.gatewayProblem, "iPhone unavailable")
+    }
+
+    /// A request that changed during review says so; it is not reported as
+    /// a missing iPhone.
+    func testChangedRequestIsNotReportedAsIPhoneUnavailable() async throws {
+        let rig = try await rig()
+        let reviewed = try WatchTestFixtures.makeRecord(createdAt: now, presentAt: now)
+        let changed = try WatchTestFixtures.makeRecord(requestID: reviewed.spec.requestID, createdAt: now, presentAt: now)
+        await rig.gateway.setApprovals([changed])
+        await rig.session.start()
+        await rig.session.decide(.approve, on: reviewed)
+        XCTAssertNil(rig.session.submissions[reviewed.spec.requestID])
+        XCTAssertNil(rig.session.gatewayProblem)
+        XCTAssertEqual(rig.session.decisionProblems[reviewed.spec.requestID], "This request changed while you were reviewing it. Review it again.")
+    }
+
+    func testMacUnavailableBehindAReachableIPhoneFailsClosed() async throws {
+        let rig = try await rig()
+        let record = try WatchTestFixtures.makeRecord(createdAt: now, presentAt: now)
+        await rig.gateway.setApprovals([record])
+        await rig.session.start()
+        await rig.gateway.setMacUnavailable(true)
+        do {
+            _ = try await rig.session.fetchForReview(record.spec.requestID)
+            XCTFail("a review must not be served from cache")
+        } catch let error as WatchGatewayError {
+            guard case .gatewayUnavailable = error else { return XCTFail("unexpected \(error)") }
+        }
+        XCTAssertNotNil(rig.session.gatewayProblem)
+    }
+
+    /// A submission whose reply was lost is reconciled by its command ID; a
+    /// replacement is never signed.
+    func testAmbiguousCommandIsReconciledByItsID() async throws {
+        let journalStore = InMemoryCommandJournal()
+        let commandID = ControlID.random()
+        try journalStore.save([PendingCommand(
+            commandID: commandID, signedCommand: "a.b.c", type: .approvalDecide,
+            targetID: .random(), notAfter: now.adding(60), status: .outcomeUnknown
+        )])
+        let gateway = StubGateway(now: now)
+        await gateway.setResult(CommandResult(recorded: true, commandID: commandID, resolution: .approved, dispatch: .awaitingOrigin, serverTime: now))
+        let keys = InMemoryCredentialStore()
+        let key = InMemoryDeviceKey()
+        try keys.storeSigningKey(key)
+        let reviewers = InMemoryWatchReviewerStore(WatchTestFixtures.activeReviewer(accountID: gateway.accountID, key: key))
         let session = try ControlSession(
-            brokerURL: URL(string: "https://control.test")!,
-            credentials: credentials,
-            cache: InMemoryInboxCache(),
-            journalStore: InMemoryCommandJournal(),
-            transport: service,
-            defaults: defaults,
-            now: { clock.date }
+            link: gateway, keys: keys, reviewerStore: reviewers, cache: InMemoryInboxCache(),
+            journalStore: journalStore, now: { [now] in now.date }
         )
         await session.start()
-        let refreshesBeforeExpiry = await service.refreshCount
-        XCTAssertEqual(refreshesBeforeExpiry, 0)
-        clock.date = clock.date.addingTimeInterval(3600)
-        await service.setNow(ControlTimestamp(clock.date))
-        async let first = session.refresh()
-        async let second = session.refresh()
-        _ = await (first, second)
-        let refreshesAfterExpiry = await service.refreshCount
-        XCTAssertEqual(refreshesAfterExpiry, 1)
+        XCTAssertTrue(session.pendingCommands.isEmpty)
+        let types = await gateway.requestTypes()
+        XCTAssertTrue(types.contains(.commandQuery))
+        XCTAssertFalse(types.contains(.commandSubmit))
+    }
+
+    // MARK: Refresh
+
+    func testExpiredCursorFallsBackToAFullSnapshot() async throws {
+        let rig = try await rig()
+        await rig.session.start()
+        await rig.gateway.setExpireNextCursor(true)
+        await rig.session.refresh()
+        let types = await rig.gateway.requestTypes()
+        XCTAssertEqual(types.filter { $0 == .snapshotFetch }.count, 2)
+        XCTAssertNotNil(rig.session.inbox.cursor)
+    }
+
+    func testAReviewFetchAlwaysAsksTheGateway() async throws {
+        let rig = try await rig()
+        let record = try WatchTestFixtures.makeRecord(createdAt: now, presentAt: now)
+        await rig.gateway.setApprovals([record])
+        await rig.session.start()
+        let before = await rig.gateway.requestTypes().filter { $0 == .approvalFetch }.count
+        _ = try await rig.session.fetchForReview(record.spec.requestID)
+        let after = await rig.gateway.requestTypes().filter { $0 == .approvalFetch }.count
+        XCTAssertEqual(after, before + 1)
+    }
+
+    func testRevocationSignsOutAndClearsLocalState() async throws {
+        let rig = try await rig()
+        await rig.session.start()
+        await rig.gateway.setNextReviewerState(.revoked)
+        await rig.session.checkEnrollment()
+        XCTAssertEqual(rig.session.phase, .needsEnrollment)
+        XCTAssertNil(try rig.keys.loadSigningKey())
+        XCTAssertNil(rig.reviewers.load())
+        XCTAssertTrue(rig.session.inbox.approvals.isEmpty)
+    }
+
+    /// A re-paired or replaced iPhone no longer carries this Watch. The Watch
+    /// drops its reviewer identity but keeps its key, so setting up again is
+    /// a re-binding of the same key that the Mac confirms.
+    func testUnboundWatchReturnsToSetupKeepingItsKey() async throws {
+        let rig = try await rig()
+        await rig.session.start()
+        let key = try XCTUnwrap(try rig.keys.loadSigningKey())
+        await rig.gateway.setUnbound(true)
+        await rig.session.refresh()
+        XCTAssertEqual(rig.session.phase, .needsEnrollment)
+        XCTAssertNil(rig.reviewers.load())
+        XCTAssertEqual(try rig.keys.loadSigningKey()?.publicJWK, key.publicJWK)
+
+        await rig.gateway.setUnbound(false)
+        await rig.session.enroll(label: "Apple Watch")
+        let requests = await rig.gateway.requests
+        let enrollment = try WatchEnrollmentRequest(json: try XCTUnwrap(requests.last { $0.type == .enrollmentRequest }).body)
+        XCTAssertEqual(enrollment.publicJWK, key.publicJWK)
+    }
+
+    /// Background context is display state: a refresh hint at most.
+    func testBackgroundContextNeverCarriesAuthority() async throws {
+        let rig = try await rig()
+        await rig.session.start()
+        let decisionLike: [String: Any] = [
+            WatchGatewayContext.applicationContextKey: #"{"mac_reachable":true,"pending_count":1,"protocol":"shell-watch-gateway/1","refresh_requested":false,"request_ids":[],"signed_command":"a.b.c","type":"gateway.context","v":1}"#
+        ]
+        XCTAssertNil(WatchGatewayContext(applicationContext: decisionLike))
+        rig.session.applyContext(WatchGatewayContext(pendingCount: 1, refreshRequested: false, macReachable: true))
+        let submitted = await rig.gateway.submitted
+        XCTAssertTrue(submitted.isEmpty)
     }
 
     func testBackgroundingCancelsPolling() async throws {
-        let service = makeService()
-        let credentials = InMemoryCredentialStore()
-        try credentials.storeSigningKey(InMemoryDeviceKey())
-        try credentials.storeSession(await service.session())
-        let session = try makeSession(service: service, credentials: credentials)
-        await session.start()
-        session.noteSceneActive(false)
-        session.startPolling()
-        XCTAssertFalse(session.isPolling)
-        session.noteSceneActive(true)
-        session.startPolling()
-        XCTAssertTrue(session.isPolling)
-        session.stopPolling()
-        XCTAssertFalse(session.isPolling)
-    }
-
-    func testTransientFailureKeepsCacheAndIdentity() async throws {
-        let service = makeService()
-        let credentials = InMemoryCredentialStore()
-        try credentials.storeSigningKey(InMemoryDeviceKey())
-        try credentials.storeSession(await service.session())
-        let cache = InMemoryInboxCache()
-        var seeded = InboxState()
-        let record = try WatchTestFixtures.makeRecord(createdAt: now, presentAt: now)
-        seeded.approvals[record.spec.requestID] = record
-        seeded.lastRefreshedAt = now.adding(-30)
-        try cache.commit(seeded)
-        await service.setTransportFailure(.offline)
-        let session = try makeSession(service: service, credentials: credentials, cache: cache)
-        await session.start()
-        XCTAssertTrue(session.isOffline)
-        XCTAssertEqual(session.inbox.pendingApprovals.count, 1)
-        XCTAssertNotNil(try credentials.loadSession())
+        let rig = try await rig()
+        await rig.session.start()
+        rig.session.startPolling()
+        XCTAssertTrue(rig.session.isPolling)
+        rig.session.noteSceneActive(false)
+        XCTAssertFalse(rig.session.isPolling)
     }
 }

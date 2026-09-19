@@ -3,10 +3,12 @@
 #
 # Usage: ./scripts/run-broker.sh [port]
 #
-# It generates an account id, an admin secret, and a cursor secret on first run
-# and keeps them in .derivedData/dev-broker.env so the same state file keeps
-# working across restarts. This is a development service: it speaks plain HTTP
-# on loopback, which is the only case the clients accept without TLS.
+# It generates an account id, an admin secret, a cursor secret, and a Shell
+# origin identity (ID plus P-256 signing key) on first run and keeps them in
+# .derivedData so the same state file keeps working across restarts. This is a
+# development service: it speaks plain HTTP on loopback, which the iPhone
+# accepts only as a `loopback_http` route in the simulator. Pair with
+# ./scripts/dev-pair.sh.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -19,8 +21,18 @@ if [ ! -f "$ENV_FILE" ]; then
 SHELL_CONTROL_ACCOUNT_ID=$(uuidgen | tr '[:upper:]' '[:lower:]')
 SHELL_CONTROL_ADMIN_SECRET=$(head -c 32 /dev/urandom | xxd -p -c 64)
 SHELL_CONTROL_CURSOR_SECRET=$(head -c 32 /dev/urandom | xxd -p -c 64)
+SHELL_CONTROL_ORIGIN_ID=$(uuidgen | tr '[:upper:]' '[:lower:]')
 ENV
     echo "wrote $ENV_FILE"
+fi
+# Environments written before the gateway profile have no origin id yet.
+if ! grep -q '^SHELL_CONTROL_ORIGIN_ID=' "$ENV_FILE"; then
+    echo "SHELL_CONTROL_ORIGIN_ID=$(uuidgen | tr '[:upper:]' '[:lower:]')" >> "$ENV_FILE"
+fi
+ORIGIN_KEY="$ROOT/.derivedData/dev-origin-key.pem"
+if [ ! -f "$ORIGIN_KEY" ]; then
+    ( umask 077 && openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out "$ORIGIN_KEY" ) || exit 1
+    echo "wrote $ORIGIN_KEY"
 fi
 # shellcheck disable=SC1090
 . "$ENV_FILE"
@@ -38,6 +50,8 @@ fi
 
 echo "broker:     http://localhost:${PORT}"
 echo "account:    ${SHELL_CONTROL_ACCOUNT_ID}"
+echo "origin:     ${SHELL_CONTROL_ORIGIN_ID:-}"
+echo "pair with:  ./scripts/dev-pair.sh"
 echo "confirm at: ./scripts/dev-confirm.sh <USER-CODE>"
 
 SHELL_CONTROL_PORT="$PORT" \
@@ -48,4 +62,6 @@ SHELL_CONTROL_CURSOR_SECRET="$SHELL_CONTROL_CURSOR_SECRET" \
 SHELL_CONTROL_VERIFICATION_URI="http://localhost:${PORT}/v1/oauth/confirm" \
 SHELL_CONTROL_APNS_TOPICS="dev.chr33s.shell.watchkitapp,dev.chr33s.shell" \
 SHELL_CONTROL_IDENTITY="shell-control-dev" \
+SHELL_CONTROL_ORIGIN_ID="$SHELL_CONTROL_ORIGIN_ID" \
+SHELL_CONTROL_ORIGIN_KEY_FILE="$ORIGIN_KEY" \
 exec "$ROOT/services/shell-control/.build/release/shell-control-broker"

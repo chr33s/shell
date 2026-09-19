@@ -25,6 +25,36 @@ public enum SubmissionState: Sendable, Hashable {
     }
 }
 
+/// The four calls a decision needs. The iPhone reaches the Mac directly; the
+/// Watch reaches it through the iPhone gateway. Either way the signed command
+/// is the only authority (spec.iphone-gateway.md section 13).
+public protocol ControlDecisionService: Sendable {
+    func approval(_ requestID: ControlID) async throws -> ApprovalRecord
+    func reviewChallenge(_ request: ReviewChallengeRequest) async throws -> ReviewChallenge
+    func submit(signedCommand: String, commandID: ControlID) async throws -> CommandResult
+    func commandResult(_ commandID: ControlID) async throws -> CommandResult
+}
+
+extension ControlAPIClient: ControlDecisionService {}
+
+/// Who signs: the device ID in the JWS `kid`, the audience it commits to, and
+/// the grants the device believes it holds.
+public struct SignerIdentity: Sendable, Hashable {
+    public let deviceID: ControlID
+    public let audience: String
+    public let grants: Set<DeviceGrant>
+
+    public init(deviceID: ControlID, audience: String, grants: Set<DeviceGrant>) {
+        self.deviceID = deviceID
+        self.audience = audience
+        self.grants = grants
+    }
+
+    public init(session: DeviceSession) {
+        self.init(deviceID: session.deviceID, audience: session.audience, grants: session.grants)
+    }
+}
+
 /// Drives review → challenge → signature → submission for one device.
 ///
 /// Every step re-fetches: the request is fetched before a decision is enabled,
@@ -39,10 +69,10 @@ public actor DecisionCoordinator {
         case noSession
     }
 
-    private let client: ControlAPIClient
+    private let client: any ControlDecisionService
     private let journal: CommandJournal
     private let key: any DeviceSigningKey
-    private let session: DeviceSession
+    private let session: SignerIdentity
     private let now: @Sendable () -> Date
 
     public init(
@@ -52,10 +82,20 @@ public actor DecisionCoordinator {
         session: DeviceSession,
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
-        self.client = client
+        self.init(service: client, journal: journal, key: key, signer: SignerIdentity(session: session), now: now)
+    }
+
+    public init(
+        service: any ControlDecisionService,
+        journal: CommandJournal,
+        key: any DeviceSigningKey,
+        signer: SignerIdentity,
+        now: @escaping @Sendable () -> Date = { Date() }
+    ) {
+        self.client = service
         self.journal = journal
         self.key = key
-        self.session = session
+        self.session = signer
         self.now = now
     }
 
@@ -201,17 +241,20 @@ public actor DecisionCoordinator {
     /// Sends, and on an ambiguous failure leaves the journal entry so the
     /// outcome can be queried later by the same command ID.
     private func submit(commandID: ControlID, jws: String) async throws -> SubmissionState {
+        // Journal status writes after the send are best effort: the entry was
+        // recorded before sending, so a failed update leaves it pending and it
+        // is reconciled by command ID. It must never mask what the send did.
         do {
             let result = try await client.submit(signedCommand: jws, commandID: commandID)
-            try await journal.update(commandID, status: .decisionRecorded)
+            try? await journal.update(commandID, status: .decisionRecorded)
             return SubmissionState.fromResult(result)
         } catch let error as ControlError where !error.retryable && error.code.clientAction == .showRecordedState {
             // Already resolved or an idempotency conflict: surface the recorded
             // state, never create a replacement command.
-            try await journal.update(commandID, status: .decisionRecorded)
+            try? await journal.update(commandID, status: .decisionRecorded)
             throw error
         } catch {
-            try await journal.update(commandID, status: .outcomeUnknown)
+            try? await journal.update(commandID, status: .outcomeUnknown)
             return .outcomeUnknown(commandID: commandID, reason: String(describing: error))
         }
     }

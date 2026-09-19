@@ -6,6 +6,7 @@ import Darwin
 #endif
 import ShellControlBroker
 import ShellControlProtocol
+import ShellControlSecurity
 
 // The broker executable: HTTP front end, durable store, and APNs outbox.
 // Configuration comes from a --config file or the environment so no secret is
@@ -83,10 +84,25 @@ let persistence = try FileBrokerPersistence(url: URL(fileURLWithPath: statePath)
 let cursorSecretText = optional("cursor_secret", from: fileConfig, env: "SHELL_CONTROL_CURSOR_SECRET")
 let cursorSecret = cursorSecretText.map { Data($0.utf8) }
     ?? Data((0..<32).map { _ in UInt8.random(in: 0...255) })
+// The Mac-local authority signs origin proofs with the origin key; the key
+// file is written by `shell-control setup` and never leaves the Mac
+// (spec.iphone-gateway.md section 7.1).
+var originSigner: OriginSigner?
+if let originIDText = optional("origin_id", from: fileConfig, env: "SHELL_CONTROL_ORIGIN_ID"),
+   let keyPath = optional("origin_key_file", from: fileConfig, env: "SHELL_CONTROL_ORIGIN_KEY_FILE") {
+    guard let originID = ControlID(originIDText) else { fail("origin_id must be a lowercase UUID") }
+    do {
+        let pem = try String(contentsOfFile: keyPath, encoding: .utf8)
+        originSigner = OriginSigner(originID: originID, key: try OriginSigningKey(pemRepresentation: pem))
+    } catch {
+        fail("cannot load origin signing key \(keyPath): \(error)")
+    }
+}
 let store = BrokerStore(
     serviceIdentity: optional("identity", from: fileConfig, env: "SHELL_CONTROL_IDENTITY") ?? "shell-control",
     cursorSecret: cursorSecret,
-    persistence: persistence
+    persistence: persistence,
+    originSigner: originSigner
 )
 try await store.restore()
 
@@ -98,7 +114,6 @@ if allowedTopics.isEmpty {
     ))
 }
 
-let publicURL = optional("public_url", from: fileConfig, env: "SHELL_CONTROL_PUBLIC_URL") ?? ""
 let verificationURI = optional("verification_uri", from: fileConfig, env: "SHELL_CONTROL_VERIFICATION_URI")
     ?? "https://example.invalid/activate"
 
@@ -108,8 +123,7 @@ let service = BrokerService(
         verificationURI: verificationURI,
         allowedAPNsTopics: allowedTopics,
         adminSecret: adminSecret,
-        adminAccountID: accountID,
-        publicURL: publicURL
+        adminAccountID: accountID
     )
 )
 
@@ -124,7 +138,10 @@ if let keyID = optional("apns_key_id", from: fileConfig, env: "SHELL_CONTROL_APN
     sender = RecordingPushSender()
 }
 
-let worker = OutboxWorker(store: store, sender: sender)
+let relay: (any RelaySender)? = optional("push_relay_url", from: fileConfig, env: "SHELL_CONTROL_PUSH_RELAY_URL")
+    .flatMap(URL.init(string:))
+    .flatMap { $0.scheme == "https" ? PushRelayClient(endpoint: $0) : nil }
+let worker = OutboxWorker(store: store, sender: sender, relay: relay)
 let workerTask = Task { await worker.run() }
 
 let bindLoopback: Bool

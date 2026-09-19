@@ -16,14 +16,46 @@ public final class KeychainCredentialStore: DeviceCredentialStore, @unchecked Se
         case malformedItem
     }
 
+    /// When the items can be read. The Watch keeps the default: it signs only
+    /// while unlocked and on the wrist. The iPhone gateway needs its session
+    /// after first unlock, so it can relay for the Watch from a locked pocket
+    /// (spec.iphone-gateway.md section 4.5).
+    public enum Accessibility: Sendable {
+        case whenUnlocked
+        case afterFirstUnlock
+
+        var attribute: CFString {
+            switch self {
+            case .whenUnlocked: return kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+            case .afterFirstUnlock: return kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+            }
+        }
+    }
+
     private let service: String
     private let accessGroup: String?
+    private let accessibility: Accessibility
+    private let lock = NSLock()
+    /// Accounts whose items may still carry an older, stricter class. Each is
+    /// rewritten the first time it is read successfully, so a store created
+    /// while the device was locked still migrates once it unlocks.
+    private var unmigrated: Set<String> = []
     private static let signingKeyAccount = "device-signing-key"
     private static let sessionAccount = "device-session"
 
-    public init(service: String = "dev.chr33s.shell.control", accessGroup: String? = nil) {
+    public init(service: String = "dev.chr33s.shell.control", accessGroup: String? = nil, accessibility: Accessibility = .whenUnlocked) {
         self.service = service
         self.accessGroup = accessGroup
+        self.accessibility = accessibility
+    }
+
+    /// Rewrites existing items with this store's accessibility, for items
+    /// created under an older, stricter class. It needs the items readable:
+    /// what cannot be read now is migrated on its first successful read.
+    public func migrateAccessibility() {
+        let accounts = [Self.signingKeyAccount, Self.sessionAccount]
+        lock.withLock { unmigrated.formUnion(accounts) }
+        for account in accounts { _ = try? read(account: account) }
     }
 
     public func loadSigningKey() throws -> (any DeviceSigningKey)? {
@@ -73,8 +105,12 @@ public final class KeychainCredentialStore: DeviceCredentialStore, @unchecked Se
         switch status {
         case errSecSuccess:
             guard let data = item as? Data else { throw KeychainError.malformedItem }
+            if lock.withLock({ unmigrated.contains(account) }), (try? write(account: account, data: data)) != nil {
+                lock.withLock { _ = unmigrated.remove(account) }
+            }
             return data
         case errSecItemNotFound:
+            lock.withLock { _ = unmigrated.remove(account) }
             return nil
         default:
             throw KeychainError.status(status)
@@ -85,15 +121,19 @@ public final class KeychainCredentialStore: DeviceCredentialStore, @unchecked Se
         let query = baseQuery(account: account)
         let attributes: [String: Any] = [
             kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+            kSecAttrAccessible as String: accessibility.attribute
         ]
         let updateStatus = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
-        if updateStatus == errSecSuccess { return }
+        if updateStatus == errSecSuccess {
+            lock.withLock { _ = unmigrated.remove(account) }
+            return
+        }
         guard updateStatus == errSecItemNotFound else { throw KeychainError.status(updateStatus) }
         var insert = query
         insert.merge(attributes) { _, new in new }
         let addStatus = SecItemAdd(insert as CFDictionary, nil)
         guard addStatus == errSecSuccess else { throw KeychainError.status(addStatus) }
+        lock.withLock { _ = unmigrated.remove(account) }
     }
 }
 #endif

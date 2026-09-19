@@ -23,8 +23,12 @@
 			</array>
 		</dict>
 	</array>
-	<key>SHELLControlBrokerURL</key>
-	<string>$(SHELL_CONTROL_BROKER_URL)</string>
+	<key>SHELLControlPushRelayURL</key>
+	<string>$(SHELL_CONTROL_PUSH_RELAY_URL)</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
 	<key>ShellCloudKitContainer</key>
 	<string>$(SHELL_CLOUDKIT_CONTAINER)</string>
 	<key>ShellKeychainAccessGroup</key>

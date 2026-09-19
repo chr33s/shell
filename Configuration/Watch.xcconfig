@@ -40,28 +40,8 @@ GENERATE_INFOPLIST_FILE = YES
 // The Watch keeps its credentials in its own access group.
 SHELL_WATCH_KEYCHAIN_ACCESS_GROUP = $(AppIdentifierPrefix)dev.chr33s.shell.watchkitapp
 
-// Runtime configuration the app reads back from its own Info.plist. Set
-// SHELL_CONTROL_BROKER_URL for a real deployment; the placeholder below is
-// recognised by the app as "no broker configured" rather than being dialled.
-// `INFOPLIST_KEY_<name>` only emits Apple-defined keys, so these two live in
-// ShellWatch/Info.plist and are substituted from here.
-//
-// The placeholder below is recognised by the app as "no broker configured", so
-// a Release build never ships pointing at somebody's laptop. WatchDebug.xcconfig
-// overrides it with the loopback broker ./scripts/run-broker.sh serves, so
-// Xcode's Run button works against a local broker with no extra setup.
-//
-// Point a build at a different service either on the command line:
-//
-//     xcodebuild ... SHELL_CONTROL_BROKER_URL='https:/$()/control.example'
-//
-// or, for a persistent local value, by creating Configuration/Local.xcconfig
-// (untracked) with that same assignment — it is included at the end of this
-// file, so it wins.
-//
-// The `$()` breaks up the `//`, which xcconfig would otherwise treat as the
-// start of a comment and truncate the URL to "https:".
-SHELL_CONTROL_BROKER_URL = https:/$()/control.invalid
+// There is deliberately no broker URL: the Watch reaches its Mac only through
+// the paired iPhone over WatchConnectivity (spec.iphone-gateway.md 4.6).
 // App icon. The phone and Mac apps use AppIcon.icon (Icon Composer), whose
 // square artwork loses its corners under the Watch's circular mask, so the
 // Watch gets its own asset catalog built from the same icon.svg by

@@ -102,251 +102,327 @@ struct ControlReviewView: View {
     }
 }
 
-/// Optional phone setup: the same device-authorization flow the Watch uses,
-/// confirmed in Safari on this device. It never copies private keys or
-/// long-lived credentials between devices (spec.watch.md section 5).
+/// Pairing with the Mac over Tailscale, route updates, and the Watch this
+/// iPhone gateways for. Private keys never leave the device that made them
+/// (spec.iphone-gateway.md sections 9, 10, and 24).
 struct ControlSetupView: View {
     let companion: ControlCompanion
 
-    @State private var userCode: String?
-    @State private var fingerprint: String?
-    @State private var status = String(localized: "Not set up")
-    @State private var isEnrolling = false
-    @State private var pairingText = ""
+    @State private var pastedText = ""
     @State private var showScanner = false
+    @State private var confirmForget = false
 
     var body: some View {
         List {
-            Section {
-                LabeledContent(String(localized: "Status"), value: phaseTitle)
-                    .themedRow()
-                if let host = companion.resolvedBrokerURL?.host {
-                    LabeledContent(String(localized: "Broker"), value: host)
-                        .themedRow()
-                }
-            } footer: {
-                Text(footerText)
-            }
-
+            macSection
             pairingSection
-
-            if companion.phase == .notConfigured {
-                Section {
-                    Text(String(localized: "Run shell-control setup on your Mac, then scan the QR or paste the broker URL."))
-                        .foregroundStyle(.secondary)
-                        .themedRow()
-                }
-            } else {
-                thisDeviceSection
-                watchSection
+            if companion.phase != .notConfigured {
+                actionsSection
             }
+            watchSection
         }
         .themedList()
         .navigationTitle(String(localized: "Control"))
         .task { await companion.start() }
-        .onAppear { refreshStatusFromPhase() }
-        .onChange(of: companion.phase) { _, _ in refreshStatusFromPhase() }
+        .refreshable { await companion.refresh() }
         .onReceive(NotificationCenter.default.publisher(for: .controlPairingReceived)) { _ in
-            Task { await companion.start(); refreshStatusFromPhase() }
+            Task { await companion.start() }
         }
         #if os(iOS) && !targetEnvironment(macCatalyst)
         .sheet(isPresented: $showScanner) {
-            ControlPairingScannerSheet { url in
-                Task { _ = await companion.applyPairedBroker(url) }
+            ControlPairingScannerSheet { payload in
+                Task { await companion.handleScanned(payload) }
             }
         }
         #endif
+        .confirmationDialog(
+            String(localized: "Forget this Mac?"),
+            isPresented: $confirmForget
+        ) {
+            Button(String(localized: "Forget Mac"), role: .destructive) {
+                Task { await companion.forgetMac() }
+            }
+        } message: {
+            Text(String(localized: "This iPhone and its Watch will need to pair again."))
+        }
     }
 
     private var phaseTitle: String {
         switch companion.phase {
-        case .notConfigured: String(localized: "Not configured")
-        case .needsEnrollment: String(localized: "Needs setup")
+        case .notConfigured: String(localized: "Not paired")
+        case .needsEnrollment: String(localized: "Needs pairing")
         case .ready: String(localized: "Ready")
         }
     }
 
-    private var footerText: String {
-        String(localized: "On your Mac run shell-control setup, then scan the QR. This device and Apple Watch each enrol with their own key. The CLI confirms them; credentials are never copied.")
+    @ViewBuilder
+    private var macSection: some View {
+        Section {
+            LabeledContent(String(localized: "Status"), value: phaseTitle)
+                .themedRow()
+            if let fingerprint = companion.originFingerprint {
+                LabeledContent(String(localized: "Shell origin")) {
+                    Text(fingerprint).font(.footnote.monospaced())
+                }
+                .themedRow()
+            }
+            if let route = companion.currentRoute {
+                LabeledContent(String(localized: "Route"), value: URL(string: route)?.host ?? route)
+                    .themedRow()
+            }
+            switch companion.routeState {
+            case .unknown:
+                EmptyView()
+            case .reachable:
+                LabeledContent(String(localized: "Private route"), value: String(localized: "Reachable"))
+                    .themedRow()
+            case .unavailable(let reason):
+                Label(reason, systemImage: "network.slash")
+                    .font(.footnote)
+                    .themedRow()
+            }
+            if let status = companion.statusMessage {
+                Text(status).font(.footnote).themedRow()
+            }
+        } header: {
+            Text(String(localized: "Mac"))
+        } footer: {
+            Text(String(localized: "Shell reaches your Mac privately over Tailscale. Keep Tailscale connected on this iPhone; VPN On Demand is recommended. A changed Tailscale address never requires pairing again."))
+        }
     }
 
     @ViewBuilder
     private var pairingSection: some View {
         Section {
-            TextField(String(localized: "https://… or shell-control://pair"), text: $pairingText)
+            #if os(iOS) && !targetEnvironment(macCatalyst)
+            Button(String(localized: "Scan QR")) { showScanner = true }
+                .disabled(companion.isPairing)
+                .themedRow()
+            #endif
+            TextField(String(localized: "shell-control://pair… or shell-control://route…"), text: $pastedText)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .keyboardType(.URL)
                 .themedRow()
-            Button(String(localized: "Use this broker")) {
-                Task { await submitPairingText() }
+            Button(String(localized: "Use pasted code")) {
+                let text = pastedText
+                pastedText = ""
+                Task { await companion.handleScanned(text) }
             }
-            .disabled(pairingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .disabled(pastedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || companion.isPairing)
             .themedRow()
-            #if os(iOS) && !targetEnvironment(macCatalyst)
-            Button(String(localized: "Scan QR")) { showScanner = true }
-                .themedRow()
-            #endif
-            if let token = companion.pairingToken {
-                LabeledContent(String(localized: "Pairing code"), value: token)
-                    .font(.body.monospaced())
-                    .themedRow()
+            if let pending = companion.pendingPairing {
+                ControlPairingConfirmation(companion: companion, pending: pending)
             }
-            if companion.isRuntimePaired {
-                Button(String(localized: "Forget paired broker"), role: .destructive) {
-                    Task { await companion.forgetPairedBroker() }
-                }
-                .themedRow()
-            }
+            ControlPairingProgressRows(companion: companion)
         } header: {
-            Text(String(localized: "Pair with Mac"))
+            Text(String(localized: "Pair or update route"))
         } footer: {
-            Text(String(localized: "Paste the URL printed by shell-control setup, or scan its QR. Changing broker signs this device out."))
+            Text(String(localized: "Run shell-control setup (or pair) on your Mac and scan its QR. A route QR from shell-control route only updates how this iPhone reaches the Mac; it is not a new pairing."))
         }
-    }
-
-    private func submitPairingText() async {
-        let trimmed = pairingText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let url = URL(string: trimmed), ControlBrokerAddress.parsePairing(url) != nil else {
-            status = String(localized: "That is not an acceptable broker URL.")
-            return
-        }
-        _ = await companion.applyPairedBroker(url)
-        pairingText = ""
     }
 
     @ViewBuilder
-    private var thisDeviceSection: some View {
+    private var actionsSection: some View {
         Section {
-            if let userCode {
-                LabeledContent(String(localized: "Code"), value: userCode)
-                    .font(.body.monospaced())
-                    .themedRow()
-            }
-            if let fingerprint {
-                LabeledContent(String(localized: "Key fingerprint"), value: fingerprint)
-                    .font(.footnote.monospaced())
-                    .themedRow()
-            }
-            Text(status)
-                .font(.footnote)
-                .themedRow()
-            Button(String(localized: "Start setup")) { Task { await enroll() } }
-                .disabled(isEnrolling || companion.phase == .notConfigured)
+            Button(String(localized: "Refresh")) { Task { await companion.refresh() } }
                 .themedRow()
             if companion.phase == .ready {
-                Button(String(localized: "Sign out"), role: .destructive) {
-                    companion.signOut()
-                    userCode = nil
-                    fingerprint = nil
-                    status = String(localized: "Not set up")
-                }
-                .themedRow()
+                Button(String(localized: "Sign out"), role: .destructive) { Task { await companion.signOut() } }
+                    .themedRow()
             }
-        } header: {
-            Text(String(localized: "This device"))
+            Button(String(localized: "Forget Mac"), role: .destructive) { confirmForget = true }
+                .themedRow()
         }
     }
 
     @ViewBuilder
     private var watchSection: some View {
         #if os(iOS) && !targetEnvironment(macCatalyst)
-        let pairing = ControlPairingSession.shared
+        let session = ControlPairingSession.shared
+        let gateway = ControlWatchGateway.shared
         Section {
-            LabeledContent(String(localized: "Watch app"), value: pairing.isWatchAppInstalled
+            LabeledContent(String(localized: "Watch app"), value: session.isWatchAppInstalled
                 ? String(localized: "Installed")
                 : String(localized: "Not installed"))
                 .themedRow()
-            if pairing.isWatchAppInstalled {
-                LabeledContent(String(localized: "Reachable"), value: pairing.isReachable
+            if session.isWatchAppInstalled {
+                LabeledContent(String(localized: "Reachable"), value: session.isReachable
                     ? String(localized: "Yes")
                     : String(localized: "No"))
                     .themedRow()
             }
-            if let enrollment = pairing.inboundEnrollment, !enrollment.isExpired() {
-                LabeledContent(String(localized: "Watch code"), value: enrollment.userCode)
-                    .font(.body.monospaced())
+            if let watch = gateway.boundWatch {
+                LabeledContent(String(localized: "Reviewer"), value: watchStateTitle(watch.state))
                     .themedRow()
-                LabeledContent(String(localized: "Watch fingerprint"), value: enrollment.fingerprint)
-                    .font(.footnote.monospaced())
-                    .themedRow()
-                Text(String(localized: "Confirm this code on the Mac running shell-control setup."))
-                    .font(.footnote)
+                LabeledContent(String(localized: "Watch key")) {
+                    Text(watch.fingerprint).font(.footnote.monospaced())
+                }
+                .themedRow()
+                if let code = watch.userCode {
+                    LabeledContent(String(localized: "Watch code"), value: code)
+                        .font(.body.monospaced())
+                        .themedRow()
+                    Text(String(localized: "Confirm this code on the Mac running shell-control setup."))
+                        .font(.footnote)
+                        .themedRow()
+                }
+                Button(String(localized: "Forget Watch on this iPhone"), role: .destructive) { gateway.forgetWatch() }
                     .themedRow()
             }
-            Button(String(localized: "Set up Apple Watch")) {
-                pairing.requestWatchEnrollment()
-            }
-            .disabled(!pairing.isWatchAppInstalled)
-            .themedRow()
         } header: {
             Text(String(localized: "Apple Watch"))
         } footer: {
-            Text(String(localized: "The Watch generates its own key. Confirming here only approves that enrollment."))
+            Text(String(localized: "Open Shell on the Watch to set it up. The Watch signs its own decisions with its own key; this iPhone only carries them to the Mac, live, and cannot approve on its behalf."))
         }
         #endif
     }
 
-    private func refreshStatusFromPhase() {
-        guard !isEnrolling else { return }
-        switch companion.phase {
-        case .notConfigured: status = String(localized: "Not configured")
-        case .needsEnrollment: status = String(localized: "Not set up")
-        case .ready: status = String(localized: "Enrolled")
+    private func watchStateTitle(_ state: WatchReviewerStatus.State) -> String {
+        switch state {
+        case .pending: String(localized: "Waiting for Mac confirmation")
+        case .active: String(localized: "Enrolled via this iPhone")
+        case .denied: String(localized: "Declined")
+        case .expired: String(localized: "Expired")
+        case .revoked: String(localized: "Revoked")
+        }
+    }
+}
+
+/// What the user compares with the Mac while pairing: the code and both
+/// fingerprints, or a spinner until they arrive.
+struct ControlPairingProgressRows: View {
+    let companion: ControlCompanion
+
+    var body: some View {
+        if let progress = companion.pairingProgress {
+            if progress.replacesOrigin {
+                Label(String(localized: "This QR is from a different Shell origin. Confirming replaces the Mac this iPhone trusts."), systemImage: "exclamationmark.triangle")
+                    .font(.footnote)
+                    .themedRow()
+            }
+            LabeledContent(String(localized: "Code"), value: progress.userCode)
+                .font(.body.monospaced())
+                .themedRow()
+            LabeledContent(String(localized: "This iPhone's key")) {
+                Text(progress.deviceFingerprint).font(.footnote.monospaced())
+            }
+            .themedRow()
+            LabeledContent(String(localized: "Mac origin")) {
+                Text(progress.originFingerprint).font(.footnote.monospaced())
+            }
+            .themedRow()
+            Text(String(localized: "Confirm this code and fingerprint on the Mac running shell-control setup."))
+                .font(.footnote)
+                .themedRow()
+        } else if companion.isPairing {
+            ProgressView().themedRow()
+        }
+    }
+}
+
+/// The explicit trust decision before pairing: which Mac key will be
+/// pinned, reached where, and whether it replaces the Mac already trusted.
+struct ControlPairingConfirmation: View {
+    let companion: ControlCompanion
+    let pending: ControlCompanion.PendingPairing
+    @State private var confirmReplace = false
+
+    var body: some View {
+        Group {
+            Text(title)
+                .font(.headline)
+                .themedRow()
+            LabeledContent(String(localized: "Mac origin")) {
+                Text(pending.invitation.origin.fingerprint).font(.footnote.monospaced())
+            }
+            .themedRow()
+            LabeledContent(String(localized: "Route"), value: pending.invitation.route.url.host ?? pending.invitation.route.url.absoluteString)
+                .themedRow()
+            if pending.fromLink {
+                Label(String(localized: "This came from a link. Pair only if you just ran shell-control on your own Mac."), systemImage: "link")
+                    .font(.footnote)
+                    .themedRow()
+            }
+            if pending.assessment == .differentOrigin {
+                Label(String(localized: "This is a different Mac key. Pairing replaces the Mac this iPhone trusts and its Watch must be set up again."), systemImage: "exclamationmark.triangle")
+                    .font(.footnote)
+                    .themedRow()
+                Button(String(localized: "Replace trusted Mac"), role: .destructive) { confirmReplace = true }
+                    .themedRow()
+            } else {
+                Button(String(localized: "Pair with this Mac")) {
+                    Task { await companion.confirmPendingPairing() }
+                }
+                .themedRow()
+            }
+            Button(String(localized: "Cancel"), role: .cancel) { companion.cancelPendingPairing() }
+                .themedRow()
+        }
+        .confirmationDialog(
+            String(localized: "Replace the trusted Mac?"),
+            isPresented: $confirmReplace
+        ) {
+            Button(String(localized: "Replace trusted Mac"), role: .destructive) {
+                Task { await companion.confirmPendingPairing() }
+            }
+        } message: {
+            Text(String(localized: "The current Mac will no longer be trusted by this iPhone or its Watch."))
         }
     }
 
-    private var deviceLabel: String {
-        #if targetEnvironment(macCatalyst)
-        return "Mac"
-        #elseif os(visionOS)
-        return "Vision"
-        #else
-        return UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone"
-        #endif
+    private var title: String {
+        switch pending.assessment {
+        case .firstPairing: String(localized: "Pair with this Mac?")
+        case .sameOrigin: String(localized: "Pair again with your Mac?")
+        case .differentOrigin: String(localized: "Pair with a different Mac?")
+        }
     }
+}
 
-    private func enroll() async {
-        guard let brokerURL = companion.resolvedBrokerURL else { return }
-        isEnrolling = true
-        defer { isEnrolling = false }
-        do {
-            let key = InMemoryDeviceKey()
-            let store = KeychainCredentialStore(service: "dev.chr33s.shell.control")
-            try store.storeSigningKey(key)
-            let coordinator = EnrollmentCoordinator(baseURL: brokerURL)
-            let started = try await coordinator.start(key: key, platform: .iOS, label: deviceLabel)
-            userCode = started.authorization.userCode
-            fingerprint = started.fingerprint
-            status = String(localized: "Waiting for confirmation on your Mac…")
-            var interval = started.authorization.interval
-            while Date() < started.authorization.expiresAt.date {
-                try await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
-                do {
-                    let token = try await coordinator.poll(deviceCode: started.authorization.deviceCode)
-                    let session = try await coordinator.complete(
-                        enrollmentID: started.enrollmentID,
-                        enrollmentToken: token,
-                        challenge: started.challenge,
-                        key: key
-                    )
-                    try store.storeSession(session)
-                    status = String(localized: "Enrolled")
-                    await companion.start()
-                    return
-                } catch EnrollmentError.authorizationPending {
-                    continue
-                } catch EnrollmentError.slowDown {
-                    interval += 5
-                } catch EnrollmentError.accessDenied {
-                    status = String(localized: "Setup was declined")
-                    return
+/// Presents a staged pairing that arrived as a link, wherever the user is, so
+/// it is confirmed or cancelled rather than silently waiting. After the yes
+/// the sheet stays up with the code and fingerprints to compare on the Mac,
+/// and the outcome, until the user dismisses it.
+struct ControlPairingLinkModifier: ViewModifier {
+    @State private var companion = ControlCompanion.shared
+    @State private var isPresented = false
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: companion.pendingPairing?.fromLink == true, initial: true) { _, fromLink in
+                if fromLink {
+                    isPresented = true
+                } else if !companion.isPairing, companion.pairingProgress == nil {
+                    // Cancelled rather than confirmed: nothing to show.
+                    isPresented = false
                 }
             }
-            status = String(localized: "The code expired — start again")
-        } catch {
-            status = String(describing: error)
-        }
+            .sheet(isPresented: $isPresented, onDismiss: {
+                if companion.pendingPairing?.fromLink == true { companion.cancelPendingPairing() }
+            }) {
+                NavigationStack {
+                    List {
+                        if let pending = companion.pendingPairing {
+                            ControlPairingConfirmation(companion: companion, pending: pending)
+                        } else {
+                            ControlPairingProgressRows(companion: companion)
+                            if !companion.isPairing, let status = companion.statusMessage {
+                                Text(status).font(.footnote).themedRow()
+                            }
+                        }
+                    }
+                    .themedList()
+                    .navigationTitle(String(localized: "Pair with Mac"))
+                    .toolbar {
+                        if companion.pendingPairing == nil {
+                            ToolbarItem(placement: .confirmationAction) {
+                                Button(String(localized: "Done")) { isPresented = false }
+                            }
+                        }
+                    }
+                }
+            }
     }
 }
 
@@ -357,6 +433,7 @@ struct ControlReviewPresentationModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+            .modifier(ControlPairingLinkModifier())
             .sheet(isPresented: Binding(
                 get: { requestID != nil },
                 set: { if !$0 { requestID = nil } }

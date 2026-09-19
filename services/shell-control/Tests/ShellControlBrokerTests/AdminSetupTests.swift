@@ -4,15 +4,14 @@ import ShellControlSecurity
 @testable import ShellControlBroker
 
 final class AdminSetupTests: XCTestCase {
-    private func makeService(_ harness: BrokerHarness, publicURL: String = "https://control.example") -> BrokerService {
+    private func makeService(_ harness: BrokerHarness) -> BrokerService {
         BrokerService(
             store: harness.store,
             configuration: BrokerService.Configuration(
                 verificationURI: "https://control.example/v1/oauth/confirm",
                 allowedAPNsTopics: ["dev.chr33s.shell.watchkitapp"],
                 adminSecret: "admin-secret",
-                adminAccountID: harness.accountID,
-                publicURL: publicURL
+                adminAccountID: harness.accountID
             )
         )
     }
@@ -116,15 +115,15 @@ final class AdminSetupTests: XCTestCase {
     }
 
     /// `Host` is attacker-controlled, so a request that reaches the broker
-    /// through the tunnel can claim to be local. cloudflared's own forwarding
+    /// through Tailscale Serve can claim to be local. Serve's own forwarding
     /// headers cannot be removed by the client, so they give the check
     /// something the caller does not control.
-    func testAdminPendingRejectsATunnelledRequestClaimingALoopbackHost() async throws {
+    func testAdminPendingRejectsAProxiedRequestClaimingALoopbackHost() async throws {
         let harness = BrokerHarness()
         try await harness.bootstrap()
         let service = makeService(harness)
 
-        for header in ["cf-connecting-ip", "cf-ray", "x-forwarded-for", "x-forwarded-proto", "forwarded"] {
+        for header in ["x-forwarded-for", "x-forwarded-proto", "forwarded", "tailscale-user-login"] {
             let spoofed = await service.handle(HTTPServer.Request(
                 method: "GET",
                 path: "/v1/admin/pending",
@@ -155,44 +154,5 @@ final class AdminSetupTests: XCTestCase {
             body: Data()
         ))
         XCTAssertEqual(response.status, 200)
-    }
-
-    func testPairPagePercentEncodesTheBrokerAndIgnoresHost() async throws {
-        let harness = BrokerHarness()
-        let service = makeService(harness, publicURL: "https://random.trycloudflare.com")
-        let response = await service.handle(HTTPServer.Request(
-            method: "GET",
-            path: "/pair",
-            query: [:],
-            headers: [
-                "accept": "text/html",
-                "host": "evil.example"
-            ],
-            body: Data()
-        ))
-        XCTAssertEqual(response.status, 200)
-        let page = String(decoding: response.body, as: UTF8.self)
-        XCTAssertTrue(page.contains("broker=https%3A%2F%2Frandom.trycloudflare.com"), page)
-        XCTAssertFalse(page.contains("evil.example"))
-        XCTAssertTrue(page.contains("Settings"))
-    }
-
-    func testPairPageWithoutAPublicURLDoesNotGuessFromHost() async throws {
-        let harness = BrokerHarness()
-        let service = makeService(harness, publicURL: "")
-        let response = await service.handle(HTTPServer.Request(
-            method: "GET",
-            path: "/pair",
-            query: [:],
-            headers: [
-                "accept": "text/html",
-                "host": "evil.example"
-            ],
-            body: Data()
-        ))
-        XCTAssertEqual(response.status, 503)
-        let page = String(decoding: response.body, as: UTF8.self)
-        XCTAssertFalse(page.contains("evil.example"))
-        XCTAssertFalse(page.contains("shell-control://pair"))
     }
 }

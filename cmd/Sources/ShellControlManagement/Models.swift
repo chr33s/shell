@@ -1,17 +1,21 @@
 import Foundation
 
-public enum AddressMode: String, Codable, CaseIterable, Sendable { case quick, named, externalProxy = "external-proxy", loopback }
-public enum DesiredState: String, Codable, Sendable { case running, stopped }
-public enum Component: String, Codable, CaseIterable, Sendable { case broker, daemon, tunnel }
+/// How the iPhone reaches the broker. `tailscale` is the iPhone-gateway
+/// profile: the broker stays on loopback and Tailscale Serve publishes it
+/// inside the tailnet only (spec.iphone-gateway.md). `loopback` is local
+/// development with the simulator.
+public enum AddressMode: String, Codable, CaseIterable, Sendable {
+    case tailscale, loopback
 
-public struct TunnelConfiguration: Codable, Equatable, Sendable {
-    public var id: UUID?
-    public var credentialsPath: String?
-    public var cloudflaredPath: String?
-    public init(id: UUID? = nil, credentialsPath: String? = nil, cloudflaredPath: String? = nil) {
-        self.id = id; self.credentialsPath = credentialsPath; self.cloudflaredPath = cloudflaredPath
+    /// Installations written by releases that also offered Cloudflare tunnel
+    /// modes migrate to `tailscale`; setup then removes the old tunnel job.
+    public init(from decoder: any Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = AddressMode(rawValue: raw) ?? .tailscale
     }
 }
+public enum DesiredState: String, Codable, Sendable { case running, stopped }
+public enum Component: String, Codable, CaseIterable, Sendable { case broker, daemon }
 
 public struct PushConfiguration: Codable, Equatable, Sendable {
     public var enabled: Bool
@@ -19,10 +23,15 @@ public struct PushConfiguration: Codable, Equatable, Sendable {
     public var teamID: String?
     public var keyPath: String?
     public var topics: [String]
+    /// The stateless Shell Push Relay. With it, the broker sends event hints
+    /// and holds no APNs credentials (spec.iphone-gateway.md section 16).
+    public var relayURL: String?
     public init(enabled: Bool = false, keyID: String? = nil, teamID: String? = nil,
-                keyPath: String? = nil, topics: [String] = []) {
+                keyPath: String? = nil, topics: [String] = [], relayURL: String? = nil) {
         self.enabled = enabled; self.keyID = keyID; self.teamID = teamID; self.keyPath = keyPath; self.topics = topics
+        self.relayURL = relayURL
     }
+    public var usesDirectAPNs: Bool { enabled && keyID != nil && teamID != nil && keyPath != nil }
 }
 
 public struct Installation: Codable, Equatable, Sendable {
@@ -34,22 +43,23 @@ public struct Installation: Codable, Equatable, Sendable {
     public var addressMode: AddressMode
     public var publicURL: String?
     public var releaseID: String
-    public var tunnel: TunnelConfiguration
     public var push: PushConfiguration
+    /// The Tailscale CLI used for Serve configuration in `tailscale` mode.
+    public var tailscalePath: String?
 
     enum CodingKeys: String, CodingKey {
         case format, installationID = "installation_id", desiredState = "desired_state", persistent, port
-        case addressMode = "address_mode", publicURL = "public_url", releaseID = "release_id", tunnel, push
+        case addressMode = "address_mode", publicURL = "public_url", releaseID = "release_id", push
+        case tailscalePath = "tailscale_path"
     }
 
     public init(installationID: UUID = UUID(), desiredState: DesiredState = .running,
-                persistent: Bool = false, port: Int = 8443, addressMode: AddressMode = .quick,
-                publicURL: String? = nil, releaseID: String, tunnel: TunnelConfiguration = .init(),
-                push: PushConfiguration = .init()) {
+                persistent: Bool = false, port: Int = 8443, addressMode: AddressMode = .tailscale,
+                publicURL: String? = nil, releaseID: String, push: PushConfiguration = .init()) {
         format = "shell-control.native/1"; self.installationID = installationID
         self.desiredState = desiredState; self.persistent = persistent; self.port = port
         self.addressMode = addressMode; self.publicURL = publicURL; self.releaseID = releaseID
-        self.tunnel = tunnel; self.push = push
+        self.push = push
     }
 }
 
@@ -57,13 +67,20 @@ public struct InstallationSecrets: Codable, Equatable, Sendable {
     public var accountID: UUID
     public var adminSecret: String
     public var cursorSecret: String
-    public var pairingToken: String
     public var originID: UUID?
     public var originSecret: String?
+    /// Whether the broker has acknowledged `originID`. Absent on older
+    /// installations, where an origin ID implies it was provisioned.
+    public var originProvisioned: Bool?
+    /// The origin signing key's fingerprint as first created. A missing key
+    /// with a recorded fingerprint is never silently regenerated: replacing
+    /// the origin key is a new trust relationship (spec.iphone-gateway.md 23).
+    public var originKeyFingerprint: String?
 
     enum CodingKeys: String, CodingKey {
         case accountID = "account_id", adminSecret = "admin_secret", cursorSecret = "cursor_secret"
-        case pairingToken = "pairing_token", originID = "origin_id", originSecret = "origin_secret"
+        case originID = "origin_id", originSecret = "origin_secret"
+        case originProvisioned = "origin_provisioned", originKeyFingerprint = "origin_key_fingerprint"
     }
 }
 
@@ -93,6 +110,7 @@ public struct InstallationPaths: Sendable {
     public var runtime: URL { root.appendingPathComponent("runtime.json") }
     public var lock: URL { root.appendingPathComponent("install.lock") }
     public var credentials: URL { root.appendingPathComponent("credentials") }
+    public var originKey: URL { credentials.appendingPathComponent("origin-signing-key.pem") }
     public var services: URL { root.appendingPathComponent("services") }
     public var launchd: URL { root.appendingPathComponent("launchd") }
     public var logs: URL { root.appendingPathComponent("logs") }

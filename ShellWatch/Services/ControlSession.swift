@@ -4,45 +4,49 @@ import ShellControlProtocol
 import ShellControlSecurity
 import ShellControlClient
 
-/// The Watch's single owner of protocol state: credentials, cache, refreshes,
-/// and submissions. Networking and signing happen off the main actor; only the
-/// published projection is main-actor state (spec.watch.md section 18).
+/// The Watch's single owner of protocol state: its signing key, reviewer
+/// identity, cache, refreshes, and submissions — all through the paired
+/// iPhone gateway. Only the published projection is main-actor state
+/// (spec.iphone-gateway.md sections 4.6, 11, and 18).
 @MainActor
 @Observable
 final class ControlSession {
     enum Phase: Equatable {
         case loading
         case needsEnrollment
+        /// The iPhone asked the Mac; the Mac has not confirmed yet.
+        case awaitingConfirmation(WatchReviewerStatus)
         case ready
     }
 
     private(set) var phase: Phase = .loading
     private(set) var inbox = InboxState()
-    private(set) var isOffline = false
+    /// Live WatchConnectivity reachability of the iPhone. Every decision needs
+    /// it; cached content remains readable without it, marked stale.
+    private(set) var isGatewayReachable = false
+    /// Why the last live round trip failed: the iPhone, or its Mac route.
+    private(set) var gatewayProblem: String?
     private(set) var lastError: String?
     private(set) var pendingCommands: [PendingCommand] = []
     private(set) var submissions: [ControlID: SubmissionState] = [:]
+    /// Why the last decision on a request was not sent, when the cause is the
+    /// request or the Watch rather than connectivity. Shown on review.
+    private(set) var decisionProblems: [ControlID: String] = [:]
+    private(set) var reviewer: WatchReviewerStatus?
+    private(set) var enrollmentMessage: String?
 
-    let brokerURL: URL
-    private let credentials: any DeviceCredentialStore
+    private let client: WatchGatewayClient
+    private let link: any WatchGatewayLink
+    private let keys: any DeviceCredentialStore
+    private let reviewerStore: any WatchReviewerStore
     private let cache: any InboxCacheStore
     private let journal: CommandJournal
-    private let defaults: UserDefaults
-    /// Injectable so tests can drive the credential-renewal and offline paths
-    /// without a network; production uses `URLSession`.
-    private let transport: any ControlHTTPTransport
     private let now: @Sendable () -> Date
-    private var client: ControlAPIClient?
-    private var coordinator: DecisionCoordinator?
-    private var session: DeviceSession?
-    private var key: (any DeviceSigningKey)?
     private var pollTask: Task<Void, Never>?
-    private var enrollment: EnrollmentCoordinator?
     private var sceneActive = true
     private var screenNeedsData = false
     private var inFlightRefresh: Task<Void, Never>?
     private var queuedRefresh = false
-    private var renewTask: Task<Void, Never>?
     private var consecutiveFailures = 0
     private static let backoffSchedule: [TimeInterval] = [10, 20, 40, 60]
 
@@ -51,20 +55,19 @@ final class ControlSession {
     var isPolling: Bool { pollTask != nil }
 
     init(
-        brokerURL: URL,
-        credentials: any DeviceCredentialStore,
+        link: any WatchGatewayLink,
+        keys: any DeviceCredentialStore,
+        reviewerStore: any WatchReviewerStore,
         cache: any InboxCacheStore,
         journalStore: any CommandJournalStore,
-        transport: any ControlHTTPTransport = URLSessionTransport(),
-        defaults: UserDefaults = .standard,
         now: @escaping @Sendable () -> Date = { Date() }
     ) throws {
-        self.brokerURL = brokerURL
-        self.credentials = credentials
+        self.link = link
+        self.client = WatchGatewayClient(link: link)
+        self.keys = keys
+        self.reviewerStore = reviewerStore
         self.cache = cache
         self.journal = try CommandJournal(store: journalStore)
-        self.transport = transport
-        self.defaults = defaults
         self.now = now
     }
 
@@ -73,84 +76,125 @@ final class ControlSession {
     /// The clock the session judges freshness and expiry against.
     var currentDate: Date { now() }
 
-    /// Restores cached state first so the inbox can render offline, then tries
-    /// the network.
+    /// Whether the inbox on screen was confirmed live through the iPhone.
+    var isShowingLiveState: Bool { GatewayCache.isLive(gatewayReachable: isGatewayReachable, lastRefreshedAt: lastRefreshedAt) }
+
+    /// Restores cached state first so the inbox can render without the
+    /// iPhone, then tries a live refresh.
     func start() async {
-        if ControlBrokerAddress.hasChanged(
-            from: defaults.string(forKey: ControlBrokerAddress.defaultsKey),
-            to: brokerURL,
-            hasCredentials: (try? credentials.loadSession()) != nil
-        ) {
-            try? credentials.removeAll()
-            try? cache.clear()
-            inbox = InboxState()
-        }
-        defaults.set(brokerURL.absoluteString, forKey: ControlBrokerAddress.defaultsKey)
         if let cached = try? cache.load() { inbox = cached }
         pendingCommands = await journal.pending
-        guard let session = try? credentials.loadSession(),
-              let key = try? credentials.loadSigningKey()
-        else {
+        isGatewayReachable = await link.isReachable()
+        guard let reviewer = reviewerStore.load(), (try? keys.loadSigningKey()) != nil else {
             phase = .needsEnrollment
             return
         }
-        install(session: session, key: key)
-        phase = .ready
-        await refresh()
-        await reconcilePendingCommands()
-    }
-
-    func adopt(session: DeviceSession, key: any DeviceSigningKey) async {
-        install(session: session, key: key)
-        phase = .ready
-        await refresh()
-    }
-
-    private func install(session: DeviceSession, key: any DeviceSigningKey) {
-        self.session = session
-        self.key = key
-        let client = ControlAPIClient(baseURL: brokerURL, transport: transport, credential: .device(session.accessToken))
-        self.client = client
-        self.enrollment = EnrollmentCoordinator(baseURL: brokerURL, transport: transport)
-        coordinator = DecisionCoordinator(client: client, journal: journal, key: key, session: session, now: now)
-    }
-
-    /// Access tokens last ten minutes, so every network path renews first
-    /// rather than discovering the expiry as a 401 it cannot recover from
-    /// (spec.watch.md sections 5 and 16). Concurrent callers share one renewal.
-    private func ensureFreshCredentials() async {
-        if let renewTask {
-            await renewTask.value
-            return
+        await adopt(reviewer)
+        if phase == .ready {
+            await refresh()
+            await reconcilePendingCommands()
+        } else if case .awaitingConfirmation = phase {
+            await checkEnrollment()
         }
-        let task = Task { @MainActor in
-            await self.renewCredentialsIfNeeded()
-        }
-        renewTask = task
-        await task.value
-        renewTask = nil
     }
 
-    private func renewCredentialsIfNeeded() async {
-        guard let session, let client, let enrollment, let key else { return }
-        guard !session.isAccessTokenFresh(at: ControlTimestamp(now())) else { return }
+    private func adopt(_ status: WatchReviewerStatus) async {
+        reviewer = status
+        await client.setWatchDeviceID(status.watchDeviceID)
+        switch status.state {
+        case .active: phase = .ready
+        case .pending: phase = .awaitingConfirmation(status)
+        case .denied, .expired, .revoked: phase = .needsEnrollment
+        }
+    }
+
+    // MARK: Gateway state
+
+    func gatewayReachabilityChanged(_ reachable: Bool) {
+        isGatewayReachable = reachable
+        if reachable {
+            gatewayProblem = nil
+            consecutiveFailures = 0
+            Task { await refresh(); await reconcilePendingCommands() }
+        }
+    }
+
+    /// Background context from the iPhone: display state and a refresh hint,
+    /// never a command.
+    func applyContext(_ context: WatchGatewayContext) {
+        if context.refreshRequested, phase == .ready, sceneActive {
+            Task { await refresh() }
+        }
+    }
+
+    // MARK: Enrollment
+
+    /// Generates this Watch's own key and asks the Mac, through the iPhone,
+    /// to enroll it as a reviewer bound to that iPhone. The private key never
+    /// leaves the Watch (spec.iphone-gateway.md section 10).
+    func enroll(label: String) async {
+        enrollmentMessage = nil
         do {
-            let renewed = try await enrollment.refresh(session: session)
-            try? credentials.storeSession(renewed)
-            self.session = renewed
-            await client.updateCredential(.device(renewed.accessToken))
-            coordinator = DecisionCoordinator(client: client, journal: journal, key: key, session: renewed, now: now)
-        } catch let error as ControlError where error.code == .invalidToken || error.code == .deviceRevoked {
-            // The refresh token is spent or the device was revoked: a new
-            // identity is the only way back, and it needs the local cache gone.
-            signOut()
+            let key: InMemoryDeviceKey
+            if let existing = try keys.loadSigningKey() as? InMemoryDeviceKey {
+                key = existing
+            } else {
+                key = InMemoryDeviceKey()
+                try keys.storeSigningKey(key)
+            }
+            let status = try await client.requestEnrollment(try WatchEnrollmentRequest.make(key: key, label: label))
+            try reviewerStore.store(status)
+            await adopt(status)
+            if phase == .ready { await refresh() }
         } catch {
-            isOffline = true
+            enrollmentMessage = describe(error)
         }
     }
 
-    /// Full reconciliation: snapshot pages, applied atomically, then deltas.
-    /// Simultaneous launch/foreground/notification/manual triggers coalesce.
+    /// Asks the Mac, through the iPhone, whether it confirmed this Watch.
+    func checkEnrollment() async {
+        guard reviewer != nil else { return }
+        do {
+            let status = try await client.enrollmentStatus()
+            try reviewerStore.store(status)
+            await adopt(status)
+            switch status.state {
+            case .active:
+                enrollmentMessage = nil
+                await refresh()
+            case .denied: enrollmentMessage = String(localized: "Setup was declined on the Mac")
+            case .expired: enrollmentMessage = String(localized: "The code expired — start again")
+            case .revoked:
+                signOut()
+                enrollmentMessage = String(localized: "This Watch was revoked")
+            case .pending: break
+            }
+        } catch let error as ControlError where error.code == .reviewerNotBound {
+            unbind()
+        } catch {
+            enrollmentMessage = describe(error)
+        }
+    }
+
+    /// The iPhone this Watch was bound to is no longer its gateway (it was
+    /// re-paired or replaced). The key stays, so setting up again through the
+    /// current iPhone is a re-binding the Mac confirms, not a new identity.
+    private func unbind() {
+        stopPolling()
+        reviewerStore.remove()
+        try? cache.clear()
+        inbox = InboxState()
+        reviewer = nil
+        submissions = [:]
+        phase = .needsEnrollment
+        enrollmentMessage = String(localized: "Set this Watch up again through its iPhone")
+        Task { await client.setWatchDeviceID(nil) }
+    }
+
+    // MARK: Refresh
+
+    /// Full reconciliation through the gateway: snapshot pages, applied
+    /// atomically, then deltas. Simultaneous triggers coalesce.
     func refresh() async {
         if let inFlightRefresh {
             queuedRefresh = true
@@ -159,9 +203,7 @@ final class ControlSession {
         }
         repeat {
             queuedRefresh = false
-            let task = Task { @MainActor in
-                await self.refreshOnce()
-            }
+            let task = Task { @MainActor in await self.refreshOnce() }
             inFlightRefresh = task
             defer { inFlightRefresh = nil }
             await task.value
@@ -169,8 +211,7 @@ final class ControlSession {
     }
 
     private func refreshOnce() async {
-        await ensureFreshCredentials()
-        guard let client else { return }
+        guard phase == .ready else { return }
         do {
             var reconciler = InboxReconciler(state: inbox)
             if let cursor = inbox.cursor {
@@ -187,7 +228,7 @@ final class ControlSession {
             }
             inbox = reconciler.state
             try? cache.commit(inbox)
-            isOffline = false
+            gatewayProblem = nil
             lastError = nil
             consecutiveFailures = 0
         } catch let error as ControlError where error.code == .cursorExpired {
@@ -195,11 +236,8 @@ final class ControlSession {
             // fresh snapshot so stale unauthorized objects are removed.
             inbox.cursor = nil
             await refreshOnce()
-        } catch is TransportError {
-            isOffline = true
-            consecutiveFailures += 1
         } catch {
-            lastError = String(describing: error)
+            note(error)
             consecutiveFailures += 1
         }
     }
@@ -215,9 +253,8 @@ final class ControlSession {
         }
     }
 
-    /// While a relevant screen is visible, refreshes coalesce and never poll
-    /// faster than every five seconds; polling pauses when not visible
-    /// (spec.watch.md section 7).
+    /// Only while a relevant screen is visible does the Watch ask its iPhone
+    /// for updates; otherwise it stays idle (spec.iphone-gateway.md 18).
     func startPolling() {
         screenNeedsData = true
         startPollingIfNeeded()
@@ -251,60 +288,66 @@ final class ControlSession {
         guard consecutiveFailures > 0 else { return minimum }
         let index = min(consecutiveFailures, Self.backoffSchedule.count) - 1
         let backoff = Self.backoffSchedule[index]
-        let jitter = Double.random(in: 0...(backoff * 0.1))
-        return max(minimum, backoff + jitter)
+        return max(minimum, backoff + Double.random(in: 0...(backoff * 0.1)))
     }
 
-    /// Always re-fetches before showing the review screen: a digest alone is not
-    /// review material, and a cached copy is not a decision basis.
+    // MARK: Review and decisions
+
+    /// Always fetched live through the iPhone before review: a cached copy is
+    /// not a decision basis (spec.iphone-gateway.md section 14.3).
     func fetchForReview(_ requestID: ControlID) async throws -> ApprovalRecord {
-        await ensureFreshCredentials()
-        guard let client else { throw TransportError.offline }
-        let record = try await client.approval(requestID)
-        inbox.approvals[requestID] = record
-        try? cache.commit(inbox)
-        return record
+        do {
+            let record = try await client.approval(requestID)
+            inbox.approvals[requestID] = record
+            try? cache.commit(inbox)
+            gatewayProblem = nil
+            return record
+        } catch {
+            note(error)
+            throw error
+        }
     }
 
     func decide(_ decision: ControlDecision, on record: ApprovalRecord) async {
-        await ensureFreshCredentials()
-        guard let coordinator else { return }
+        guard let coordinator = await makeCoordinator() else { return }
         submissions[record.spec.requestID] = .sending
+        decisionProblems[record.spec.requestID] = nil
         do {
             let state = try await coordinator.decide(decision, reviewed: record)
             submissions[record.spec.requestID] = state
         } catch let error as ControlError {
             submissions[record.spec.requestID] = nil
             lastError = "\(error.code.rawValue): \(error.message)"
+            decisionProblems[record.spec.requestID] = describe(error)
+            if error.code == .deviceRevoked || error.code == .reviewerNotBound { note(error) }
+        } catch let error as WatchGatewayError {
+            // Nothing was queued: an unreachable iPhone fails closed.
+            submissions[record.spec.requestID] = nil
+            note(error)
         } catch {
-            submissions[record.spec.requestID] = .outcomeUnknown(commandID: .random(), reason: String(describing: error))
+            // Anything else escaping the coordinator happened before the
+            // command was sent: the request changed, the Watch may not decide
+            // it, or a local signing or parsing failure. Nothing was
+            // submitted; a failure after submission is journalled by the
+            // coordinator under its real command ID and reconciled later.
+            submissions[record.spec.requestID] = nil
+            lastError = describe(error)
+            decisionProblems[record.spec.requestID] = describe(error)
         }
         pendingCommands = await journal.pending
         await refresh()
     }
 
     func acknowledge(_ notification: InformationalEvent) async {
-        await ensureFreshCredentials()
-        guard let coordinator else { return }
+        guard let coordinator = await makeCoordinator() else { return }
         _ = try? await coordinator.acknowledge(notification: notification)
         await refresh()
     }
 
-    func cancelJob(jobID: ControlID, runID: ControlID, jobVersion: Int64) async {
-        await ensureFreshCredentials()
-        guard let coordinator else { return }
-        do {
-            _ = try await coordinator.cancelJob(jobID: jobID, runID: runID, expectedJobVersion: jobVersion)
-        } catch {
-            lastError = String(describing: error)
-        }
-        await refresh()
-    }
-
-    /// On reconnection, ask about every command whose outcome is unresolved.
+    /// On reconnection, ask about every command whose outcome is unresolved,
+    /// by its original command ID.
     func reconcilePendingCommands() async {
-        await ensureFreshCredentials()
-        guard let coordinator else { return }
+        guard let coordinator = await makeCoordinator() else { return }
         for command in await journal.pending {
             if let state = try? await coordinator.reconcile(command) {
                 submissions[command.targetID] = state
@@ -313,32 +356,68 @@ final class ControlSession {
         pendingCommands = await journal.pending
     }
 
-    /// Registers this Watch's own APNs token. A push token is a delivery
-    /// address, not authentication (spec.watch.md section 5).
-    func registerPushToken(_ token: Data, topic: String, environment: PushRegistration.Environment) async {
-        await ensureFreshCredentials()
-        guard let client else { return }
-        let hex = token.map { String(format: "%02x", $0) }.joined()
-        guard let registration = try? PushRegistration(
-            token: hex,
-            platform: .watchOS,
-            environment: environment,
-            topic: topic
-        ) else { return }
-        try? await client.registerPush(registration)
+    private func makeCoordinator() async -> DecisionCoordinator? {
+        guard phase == .ready,
+              let reviewer, let audience = reviewer.audience,
+              let key = try? keys.loadSigningKey()
+        else { return nil }
+        return DecisionCoordinator(
+            service: client,
+            journal: journal,
+            key: key,
+            signer: SignerIdentity(deviceID: reviewer.watchDeviceID, audience: audience, grants: reviewer.grants),
+            now: now
+        )
     }
 
-    /// Account logout: the local credentials and cache go away together.
+    private func note(_ error: any Error) {
+        switch error {
+        case let error as WatchGatewayError:
+            if error == .iPhoneUnreachable { isGatewayReachable = false }
+            gatewayProblem = describe(error)
+        case let error as ControlError where error.code == .deviceRevoked:
+            signOut()
+            enrollmentMessage = String(localized: "This Watch was revoked")
+        case let error as ControlError where error.code == .reviewerNotBound:
+            unbind()
+        case let error as ControlError:
+            lastError = "\(error.code.rawValue): \(error.message)"
+        default:
+            // Delivery failures arrive as `WatchGatewayError`; anything else
+            // is not a connectivity problem.
+            lastError = describe(error)
+        }
+    }
+
+    private func describe(_ error: any Error) -> String {
+        switch error {
+        case WatchGatewayError.iPhoneUnreachable: return String(localized: "iPhone unavailable")
+        case WatchGatewayError.gatewayUnavailable: return String(localized: "The iPhone cannot reach the Mac right now")
+        case let error as ControlError: return error.message
+        case DecisionCoordinator.CoordinatorError.requestChangedDuringReview:
+            return String(localized: "This request changed while you were reviewing it. Review it again.")
+        case DecisionCoordinator.CoordinatorError.notApprovableOnWatch:
+            return String(localized: "Review this request on your iPhone or Mac")
+        case DecisionCoordinator.CoordinatorError.decisionNotAllowed:
+            return String(localized: "That decision is not allowed for this request")
+        case DecisionCoordinator.CoordinatorError.missingGrant:
+            return String(localized: "This Watch is not allowed to do that")
+        case DecisionCoordinator.CoordinatorError.noSession:
+            return String(localized: "Set this Watch up again through its iPhone")
+        default: return String(describing: error)
+        }
+    }
+
+    /// Forgets this Watch's reviewer identity, key, and cache together.
     func signOut() {
         stopPolling()
-        try? credentials.removeAll()
+        try? keys.removeAll()
+        reviewerStore.remove()
         try? cache.clear()
         inbox = InboxState()
-        session = nil
-        key = nil
-        client = nil
-        coordinator = nil
-        enrollment = nil
+        reviewer = nil
+        submissions = [:]
         phase = .needsEnrollment
+        Task { await client.setWatchDeviceID(nil) }
     }
 }

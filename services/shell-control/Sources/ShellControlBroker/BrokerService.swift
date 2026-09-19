@@ -1,6 +1,7 @@
 import Foundation
 import ShellControlProtocol
 import ShellControlSecurity
+@_exported import ShellControlHTTPServer
 
 /// Routes `/v1` HTTP requests onto ``BrokerStore``.
 ///
@@ -15,22 +16,17 @@ public struct BrokerService: Sendable {
         /// policy changes require it; decision credentials never suffice.
         public var adminSecret: String
         public var adminAccountID: ControlID
-        /// Public HTTPS origin used for `/pair` deep links. Optional: without
-        /// it the pairing page still works against the request Host.
-        public var publicURL: String
 
         public init(
             verificationURI: String,
             allowedAPNsTopics: Set<String>,
             adminSecret: String,
-            adminAccountID: ControlID,
-            publicURL: String = ""
+            adminAccountID: ControlID
         ) {
             self.verificationURI = verificationURI
             self.allowedAPNsTopics = allowedAPNsTopics
             self.adminSecret = adminSecret
             self.adminAccountID = adminAccountID
-            self.publicURL = publicURL
         }
     }
 
@@ -66,13 +62,27 @@ public struct BrokerService: Sendable {
             _ = try localAdministrator(request)
             return json(status: 200, await store.health(), headers: ["Cache-Control": "no-store"])
 
-        case ("GET", "/pair"):
-            // Never take the broker URL from Host: a spoofed Host would deep-link
-            // the app at an attacker. The configured public URL is the only source.
-            guard !configuration.publicURL.isEmpty else {
-                return html(status: 503, ConfirmationPage.pairUnavailable())
-            }
-            return html(status: 200, ConfirmationPage.pair(brokerURL: configuration.publicURL))
+        case ("GET", "/v1/origin/proof"):
+            // Unauthenticated by design: it proves which key this endpoint
+            // holds and discloses nothing else (spec.iphone-gateway.md 7.4).
+            try await limiter.check(bucket: "origin_proof", limit: 120)
+            let proof = try await store.originProof(nonce: request.query["nonce"] ?? "")
+            return json(status: 200, proof.document, headers: ["Cache-Control": "no-store"])
+
+        case ("POST", "/v1/admin/pairings"):
+            try await limiter.check(bucket: "admin", limit: 30)
+            let principal = try localAdministrator(request)
+            let created = try await store.createPairing(principal: principal)
+            return json(status: 201, .object([
+                "pairing_id": JSONValue(created.pairingID),
+                "pairing_secret": .string(created.secret),
+                "expires_at": JSONValue(created.expiresAt)
+            ]), headers: ["Cache-Control": "no-store"])
+
+        case ("GET", "/v1/admin/devices"):
+            try await limiter.check(bucket: "admin", limit: 30)
+            _ = try localAdministrator(request)
+            return json(status: 200, await store.deviceSummary(), headers: ["Cache-Control": "no-store"])
 
         case ("GET", "/v1/admin/pending"):
             try await limiter.check(bucket: "admin", limit: 30)
@@ -113,6 +123,14 @@ public struct BrokerService: Sendable {
 
         case ("POST", "/v1/enrollments"):
             try await limiter.check(bucket: "enroll", limit: 30)
+            // The Mac-local authority enrolls an iPhone only through a one-use
+            // pairing claim, and a Watch only through its iPhone gateway, so
+            // no device ever gets a credential without the setup QR and no
+            // Watch gets a direct HTTPS credential (spec.iphone-gateway.md
+            // sections 4.6 and 9).
+            if await store.isGatewayProfile {
+                throw ControlError(code: .notAuthorized, message: "pair with the QR from shell-control setup")
+            }
             var reader = try JSONReader(try body(request))
             let jwk = try DeviceJWK(json: try reader.value("public_jwk"))
             let platformText = try reader.string("platform", maxLength: 16)
@@ -211,6 +229,39 @@ public struct BrokerService: Sendable {
             break
         }
 
+        if request.method == "POST", request.path.hasPrefix("/v1/admin/devices/"), request.path.hasSuffix("/revoke") {
+            try await limiter.check(bucket: "admin", limit: 30)
+            let principal = try localAdministrator(request)
+            let idText = String(request.path.dropFirst("/v1/admin/devices/".count).dropLast("/revoke".count))
+            guard let deviceID = ControlID(idText) else { throw ControlError(code: .notFound, message: "no such device") }
+            try await store.revoke(deviceID: deviceID, principal: principal)
+            return json(status: 200, .object(["ok": true]))
+        }
+
+        if request.method == "POST", request.path.hasPrefix("/v1/pairings/"), request.path.hasSuffix("/claim") {
+            try await limiter.check(bucket: "pairing", limit: 20)
+            let idText = String(request.path.dropFirst("/v1/pairings/".count).dropLast("/claim".count))
+            guard let pairingID = ControlID(idText) else { throw ControlError(code: .notFound, message: "no such pairing") }
+            var reader = try JSONReader(try body(request))
+            let jwk = try DeviceJWK(json: try reader.value("public_jwk"))
+            let platformText = try reader.string("platform", maxLength: 16)
+            guard let platform = PushRegistration.Platform(rawValue: platformText) else {
+                throw ControlError(code: .invalidPayload, message: "unknown platform")
+            }
+            let label = try reader.string("label", maxLength: 120)
+            let nonce = try reader.string("nonce", maxLength: 64)
+            guard let proof = Base64URL.decode(try reader.string("proof", maxLength: 128)),
+                  let signature = Base64URL.decode(try reader.string("key_signature", maxLength: 128))
+            else { throw ControlError(code: .invalidPayload, message: "proof and key_signature must be base64url") }
+            try reader.rejectUnknownMembers()
+            let claimed = try await store.claimPairing(
+                pairingID: pairingID, publicJWK: jwk, platform: platform, label: label,
+                nonce: nonce, proof: proof, keySignature: signature,
+                verificationURI: configuration.verificationURI
+            )
+            return json(status: 201, claimed, headers: ["Cache-Control": "no-store"])
+        }
+
         if request.method == "POST", request.path.hasPrefix("/v1/enrollments/"), request.path.hasSuffix("/complete") {
             let idText = request.path
                 .replacingOccurrences(of: "/v1/enrollments/", with: "")
@@ -240,6 +291,19 @@ public struct BrokerService: Sendable {
         let principal = try await authenticate(request)
 
         switch (request.method, request.path) {
+        case ("PUT", "/v1/devices/me/push-capability"):
+            var reader = try JSONReader(try body(request))
+            let capability = try reader.string("capability", maxLength: 4096)
+            try reader.rejectUnknownMembers()
+            try await store.registerPushCapability(principal: principal, capability: capability)
+            return json(status: 200, .object(["ok": true]))
+
+        case ("POST", "/v1/gateways/me/watch-reviewers"):
+            try await limiter.check(bucket: "watch_reviewer", limit: 20)
+            let enrollment = try WatchEnrollmentRequest(json: try body(request))
+            let status = try await store.enrollWatchReviewer(principal: principal, request: enrollment)
+            return json(status: 201, status.json)
+
         case ("PUT", "/v1/devices/me/push"):
             let registration = try PushRegistration(json: try body(request))
             try await store.registerPush(
@@ -326,6 +390,9 @@ public struct BrokerService: Sendable {
             break
         }
 
+        if request.path.hasPrefix(BrokerService.reviewerPrefix) {
+            return try await routeGateway(request, principal: principal)
+        }
         if request.method == "GET", request.path.hasPrefix("/v1/approvals/") {
             guard let requestID = ControlID(String(request.path.dropFirst("/v1/approvals/".count))) else {
                 throw ControlError(code: .notFound, message: "no such request")
@@ -377,6 +444,71 @@ public struct BrokerService: Sendable {
         throw ControlError(code: .notFound, message: "no such endpoint")
     }
 
+    // MARK: Gateway routes
+
+    static let reviewerPrefix = "/v1/gateways/me/watch-reviewers/"
+
+    /// Proxied Watch operations. The gateway is the authenticated iPhone; the
+    /// Watch binding, revocation, and grant are checked on every call before
+    /// the ordinary handler runs as the Watch (spec.iphone-gateway.md 13, 19).
+    private func routeGateway(_ request: HTTPServer.Request, principal: Principal) async throws -> HTTPServer.Response {
+        let parts = request.path.dropFirst(BrokerService.reviewerPrefix.count).split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        guard let first = parts.first, let watchID = ControlID(first) else {
+            throw ControlError(code: .notFound, message: "no such watch reviewer")
+        }
+        let rest = Array(parts.dropFirst())
+        switch (request.method, rest.first, rest.count) {
+        case ("GET", nil, 0):
+            return json(status: 200, try await store.watchReviewer(principal: principal, watchID: watchID).json)
+        case ("GET", "snapshot", 1):
+            let watch = try await store.gatewayPrincipal(principal, watchID: watchID, requiring: .requestsReadViaGateway)
+            let page = try await store.snapshot(
+                principal: watch,
+                pageToken: request.query["page"],
+                limit: Int(request.query["limit"] ?? "") ?? SnapshotPage.maximumItems
+            )
+            return json(status: 200, page.json)
+        case ("GET", "changes", 1):
+            let watch = try await store.gatewayPrincipal(principal, watchID: watchID, requiring: .requestsReadViaGateway)
+            guard let cursorText = request.query["cursor"] else {
+                throw ControlError(code: .invalidPayload, message: "cursor is required")
+            }
+            // No long polling through the gateway: the Watch stays idle.
+            let page = try await store.changes(
+                principal: watch,
+                cursor: ChangeCursor(cursorText),
+                limit: Int(request.query["limit"] ?? "") ?? ChangePage.maximumEvents
+            )
+            return json(status: 200, page.json)
+        case ("GET", "approvals", 2):
+            let watch = try await store.gatewayPrincipal(principal, watchID: watchID, requiring: .requestsReadViaGateway)
+            guard let requestID = ControlID(rest[1]) else { throw ControlError(code: .notFound, message: "no such request") }
+            return json(status: 200, try await store.approval(requestID, principal: watch).json)
+        case ("POST", "review-challenges", 1):
+            let watch = try await store.gatewayPrincipal(principal, watchID: watchID, requiring: nil)
+            let challengeRequest = try ReviewChallengeRequest(json: try body(request))
+            return json(status: 201, try await store.createChallenge(principal: watch, request: challengeRequest).json)
+        case ("POST", "commands", 1):
+            let watch = try await store.gatewayPrincipal(principal, watchID: watchID, requiring: nil)
+            guard let key = request.header("Idempotency-Key").flatMap(ControlID.init) else {
+                throw ControlError(code: .invalidPayload, message: "Idempotency-Key is required")
+            }
+            var reader = try JSONReader(try body(request))
+            let signed = try reader.string("signed_command", maxLength: 8192)
+            try reader.rejectUnknownMembers()
+            // The JWS must verify under the Watch's own registered key: the
+            // iPhone cannot replace it with an approval of its own.
+            let outcome = try await store.submitCommand(principal: watch, signedCommand: signed, idempotencyKey: key)
+            return json(status: outcome.isReplay ? 200 : 201, outcome.result.json)
+        case ("GET", "commands", 2):
+            let watch = try await store.gatewayPrincipal(principal, watchID: watchID, requiring: nil)
+            guard let commandID = ControlID(rest[1]) else { throw ControlError(code: .notFound, message: "no such command") }
+            return json(status: 200, try await store.commandResult(commandID, principal: watch).json)
+        default:
+            throw ControlError(code: .notFound, message: "no such endpoint")
+        }
+    }
+
     // MARK: Helpers
 
     private func authenticate(_ request: HTTPServer.Request) async throws -> Principal {
@@ -419,22 +551,23 @@ public struct BrokerService: Sendable {
         return .admin(accountID: configuration.adminAccountID)
     }
 
-    /// Headers cloudflared stamps onto everything it proxies. A client cannot
-    /// remove them, so their presence means the request arrived through the
-    /// tunnel whatever its `Host` claims.
+    /// Headers Tailscale Serve stamps onto everything it forwards. A client
+    /// cannot remove them, so their presence means the request arrived through
+    /// Serve whatever its `Host` claims.
     private static let forwardingHeaders = [
-        "cf-connecting-ip", "cf-ray", "cf-ipcountry", "cf-visitor",
-        "x-forwarded-for", "x-forwarded-proto", "forwarded"
+        "x-forwarded-for", "x-forwarded-proto", "x-forwarded-host", "forwarded",
+        "tailscale-user-login", "tailscale-user-name", "tailscale-user-profile-pic",
+        "tailscale-headers-info", "tailscale-app-capabilities"
     ]
 
     /// Admin routes are loopback-only. The listening socket is already bound to
-    /// 127.0.0.1, but cloudflared dials it from loopback too, so the peer
-    /// address cannot tell the local CLI from the public tunnel. `Host` alone
+    /// 127.0.0.1, but Tailscale Serve dials it from loopback too, so the peer
+    /// address cannot tell the local CLI from a tailnet request. `Host` alone
     /// cannot either: it is attacker-controlled end to end, and a request
-    /// through the tunnel can claim `Host: 127.0.0.1` as easily as the CLI
-    /// does. Requiring a loopback `Host` AND the absence of any forwarding
-    /// header means a tunnelled request fails one check or the other. The admin
-    /// secret is still required on top of this.
+    /// through Serve can claim `Host: 127.0.0.1` as easily as the CLI does.
+    /// Requiring a loopback `Host` AND the absence of any forwarding header
+    /// means a proxied request fails one check or the other. The admin secret
+    /// is still required on top of this.
     private func localAdministrator(_ request: HTTPServer.Request, formSecret: String? = nil) throws -> Principal {
         guard isLoopbackHost(request), !isForwarded(request) else {
             throw ControlError(code: .notFound, message: "no such endpoint")

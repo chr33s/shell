@@ -1,6 +1,6 @@
 # Shell Watch and Shell Control v1
 
-**Status:** Proposed implementation specification; no repository changes made.  
+**Status:** Implemented, then amended by [`spec.iphone-gateway.md`](spec.iphone-gateway.md): the apps now reach a Mac-local authority over Tailscale, and the Watch is a reviewer behind its paired iPhone rather than an independent HTTPS client. Where the two conflict, the gateway profile wins.  
 **Repository baseline:** `chr33s/shell`, `main` at `6185571cb7145e99f4eaaf38b3bdbb22a2659f6b`, inspected 7 September 2026.  
 **Scope:** An independent native watchOS companion app for notifications, explicit approvals/rejections, job status, and capability-gated cancellation.  
 **Protocol name:** `shell-control/1`. This is a proposed application protocol, not SSH, tmux control mode, or an existing Shell protocol.

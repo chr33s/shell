@@ -146,6 +146,7 @@ extension BrokerStore {
         )
         try commit()
         enqueueApprovalPushes(accountID: principal.accountID, spec: spec)
+        enqueueRelayPushes(accountID: principal.accountID, spec: spec)
         return entry.record
     }
 

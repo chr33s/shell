@@ -7,10 +7,9 @@ struct UpCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(commandName: "up")
     @ParentCommand var parent: ShellControlCommand
     @OptionGroup var state: StateOptions
-    @Flag(help: "Explicitly replace a dead quick-tunnel URL.") var rotateURL = false
     mutating func run() async throws {
-        let inherited = parent.state.stateDirectory, state = state, rotateURL = rotateURL
-        try await execute { _ = try await coordinator(state, inherited: inherited).up(rotateURL: rotateURL); stderr("started") }
+        let inherited = parent.state.stateDirectory, state = state
+        try await execute { _ = try await coordinator(state, inherited: inherited).up(); stderr("started") }
     }
 }
 
@@ -26,7 +25,7 @@ struct DownCommand: AsyncParsableCommand {
 
 struct RestartCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(commandName: "restart")
-    enum Selection: String, ExpressibleByArgument { case broker, daemon, tunnel, all }
+    enum Selection: String, ExpressibleByArgument { case broker, daemon, all }
     @ParentCommand var parent: ShellControlCommand
     @OptionGroup var state: StateOptions
     @Argument var selection: Selection
@@ -69,12 +68,17 @@ struct StatusCommand: AsyncParsableCommand {
     @ParentCommand var parent: ShellControlCommand
     @OptionGroup var state: StateOptions
     @Flag(help: "Fail unless the configured control path is ready.") var check = false
+    @Flag(help: "Print a short human-readable summary instead of JSON.") var text = false
     mutating func run() async throws {
-        let inherited = parent.state.stateDirectory, state = state, check = check
+        let inherited = parent.state.stateDirectory, state = state, check = check, text = text
         try await execute {
             let manager = try coordinator(state, inherited: inherited)
             let status = await manager.status()
-            try emit(status)
+            if text {
+                try FileHandle.standardOutput.write(contentsOf: Data(StatusText.render(status).utf8))
+            } else {
+                try emit(status)
+            }
             if check && !manager.isReady(status) { throw ManagementError.unavailable("control path is not ready") }
         }
     }
@@ -93,12 +97,36 @@ struct LogsCommand: AsyncParsableCommand {
         try await execute {
             let store = InstallationStore(root: try state.root(inherited))
             _ = try store.load()
-            let urls = names.flatMap { name -> [URL] in
-                if name == .tunnel { return [store.paths.logs.appendingPathComponent("tunnel.transport.log")] }
-                return ["out", "err"].map { store.paths.logs.appendingPathComponent("\(name.rawValue).\($0).log") }
+            let urls = names.flatMap { name in
+                ["out", "err"].map { store.paths.logs.appendingPathComponent("\(name.rawValue).\($0).log") }
             }
             for url in urls { try LogReader.tail(url) }
             if following { try await LogReader.follow(urls) }
         }
+    }
+}
+
+/// The summary of spec.iphone-gateway.md section 25.2.
+enum StatusText {
+    static func render(_ status: ManagementStatus) -> String {
+        func state(_ name: String) -> String { status.components[name]?.state ?? "n/a" }
+        var rows: [(String, String)] = []
+        if let tailscale = status.components["tailscale"] { rows.append(("tailscale", tailscale.state)) }
+        if status.components["serve"] != nil {
+            rows.append(("serve", state("serve") == "active" ? (status.publicURL ?? "active") : state("serve")))
+        } else if let url = status.publicURL {
+            rows.append(("route", url))
+        }
+        rows.append(("broker", state("broker") == "ready" ? "ready (loopback)" : state("broker")))
+        rows.append(("daemon", state("daemon")))
+        rows.append(("origin", status.origin.map { "\($0.originID) \($0.fingerprint)" } ?? "not provisioned"))
+        if let enrollment = status.enrollment {
+            rows.append(("iphone", enrollment.iphones.isEmpty ? "not enrolled" : "enrolled (\(enrollment.iphones.count))"))
+            rows.append(("watch", enrollment.watches.isEmpty ? "not enrolled" : "enrolled via iPhone (\(enrollment.watches.count))"))
+        }
+        rows.append(("push", state("push") == "configured" ? "configured" : "disabled"))
+        if let enrollment = status.enrollment { rows.append(("pending", String(enrollment.pendingApprovals))) }
+        rows.append(("overall", status.overall))
+        return rows.map { $0.0.padding(toLength: 14, withPad: " ", startingAt: 0) + $0.1 }.joined(separator: "\n") + "\n"
     }
 }

@@ -38,24 +38,6 @@ actor FakeOrigins: OriginProvisioning {
     func callCount() -> Int { calls.count }
 }
 
-actor FakeTunnels: TunnelRuntime {
-    var urls: [String]
-    var discovered: [String] = []
-    var validated: [URL] = []
-    init(urls: [String] = ["https://alpha.trycloudflare.com"]) { self.urls = urls }
-    func discoverQuickURL(logURLs: [URL], generation: String) async throws -> String {
-        guard !urls.isEmpty else { throw ManagementError.unavailable("no injected quick URL") }
-        let url = urls.removeFirst()
-        discovered.append(url)
-        return url
-    }
-    func validateNamedConfiguration(cloudflared: String, config: URL) async throws {
-        validated.append(config)
-    }
-    func discoveredURLs() -> [String] { discovered }
-    func validationCount() -> Int { validated.count }
-}
-
 final class LifecycleHarnessTests: XCTestCase {
     private func directory() -> URL {
         URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("shell-lifecycle-harness-\(UUID())")
@@ -92,21 +74,21 @@ final class LifecycleHarnessTests: XCTestCase {
 
     private func coordinator(
         root: URL, installer: NativeBundleInstaller, home: URL,
-        services: FakeServices, health: FakeHealth, origins: FakeOrigins, tunnels: FakeTunnels,
+        services: FakeServices, health: FakeHealth, origins: FakeOrigins,
         deadline: Duration = .milliseconds(200)
     ) -> LifecycleCoordinator {
         LifecycleCoordinator(
             store: InstallationStore(root: root), manager: services, installer: installer,
-            home: home, health: health, origins: origins, tunnels: tunnels, readinessDeadline: deadline
+            home: home, health: health, origins: origins, readinessDeadline: deadline
         )
     }
 
     func testLoopbackSetupProvisionsOriginOnceAndStartsOwnedJobs() async throws {
         let root = directory(); defer { try? FileManager.default.removeItem(at: root) }
         let bundle = try makeBundle(in: root)
-        let services = FakeServices(), health = FakeHealth(), origins = FakeOrigins(), tunnels = FakeTunnels()
+        let services = FakeServices(), health = FakeHealth(), origins = FakeOrigins()
         let manager = coordinator(root: root.appendingPathComponent("state"), installer: bundle.installer, home: bundle.home,
-                                  services: services, health: health, origins: origins, tunnels: tunnels)
+                                  services: services, health: health, origins: origins)
         let loaded = try await manager.setup(SetupOptions(mode: .loopback))
         XCTAssertEqual(loaded.installation.addressMode, .loopback)
         XCTAssertEqual(loaded.installation.publicURL, "http://127.0.0.1:8443")
@@ -128,10 +110,10 @@ final class LifecycleHarnessTests: XCTestCase {
     func testSetupPreservesStoppedIntent() async throws {
         let root = directory(); defer { try? FileManager.default.removeItem(at: root) }
         let bundle = try makeBundle(in: root)
-        let services = FakeServices(), health = FakeHealth(), origins = FakeOrigins(), tunnels = FakeTunnels()
+        let services = FakeServices(), health = FakeHealth(), origins = FakeOrigins()
         let state = root.appendingPathComponent("state")
         let manager = coordinator(root: state, installer: bundle.installer, home: bundle.home,
-                                  services: services, health: health, origins: origins, tunnels: tunnels)
+                                  services: services, health: health, origins: origins)
         _ = try await manager.setup(SetupOptions(mode: .loopback))
         try await manager.down()
         do {
@@ -146,12 +128,12 @@ final class LifecycleHarnessTests: XCTestCase {
     func testUpAfterDownRestartsOwnedJobs() async throws {
         let root = directory(); defer { try? FileManager.default.removeItem(at: root) }
         let bundle = try makeBundle(in: root)
-        let services = FakeServices(), health = FakeHealth(), origins = FakeOrigins(), tunnels = FakeTunnels()
+        let services = FakeServices(), health = FakeHealth(), origins = FakeOrigins()
         let manager = coordinator(root: root.appendingPathComponent("state"), installer: bundle.installer, home: bundle.home,
-                                  services: services, health: health, origins: origins, tunnels: tunnels)
+                                  services: services, health: health, origins: origins)
         _ = try await manager.setup(SetupOptions(mode: .loopback))
         try await manager.down()
-        let loaded = try await manager.up(rotateURL: false)
+        let loaded = try await manager.up()
         XCTAssertEqual(loaded.installation.desiredState, .running)
         let overall = await manager.status().overall
         XCTAssertEqual(overall, "ready")
@@ -162,10 +144,10 @@ final class LifecycleHarnessTests: XCTestCase {
     func testBrokerHealthFailureRollsBackCreatedJobs() async throws {
         let root = directory(); defer { try? FileManager.default.removeItem(at: root) }
         let bundle = try makeBundle(in: root)
-        let services = FakeServices(), health = FakeHealth(), origins = FakeOrigins(), tunnels = FakeTunnels()
+        let services = FakeServices(), health = FakeHealth(), origins = FakeOrigins()
         await health.setBrokerReady(false)
         let manager = coordinator(root: root.appendingPathComponent("state"), installer: bundle.installer, home: bundle.home,
-                                  services: services, health: health, origins: origins, tunnels: tunnels,
+                                  services: services, health: health, origins: origins,
                                   deadline: .milliseconds(80))
         do {
             _ = try await manager.setup(SetupOptions(mode: .loopback))
@@ -184,91 +166,6 @@ final class LifecycleHarnessTests: XCTestCase {
         XCTAssertNotNil(runtime.operation, "failed start before local commit keeps the incomplete operation")
     }
 
-    func testPublicRouteFailureAfterCommitLeavesLocalServices() async throws {
-        let root = directory(); defer { try? FileManager.default.removeItem(at: root) }
-        let bundle = try makeBundle(in: root)
-        let services = FakeServices(), health = FakeHealth(), origins = FakeOrigins(), tunnels = FakeTunnels()
-        await health.setPublicReady(false)
-        let manager = coordinator(root: root.appendingPathComponent("state"), installer: bundle.installer, home: bundle.home,
-                                  services: services, health: health, origins: origins, tunnels: tunnels,
-                                  deadline: .milliseconds(80))
-        do {
-            _ = try await manager.setup(SetupOptions(mode: .externalProxy, publicURL: "https://control.example"))
-            XCTFail("setup must report a degraded public route")
-        } catch let error as ManagementError {
-            XCTAssertTrue(error.description.contains("degraded"), error.description)
-        }
-        let originCalls = await origins.callCount()
-        XCTAssertEqual(originCalls, 1)
-        let calls = await services.calls
-        XCTAssertTrue(calls.contains("install:broker"))
-        XCTAssertTrue(calls.contains("install:daemon"))
-        XCTAssertFalse(calls.contains { $0.hasPrefix("disable:") }, "committed local services must not be torn down")
-        let loaded = try InstallationStore(root: root.appendingPathComponent("state")).load()
-        XCTAssertNotNil(loaded.secrets.originID)
-        XCTAssertEqual(loaded.installation.publicURL, "https://control.example")
-    }
-
-    func testQuickSetupDiscoversURLAndDeadTunnelIsPreservedUntilRotate() async throws {
-        let root = directory(); defer { try? FileManager.default.removeItem(at: root) }
-        let bundle = try makeBundle(in: root)
-        let services = FakeServices(), health = FakeHealth(), origins = FakeOrigins()
-        let tunnels = FakeTunnels(urls: ["https://alpha.trycloudflare.com", "https://beta.trycloudflare.com"])
-        let state = root.appendingPathComponent("state")
-        let manager = coordinator(root: state, installer: bundle.installer, home: bundle.home,
-                                  services: services, health: health, origins: origins, tunnels: tunnels)
-        let loaded = try await manager.setup(SetupOptions(mode: .quick, cloudflaredPath: "/usr/bin/true"))
-        XCTAssertEqual(loaded.installation.publicURL, "https://alpha.trycloudflare.com")
-        var discovered = await tunnels.discoveredURLs()
-        XCTAssertEqual(discovered, ["https://alpha.trycloudflare.com"])
-        let started = await services.calls
-        XCTAssertTrue(started.contains("start:tunnel"))
-
-        let tunnelLabel = "dev.chr33s.shell.control.\(loaded.installation.installationID.uuidString.lowercased()).tunnel"
-        await services.stop(label: tunnelLabel)
-        do {
-            _ = try await manager.up(rotateURL: false)
-            XCTFail("a dead quick tunnel without --rotate-url is degraded, not silently replaced")
-        } catch let error as ManagementError {
-            XCTAssertTrue(error.description.contains("degraded"), error.description)
-        }
-        XCTAssertEqual(try InstallationStore(root: state).load().installation.publicURL, "https://alpha.trycloudflare.com")
-        discovered = await tunnels.discoveredURLs()
-        XCTAssertEqual(discovered, ["https://alpha.trycloudflare.com"])
-
-        let rotated = try await manager.up(rotateURL: true)
-        XCTAssertEqual(rotated.installation.publicURL, "https://beta.trycloudflare.com")
-        discovered = await tunnels.discoveredURLs()
-        XCTAssertEqual(discovered, ["https://alpha.trycloudflare.com", "https://beta.trycloudflare.com"])
-    }
-
-    func testNamedSetupWritesIngressAndValidatesIt() async throws {
-        let root = directory(); defer { try? FileManager.default.removeItem(at: root) }
-        let bundle = try makeBundle(in: root)
-        let services = FakeServices(), health = FakeHealth(), origins = FakeOrigins(), tunnels = FakeTunnels()
-        let state = root.appendingPathComponent("state")
-        try SecureFileSystem.ensureDirectory(state)
-        let tunnelID = UUID()
-        let credentials = root.appendingPathComponent("tunnel.json")
-        try JSONSerialization.data(withJSONObject: ["TunnelID": tunnelID.uuidString.lowercased()]).write(to: credentials)
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: credentials.path)
-        let manager = coordinator(root: state, installer: bundle.installer, home: bundle.home,
-                                  services: services, health: health, origins: origins, tunnels: tunnels)
-        let loaded = try await manager.setup(SetupOptions(
-            mode: .named, publicURL: "https://control.example", tunnelID: tunnelID,
-            tunnelCredentials: credentials.path, cloudflaredPath: "/usr/bin/true"
-        ))
-        XCTAssertEqual(loaded.installation.addressMode, .named)
-        let validated = await tunnels.validationCount()
-        XCTAssertEqual(validated, 1)
-        let yaml = try String(contentsOf: loaded.paths.services.appendingPathComponent("tunnel.yml"), encoding: .utf8)
-        XCTAssertTrue(yaml.contains("hostname: \"control.example\""))
-        XCTAssertTrue(yaml.hasSuffix("  - service: \"http_status:404\"\n"))
-        let calls = await services.calls
-        XCTAssertTrue(calls.contains("install:tunnel"))
-        let overall = await manager.status().overall
-        XCTAssertEqual(overall, "ready")
-    }
 }
 
 extension FakeHealth {

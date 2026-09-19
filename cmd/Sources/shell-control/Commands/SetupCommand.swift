@@ -7,34 +7,25 @@ struct SetupCommand: AsyncParsableCommand {
     @ParentCommand var parent: ShellControlCommand
     @OptionGroup var state: StateOptions
     @Flag(help: "Do not monitor device enrollment.") var noWatch = false
-    @Option(help: "quick, named, external-proxy, or loopback.") var tunnelMode: AddressMode?
-    @Option(help: "Public HTTPS origin (HTTP only for loopback).") var publicURL: String?
+    @Option(name: .customLong("mode"), help: "tailscale (default), or loopback for local development.") var mode: AddressMode?
     @Option(help: "Broker port (default: 8443 for a fresh installation).") var port: Int?
-    @Option(help: "Named Cloudflare tunnel UUID.") var tunnelID: String?
-    @Option(help: "Absolute named-tunnel credentials file.") var tunnelCredentials: String?
-    @Option(help: "Absolute cloudflared executable path.") var cloudflaredPath: String?
-    @Flag(help: "Explicitly replace a quick-tunnel URL.") var rotateURL = false
+    @Option(help: "Absolute Tailscale CLI path.") var tailscalePath: String?
+    @Flag(help: "Replace the origin signing key. Every iPhone and Watch must pair again.") var resetOriginKey = false
 
     mutating func validate() throws {
         if let port, !(1...65535).contains(port) { throw ValidationError("--port must be between 1 and 65535") }
-        for path in [tunnelCredentials, cloudflaredPath].compactMap({ $0 }) where !path.hasPrefix("/") {
-            throw ValidationError("file options must be absolute")
-        }
-        if let tunnelID, UUID(uuidString: tunnelID) == nil { throw ValidationError("--tunnel-id must be a UUID") }
+        if let tailscalePath, !tailscalePath.hasPrefix("/") { throw ValidationError("--tailscale-path must be absolute") }
     }
 
     mutating func run() async throws {
         let inherited = parent.state.stateDirectory, state = state, noWatch = noWatch
         let options = SetupOptions(
-            mode: tunnelMode, publicURL: publicURL, port: port,
-            tunnelID: tunnelID.flatMap(UUID.init(uuidString:)),
-            tunnelCredentials: tunnelCredentials, cloudflaredPath: cloudflaredPath, rotateURL: rotateURL
+            mode: mode, port: port, tailscalePath: tailscalePath, resetOriginKey: resetOriginKey
         )
         try await execute {
-            let loaded = try await coordinator(state, inherited: inherited).setup(options)
-            let url = loaded.installation.publicURL ?? ControlLoopback.url(port: loaded.installation.port)
-            let text = try PairingRenderer.output(publicURL: url, token: loaded.secrets.pairingToken, terminal: terminal(STDOUT_FILENO))
-            try FileHandle.standardOutput.write(contentsOf: Data(text.utf8))
+            let manager = try coordinator(state, inherited: inherited)
+            let loaded = try await manager.setup(options)
+            try await PairingOutput.write(manager: manager)
             if loaded.installation.addressMode == .loopback {
                 stderr("loopback readiness is local only; physical devices cannot reach this origin")
             }

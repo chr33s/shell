@@ -23,12 +23,16 @@ public enum ControlErrorCode: String, Sendable, Hashable, CaseIterable {
     case originUnavailable = "origin_unavailable"
     case rateLimited = "rate_limited"
     case temporarilyUnavailable = "temporarily_unavailable"
+    /// A Watch reviewer is not bound to the iPhone gateway that carried the
+    /// request: set the Watch up again through this iPhone, keeping its key,
+    /// which the Mac confirms as a re-binding (spec.iphone-gateway.md 10.5).
+    case reviewerNotBound = "reviewer_not_bound"
 
     public var httpStatus: Int {
         switch self {
         case .invalidPayload, .unsupportedCommand: return 400
         case .invalidToken, .deviceRevoked: return 401
-        case .notAuthorized, .fullReviewRequired: return 403
+        case .notAuthorized, .fullReviewRequired, .reviewerNotBound: return 403
         case .notFound: return 404
         case .alreadyResolved, .idempotencyConflict, .alreadyClaimed: return 409
         case .requestExpired, .challengeExpired, .cursorExpired: return 410
@@ -69,7 +73,7 @@ public enum ControlErrorCode: String, Sendable, Hashable, CaseIterable {
         switch self {
         case .invalidPayload, .unsupportedCommand: return .stopAndFix
         case .invalidToken: return .refreshCredentialsOnce
-        case .deviceRevoked: return .reenroll
+        case .deviceRevoked, .reviewerNotBound: return .reenroll
         case .notAuthorized, .fullReviewRequired: return .showPolicyOutcome
         case .notFound: return .reconcile
         case .alreadyResolved, .idempotencyConflict, .alreadyClaimed: return .showRecordedState

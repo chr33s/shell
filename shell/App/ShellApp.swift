@@ -66,14 +66,14 @@ struct ShellApp: App {
                 // as well would open the same host a second time in that window.
                 #if !targetEnvironment(macCatalyst)
                 .onOpenURL { url in
-                    if let broker = ControlBrokerAddress.parsePairingLink(url) {
+                    if ControlScannedPayload.isControlLink(url) {
+                        // A setup link is only staged: the user confirms it
+                        // before anything is contacted or trusted. A route
+                        // link only updates routing, and only if it verifies
+                        // under the pinned key (spec.iphone-gateway.md 9, 24).
                         Task { @MainActor in
-                            // Hand the ORIGINAL link over, not the normalized
-                            // broker: normalizing drops the query string, and
-                            // applyPairedBroker reads the `token` item off it
-                            // to show the code the CLI asks the user to match.
-                            _ = await ControlCompanion.shared.applyPairedBroker(url)
-                            NotificationCenter.default.post(name: .controlPairingReceived, object: broker)
+                            await ControlCompanion.shared.handleScanned(url.absoluteString, fromLink: true)
+                            NotificationCenter.default.post(name: .controlPairingReceived, object: nil)
                         }
                         return
                     }
@@ -106,6 +106,11 @@ struct ShellApp: App {
                 // root app scene graph to foreground environment updates.
                 // Mac Catalyst uses NSWorkspace notifications instead - see CatalystAppDelegate.
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+
+                    // Foreground activation is one of the Shell Control
+                    // refresh triggers; correctness never depends on it
+                    // (spec.iphone-gateway.md section 17).
+                    Task { @MainActor in await ControlCompanion.shared.refresh() }
 
                     // Save a snapshot of sentinel UserDefaults keys while data is available.
                     // Used to detect and recover from corruption caused by background launches.

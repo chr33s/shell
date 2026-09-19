@@ -14,7 +14,9 @@ let package = Package(
     products: [
         .library(name: "ShellControlProtocol", targets: ["ShellControlProtocol"]),
         .library(name: "ShellControlSecurity", targets: ["ShellControlSecurity"]),
-        .library(name: "ShellControlClient", targets: ["ShellControlClient"])
+        .library(name: "ShellControlClient", targets: ["ShellControlClient"]),
+        /// macOS services only (broker, push relay); never linked by an app.
+        .library(name: "ShellControlHTTPServer", targets: ["ShellControlHTTPServer"])
     ],
     targets: [
         .target(name: "ShellControlProtocol", path: "Sources/Protocol"),
@@ -28,6 +30,7 @@ let package = Package(
             dependencies: ["ShellControlProtocol", "ShellControlSecurity"],
             path: "Sources/Client"
         ),
+        .target(name: "ShellControlHTTPServer", path: "Sources/HTTPServer"),
         .testTarget(
             name: "ShellControlCoreTests",
             dependencies: ["ShellControlProtocol", "ShellControlSecurity", "ShellControlClient"],

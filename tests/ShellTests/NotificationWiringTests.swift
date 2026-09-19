@@ -67,21 +67,21 @@ final class NotificationWiringTests: XCTestCase {
 
     /// `static let foo = Notification.Name("dev.chr33s.shell.foo")`
     private static let declaration = regex(
-        pattern: #"static let (\w+) = Notification\.Name\("([^"]+)"\)"#
+        #"static let (\w+) = Notification\.Name\("([^"]+)"\)"#
     )
 
     /// A `[String: Notification.Name]` lookup table. `SettingsRefreshHub`
     /// posts through one of these, so its values are posts even though no
     /// `post(` appears near them.
     private static let postTable = regex(
-        pattern: #":\s*Notification\.Name\]\s*=\s*\[(?:.|\n)*?\n\s*\]"#
+        #":\s*Notification\.Name\]\s*=\s*\[(?:.|\n)*?\n\s*\]"#
     )
 
     /// Call sites that consume a name rather than send it. `forName:` covers
     /// both `addObserver` spellings; `observe`/`observeOnMainActor` are
     /// `MainViewObserverBag`'s wrappers.
     private static let observeContext = regex(
-        pattern: #"addObserver|forName:|publisher\(\s*for:|notifications\(\s*named:|\bobserve\(|\bobserveOnMainActor\("#
+        #"addObserver|forName:|publisher\(\s*for:|notifications\(\s*named:|\bobserve\(|\bobserveOnMainActor\("#
     )
 
     /// How far back a reference looks for the call it belongs to. Generous

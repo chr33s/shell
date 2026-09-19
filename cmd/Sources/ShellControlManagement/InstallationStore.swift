@@ -2,6 +2,7 @@ import Foundation
 import Security
 import ShellControlClient
 import ShellControlHostSupport
+import ShellControlSecurity
 
 public struct InstallationStore: Sendable {
     public let paths: InstallationPaths
@@ -40,7 +41,7 @@ public struct InstallationStore: Sendable {
                 throw ManagementError.corrupt("installation.json is missing required fields")
             }
             let secrets = try SecureFileSystem.decode(InstallationSecrets.self, from: paths.secrets)
-            guard !secrets.adminSecret.isEmpty, !secrets.cursorSecret.isEmpty, !secrets.pairingToken.isEmpty,
+            guard !secrets.adminSecret.isEmpty, !secrets.cursorSecret.isEmpty,
                   (secrets.originID == nil) == (secrets.originSecret == nil) else {
                 throw ManagementError.corrupt("native credentials are incomplete; refusing to regenerate identity")
             }
@@ -55,8 +56,7 @@ public struct InstallationStore: Sendable {
         } catch let error as ManagementError { throw error } catch { throw ManagementError.corrupt("native installation is malformed: \(error)") }
     }
 
-    public func create(releaseID: String, mode: AddressMode, publicURL: String?, port: Int,
-                       tunnel: TunnelConfiguration) throws -> LoadedInstallation {
+    public func create(releaseID: String, mode: AddressMode, publicURL: String?, port: Int) throws -> LoadedInstallation {
         try prepareRoot()
         guard !exists() else { throw ManagementError.invalid("installation already exists") }
         let allowed = Set(["install.lock", "credentials", "services", "launchd", "logs"])
@@ -65,11 +65,9 @@ public struct InstallationStore: Sendable {
         guard unexplained.isEmpty else {
             throw ManagementError.corrupt("state directory contains unrecognized state (\(unexplained.sorted().joined(separator: ", "))); refusing to adopt or delete it")
         }
-        let installation = Installation(port: port, addressMode: mode, publicURL: publicURL,
-                                        releaseID: releaseID, tunnel: tunnel)
+        let installation = Installation(port: port, addressMode: mode, publicURL: publicURL, releaseID: releaseID)
         let secrets = InstallationSecrets(accountID: UUID(), adminSecret: try Self.secret(bytes: 32),
-                                          cursorSecret: try Self.secret(bytes: 32), pairingToken: try Self.pairingToken(),
-                                          originID: nil, originSecret: nil)
+                                          cursorSecret: try Self.secret(bytes: 32), originID: nil, originSecret: nil)
         let runtime = RuntimeState()
         try save(installation); try save(secrets); try save(runtime)
         return LoadedInstallation(installation: installation, secrets: secrets, runtime: runtime, paths: paths)
@@ -86,15 +84,6 @@ public struct InstallationStore: Sendable {
         }
         return bytes.map { String(format: "%02x", $0) }.joined()
     }
-
-    private static func pairingToken() throws -> String {
-        var bytes = [UInt8](repeating: 0, count: 10)
-        guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else {
-            throw ManagementError.unavailable("secure random generation failed")
-        }
-        let alphabet = Array("ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
-        return String(bytes.map { alphabet[Int($0) % alphabet.count] })
-    }
 }
 
 public enum AddressPolicy {
@@ -108,12 +97,8 @@ public enum AddressPolicy {
                 throw ManagementError.invalid("loopback mode requires a loopback http origin")
             }
         } else {
-            guard url.scheme == "https" else { throw ManagementError.invalid("\(mode.rawValue) mode requires an https origin") }
-            if mode == .quick && !host.lowercased().hasSuffix(".trycloudflare.com") {
-                throw ManagementError.invalid("quick mode requires a trycloudflare.com origin")
-            }
-            if mode != .quick && host.lowercased().hasSuffix(".trycloudflare.com") {
-                throw ManagementError.invalid("stable modes cannot use a quick-tunnel hostname")
+            guard url.scheme == "https", OriginRoute.isTailnetHost(host), url.port == nil || url.port == 443 else {
+                throw ManagementError.invalid("tailscale mode requires https://<machine>.<tailnet>.ts.net")
             }
         }
         guard let normalized = ControlBrokerAddress.normalize(url) else {

@@ -4,8 +4,8 @@ import ShellControlClient
 
 /// Pending requests first, then recent notifications and outcomes.
 ///
-/// Cached data says when it was last refreshed, and a local tap never paints a
-/// green success state (spec.watch.md section 6).
+/// Cached data says when it was last refreshed through the iPhone, and a local
+/// tap never paints a green success state (spec.watch.md section 6).
 struct InboxView: View {
     @Environment(ControlSession.self) private var session
     @Environment(\.scenePhase) private var scenePhase
@@ -14,8 +14,14 @@ struct InboxView: View {
     var body: some View {
         NavigationStack {
             List {
-                if session.isOffline {
-                    Label(String(localized: "Offline — showing cached state"), systemImage: "wifi.slash")
+                if !session.isGatewayReachable {
+                    // Cached content stays readable, clearly stale; it never
+                    // enables a decision (spec.iphone-gateway.md 11.4).
+                    Label(String(localized: "iPhone unavailable — showing cached state"), systemImage: "iphone.slash")
+                        .foregroundStyle(.secondary)
+                        .font(.footnote)
+                } else if let problem = session.gatewayProblem {
+                    Label(problem, systemImage: "network.slash")
                         .foregroundStyle(.secondary)
                         .font(.footnote)
                 }

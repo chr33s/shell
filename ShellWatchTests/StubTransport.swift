@@ -3,139 +3,147 @@ import ShellControlProtocol
 import ShellControlSecurity
 import ShellControlClient
 
-/// A scripted control service for the Watch app's tests.
+/// A scripted iPhone gateway for the Watch app's tests.
 ///
-/// It answers the endpoints the app actually calls, and enforces the one rule
-/// the credential tests are about: a request presenting a stale access token
-/// gets `401 invalid_token`, exactly as the broker would.
-actor StubControlService: ControlHTTPTransport {
-    struct Recorded: Sendable {
-        let method: String
-        let path: String
-        let authorization: String?
-    }
+/// It speaks `shell-watch-gateway/1` exactly as the phone's router does, and
+/// can be made unreachable the way `WCSession.isReachable` goes false.
+actor StubGateway: WatchGatewayLink {
+    private(set) var requests: [WatchGatewayRequest] = []
+    private(set) var submitted: [String] = []
 
-    private(set) var requests: [Recorded] = []
-    private(set) var refreshCount = 0
-
-    var validAccessToken: String
-    var refreshToken: String
-    var nextAccessToken: String
-    var deviceID: ControlID
-    var accountID: ControlID
+    var reachable = true
     var approvals: [ApprovalRecord] = []
-    var notifications: [InformationalEvent] = []
-    /// When set, every call throws it instead of answering.
-    var transportFailure: TransportError?
-    /// When set, the refresh endpoint fails with this error.
-    var refreshFailure: ControlError?
-    /// When true, the first `/v1/changes` call answers `410 cursor_expired`.
+    /// When true, the first `changes.fetch` answers `cursor_expired`.
     var expireNextCursor = false
-    /// Artificial delay on refresh so concurrent callers can overlap.
-    var tokenDelayNanoseconds: UInt64 = 0
+    /// What the Mac says about this Watch's enrollment.
+    var reviewer: WatchReviewerStatus?
+    var nextReviewerState: WatchReviewerStatus.State = .pending
+    /// When set, the iPhone answers but cannot reach its Mac.
+    var macUnavailable = false
+    /// When set, the Mac no longer binds this Watch to this iPhone.
+    var unbound = false
+    /// When set, `sendMessageData` fails the way the WatchConnectivity link
+    /// reports the iPhone dropping away mid-call.
+    var deliveryFailure = false
+    var results: [ControlID: CommandResult] = [:]
+    let accountID: ControlID
     var now: ControlTimestamp
 
-    init(
-        validAccessToken: String,
-        refreshToken: String,
-        nextAccessToken: String,
-        deviceID: ControlID,
-        accountID: ControlID,
-        now: ControlTimestamp
-    ) {
-        self.validAccessToken = validAccessToken
-        self.refreshToken = refreshToken
-        self.nextAccessToken = nextAccessToken
-        self.deviceID = deviceID
+    init(accountID: ControlID = .random(), now: ControlTimestamp) {
         self.accountID = accountID
         self.now = now
     }
 
-    func setApprovals(_ approvals: [ApprovalRecord]) { self.approvals = approvals }
-    /// Rotates the accepted token, so a request presenting the previous one is
-    /// refused exactly as an expired session would be.
-    func setValidToken(_ token: String) {
-        nextAccessToken = token
-        validAccessToken = "\(token)-not-yet-issued"
+    func setReachable(_ value: Bool) { reachable = value }
+    func setApprovals(_ records: [ApprovalRecord]) { approvals = records }
+    func setExpireNextCursor(_ value: Bool) { expireNextCursor = value }
+    func setReviewer(_ status: WatchReviewerStatus?) { reviewer = status }
+    func setNextReviewerState(_ state: WatchReviewerStatus.State) { nextReviewerState = state }
+    func setMacUnavailable(_ value: Bool) { macUnavailable = value }
+    func setUnbound(_ value: Bool) { unbound = value }
+    func setDeliveryFailure(_ value: Bool) { deliveryFailure = value }
+    func setResult(_ result: CommandResult) { results[result.commandID] = result }
+
+    nonisolated func isReachable() async -> Bool { await reachable }
+
+    func send(_ data: Data) async throws -> Data {
+        guard reachable else { throw URLError(.notConnectedToInternet) }
+        if deliveryFailure { throw WatchGatewayError.iPhoneUnreachable }
+        let request = try WatchGatewayRequest(data: data)
+        requests.append(request)
+        let result: WatchGatewayResponse.Result
+        if macUnavailable {
+            result = .gatewayUnavailable("private Mac route unavailable")
+        } else {
+            do {
+                result = .success(try answer(request))
+            } catch let error as ControlError {
+                result = .failure(error)
+            }
+        }
+        return try WatchGatewayResponse(messageID: request.messageID, serverTime: now, result: result).encoded()
     }
-    func setTransportFailure(_ failure: TransportError?) { transportFailure = failure }
-    func setRefreshFailure(_ failure: ControlError?) { refreshFailure = failure }
-    func setExpireNextCursor(_ flag: Bool) { expireNextCursor = flag }
-    func setTokenDelay(_ nanoseconds: UInt64) { tokenDelayNanoseconds = nanoseconds }
-    func setNow(_ value: ControlTimestamp) { now = value }
 
-    func send(_ request: ControlHTTPRequest, baseURL: URL) async throws -> ControlHTTPResponse {
-        if let transportFailure { throw transportFailure }
-        let authorization = request.headers["Authorization"]
-        requests.append(Recorded(method: request.method, path: request.path, authorization: authorization))
-
-        func json(_ status: Int, _ value: JSONValue) throws -> ControlHTTPResponse {
-            ControlHTTPResponse(status: status, body: try JSONCanonicalization.canonicalize(value))
+    private func answer(_ request: WatchGatewayRequest) throws -> JSONValue {
+        var body = try JSONReader(request.body)
+        if unbound, request.type != .enrollmentRequest {
+            throw ControlError(code: .reviewerNotBound, message: "no watch reviewer is bound to this iPhone under that id")
         }
-
-        // The OAuth token endpoint is the documented form-encoded exception.
-        if request.path == "/v1/oauth/token" {
-            if tokenDelayNanoseconds > 0 {
-                try await Task.sleep(nanoseconds: tokenDelayNanoseconds)
+        switch request.type {
+        case .enrollmentRequest:
+            let enrollment = try WatchEnrollmentRequest(json: request.body)
+            try enrollment.verifySignature()
+            let status = WatchReviewerStatus(
+                watchDeviceID: reviewer?.watchDeviceID ?? .random(),
+                state: .pending,
+                gatewayDeviceID: .random(),
+                fingerprint: enrollment.fingerprint,
+                label: enrollment.label,
+                userCode: "BCDF-GHJK"
+            )
+            reviewer = status
+            return status.json
+        case .enrollmentStatus:
+            guard let reviewer, reviewer.watchDeviceID == request.watchDeviceID else {
+                throw ControlError(code: .notFound, message: "no such watch reviewer")
             }
-            refreshCount += 1
-            if let refreshFailure { return try json(refreshFailure.code.httpStatus, refreshFailure.json) }
-            let body = String(decoding: request.body ?? Data(), as: UTF8.self)
-            guard body.contains("refresh_token=\(refreshToken)") else {
-                return try json(401, ControlError(code: .invalidToken, message: "unknown refresh token").json)
-            }
-            validAccessToken = nextAccessToken
-            refreshToken = "\(refreshToken)-rotated"
-            return try json(200, session().json)
-        }
-
-        guard authorization == "Bearer \(validAccessToken)" else {
-            return try json(401, ControlError(code: .invalidToken, message: "token expired").json)
-        }
-
-        switch (request.method, request.path) {
-        case ("GET", "/v1/snapshot"):
-            return try json(200, SnapshotPage(
-                approvals: approvals,
-                notifications: notifications,
-                snapshotToken: "s1.1.tag",
-                nextPageToken: nil,
-                cursor: ChangeCursor("c1.1.tag"),
-                serverTime: now
-            ).json)
-        case ("GET", "/v1/changes"):
+            let next = WatchReviewerStatus(
+                watchDeviceID: reviewer.watchDeviceID,
+                state: nextReviewerState,
+                gatewayDeviceID: reviewer.gatewayDeviceID,
+                fingerprint: reviewer.fingerprint,
+                label: reviewer.label,
+                userCode: nextReviewerState == .pending ? reviewer.userCode : nil,
+                accountID: nextReviewerState == .active ? accountID : nil,
+                grants: nextReviewerState == .active ? DeviceGrant.watchReviewerDefault : []
+            )
+            self.reviewer = next
+            return next.json
+        case .snapshotFetch:
+            return SnapshotPage(
+                approvals: approvals, notifications: [], snapshotToken: "s1.1.tag",
+                nextPageToken: nil, cursor: ChangeCursor("c1.1.tag"), serverTime: now
+            ).json
+        case .changesFetch:
             if expireNextCursor {
                 expireNextCursor = false
-                return try json(410, ControlError(code: .cursorExpired, message: "cursor expired").json)
+                throw ControlError(code: .cursorExpired, message: "cursor expired")
             }
-            return try json(200, ChangePage(events: [], cursor: ChangeCursor("c1.2.tag"), serverTime: now).json)
-        case ("PUT", "/v1/devices/me/push"):
-            return try json(200, .object(["ok": true]))
-        default:
-            break
-        }
-        if request.method == "GET", request.path.hasPrefix("/v1/approvals/") {
-            let id = ControlID(String(request.path.dropFirst("/v1/approvals/".count)))
-            guard let id, let record = approvals.first(where: { $0.spec.requestID == id }) else {
-                return try json(404, ControlError(code: .notFound, message: "no such request").json)
+            return ChangePage(events: [], cursor: ChangeCursor("c1.2.tag"), serverTime: now).json
+        case .approvalFetch:
+            let id = try body.id("request_id")
+            guard let record = approvals.first(where: { $0.spec.requestID == id }) else {
+                throw ControlError(code: .notFound, message: "no such request")
             }
-            return try json(200, record.json)
+            return record.json
+        case .reviewChallenge:
+            let challenge = try ReviewChallengeRequest(json: try body.value("request"))
+            return ReviewChallenge(
+                challengeID: "challenge-1", deviceID: try requireWatch(request),
+                action: challenge.action, expiresAt: now.adding(ApprovalPolicy.challengeLifetime)
+            ).json
+        case .commandSubmit:
+            let commandID = try body.id("command_id")
+            submitted.append(try body.string("signed_command", maxLength: 8192))
+            let result = CommandResult(
+                recorded: true, commandID: commandID, decisionID: .random(), requestID: approvals.first?.spec.requestID,
+                stateVersion: 2, resolution: .approved, dispatch: .awaitingOrigin, serverTime: now
+            )
+            results[commandID] = result
+            return result.json
+        case .commandQuery:
+            let commandID = try body.id("command_id")
+            guard let result = results[commandID] else { throw ControlError(code: .notFound, message: "no such command") }
+            return result.json
         }
-        return try json(404, ControlError(code: .notFound, message: "no such endpoint").json)
     }
 
-    func session(accessTokenExpiresAt: ControlTimestamp? = nil) -> DeviceSession {
-        DeviceSession(
-            deviceID: deviceID,
-            accountID: accountID,
-            accessToken: validAccessToken,
-            accessTokenExpiresAt: accessTokenExpiresAt ?? now.adding(10 * 60),
-            refreshToken: refreshToken,
-            grants: DeviceGrant.watchDefault
-        )
+    private func requireWatch(_ request: WatchGatewayRequest) throws -> ControlID {
+        guard let id = request.watchDeviceID else { throw ControlError(code: .notAuthorized, message: "unbound") }
+        return id
     }
 
-    func authorizationHeaders() -> [String?] { requests.map(\.authorization) }
+    func requestTypes() -> [WatchGatewayMessageType] { requests.map(\.type) }
 }
 
 enum WatchTestFixtures {
@@ -168,6 +176,18 @@ enum WatchTestFixtures {
                 resolution: resolution,
                 presence: SourcePresence(lastSeenAt: presentAt, isWaiting: presentAt != nil)
             )
+        )
+    }
+
+    static func activeReviewer(accountID: ControlID, key: InMemoryDeviceKey) -> WatchReviewerStatus {
+        WatchReviewerStatus(
+            watchDeviceID: .random(),
+            state: .active,
+            gatewayDeviceID: .random(),
+            fingerprint: (try? key.publicJWK.displayFingerprint()) ?? "",
+            label: "Apple Watch",
+            accountID: accountID,
+            grants: DeviceGrant.watchReviewerDefault
         )
     }
 }

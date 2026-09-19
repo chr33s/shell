@@ -5,11 +5,11 @@ import Glibc
 import Darwin
 #endif
 
-/// A minimal HTTP/1.1 server.
+/// A minimal HTTP/1.1 server, shared by the broker and the push relay.
 ///
-/// The broker must be reachable over authenticated HTTPS; this listener speaks
-/// plain HTTP and is intended to run behind a TLS-terminating reverse proxy, or
-/// on loopback for development (spec.watch.md section 3).
+/// It speaks plain HTTP and is intended to run on loopback behind a
+/// TLS-terminating proxy: Tailscale Serve for the Mac-local broker
+/// (spec.iphone-gateway.md section 4.4), or the relay's hosting front end.
 public final class HTTPServer: @unchecked Sendable {
     public struct Request: Sendable {
         public let method: String
@@ -17,6 +17,25 @@ public final class HTTPServer: @unchecked Sendable {
         public let query: [String: String]
         public let headers: [String: String]
         public let body: Data
+        /// The connected peer's IP address, when known. Behind a proxy this is
+        /// the proxy.
+        public let peerAddress: String?
+
+        public init(
+            method: String,
+            path: String,
+            query: [String: String] = [:],
+            headers: [String: String] = [:],
+            body: Data = Data(),
+            peerAddress: String? = nil
+        ) {
+            self.peerAddress = peerAddress
+            self.method = method
+            self.path = path
+            self.query = query
+            self.headers = Dictionary(headers.map { ($0.key.lowercased(), $0.value) }, uniquingKeysWith: { _, last in last })
+            self.body = body
+        }
 
         public func header(_ name: String) -> String? { headers[name.lowercased()] }
     }
@@ -74,8 +93,9 @@ public final class HTTPServer: @unchecked Sendable {
         var address = sockaddr_in()
         address.sin_family = sa_family_t(AF_INET)
         address.sin_port = port.bigEndian
-        // Loopback by default: cloudflared is the only public ingress. Binding
-        // INADDR_ANY would expose admin routes and /pair to the LAN.
+        // Loopback by default: Tailscale Serve (or, in the legacy profile,
+        // cloudflared) is the only ingress. Binding INADDR_ANY would expose
+        // admin routes to the LAN.
         address.sin_addr.s_addr = bindLoopback ? inet_addr("127.0.0.1") : INADDR_ANY
         let bound = withUnsafePointer(to: &address) { pointer in
             pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(listenSocket, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
@@ -91,7 +111,11 @@ public final class HTTPServer: @unchecked Sendable {
             let socket = listenSocket
             stopLock.unlock()
             if done { return }
-            let client = accept(socket, nil, nil)
+            var peer = sockaddr_in()
+            var peerLength = socklen_t(MemoryLayout<sockaddr_in>.size)
+            let client = withUnsafeMutablePointer(to: &peer) { pointer in
+                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { accept(socket, $0, &peerLength) }
+            }
             if client < 0 { continue }
             // A detached thread per connection rather than a shared pool: a
             // handler may block for the whole of a `wait=30` long poll, and a
@@ -99,7 +123,7 @@ public final class HTTPServer: @unchecked Sendable {
             // requests once enough long polls were in flight.
             Thread.detachNewThread { [handler] in
                 defer { close(client) }
-                guard let request = HTTPServer.readRequest(client) else {
+                guard let request = HTTPServer.readRequest(client, peer: HTTPServer.address(peer)) else {
                     HTTPServer.write(client, Response(status: 400, body: Data("bad request".utf8)))
                     return
                 }
@@ -126,7 +150,14 @@ public final class HTTPServer: @unchecked Sendable {
 
     // MARK: Parsing
 
-    private static func readRequest(_ client: Int32) -> Request? {
+    private static func address(_ peer: sockaddr_in) -> String? {
+        var buffer = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
+        var raw = peer.sin_addr
+        guard inet_ntop(AF_INET, &raw, &buffer, socklen_t(buffer.count)) != nil else { return nil }
+        return String(cString: buffer)
+    }
+
+    private static func readRequest(_ client: Int32, peer: String?) -> Request? {
         var buffer = Data()
         var chunk = [UInt8](repeating: 0, count: 4096)
         var headerEnd: Range<Data.Index>?
@@ -162,7 +193,7 @@ public final class HTTPServer: @unchecked Sendable {
             body.append(contentsOf: chunk[0..<read])
         }
         let (path, query) = parseTarget(target)
-        return Request(method: method, path: path, query: query, headers: headers, body: body)
+        return Request(method: method, path: path, query: query, headers: headers, body: body, peerAddress: peer)
     }
 
     /// Splits a request target into its path and query.
@@ -170,7 +201,7 @@ public final class HTTPServer: @unchecked Sendable {
     /// `split` drops empty subsequences, so a pair that is just "=" yields no
     /// parts at all: indexing it would let an unauthenticated request take the
     /// process down.
-    static func parseTarget(_ target: String) -> (path: String, query: [String: String]) {
+    public static func parseTarget(_ target: String) -> (path: String, query: [String: String]) {
         guard let mark = target.firstIndex(of: "?") else { return (target, [:]) }
         var query: [String: String] = [:]
         for pair in target[target.index(after: mark)...].split(separator: "&") {

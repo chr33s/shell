@@ -97,6 +97,8 @@ public enum BrokerSnapshotCodec {
             "enrollment_tokens": .array(store.enrollmentTokens.values.map(encodeToken)),
             "enrollments": .array(store.enrollments.values.map(encodeEnrollment)),
             "device_authorizations": .array(store.deviceAuthorizations.values.map(encodeDeviceAuthorization)),
+            "pairings": .array(store.pairings.values.map(encodePairing)),
+            "watch_reviewer_requests": .array(store.watchReviewerRequests.values.map(encodeWatchReviewerRequest)),
             "tombstones": .array(store.tombstones.values.map { tombstone in
                 JSONWriter.object([
                     "request_id": JSONValue(tombstone.requestID),
@@ -124,7 +126,9 @@ public enum BrokerSnapshotCodec {
             "label": .string(device.label),
             "grants": JSONValue(strings: device.grants.map(\.rawValue).sorted()),
             "revoked_at": device.revokedAt.map { JSONValue($0) },
-            "push": device.push?.json
+            "push": device.push?.json,
+            "gateway_device_id": device.gatewayDeviceID.map { JSONValue($0) },
+            "push_capability": device.pushCapability.map { .string($0) }
         ])
     }
 
@@ -140,9 +144,66 @@ public enum BrokerSnapshotCodec {
             publicJWK: try DeviceJWK(json: try reader.value("public_jwk")),
             platform: platform,
             label: try reader.string("label", maxLength: 120),
-            grants: Set(try reader.stringArray("grants", maxCount: 16, maxLength: 32).compactMap(DeviceGrant.init(rawValue:))),
+            grants: Set(try reader.stringArray("grants", maxCount: 16, maxLength: 48).compactMap(DeviceGrant.init(rawValue:))),
             revokedAt: try reader.optionalTimestamp("revoked_at"),
-            push: try reader.optionalValue("push").map { try PushRegistration(json: $0) }
+            push: try reader.optionalValue("push").map { try PushRegistration(json: $0) },
+            gatewayDeviceID: try reader.optionalID("gateway_device_id"),
+            pushCapability: try reader.optionalString("push_capability", maxLength: 4096)
+        )
+    }
+
+    static func encodePairing(_ record: PairingRecord) -> JSONValue {
+        JSONWriter.object([
+            "pairing_id": JSONValue(record.pairingID),
+            "account_id": JSONValue(record.accountID),
+            "secret": .string(Base64URL.encode(record.secret)),
+            "expires_at": JSONValue(record.expiresAt),
+            "claimed_at": record.claimedAt.map { JSONValue($0) }
+        ])
+    }
+
+    static func decodePairing(_ value: JSONValue) throws -> PairingRecord {
+        var reader = try JSONReader(value)
+        guard let secret = Base64URL.decode(try reader.string("secret", maxLength: 128)) else {
+            throw ValidationError.invalid("secret", "must be base64url")
+        }
+        return PairingRecord(
+            pairingID: try reader.id("pairing_id"),
+            accountID: try reader.id("account_id"),
+            secret: secret,
+            expiresAt: try reader.timestamp("expires_at"),
+            claimedAt: try reader.optionalTimestamp("claimed_at")
+        )
+    }
+
+    static func encodeWatchReviewerRequest(_ record: WatchReviewerRequestRecord) -> JSONValue {
+        JSONWriter.object([
+            "watch_device_id": JSONValue(record.watchDeviceID),
+            "account_id": JSONValue(record.accountID),
+            "gateway_device_id": JSONValue(record.gatewayDeviceID),
+            "public_jwk": record.publicJWK.json,
+            "label": .string(record.label),
+            "user_code": .string(record.userCode),
+            "grants": JSONValue(strings: record.grants.map(\.rawValue).sorted()),
+            "expires_at": JSONValue(record.expiresAt),
+            "approved_at": record.approvedAt.map { JSONValue($0) },
+            "denied_at": record.deniedAt.map { JSONValue($0) }
+        ])
+    }
+
+    static func decodeWatchReviewerRequest(_ value: JSONValue) throws -> WatchReviewerRequestRecord {
+        var reader = try JSONReader(value)
+        return WatchReviewerRequestRecord(
+            watchDeviceID: try reader.id("watch_device_id"),
+            accountID: try reader.id("account_id"),
+            gatewayDeviceID: try reader.id("gateway_device_id"),
+            publicJWK: try DeviceJWK(json: try reader.value("public_jwk")),
+            label: try reader.string("label", maxLength: 64),
+            userCode: try reader.string("user_code", maxLength: 16),
+            grants: Set(try reader.stringArray("grants", maxCount: 16, maxLength: 48).compactMap(DeviceGrant.init(rawValue:))),
+            expiresAt: try reader.timestamp("expires_at"),
+            approvedAt: try reader.optionalTimestamp("approved_at"),
+            deniedAt: try reader.optionalTimestamp("denied_at")
         )
     }
 

@@ -68,7 +68,7 @@ final class ManagementTests: XCTestCase {
         let root = directory(); defer { try? FileManager.default.removeItem(at: root) }
         let store = InstallationStore(root: root)
         let lock = try store.lock(); defer { lock.release() }
-        let first = try store.create(releaseID: "release", mode: .loopback, publicURL: "http://127.0.0.1:8443", port: 8443, tunnel: .init())
+        let first = try store.create(releaseID: "release", mode: .loopback, publicURL: "http://127.0.0.1:8443", port: 8443)
         let loaded = try store.load()
         XCTAssertEqual(first.installation.installationID, loaded.installation.installationID)
         XCTAssertEqual(first.secrets, loaded.secrets)
@@ -82,15 +82,15 @@ final class ManagementTests: XCTestCase {
         let legacy = root.appendingPathComponent("broker.json")
         try Data("legacy".utf8).write(to: legacy)
         let store = InstallationStore(root: root), lock = try store.lock(); defer { lock.release() }
-        XCTAssertThrowsError(try store.create(releaseID: "r", mode: .loopback, publicURL: nil, port: 8443, tunnel: .init()))
+        XCTAssertThrowsError(try store.create(releaseID: "r", mode: .loopback, publicURL: nil, port: 8443))
         XCTAssertTrue(FileManager.default.fileExists(atPath: legacy.path))
     }
 
     func testPublicOriginValidation() throws {
-        XCTAssertEqual(try AddressPolicy.validate("https://CONTROL.example/", mode: .externalProxy), "https://control.example")
-        XCTAssertThrowsError(try AddressPolicy.validate("https://user@control.example/path?q=x", mode: .externalProxy))
+        XCTAssertEqual(try AddressPolicy.validate("https://MAC.example.ts.net/", mode: .tailscale), "https://mac.example.ts.net")
+        XCTAssertThrowsError(try AddressPolicy.validate("https://user@mac.example.ts.net/path?q=x", mode: .tailscale))
         XCTAssertThrowsError(try AddressPolicy.validate("http://example.com", mode: .loopback))
-        XCTAssertThrowsError(try AddressPolicy.validate("https://stable.example", mode: .quick))
+        XCTAssertThrowsError(try AddressPolicy.validate("https://stable.example", mode: .tailscale))
         XCTAssertEqual(try AddressPolicy.validate("http://LocalHost:8443", mode: .loopback), "http://localhost:8443")
         XCTAssertEqual(try AddressPolicy.validate("http://[::1]:8443", mode: .loopback), "http://[::1]:8443")
     }
@@ -98,14 +98,14 @@ final class ManagementTests: XCTestCase {
     func testDownCommitsIntentAndDisablesEveryOwnedJob() async throws {
         let root = directory(); defer { try? FileManager.default.removeItem(at: root) }
         let store = InstallationStore(root: root), lock = try store.lock()
-        _ = try store.create(releaseID: "r", mode: .loopback, publicURL: "http://127.0.0.1:8443", port: 8443, tunnel: .init()); lock.release()
+        _ = try store.create(releaseID: "r", mode: .loopback, publicURL: "http://127.0.0.1:8443", port: 8443); lock.release()
         let services = FakeServices()
         let coordinator = LifecycleCoordinator(store: store, manager: services)
         try await coordinator.down()
         XCTAssertEqual(try store.load().installation.desiredState, .stopped)
         let calls = await services.calls
-        XCTAssertEqual(calls.filter { $0.hasPrefix("disable:") }.count, 3)
-        XCTAssertEqual(calls.filter { $0.hasPrefix("stop:") }.count, 3)
+        XCTAssertEqual(calls.filter { $0.hasPrefix("disable:") }.count, 2)
+        XCTAssertEqual(calls.filter { $0.hasPrefix("stop:") }.count, 2)
     }
 
     func testStatusOnMissingInstallationDoesNotCreateDirectory() async {
@@ -167,44 +167,12 @@ final class ManagementTests: XCTestCase {
         XCTAssertThrowsError(try installer.validateBundle())
     }
 
-    func testNamedTunnelConfigurationIsTypedAndHasFinalCatchAll() throws {
-        let root = directory(); defer { try? FileManager.default.removeItem(at: root) }
-        let store = InstallationStore(root: root)
-        try SecureFileSystem.ensureDirectory(root)
-        try SecureFileSystem.ensureDirectory(store.paths.credentials)
-        try SecureFileSystem.ensureDirectory(store.paths.services)
-        let tunnelID = UUID()
-        let source = root.appendingPathComponent("source-credential.json")
-        let credentialJSON = try JSONSerialization.data(withJSONObject: ["TunnelID": tunnelID.uuidString.lowercased()])
-        try credentialJSON.write(to: source); try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: source.path)
-        let credential = try TunnelTools.installNamedCredential(source: source.path, tunnelID: tunnelID, paths: store.paths)
-        let config = try TunnelTools.writeNamedConfiguration(publicURL: "https://control.example", port: 8443,
-                                                               tunnelID: tunnelID, credential: credential, paths: store.paths)
-        let yaml = try String(contentsOf: config, encoding: .utf8)
-        XCTAssertTrue(yaml.contains("hostname: \"control.example\""))
-        XCTAssertTrue(yaml.contains("service: \"http://127.0.0.1:8443\""))
-        XCTAssertTrue(yaml.hasSuffix("  - service: \"http_status:404\"\n"))
-    }
-
-    func testNonTTYPairingOutputIsTextOnly() throws {
-        let output = try PairingRenderer.output(publicURL: "https://control.example", token: "ABCDEFGH", terminal: false)
-        XCTAssertTrue(output.contains("shell-control://pair"))
-        XCTAssertTrue(output.contains("token   ABCDEFGH"))
-        XCTAssertFalse(output.contains("\u{001B}"))
-    }
-
-    func testRestartRejectedWhenStoppedOrTunnelUnowned() async throws {
+    func testRestartRejectedWhenStopped() async throws {
         let root = directory(); defer { try? FileManager.default.removeItem(at: root) }
         let store = InstallationStore(root: root), lock = try store.lock()
-        _ = try store.create(releaseID: "r", mode: .loopback, publicURL: "http://127.0.0.1:8443", port: 8443, tunnel: .init())
+        _ = try store.create(releaseID: "r", mode: .loopback, publicURL: "http://127.0.0.1:8443", port: 8443)
         lock.release()
         let coordinator = LifecycleCoordinator(store: store, manager: FakeServices())
-        do {
-            try await coordinator.restart([.tunnel])
-            XCTFail("loopback owns no tunnel")
-        } catch let error as ManagementError {
-            XCTAssertTrue(error.description.contains("no tunnel is owned"), error.description)
-        }
         try await coordinator.down()
         do {
             try await coordinator.restart([.broker])
@@ -280,7 +248,7 @@ final class ManagementTests: XCTestCase {
     func testAtomicFilesArePrivate() throws {
         let root = directory(); defer { try? FileManager.default.removeItem(at: root) }
         let store = InstallationStore(root: root), lock = try store.lock(); defer { lock.release() }
-        _ = try store.create(releaseID: "r", mode: .loopback, publicURL: nil, port: 8443, tunnel: .init())
+        _ = try store.create(releaseID: "r", mode: .loopback, publicURL: nil, port: 8443)
         for path in [store.paths.installation.path, store.paths.secrets.path, store.paths.runtime.path] {
             guard let mode = (try FileManager.default.attributesOfItem(atPath: path)[.posixPermissions] as? NSNumber)?.intValue else {
                 XCTFail("Missing POSIX permissions for \(path)")

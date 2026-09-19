@@ -87,6 +87,13 @@ enum EnrollmentCommands {
         let cleanLabel = DisplaySanitizer.sanitize(label, maxScalars: 120).text
         let grants = value["requested_grants"]?.arrayValue?.compactMap(\.stringValue).joined(separator: ", ") ?? "none"
         stderr("device: \(cleanLabel) [\(platform)]\nfingerprint: \(fingerprint)\nrequested permissions: \(grants)")
+        if let gateway = value["gateway"]?.stringValue {
+            // A Watch reviewer is reachable only through this iPhone.
+            stderr("via iPhone: \(DisplaySanitizer.sanitize(gateway, maxScalars: 120).text)")
+        }
+        if value["rebinding"]?.boolValue == true {
+            stderr("this re-binds an enrolled Watch from another iPhone to this one")
+        }
         if prompt {
             guard let answer = try await TerminalPrompt.ask("Approve this one device? [y/N] "),
                   ["y", "yes"].contains(answer.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) else {

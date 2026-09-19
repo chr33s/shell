@@ -25,6 +25,9 @@ public actor BrokerStore {
     var tombstones: [ControlID: Tombstone] = [:]
     var changeLog: [ChangeEvent] = []
     var outbox: [OutboxEntry] = []
+    var relayOutbox: [RelayPushEntry] = []
+    var pairings: [ControlID: PairingRecord] = [:]
+    var watchReviewerRequests: [ControlID: WatchReviewerRequestRecord] = [:]
     var enrollments: [ControlID: EnrollmentRecord] = [:]
     var deviceAuthorizations: [String: DeviceAuthorizationRecord] = [:]
     var enrollmentTokens: [String: TokenRecord] = [:]
@@ -38,16 +41,21 @@ public actor BrokerStore {
     let cursorSecret: Data
     let now: @Sendable () -> Date
     var persistence: (any BrokerPersistence)?
+    /// The Mac's origin identity and signing key, when this broker is the
+    /// Mac-local authority (spec.iphone-gateway.md section 7.1).
+    let originSigner: OriginSigner?
 
     public init(
         serviceIdentity: String,
         cursorSecret: Data = Data((0..<32).map { _ in UInt8.random(in: 0...255) }),
         persistence: (any BrokerPersistence)? = nil,
+        originSigner: OriginSigner? = nil,
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.serviceIdentity = serviceIdentity
         self.cursorSecret = cursorSecret
         self.persistence = persistence
+        self.originSigner = originSigner
         self.now = now
     }
 
@@ -139,6 +147,14 @@ public actor BrokerStore {
         for value in reader.optionalValue("device_authorizations")?.arrayValue ?? [] {
             let record = try BrokerSnapshotCodec.decodeDeviceAuthorization(value)
             deviceAuthorizations[record.deviceCode] = record
+        }
+        for value in reader.optionalValue("pairings")?.arrayValue ?? [] {
+            let record = try BrokerSnapshotCodec.decodePairing(value)
+            pairings[record.pairingID] = record
+        }
+        for value in reader.optionalValue("watch_reviewer_requests")?.arrayValue ?? [] {
+            let record = try BrokerSnapshotCodec.decodeWatchReviewerRequest(value)
+            watchReviewerRequests[record.watchDeviceID] = record
         }
         for value in try reader.value("tombstones").arrayValue ?? [] {
             var item = try JSONReader(value)

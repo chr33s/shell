@@ -9,24 +9,36 @@ The signed release contains three prebuilt macOS executables:
 Runtime installation does not use Node, npm, a compiler, or a checkout. From the mounted signed disk image:
 
 ```sh
-bin/shell-control setup                     # quick HTTPS tunnel
-bin/shell-control setup --tunnel-mode loopback --no-watch
+bin/shell-control setup                     # iPhone-gateway profile over Tailscale
+bin/shell-control setup --mode loopback --no-watch   # local development with the simulator
 ```
+
+Tailscale is the only way a phone reaches the Mac. The default `tailscale` mode is the iPhone-gateway profile of
+[`spec.iphone-gateway.md`](../spec.iphone-gateway.md): it checks that Tailscale is
+installed, connected, and has MagicDNS; keeps the broker on `127.0.0.1`; points
+Tailscale Serve's HTTPS 443 at it; verifies the resulting Serve state (and refuses
+Funnel); creates the Mac's origin signing key under `credentials/`; and prints a
+one-use pairing QR that pins the origin identity. There is no public listener,
+hostname, tunnel, or reverse proxy. `loopback` mode serves `http://127.0.0.1` for
+the simulator only.
 
 `setup` copies the complete verified bundle to `~/.local/lib/chr33s-shell/<release-id>/`, publishes `~/.local/bin/shell-control` without replacing unrelated files, and starts launchd jobs in the current graphical user domain. Closing the CLI does not stop them.
 
 ## Commands
 
 ```text
-shell-control setup [--no-watch] [address options]
-shell-control up [--rotate-url]
+shell-control setup [--no-watch] [--mode tailscale|loopback] [--port N] [--tailscale-path PATH] [--reset-origin-key]
+shell-control up
 shell-control down
-shell-control restart broker|daemon|tunnel|all
+shell-control restart broker|daemon|all
 shell-control service install|uninstall
-shell-control status [--check]
-shell-control logs [broker|daemon|tunnel] [--follow]
+shell-control status [--check] [--text]
+shell-control logs [broker|daemon] [--follow]
 shell-control pair [--watch]
+shell-control route
 shell-control confirm <USER-CODE> [--yes]
+shell-control revoke <DEVICE-ID>
+shell-control push configure --relay-url https://relay.example
 shell-control push configure --key-id ID --team-id ID --key-file /absolute/key.p8
 shell-control push disable
 shell-control notify --title TEXT [options]
@@ -36,19 +48,22 @@ shell-control receipt --run-capability CAP --result RESULT [options]
 
 Use `--state-dir /absolute/path` before or after a subcommand, or `SHELL_CONTROL_STATE_DIR`, for an isolated native installation. The production default is `~/.local/state/shell-control`. Non-interactive `confirm` requires `--yes`.
 
-Quick tunnels are development-only. A dead quick tunnel retains its old URL and reports degraded until `up --rotate-url` explicitly authorizes replacement. Login persistence requires named or external-proxy mode. `down` commits stopped intent, disables and unloads every owned job, and survives logout/login. `service uninstall` removes future-login registration without interrupting current jobs.
+`pair` mints a fresh one-use, ten-minute pairing and prints its QR; `confirm`
+approves the iPhone pairing or Watch reviewer the phone or Watch displays, after
+showing its label, key fingerprint, and permissions (a Watch also shows its
+gateway iPhone). `route` prints the origin-signed route-update QR for the current
+Tailscale name: scanning it changes routing only, never trust. `up` re-reads the
+MagicDNS name, so a renamed Mac is a route change, not a re-pairing. The origin
+key is never regenerated silently: if it goes missing, setup stops, and
+`--reset-origin-key` is the explicit way to mint a new one (every device must then
+pair again). `revoke` disables an iPhone (and with it the transport of every
+Watch it gateways for) or a single Watch reviewer. `push configure --relay-url`
+sends approval hints through the stateless Shell Push Relay; the Mac then holds
+no APNs credential.
 
-Named mode takes typed inputs rather than arbitrary YAML:
+Login persistence requires tailscale mode. `down` commits stopped intent, disables and unloads every owned job, and survives logout/login. `service uninstall` removes future-login registration without interrupting current jobs.
 
-```sh
-shell-control setup --tunnel-mode named \
-  --public-url https://control.example \
-  --tunnel-id 00000000-0000-0000-0000-000000000000 \
-  --tunnel-credentials /absolute/tunnel.json \
-  --cloudflared-path /opt/homebrew/bin/cloudflared
-```
-
-The CLI copies credentials to protected storage and generates exactly one host ingress rule plus the required 404 catch-all.
+An installation made by an earlier release with a Cloudflare tunnel mode is migrated to `tailscale` by the next `setup`, which also stops and removes the old cloudflared job and its files. Devices paired against the old public URL must pair again from the new QR.
 
 Adapter stdout is JSON. Permission authority remains the structured `shell-control/1` permit and exact run/request context—not an exit status. `request --wait` exits 0/10/11/12/13 for approved/rejected/expired/cancelled/unavailable.
 

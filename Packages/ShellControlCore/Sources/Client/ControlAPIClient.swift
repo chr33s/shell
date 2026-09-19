@@ -152,7 +152,7 @@ public actor ControlAPIClient {
 
     // MARK: Plumbing
 
-    private func get(_ path: String, query: [(String, String)] = [], timeout: TimeInterval = 15) async throws -> JSONValue {
+    func get(_ path: String, query: [(String, String)] = [], timeout: TimeInterval = 15) async throws -> JSONValue {
         try await perform(ControlHTTPRequest(
             method: "GET",
             path: path,
@@ -163,7 +163,7 @@ public actor ControlAPIClient {
     }
 
     @discardableResult
-    private func send(
+    func send(
         method: String,
         path: String,
         body: JSONValue,
