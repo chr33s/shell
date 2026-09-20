@@ -99,24 +99,17 @@ enum NetworkAddressUtils {
         hostname: String,
         filter: @escaping (String) -> Bool
     ) async -> String? {
-        // Use task group for timeout - first task to complete wins
-        return await withTaskGroup(of: String?.self) { group in
-            // DNS resolution task (runs on background thread)
-            group.addTask {
-                await performDNSResolution(hostname: hostname, filter: filter)
-            }
-
-            // Timeout task
-            group.addTask {
-                try? await Task.sleep(for: .seconds(dnsTimeout))
-                return nil
-            }
-
-            // Return first result (either resolved IP or timeout nil)
-            let result = await group.next()
-            group.cancelAll()
-            return result ?? nil
+        // NOT a task group: a group awaits every child when its body returns,
+        // and the child here is a continuation resumed only when the blocking
+        // `getaddrinfo` on a global queue finishes. `getaddrinfo` ignores
+        // cancellation and can sit on a dead resolver far longer than
+        // `dnsTimeout`, so `cancelAll()` + return would have waited it out
+        // anyway and the "timeout" only chose which value won. `withTimeout`
+        // races unstructured tasks and hands control back on schedule.
+        let resolved = try? await withTimeout(seconds: dnsTimeout) {
+            await performDNSResolution(hostname: hostname, filter: filter)
         }
+        return resolved ?? nil
     }
 
     /// Performs blocking DNS resolution on a background thread

@@ -207,8 +207,17 @@ private nonisolated struct DoubleBracketError: Error {
 
 /// Recursive-descent parser over the classified tokens.
 private nonisolated struct DoubleBracketParser {
+    /// Cap on `( … )` / `!` nesting.
+    ///
+    /// `parseNot` recurses for both, and the tokenizer slurps a whole
+    /// `[[ … ]]` iteratively — so a condition of thousands of open parens
+    /// reached the parser intact and blew the stack. A syntax error is the
+    /// right answer; a crash takes every other session with it.
+    static let maximumNestingDepth = 256
+
     let tokens: [DoubleBracketToken]
     var index = 0
+    private var depth = 0
 
     var atEnd: Bool { index >= tokens.count }
 
@@ -252,6 +261,12 @@ private nonisolated struct DoubleBracketParser {
     }
 
     private mutating func parseNot() throws -> DBExpr {
+        depth += 1
+        defer { depth -= 1 }
+        guard depth <= Self.maximumNestingDepth else {
+            throw DoubleBracketError.syntax(
+                "condition nested more than \(Self.maximumNestingDepth) levels deep")
+        }
         if peekOp() == "!" {
             index += 1
             return .not(try parseNot())

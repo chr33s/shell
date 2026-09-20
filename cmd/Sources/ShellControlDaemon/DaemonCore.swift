@@ -55,7 +55,15 @@ public actor DaemonCore {
     private var runs: [String: RunBinding] = [:]
     /// Recorded results for message IDs already handled, so a retransmission
     /// replays rather than mints a second request, event, or receipt.
-    private var handled: [ControlID: (bodyHash: String, response: IPCResponse)] = [:]
+    ///
+    /// Bounded: the daemon is long-lived and every shell command that touches
+    /// the integration adds an entry, so without a retention window this grows
+    /// for the life of the process — and each entry can hold a decision JWS.
+    private var handled: [ControlID: (bodyHash: String, response: IPCResponse, at: Date)] = [:]
+    /// Long enough to cover any client's retransmission, far shorter than the
+    /// daemon's lifetime.
+    static let retransmissionWindow: TimeInterval = 24 * 60 * 60
+    static let maximumHandledMessages = 4096
     private let now: @Sendable () -> Date
     private var acceptingWork = true
     private var lastOriginAuthentication: ContinuousClock.Instant?
@@ -257,6 +265,7 @@ public actor DaemonCore {
             // request, event, or receipt for one logical message.
             return previous.response
         }
+        pruneHandled()
         do {
             let body: JSONValue
             switch request.type {
@@ -274,7 +283,7 @@ public actor DaemonCore {
                 body = try await handleReceipt(request)
             }
             let response = IPCResponse(messageID: request.messageID, ok: true, body: body)
-            handled[request.messageID] = (try request.bodyHash(), response)
+            handled[request.messageID] = (try request.bodyHash(), response, now())
             return response
         } catch let error as ControlError {
             return IPCResponse(
@@ -291,6 +300,14 @@ public actor DaemonCore {
                 errorMessage: String(describing: error)
             )
         }
+    }
+
+    private func pruneHandled() {
+        let cutoff = now().addingTimeInterval(-Self.retransmissionWindow)
+        handled = handled.filter { $0.value.at > cutoff }
+        guard handled.count > Self.maximumHandledMessages else { return }
+        let newest = handled.sorted { $0.value.at > $1.value.at }.prefix(Self.maximumHandledMessages)
+        handled = Dictionary(uniqueKeysWithValues: newest.map { ($0.key, $0.value) })
     }
 
     /// `hello` negotiates protocol, adapter schemas, and capabilities, and

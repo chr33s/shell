@@ -15,18 +15,18 @@ import Foundation
 final class SessionApprovedHostKeys {
     static let shared = SessionApprovedHostKeys()
 
-    /// "hostname:port" -> base64 public key blob approved once this run.
+    /// Normalized "hostname:port" -> base64 public key blob approved once this run.
     private var approved: [String: String] = [:]
 
     private init() {}
 
     func remember(hostname: String, port: Int, publicKeyData: String) {
-        approved["\(hostname):\(port)"] = publicKeyData
+        approved[KnownHostsManager.identity(hostname: hostname, port: port)] = publicKeyData
     }
 
     /// True only when the presented key is byte-identical to the one the user
     /// approved for this exact host:port earlier in this app run.
     func matches(hostname: String, port: Int, publicKeyData: String) -> Bool {
-        approved["\(hostname):\(port)"] == publicKeyData
+        approved[KnownHostsManager.identity(hostname: hostname, port: port)] == publicKeyData
     }
 }

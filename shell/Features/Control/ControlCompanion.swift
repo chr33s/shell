@@ -87,18 +87,19 @@ final class ControlCompanion {
     var currentRoute: String? { pinnedOrigin?.routes.first?.url.absoluteString }
 
     func start() async {
-        pinnedOrigin = await gateway.pinnedOrigin
-        guard pinnedOrigin != nil else {
-            phase = .notConfigured
-            return
-        }
-        guard await gateway.deviceSession != nil else {
-            phase = .needsEnrollment
-            return
-        }
-        phase = .ready
+        phase = await loadPhase()
+        guard phase == .ready else { return }
         await refresh()
         ControlPushCapability.registerIfConfigured()
+    }
+
+    /// Reads the pinned origin and session from the Keychain. Both are
+    /// after-first-unlock items, so this also works while the phone is locked.
+    private func loadPhase() async -> Phase {
+        pinnedOrigin = await gateway.pinnedOrigin
+        guard pinnedOrigin != nil else { return .notConfigured }
+        guard await gateway.deviceSession != nil else { return .needsEnrollment }
+        return .ready
     }
 
     // MARK: Scanned payloads
@@ -111,6 +112,9 @@ final class ControlCompanion {
         switch ControlScannedPayload(text) {
         case .pairing(let invitation):
             guard !isPairing else { return false }
+            // Read the store, not the cache: a link can arrive at cold
+            // launch before start() has loaded the pinned origin.
+            pinnedOrigin = await gateway.pinnedOrigin
             pendingPairing = PendingPairing(
                 invitation: invitation,
                 assessment: OriginTrust.assess(invitation, against: pinnedOrigin),
@@ -139,8 +143,9 @@ final class ControlCompanion {
 
     private func pair(with invitation: PairingInvitation) async {
         guard !isPairing else { return }
-        let assessment = OriginTrust.assess(invitation, against: pinnedOrigin)
         isPairing = true
+        pinnedOrigin = await gateway.pinnedOrigin
+        let assessment = OriginTrust.assess(invitation, against: pinnedOrigin)
         pairingProgress = nil
         statusMessage = nil
         defer { isPairing = false }
@@ -204,8 +209,11 @@ final class ControlCompanion {
 
     // MARK: Review
 
-    func refresh() async {
-        guard phase == .ready else { return }
+    /// Returns whether the snapshot was fetched.
+    @discardableResult
+    func refresh() async -> Bool {
+        guard phase == .ready else { return false }
+        var fetched = false
         do {
             let client = try await gateway.authenticatedClient()
             var page = try await client.snapshot()
@@ -218,11 +226,13 @@ final class ControlCompanion {
             lastRefreshedAt = page.serverTime
             routeState = .reachable(await gateway.currentRoute?.url.host ?? "")
             statusMessage = nil
+            fetched = true
             await reconcileJournal(client: client)
         } catch {
             await note(error)
         }
         publishWatchContext(refreshRequested: false)
+        return fetched
     }
 
     /// Always re-fetches: the phone is a fuller review surface, not a cache the
@@ -259,7 +269,7 @@ final class ControlCompanion {
     }
 
     private func note(_ error: any Error) async {
-        switch error {
+        switch await gateway.recover(from: error) {
         case let unavailable as TailnetUnavailable:
             await gateway.invalidateRoute()
             routeState = .unavailable(unavailable.reason)
@@ -273,7 +283,11 @@ final class ControlCompanion {
         case ControlGatewaySession.SessionError.pairingRequired(let reason):
             phase = .needsEnrollment
             statusMessage = reason
-        default:
+        case ControlGatewaySession.SessionError.notPaired:
+            pinnedOrigin = await gateway.pinnedOrigin
+            phase = pinnedOrigin == nil ? .notConfigured : .needsEnrollment
+            statusMessage = nil
+        case let error:
             statusMessage = String(describing: error)
         }
     }
@@ -297,10 +311,17 @@ final class ControlCompanion {
     }
 
     /// An approval hint: opportunistically refresh and stage the Watch's
-    /// cache. Correctness never depends on this running.
-    func handleApprovalHint() async {
-        await refresh()
+    /// cache. Correctness never depends on this running. A hint can wake the
+    /// app while locked, before start() has run, so the session is loaded
+    /// here; a phase that is not ready is left for start() to report.
+    /// Returns nil when there is no session to fetch with (not a failure),
+    /// otherwise whether the fetch succeeded.
+    func handleApprovalHint() async -> Bool? {
+        if phase != .ready, await loadPhase() == .ready { phase = .ready }
+        guard phase == .ready else { return nil }
+        let fetched = await refresh()
         publishWatchContext(refreshRequested: true)
+        return fetched
     }
 
     static func describe(_ state: SubmissionState) -> String {

@@ -21,55 +21,66 @@ nonisolated enum ShellGlob {
     /// Match an entire string against a shell glob pattern.
     static func match(_ string: some StringProtocol, pattern: String) -> Bool {
         if pattern == "*" { return true }
-        return matchHelper(Array(string), 0, Array(pattern), 0)
+        return matchAnchored(Array(string), Array(pattern))
     }
 
-    private static func matchHelper(_ s: [Character], _ si: Int,
-                                    _ p: [Character], _ pi: Int) -> Bool {
-        var si = si, pi = pi
+    /// Anchored glob match, linear in `s.count × p.count`.
+    ///
+    /// The previous implementation recursed once per candidate split at every
+    /// `*` ("try 0..n characters, then recurse"). That is exponential: a
+    /// pattern like `*a*a*a*a*a*a*a*a*b` against a run of `a`s never returns,
+    /// and nothing inside the matcher polls for cancellation — so a `case`
+    /// branch or a `${v##…}` strip could wedge the shell with no way out.
+    /// This is the standard single-backtrack-point algorithm instead: on a
+    /// mismatch it rewinds only to the most recent `*` and advances that
+    /// star's consumption by one, which is enough for anchored globs and
+    /// needs no recursion at all.
+    private static func matchAnchored(_ s: [Character], _ p: [Character]) -> Bool {
+        var si = 0, pi = 0
+        // Where to resume if the tail after the last `*` fails to line up.
+        var starPi = -1
+        var starSi = 0
 
-        while pi < p.count {
-            if p[pi] == "*" {
-                pi += 1
-                // Try matching * with 0..n characters
-                for i in si...s.count {
-                    if matchHelper(s, i, p, pi) { return true }
-                }
-                return false
-            }
-
-            if p[pi] == "\\", pi + 1 < p.count {
-                // Escaped pattern character matches literally
-                guard si < s.count, s[si] == p[pi + 1] else { return false }
-                si += 1
-                pi += 2
-                continue
-            }
-
-            if si >= s.count { return false }
-
-            if p[pi] == "?" {
-                si += 1
-                pi += 1
-            } else if p[pi] == "[" {
-                guard let (matched, nextPi) = matchClass(s[si], p, pi + 1) else {
-                    // Unterminated class: treat '[' literally
-                    if s[si] != "[" { return false }
-                    si += 1
-                    pi += 1
-                    continue
-                }
-                if !matched { return false }
+        while si < s.count {
+            if pi < p.count, p[pi] != "*", let nextPi = matchOne(s[si], p, pi) {
                 si += 1
                 pi = nextPi
-            } else {
-                if s[si] != p[pi] { return false }
-                si += 1
-                pi += 1
+                continue
             }
+            if pi < p.count, p[pi] == "*" {
+                starPi = pi
+                starSi = si
+                pi += 1
+                continue
+            }
+            guard starPi >= 0 else { return false }
+            // Let the last `*` swallow one more character and retry its tail.
+            starSi += 1
+            si = starSi
+            pi = starPi + 1
         }
 
-        return si == s.count
+        // Trailing `*`s may match nothing.
+        while pi < p.count, p[pi] == "*" { pi += 1 }
+        return pi == p.count
+    }
+
+    /// Whether `c` matches the single-character pattern element at `pi`, and
+    /// the index just past that element. Returns nil when it does not match.
+    private static func matchOne(_ c: Character, _ p: [Character], _ pi: Int) -> Int? {
+        if p[pi] == "\\", pi + 1 < p.count {
+            // Escaped pattern character matches literally
+            return c == p[pi + 1] ? pi + 2 : nil
+        }
+        if p[pi] == "?" { return pi + 1 }
+        if p[pi] == "[" {
+            guard let (matched, nextPi) = matchClass(c, p, pi + 1) else {
+                // Unterminated class: treat '[' literally
+                return c == "[" ? pi + 1 : nil
+            }
+            return matched ? nextPi : nil
+        }
+        return c == p[pi] ? pi + 1 : nil
     }
 
     /// Match one character against a `[...]` class starting just past the `[`.

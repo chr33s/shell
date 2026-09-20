@@ -37,8 +37,12 @@ public actor WatchGatewayRouter {
     /// Returns an authenticated client whose route has been verified against
     /// the pinned origin key.
     public typealias ClientProvider = @Sendable () async throws -> ControlAPIClient
+    /// Lets the iPhone reinterpret an upstream error against its own session
+    /// before it is relayed, e.g. a rejected token that means pair again.
+    public typealias ErrorRecovery = @Sendable (any Error) async -> any Error
 
     private let client: ClientProvider
+    private let recover: ErrorRecovery
     private let binding: any WatchBindingStore
     private let now: @Sendable () -> Date
     /// Gateway-level idempotency: a retried message ID gets the same answer
@@ -49,8 +53,14 @@ public actor WatchGatewayRouter {
     /// A snapshot page shrinks until its reply fits in one message.
     static let defaultPageLimit = 8
 
-    public init(client: @escaping ClientProvider, binding: any WatchBindingStore, now: @escaping @Sendable () -> Date = { Date() }) {
+    public init(
+        client: @escaping ClientProvider,
+        binding: any WatchBindingStore,
+        recover: @escaping ErrorRecovery = { $0 },
+        now: @escaping @Sendable () -> Date = { Date() }
+    ) {
         self.client = client
+        self.recover = recover
         self.binding = binding
         self.now = now
     }
@@ -101,8 +111,12 @@ public actor WatchGatewayRouter {
     private func respond(to request: WatchGatewayRequest) async -> WatchGatewayResponse {
         let stamp = ControlTimestamp(now())
         do {
-            let body = try await dispatch(request)
-            return WatchGatewayResponse(messageID: request.messageID, serverTime: stamp, result: .success(body))
+            do {
+                let body = try await dispatch(request)
+                return WatchGatewayResponse(messageID: request.messageID, serverTime: stamp, result: .success(body))
+            } catch {
+                throw await recover(error)
+            }
         } catch let error as ControlError {
             return WatchGatewayResponse(messageID: request.messageID, serverTime: stamp, result: .failure(error))
         } catch let error as WatchGatewayError {
@@ -117,7 +131,16 @@ public actor WatchGatewayRouter {
                 serverTime: stamp,
                 result: .failure(ControlError(code: .invalidPayload, message: "\(error)"))
             )
+        } catch let error as ValidationError {
+            return WatchGatewayResponse(
+                messageID: request.messageID,
+                serverTime: stamp,
+                result: .failure(ControlError(code: .invalidPayload, message: error.description))
+            )
+        } catch let error as any ControlErrorConvertible {
+            return WatchGatewayResponse(messageID: request.messageID, serverTime: stamp, result: .failure(error.controlError))
         } catch {
+            // Only transport failures remain: the Mac is unreachable.
             return WatchGatewayResponse(messageID: request.messageID, serverTime: stamp, result: .gatewayUnavailable(String(describing: error)))
         }
     }

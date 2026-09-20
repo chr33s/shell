@@ -14,7 +14,7 @@ import ShellControlSecurity
 import ShellControlClient
 
 actor ControlGatewaySession {
-    enum SessionError: Error, CustomStringConvertible {
+    enum SessionError: Error, CustomStringConvertible, ControlErrorConvertible {
         case notPaired
         /// The Mac revoked this iPhone or its session lapsed. Only this —
         /// never a route or Tailscale failure — requires pairing again.
@@ -26,6 +26,10 @@ actor ControlGatewaySession {
             case .pairingRequired(let reason): return reason
             }
         }
+
+        /// Relayed to the Watch as this iPhone's problem, not the Watch's:
+        /// `device_revoked` would make the Watch sign itself out.
+        var controlError: ControlError { ControlError(code: .notAuthorized, message: description) }
     }
 
     private let credentials: any DeviceCredentialStore
@@ -134,14 +138,42 @@ actor ControlGatewaySession {
         return makeClient(route.route.url, credential: .device(session.accessToken))
     }
 
+    /// Maps an upstream rejection to this iPhone's session state. The Mac can
+    /// reject a token that still looks fresh here, and `device_revoked` may
+    /// name the Watch rather than this iPhone, so neither is trusted alone: a
+    /// forced refresh asks the Mac about this iPhone. Returns
+    /// `pairingRequired` when that refresh says so, else the original error.
+    func recover(from original: any Error) async -> any Error {
+        guard let control = original as? ControlError,
+              control.code == .invalidToken || control.code == .deviceRevoked
+        else { return original }
+        do {
+            _ = try await freshSession(route: verifiedRoute().route, force: true)
+        } catch let session as SessionError {
+            return session
+        } catch {
+            // The refresh could not answer (route down, rate limited): keep
+            // the Mac's rejection rather than reporting a route outage.
+        }
+        return original
+    }
+
     /// Access tokens last ten minutes; concurrent callers share one refresh.
-    private func freshSession(route: OriginRoute) async throws -> DeviceSession {
+    private func freshSession(route: OriginRoute, force: Bool = false) async throws -> DeviceSession {
         if let unsaved = unsavedSession, (try? credentials.storeSession(unsaved)) != nil { unsavedSession = nil }
         guard let session = try unsavedSession ?? credentials.loadSession() else { throw SessionError.notPaired }
-        if session.isAccessTokenFresh(at: ControlTimestamp(now())) { return session }
+        if !force, session.isAccessTokenFresh(at: ControlTimestamp(now())) { return session }
         if let refreshTask { return try await refreshTask.value }
+        // The task maps rejection itself, so callers that join it see
+        // `pairingRequired` too, not the Mac's raw error.
         let task = Task { [transport, now] () throws -> DeviceSession in
-            try await EnrollmentCoordinator(baseURL: route.url, transport: transport, now: now).refresh(session: session)
+            do {
+                return try await EnrollmentCoordinator(baseURL: route.url, transport: transport, now: now).refresh(session: session)
+            } catch let error as ControlError where error.code == .deviceRevoked || error.code == .invalidToken {
+                throw SessionError.pairingRequired(error.code == .deviceRevoked
+                    ? String(localized: "This iPhone was revoked on the Mac. Pair again.")
+                    : String(localized: "This iPhone's Shell session expired. Pair again."))
+            }
         }
         refreshTask = task
         defer { refreshTask = nil }
@@ -154,14 +186,12 @@ actor ControlGatewaySession {
                 unsavedSession = renewed
             }
             return renewed
-        } catch let error as ControlError where error.code == .deviceRevoked || error.code == .invalidToken {
+        } catch SessionError.pairingRequired(let reason) {
             // A revoked device, or a refresh token that is spent: this is the
             // one path back to pairing. The pinned origin is kept.
             unsavedSession = nil
             try? credentials.removeAll()
-            throw SessionError.pairingRequired(error.code == .deviceRevoked
-                ? String(localized: "This iPhone was revoked on the Mac. Pair again.")
-                : String(localized: "This iPhone's Shell session expired. Pair again."))
+            throw SessionError.pairingRequired(reason)
         }
     }
 }

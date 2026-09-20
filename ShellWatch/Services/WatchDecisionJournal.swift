@@ -21,9 +21,21 @@ final class FileCommandJournalStore: CommandJournalStore, @unchecked Sendable {
         url = base.appendingPathComponent("control-commands.json")
     }
 
+    /// The journal holds up to ``CommandJournal/maximumEntries`` entries, each
+    /// carrying a JWS of up to 8 KiB, so it is read with limits sized to what
+    /// it can legitimately contain. The 64 KiB control-document default is a
+    /// wire limit, and applying it here made a full journal unreadable —
+    /// losing every ambiguous decision rather than one.
+    private static let limits = JSONLimits(
+        maxDocumentBytes: CommandJournal.maximumEntries * 12 * 1024,
+        maxStringCharacters: 8192,
+        maxNestingDepth: 8,
+        maxCollectionElements: CommandJournal.maximumEntries
+    )
+
     func load() throws -> [PendingCommand] {
         guard let data = try? Data(contentsOf: url), !data.isEmpty else { return [] }
-        let value = try JSONValue.parse(data)
+        let value = try JSONValue.parse(data, limits: Self.limits)
         return (value.arrayValue ?? []).compactMap { try? PendingCommand(json: $0) }
     }
 

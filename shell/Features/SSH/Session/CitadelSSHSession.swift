@@ -24,7 +24,6 @@ final class CitadelSSHSession: SSHTerminalSession {
     /// Overall connection timeout for Citadel connections
     /// This is generous (5 minutes) to allow time for host key approval
     /// since Citadel doesn't expose granular timeout control
-    private static let connectionTimeout: TimeInterval = 300  // 5 minutes
 
     let pty: TerminalPTY
     let config: SSHConfig
@@ -1467,34 +1466,13 @@ final class CitadelSSHSession: SSHTerminalSession {
         return error
     }
 
-    /// Execute an async operation with a timeout
-    /// Used for Citadel connections which don't expose granular timeout control
-    private func withConnectionTimeout<T>(
-        _ operation: @escaping () async throws -> T
-    ) async throws -> T {
-        try await withThrowingTaskGroup(of: T.self) { group in
-            // Add the actual operation
-            group.addTask {
-                try await operation()
-            }
-
-            // Add a timeout task
-            group.addTask {
-                try await Task.sleep(nanoseconds: UInt64(Self.connectionTimeout * 1_000_000_000))
-                throw SSHError.connectionTimeout
-            }
-
-            // Wait for the first task to complete
-            guard let result = try await group.next() else {
-                throw SSHError.connectionTimeout
-            }
-
-            // Cancel the remaining task
-            group.cancelAll()
-
-            return result
-        }
-    }
+    // A `withConnectionTimeout` built on `withThrowingTaskGroup` used to live
+    // here, unused. It would not have worked: a group awaits every child when
+    // its body returns, and a Citadel/NIO connect does not observe
+    // cancellation — so `cancelAll()` plus return would have blocked for the
+    // full connect anyway and the deadline only picked which error surfaced.
+    // `withTimeout(seconds:operation:)` in Core/Foundation races unstructured
+    // tasks and is the one to use here.
 
     nonisolated deinit {
         sessionTask?.cancel()

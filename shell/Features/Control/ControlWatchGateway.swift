@@ -29,7 +29,8 @@ final class ControlWatchGateway {
         self.binding = binding
         self.router = WatchGatewayRouter(
             client: { try await gateway.authenticatedClient() },
-            binding: binding
+            binding: binding,
+            recover: { await gateway.recover(from: $0) }
         )
         boundWatch = try? binding.loadBoundWatch()
     }

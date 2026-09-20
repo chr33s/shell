@@ -35,6 +35,19 @@ public struct FileBrokerPersistence: BrokerPersistence {
         try handle.synchronize()
         try handle.close()
         _ = try FileManager.default.replaceItemAt(url, withItemAt: temporary)
+        // The file's own bytes are durable, but the directory entry the
+        // rename created is not until the directory itself is synced. Without
+        // this a crash can lose a mutation the broker already reported as
+        // recorded — the one thing this class exists to prevent.
+        syncDirectory()
+    }
+
+    private func syncDirectory() {
+        let directory = url.deletingLastPathComponent().path
+        let descriptor = open(directory, O_RDONLY)
+        guard descriptor >= 0 else { return }
+        _ = fsync(descriptor)
+        close(descriptor)
     }
 
     private func createFile(at url: URL) throws -> URL {

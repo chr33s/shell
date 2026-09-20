@@ -114,8 +114,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         // correctness never depends on this callback running.
         if ControlPushCapability.isApprovalHint(userInfo) {
             Task { @MainActor in
-                await ControlCompanion.shared.handleApprovalHint()
-                completionHandler(.newData)
+                switch await ControlCompanion.shared.handleApprovalHint() {
+                case true?: completionHandler(.newData)
+                case false?: completionHandler(.failed)
+                case nil: completionHandler(.noData)
+                }
             }
             return
         }

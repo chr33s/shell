@@ -94,12 +94,29 @@ public final class InMemoryCommandJournal: CommandJournalStore, @unchecked Senda
 }
 
 public actor CommandJournal {
+    /// How long past its deadline an unreconciled command is kept. Past
+    /// `not_after` it can never be retried, so it is only held to answer
+    /// "what happened to this?" on the next reconnection.
+    public static let retention: TimeInterval = 7 * 24 * 60 * 60
+    /// A hard ceiling on journal entries. Without it, commands whose outcome
+    /// is never learned — the Watch stayed offline, the app was killed —
+    /// accumulate until the persisted file no longer parses within the
+    /// protocol's document limits and the whole journal is lost.
+    public static let maximumEntries = 256
+
     private let store: any CommandJournalStore
+    private let now: @Sendable () -> Date
     private var commands: [ControlID: PendingCommand]
 
-    public init(store: any CommandJournalStore = InMemoryCommandJournal()) throws {
+    public init(
+        store: any CommandJournalStore = InMemoryCommandJournal(),
+        now: @escaping @Sendable () -> Date = { Date() }
+    ) throws {
         self.store = store
-        self.commands = Dictionary(uniqueKeysWithValues: try store.load().map { ($0.commandID, $0) })
+        self.now = now
+        let loaded = Dictionary(uniqueKeysWithValues: try store.load().map { ($0.commandID, $0) })
+        self.commands = Self.pruned(loaded, now: now())
+        if commands.count != loaded.count { try store.save(Array(commands.values)) }
     }
 
     public var pending: [PendingCommand] {
@@ -110,20 +127,50 @@ public actor CommandJournal {
     /// connection loss after submission still leaves a retrievable identity.
     public func record(_ command: PendingCommand) throws {
         commands[command.commandID] = command
-        try store.save(Array(commands.values))
+        try commit()
     }
 
     public func update(_ commandID: ControlID, status: PendingCommand.Status) throws {
         guard var command = commands[commandID] else { return }
         command.status = status
         commands[commandID] = command
-        try store.save(Array(commands.values))
+        try commit()
     }
 
     public func resolve(_ commandID: ControlID) throws {
         commands.removeValue(forKey: commandID)
-        try store.save(Array(commands.values))
+        try commit()
     }
 
     public func command(_ commandID: ControlID) -> PendingCommand? { commands[commandID] }
+
+    /// Drops every journalled command. Used when the device identity that
+    /// signed them is discarded: a command signed by a key this device no
+    /// longer holds can never be retried or reconciled, and leaving it behind
+    /// only produces confusing failures under the next identity.
+    public func clear() throws {
+        commands = [:]
+        try store.save([])
+    }
+
+    private func commit() throws {
+        commands = Self.pruned(commands, now: now())
+        try store.save(Array(commands.values))
+    }
+
+    /// Drops what can no longer be acted on: entries whose deadline passed
+    /// longer ago than ``retention``, then the oldest deadlines beyond
+    /// ``maximumEntries``.
+    private static func pruned(
+        _ commands: [ControlID: PendingCommand],
+        now: Date
+    ) -> [ControlID: PendingCommand] {
+        let cutoff = ControlTimestamp(now.addingTimeInterval(-retention))
+        var kept = commands.filter { $0.value.notAfter > cutoff }
+        if kept.count > maximumEntries {
+            let newest = kept.values.sorted { $0.notAfter > $1.notAfter }.prefix(maximumEntries)
+            kept = Dictionary(uniqueKeysWithValues: newest.map { ($0.commandID, $0) })
+        }
+        return kept
+    }
 }

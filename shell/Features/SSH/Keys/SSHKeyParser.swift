@@ -315,15 +315,29 @@ nonisolated final class SSHKeyParser {
             // Short form: length is in the first byte
             return (Int(firstByte), offset + 1)
         } else {
-            // Long form: first byte tells us how many bytes encode the length
+            // Long form: first byte tells us how many bytes encode the length.
+            // A key file is attacker-supplied, so the declared length is
+            // bounded here rather than trusted: shifting 127 bytes into an Int
+            // silently produced a garbage or negative length, and the caller's
+            // `contentOffset + length` then either trapped on overflow or built
+            // a reversed Range — a crafted key file crashed the app.
             let numLengthBytes = Int(firstByte & 0x7F)
+            guard numLengthBytes > 0, numLengthBytes <= 8 else {
+                throw ParserError.parseError("Unsupported ASN.1 length encoding")
+            }
             guard offset + 1 + numLengthBytes <= derData.count else {
                 throw ParserError.parseError("Truncated ASN.1 long length")
             }
 
             var length = 0
             for i in 0..<numLengthBytes {
-                length = (length << 8) | Int(derData[offset + 1 + i])
+                let (shifted, overflow) = length.multipliedReportingOverflow(by: 256)
+                guard !overflow else { throw ParserError.parseError("ASN.1 length out of range") }
+                length = shifted | Int(derData[offset + 1 + i])
+            }
+            // Nothing in a DER document can be longer than the document.
+            guard length >= 0, length <= derData.count else {
+                throw ParserError.parseError("ASN.1 length exceeds the document")
             }
 
             return (length, offset + 1 + numLengthBytes)
@@ -337,7 +351,9 @@ nonisolated final class SSHKeyParser {
 
         let (length, contentOffset) = try parseASN1Length(derData: derData, offset: offset + 1)
 
-        guard contentOffset + length <= derData.count else {
+        guard length >= 0, contentOffset >= 0, contentOffset <= derData.count,
+              derData.count - contentOffset >= length
+        else {
             throw ParserError.parseError("Truncated ASN.1 INTEGER")
         }
 

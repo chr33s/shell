@@ -11,8 +11,29 @@ final class KnownHostsManager: ObservableObject {
     /// File store for sync-ready per-record storage
     private var store: SyncableFileStore<KnownHost>
 
-    /// Lookup table from legacy ID (hostname:port) to UUID
-    private var legacyIdToUUID: [String: UUID] = [:]
+    /// Lookup table from normalized host identity (hostname:port) to UUID
+    private var identityToUUID: [String: UUID] = [:]
+
+    /// The identity a host key is matched on.
+    ///
+    /// DNS names are case-insensitive and may carry a trailing root dot, so
+    /// `Example.com`, `example.com.` and `example.com` are one host. Matching
+    /// on the raw string instead would let a changed key arrive under a
+    /// differently-cased name and be presented as a friendly "new host"
+    /// prompt rather than the man-in-the-middle warning it is.
+    ///
+    /// `KnownHost.legacyId` keeps its exact spelling: it is the CloudKit
+    /// record name, and renormalising it would orphan already-synced records.
+    static func identity(hostname: String, port: Int) -> String {
+        var name = hostname.lowercased()
+        if name.hasPrefix("["), name.hasSuffix("]") { name = String(name.dropFirst().dropLast()) }
+        while name.hasSuffix(".") { name.removeLast() }
+        return "\(name):\(port)"
+    }
+
+    private static func identity(of host: KnownHost) -> String {
+        identity(hostname: host.hostname, port: host.port)
+    }
 
     /// Logger for debugging
     private let logger = Logger(subsystem: "dev.chr33s.shell", category: "KnownHosts")
@@ -36,16 +57,15 @@ final class KnownHostsManager: ObservableObject {
 
     /// Rebuild the legacy ID to UUID lookup table
     private func rebuildLegacyIdLookup() {
-        legacyIdToUUID = [:]
+        identityToUUID = [:]
         for host in store.activeRecords {
-            legacyIdToUUID[host.legacyId] = host.id
+            identityToUUID[Self.identity(of: host)] = host.id
         }
     }
 
     /// Get the known host entry for a specific hostname and port
     func getHost(hostname: String, port: Int) -> KnownHost? {
-        let legacyId = "\(hostname):\(port)"
-        guard let uuid = legacyIdToUUID[legacyId] else {
+        guard let uuid = identityToUUID[Self.identity(hostname: hostname, port: port)] else {
             return nil
         }
         let host = store.record(for: uuid)
@@ -62,7 +82,7 @@ final class KnownHostsManager: ObservableObject {
     /// Add or update a known host
     func addHost(_ host: KnownHost) {
         // Check if host already exists by legacy ID
-        if let existingUUID = legacyIdToUUID[host.legacyId],
+        if let existingUUID = identityToUUID[Self.identity(of: host)],
            var existing = store.record(for: existingUUID) {
             // Update existing host - preserve the UUID
             existing = KnownHost(
@@ -82,15 +102,14 @@ final class KnownHostsManager: ObservableObject {
         } else {
             // Add new host
             try? store.save(host)
-            legacyIdToUUID[host.legacyId] = host.id
+            identityToUUID[Self.identity(of: host)] = host.id
             logger.info("Added known host: \(host.hostname):\(host.port)")
         }
     }
 
     /// Update the last seen timestamp for a host
     func updateLastSeen(hostname: String, port: Int) {
-        let legacyId = "\(hostname):\(port)"
-        guard let uuid = legacyIdToUUID[legacyId],
+        guard let uuid = identityToUUID[Self.identity(hostname: hostname, port: port)],
               var host = store.record(for: uuid) else { return }
 
         host.updateLastSeen()
@@ -99,11 +118,11 @@ final class KnownHostsManager: ObservableObject {
 
     /// Remove a known host by hostname and port
     func removeHost(hostname: String, port: Int) {
-        let legacyId = "\(hostname):\(port)"
-        guard let uuid = legacyIdToUUID[legacyId] else { return }
+        let identity = Self.identity(hostname: hostname, port: port)
+        guard let uuid = identityToUUID[identity] else { return }
 
         try? store.softDelete(id: uuid)
-        legacyIdToUUID.removeValue(forKey: legacyId)
+        identityToUUID.removeValue(forKey: identity)
         logger.info("Removed known host: \(hostname):\(port)")
     }
 
@@ -112,7 +131,7 @@ final class KnownHostsManager: ObservableObject {
         guard let host = store.record(for: id) else { return }
 
         try? store.softDelete(id: id)
-        legacyIdToUUID.removeValue(forKey: host.legacyId)
+        identityToUUID.removeValue(forKey: Self.identity(of: host))
         logger.info("Removed known host: \(host.hostname):\(host.port)")
     }
 
@@ -121,7 +140,7 @@ final class KnownHostsManager: ObservableObject {
         for host in store.activeRecords {
             try? store.softDelete(id: host.id)
         }
-        legacyIdToUUID.removeAll()
+        identityToUUID.removeAll()
         logger.info("Removed all known hosts")
     }
 
@@ -173,7 +192,7 @@ final class KnownHostsManager: ObservableObject {
 
         for remote in remoteHosts {
             // Check by logical identity (hostname:port), not just UUID
-            if let existingUUID = legacyIdToUUID[remote.legacyId],
+            if let existingUUID = identityToUUID[Self.identity(of: remote)],
                let existing = store.record(for: existingUUID) {
                 // Same logical host exists - use last-write-wins
                 guard remote.modifiedAt > existing.modifiedAt else {
@@ -210,7 +229,7 @@ final class KnownHostsManager: ObservableObject {
                 // Truly new host - add it
                 do {
                     try store.save(remote, updateTimestamp: false, notifySync: false)
-                    legacyIdToUUID[remote.legacyId] = remote.id
+                    identityToUUID[Self.identity(of: remote)] = remote.id
                     applied += 1
                 } catch {
                     failures.append((id: remote.id, error: error))
@@ -243,7 +262,7 @@ final class KnownHostsManager: ObservableObject {
                 deleted.isDeleted = true
                 deleted.modifiedAt = Date()
                 try? store.save(deleted, updateTimestamp: false, notifySync: false)
-                legacyIdToUUID.removeValue(forKey: host.legacyId)
+                identityToUUID.removeValue(forKey: Self.identity(of: host))
                 deletedCount += 1
             }
         }

@@ -905,7 +905,9 @@ nonisolated enum ShellBuiltins {
         let tokenizer = ShellTokenizer(source: command)
         let parser = ShellParser(tokenizer: tokenizer)
         let ast = try parser.parse()
-        return try interp.execute(ast)
+        // Bounded: `X='eval "$X"'; eval "$X"` re-enters here forever, and
+        // nothing about it passes through a function frame.
+        return try interp.withNestedExecution("eval") { try interp.execute(ast) }
     }
 
     // MARK: - source / .
@@ -928,8 +930,10 @@ nonisolated enum ShellBuiltins {
         let parser = ShellParser(tokenizer: tokenizer)
         let ast = try parser.parse()
 
-        // Source runs in the current environment (not a subshell)
-        return try interp.execute(ast)
+        // Source runs in the current environment (not a subshell). Bounded:
+        // a script that sources itself would otherwise recurse until the
+        // stack overflows, which is a hard crash rather than a shell error.
+        return try interp.withNestedExecution("source: \(path)") { try interp.execute(ast) }
     }
 
     // MARK: - type

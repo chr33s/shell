@@ -14,6 +14,22 @@ public enum DisplaySanitizer {
         0x2066, 0x2067, 0x2068, 0x2069
     ]
 
+    /// Categories that render as nothing, as something else, or as a line
+    /// break. A zero-width space or a soft hyphen inside an argument is
+    /// invisible, and a line separator can split one argument into what looks
+    /// like two — both make the rendered text read differently from what would
+    /// execute, which is exactly what bidi controls are escaped for. `Cf`
+    /// covers the bidi set above as well as ZWSP, ZWNJ, ZWJ and U+FEFF.
+    private static func isDeceptive(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar.properties.generalCategory {
+        case .format, .control, .lineSeparator, .paragraphSeparator,
+             .privateUse, .surrogate, .unassigned:
+            return true
+        default:
+            return scalar.value == 0x00AD
+        }
+    }
+
     public struct Result: Sendable, Hashable {
         public let text: String
         /// True when anything was escaped, so the UI can mark the value.
@@ -32,7 +48,7 @@ public enum DisplaySanitizer {
             if count >= maxScalars { isTruncated = true; break }
             count += 1
             if bidiControls.contains(scalar.value) || scalar.value < 0x20 || scalar.value == 0x7F
-                || (scalar.value >= 0x80 && scalar.value <= 0x9F) {
+                || (scalar.value >= 0x80 && scalar.value <= 0x9F) || isDeceptive(scalar) {
                 didEscape = true
                 output += String(format: "<U+%04X>", scalar.value)
             } else {

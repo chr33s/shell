@@ -49,7 +49,11 @@ public struct InstallationStore: Sendable {
             if FileManager.default.fileExists(atPath: paths.runtime.path) {
                 runtime = try SecureFileSystem.decode(RuntimeState.self, from: paths.runtime)
             } else { runtime = RuntimeState() }
-            if let saved = installation.publicURL {
+            if try SecureFileSystem.decode(SavedAddressMode.self, from: paths.installation).isLegacy {
+                // A removed Cloudflare mode's route cannot be a tailnet
+                // origin; drop it so setup can migrate the installation.
+                installation.publicURL = nil
+            } else if let saved = installation.publicURL {
                 installation.publicURL = try AddressPolicy.validate(saved, mode: installation.addressMode)
             }
             return LoadedInstallation(installation: installation, secrets: secrets, runtime: runtime, paths: paths)
@@ -84,6 +88,14 @@ public struct InstallationStore: Sendable {
         }
         return bytes.map { String(format: "%02x", $0) }.joined()
     }
+}
+
+/// The raw `address_mode`, which `AddressMode` maps to `tailscale` when it
+/// names a removed mode.
+private struct SavedAddressMode: Decodable {
+    let raw: String?
+    var isLegacy: Bool { raw.map { AddressMode(rawValue: $0) == nil } ?? false }
+    enum CodingKeys: String, CodingKey { case raw = "address_mode" }
 }
 
 public enum AddressPolicy {

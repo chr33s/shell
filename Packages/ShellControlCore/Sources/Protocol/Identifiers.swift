@@ -130,10 +130,24 @@ enum RFC3339 {
             guard index > fractionStart else { return nil }
         }
         guard index == scalars.count - 1, scalars[index] == UInt8(ascii: "Z") else { return nil }
-        guard month >= 1, month <= 12, day >= 1, day <= 31, hour <= 23, minute <= 59, second <= 60 else { return nil }
+        // The day has to exist in that month: otherwise `daysFromCivil` rolls
+        // "2026-02-31" forward to March, and a timestamp that does not
+        // round-trip to the text that was signed reaches a digest.
+        guard month >= 1, month <= 12, day >= 1, day <= daysInMonth(year: year, month: month),
+              hour <= 23, minute <= 59, second <= 60
+        else { return nil }
         let days = daysFromCivil(year: year, month: month, day: day)
         let seconds = days * 86400 + Int64(hour * 3600 + minute * 60 + min(second, 59))
         return Date(timeIntervalSince1970: TimeInterval(seconds))
+    }
+
+    static func daysInMonth(year: Int, month: Int) -> Int {
+        switch month {
+        case 1, 3, 5, 7, 8, 10, 12: return 31
+        case 4, 6, 9, 11: return 30
+        case 2: return (year % 4 == 0 && year % 100 != 0) || year % 400 == 0 ? 29 : 28
+        default: return 0
+        }
     }
 
     /// Howard Hinnant's civil-calendar algorithms, which are exact for the

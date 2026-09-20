@@ -18,6 +18,16 @@ final class RegressionTests: XCTestCase {
         XCTAssertEqual(BrokerService.parseFormBody(Data("=&grant_type=refresh_token".utf8)), ["grant_type": "refresh_token"])
     }
 
+    /// `application/x-www-form-urlencoded` writes a space as `+` and a literal
+    /// plus as `%2B`. Percent decoding alone turned a browser-submitted admin
+    /// secret containing either into a different string, so the form never
+    /// authenticated with a secret the API accepted.
+    func testFormBodyDecodesPlusAsSpaceAndPercentAsLiteral() {
+        XCTAssertEqual(BrokerService.parseFormBody(Data("admin_secret=a+b".utf8)), ["admin_secret": "a b"])
+        XCTAssertEqual(BrokerService.parseFormBody(Data("admin_secret=a%2Bb".utf8)), ["admin_secret": "a+b"])
+        XCTAssertEqual(BrokerService.parseFormBody(Data("user+code=A+B".utf8)), ["user code": "A B"])
+    }
+
     // MARK: Push registration
 
     func testPushRegistrationFailsClosedWithNoConfiguredTopics() async throws {

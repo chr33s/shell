@@ -504,6 +504,38 @@ final class GatewayTests: XCTestCase {
         await assertControlError(.reviewerNotBound) { _ = try await stranger.snapshot() }
     }
 
+    /// The iPhone's own session problem is not a connectivity failure, and
+    /// is not the Watch's revocation either.
+    func testRouterRelaysTheIPhonesSessionProblemAsAControlError() async throws {
+        struct PairingRequired: ControlErrorConvertible {
+            var controlError: ControlError { ControlError(code: .notAuthorized, message: "pair again") }
+        }
+        let router = WatchGatewayRouter(client: { throw PairingRequired() }, binding: InMemoryWatchBindingStore())
+        let client = WatchGatewayClient(link: DirectWatchLink(router: router))
+        await assertControlError(.notAuthorized) {
+            _ = try await client.requestEnrollment(try WatchEnrollmentRequest.make(key: InMemoryDeviceKey(), label: "Apple Watch"))
+        }
+    }
+
+    /// An upstream rejection is reinterpreted against the iPhone's session
+    /// before it reaches the Watch.
+    func testRouterAppliesTheIPhonesErrorRecovery() async throws {
+        struct PairingRequired: ControlErrorConvertible {
+            var controlError: ControlError { ControlError(code: .notAuthorized, message: "pair again") }
+        }
+        let router = WatchGatewayRouter(
+            client: { throw ControlError(code: .invalidToken, message: "token expired") },
+            binding: InMemoryWatchBindingStore(),
+            recover: { error in
+                (error as? ControlError)?.code == .invalidToken ? PairingRequired() : error
+            }
+        )
+        let client = WatchGatewayClient(link: DirectWatchLink(router: router))
+        await assertControlError(.notAuthorized) {
+            _ = try await client.requestEnrollment(try WatchEnrollmentRequest.make(key: InMemoryDeviceKey(), label: "Apple Watch"))
+        }
+    }
+
     // MARK: Push relay and durability
 
     func testApprovalQueuesARelayHintForARegisteredCapability() async throws {

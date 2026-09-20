@@ -233,13 +233,21 @@ final class TailscaleLifecycleTests: XCTestCase {
         let first = try await rig.manager.setup(SetupOptions(tailscalePath: "/usr/bin/true"))
         var json = try JSONSerialization.jsonObject(with: Data(contentsOf: first.paths.installation)) as? [String: Any] ?? [:]
         json["address_mode"] = "quick"
+        json["public_url"] = "https://abc.trycloudflare.com"
         json["tunnel"] = ["cloudflared_path": "/opt/homebrew/bin/cloudflared"]
         try SecureFileSystem.atomicWrite(try JSONSerialization.data(withJSONObject: json), to: first.paths.installation)
+        // A quick-tunnel start that failed before the upgrade left its operation.
+        var runtime = try JSONSerialization.jsonObject(with: Data(contentsOf: first.paths.runtime)) as? [String: Any] ?? [:]
+        runtime["operation"] = ["id": UUID().uuidString, "command": "start", "plan": ["tunnel", "broker"],
+                                "pendingStep": "tunnel", "createdResources": ["tunnel", "broker"]]
+        try SecureFileSystem.atomicWrite(try JSONSerialization.data(withJSONObject: runtime), to: first.paths.runtime)
         let config = first.paths.services.appendingPathComponent("tunnel.yml")
         try SecureFileSystem.atomicWrite(Data("tunnel: x\n".utf8), to: config)
 
         let loaded = try InstallationStore(root: rig.state).load()
         XCTAssertEqual(loaded.installation.addressMode, .tailscale)
+        XCTAssertNil(loaded.installation.publicURL)
+        XCTAssertEqual(loaded.runtime.operation?.createdResources, [.broker])
         let again = try await rig.manager.setup(SetupOptions())
         XCTAssertEqual(again.installation.addressMode, .tailscale)
         XCTAssertFalse(FileManager.default.fileExists(atPath: config.path))

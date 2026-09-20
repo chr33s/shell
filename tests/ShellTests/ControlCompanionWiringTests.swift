@@ -131,6 +131,20 @@ final class ControlCompanionWiringTests: XCTestCase {
         #endif
     }
 
+    /// The relay is told the environment the signing profile grants, which a
+    /// Release build signed for development does not share with its config.
+    func testPushEnvironmentFollowsTheProvisioningProfile() {
+        func profile(_ aps: String) -> Data {
+            var data = Data([0x30, 0x80, 0x06, 0x09])
+            data.append(Data(#"<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>Entitlements</key><dict><key>aps-environment</key><string>\#(aps)</string></dict></dict></plist>"#.utf8))
+            data.append(Data([0x00, 0xA0, 0x82]))
+            return data
+        }
+        XCTAssertEqual(ControlPushCapability.profileEnvironment(profile("development")), .development)
+        XCTAssertEqual(ControlPushCapability.profileEnvironment(profile("production")), .production)
+        XCTAssertNil(ControlPushCapability.profileEnvironment(Data([0x30, 0x80])))
+    }
+
     func testScannedPayloadsAreClassifiedAsPairingOrRouteOnly() throws {
         let key = OriginSigningKey()
         let origin = OriginIdentity(originID: .random(), publicJWK: key.publicJWK)

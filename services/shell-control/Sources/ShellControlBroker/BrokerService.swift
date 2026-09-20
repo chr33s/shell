@@ -46,8 +46,9 @@ public struct BrokerService: Sendable {
         } catch let error as ControlError {
             return respond(error)
         } catch let error as OAuthError {
-            let status = error == .slowDown || error == .authorizationPending ? 400 : 400
-            return json(status: status, .object(["error": .string(error.rawValue)]))
+            // RFC 8628 carries every device-grant error, including
+            // `slow_down` and `authorization_pending`, as a 400.
+            return json(status: 400, .object(["error": .string(error.rawValue)]))
         } catch {
             return respond(ControlError(code: .invalidPayload, message: String(describing: error)))
         }
@@ -171,6 +172,9 @@ public struct BrokerService: Sendable {
             }
 
         case ("GET", "/v1/oauth/confirm"):
+            // Reachable through Tailscale Serve, and it accepts the admin
+            // credential, so it is rate-limited like the other admin routes.
+            try await limiter.check(bucket: "confirm", limit: 60)
             // This is the surface the device sends the user to, so a browser
             // gets a page it can act on. Nothing about the enrollment is shown
             // until the operator authenticates: the details appear only after
@@ -193,6 +197,9 @@ public struct BrokerService: Sendable {
             return json(status: 200, described)
 
         case ("POST", "/v1/oauth/confirm"):
+            // The one admin-credential check any tailnet peer can reach, so it
+            // is the one that must not allow unbounded guessing.
+            try await limiter.check(bucket: "confirm", limit: 60)
             // Two shapes: a JSON API call carrying the admin credential in a
             // header, and a browser form carrying it in the body. Both require
             // account administration; a decision credential never suffices.
@@ -636,11 +643,19 @@ public struct BrokerService: Sendable {
             // unauthenticated request.
             let parts = pair.split(separator: "=", maxSplits: 1)
             guard let rawName = parts.first else { continue }
-            let name = String(rawName).removingPercentEncoding ?? String(rawName)
-            let value = parts.count > 1 ? (String(parts[1]).removingPercentEncoding ?? String(parts[1])) : ""
+            let name = decodeFormComponent(String(rawName))
+            let value = parts.count > 1 ? decodeFormComponent(String(parts[1])) : ""
             fields[name] = value
         }
         return fields
+    }
+
+    /// `application/x-www-form-urlencoded` encodes a space as `+`, so percent
+    /// decoding alone turns a secret or code containing one into a different
+    /// string. A literal plus arrives as `%2B` and survives this.
+    private static func decodeFormComponent(_ text: String) -> String {
+        let spaced = text.replacingOccurrences(of: "+", with: " ")
+        return spaced.removingPercentEncoding ?? spaced
     }
 
     private func formFields(_ request: HTTPServer.Request) -> [String: String] {

@@ -46,6 +46,37 @@ final class StateAndClientTests: XCTestCase {
         XCTAssertTrue(long.isTruncated)
     }
 
+    /// A character that renders as nothing hides the difference between what
+    /// is shown and what would run just as effectively as a bidi override.
+    func testSanitizerEscapesInvisibleAndLineBreakingScalars() {
+        for scalar in ["\u{200B}", "\u{200D}", "\u{FEFF}", "\u{00AD}", "\u{2028}", "\u{2029}", "\u{E000}"] {
+            let result = DisplaySanitizer.sanitize("rm\(scalar)-rf")
+            XCTAssertTrue(result.didEscape, "did not escape \(scalar.unicodeScalars.first!.value)")
+            XCTAssertFalse(result.text.unicodeScalars.contains(scalar.unicodeScalars.first!))
+        }
+        // Ordinary text is left exactly as it is.
+        let plain = DisplaySanitizer.sanitize("rm -rf /tmp/naïve — done")
+        XCTAssertFalse(plain.didEscape)
+        XCTAssertEqual(plain.text, "rm -rf /tmp/naïve — done")
+    }
+
+    /// A `sendMessageData` whose reply handler never fires — a `WCSession`
+    /// torn down mid-flight — used to park the review forever: there is no
+    /// second transport, and the continuation cannot be cancelled out of.
+    func testAGatewayRoundTripThatNeverAnswersTimesOut() async throws {
+        let client = WatchGatewayClient(
+            link: HangingGatewayLink(),
+            watchDeviceID: .random(),
+            timeout: .milliseconds(50)
+        )
+        do {
+            _ = try await client.enrollmentStatus()
+            XCTFail("a link that never answers must not return a result")
+        } catch let error as WatchGatewayError {
+            XCTAssertEqual(error, .iPhoneUnreachable)
+        }
+    }
+
     func testIPCFramingRoundTrip() throws {
         var buffer = try IPCFraming.frame(JSONValue.object(["a": 1]))
         buffer.append(try IPCFraming.frame(JSONValue.object(["b": 2])))
@@ -169,9 +200,9 @@ final class StateAndClientTests: XCTestCase {
     }
 
     func testJournalKeepsAmbiguousCommandsAcrossSnapshots() async throws {
-        let journal = try CommandJournal()
-        let commandID = ControlID.random()
         let notAfter = try XCTUnwrap(ControlTimestamp(rfc3339: "2026-09-07T09:01:00Z"))
+        let journal = try CommandJournal(now: { notAfter.date })
+        let commandID = ControlID.random()
         try await journal.record(PendingCommand(
             commandID: commandID,
             signedCommand: "a.b.c",
@@ -185,5 +216,52 @@ final class StateAndClientTests: XCTestCase {
         // The identical command may be retried only while its lifetime holds.
         XCTAssertTrue(pending[0].isRetryable(at: notAfter.adding(-5)))
         XCTAssertFalse(pending[0].isRetryable(at: notAfter.adding(5)))
+    }
+
+    /// Commands whose outcome is never learned — the device stayed offline,
+    /// the app was killed — used to accumulate forever, until the persisted
+    /// journal no longer parsed and every ambiguous decision was lost at once.
+    func testJournalDropsCommandsPastTheRetentionWindow() async throws {
+        let notAfter = try XCTUnwrap(ControlTimestamp(rfc3339: "2026-09-07T09:01:00Z"))
+        let store = InMemoryCommandJournal()
+        let live = try CommandJournal(store: store, now: { notAfter.date })
+        try await live.record(PendingCommand(
+            commandID: .random(), signedCommand: "a.b.c", type: .approvalDecide,
+            targetID: .random(), notAfter: notAfter
+        ))
+        var count = await live.pending.count
+        XCTAssertEqual(count, 1)
+
+        // Still held just inside the window, gone once it closes.
+        let inside = try CommandJournal(store: store, now: { notAfter.date.addingTimeInterval(CommandJournal.retention - 60) })
+        count = await inside.pending.count
+        XCTAssertEqual(count, 1)
+        let outside = try CommandJournal(store: store, now: { notAfter.date.addingTimeInterval(CommandJournal.retention + 60) })
+        count = await outside.pending.count
+        XCTAssertEqual(count, 0)
+        XCTAssertEqual(try store.load().count, 0, "the prune is persisted, not just in memory")
+    }
+
+    func testJournalIsCappedAtItsMaximumEntries() async throws {
+        let base = try XCTUnwrap(ControlTimestamp(rfc3339: "2026-09-07T09:01:00Z"))
+        let journal = try CommandJournal(now: { base.date })
+        for offset in 0..<(CommandJournal.maximumEntries + 25) {
+            try await journal.record(PendingCommand(
+                commandID: .random(), signedCommand: "a.b.c", type: .approvalDecide,
+                targetID: .random(), notAfter: base.adding(TimeInterval(offset))
+            ))
+        }
+        let pending = await journal.pending
+        XCTAssertEqual(pending.count, CommandJournal.maximumEntries)
+        // The newest deadlines survive; the oldest are the ones dropped.
+        XCTAssertEqual(pending.last?.notAfter, base.adding(TimeInterval(CommandJournal.maximumEntries + 24)))
+    }
+}
+
+/// Reachable, but its reply never arrives.
+private struct HangingGatewayLink: WatchGatewayLink {
+    func isReachable() async -> Bool { true }
+    func send(_ data: Data) async throws -> Data {
+        try await withCheckedThrowingContinuation { (_: CheckedContinuation<Data, any Error>) in }
     }
 }

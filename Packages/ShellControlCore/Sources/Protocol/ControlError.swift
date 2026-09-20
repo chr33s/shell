@@ -86,6 +86,12 @@ public enum ControlErrorCode: String, Sendable, Hashable, CaseIterable {
     }
 }
 
+/// A local error with a protocol meaning, so a gateway can relay it as a
+/// `ControlError` instead of reporting the route as unavailable.
+public protocol ControlErrorConvertible: Error {
+    var controlError: ControlError { get }
+}
+
 public struct ControlError: Error, Sendable, Hashable {
     public let code: ControlErrorCode
     public let message: String

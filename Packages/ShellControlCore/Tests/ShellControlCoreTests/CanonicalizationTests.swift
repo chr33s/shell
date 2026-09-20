@@ -66,4 +66,25 @@ final class CanonicalizationTests: XCTestCase {
         XCTAssertNil(LogSequence(decimalString: "007"))
         XCTAssertEqual(LogSequence(decimalString: "7")?.value, 7)
     }
+
+    /// A number the parser accepts but cannot re-encode to the same bytes
+    /// would break the digest a signature commits to.
+    func testNumbersOutsideTheJSONGrammarAreRejected() {
+        for text in ["01", "-01", "1.", ".5", "1e", "1e+", "+1", "-", "1.2.3"] {
+            XCTAssertThrowsError(try JSONValue.parse("{\"n\":\(text)}"), "accepted \(text)")
+        }
+        XCTAssertNoThrow(try JSONValue.parse(#"{"n":0}"#))
+        XCTAssertNoThrow(try JSONValue.parse(#"{"n":-0.5e-2}"#))
+        XCTAssertNoThrow(try JSONValue.parse(#"{"n":10}"#))
+    }
+
+    /// `2026-02-31` has no day 31, and accepting it would hand back a March
+    /// date whose wire form differs from the text that was signed.
+    func testImpossibleCalendarDatesAreRejected() {
+        XCTAssertNil(ControlTimestamp.lenient("2026-02-31T00:00:00Z"))
+        XCTAssertNil(ControlTimestamp.lenient("2026-04-31T00:00:00Z"))
+        XCTAssertNil(ControlTimestamp.lenient("2025-02-29T00:00:00Z"))
+        XCTAssertEqual(ControlTimestamp.lenient("2024-02-29T00:00:00Z")?.rfc3339, "2024-02-29T00:00:00Z")
+        XCTAssertEqual(ControlTimestamp.lenient("2026-01-31T00:00:00Z")?.rfc3339, "2026-01-31T00:00:00Z")
+    }
 }

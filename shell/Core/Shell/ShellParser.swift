@@ -18,7 +18,18 @@ import Foundation
 ///
 /// The parser is `nonisolated` and `Sendable` — it can run on any thread.
 nonisolated final class ShellParser: @unchecked Sendable {
+    /// How deeply compound commands may nest.
+    ///
+    /// Every nesting level — a subshell, a brace group, an `if` body, a `case`
+    /// item — costs a frame in this recursive-descent parser, and a stack
+    /// overflow is a hard crash no `catch` can reach. A script with thousands
+    /// of unbalanced `(` would take the terminal down rather than report a
+    /// syntax error. Real scripts nest a handful of levels; this is far above
+    /// anything hand-written and far below the stack.
+    private static let maximumNestingDepth = 256
+
     private let tokenizer: ShellTokenizer
+    private var depth = 0
 
     init(tokenizer: ShellTokenizer) {
         self.tokenizer = tokenizer
@@ -135,6 +146,15 @@ nonisolated final class ShellParser: @unchecked Sendable {
 
     /// command : compound_command | function_def | simple_command
     private func parseCommand() throws -> ShellCommand {
+        // Every compound form below re-enters here for its body, so this is
+        // the one place the nesting depth has to be counted.
+        depth += 1
+        defer { depth -= 1 }
+        guard depth <= Self.maximumNestingDepth else {
+            throw ShellError.syntaxError(
+                line: tokenizer.currentLine,
+                "commands nested more than \(Self.maximumNestingDepth) levels deep")
+        }
         let tok = tokenizer.peek()
         // Captured here, before any token is consumed: the simple-command
         // parsers below run after `tokenizer.next()` has already moved past

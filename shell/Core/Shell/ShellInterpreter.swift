@@ -99,6 +99,38 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
     /// input like `{{{{...}}}}` blowing the stack.
     private static let maxBraceRecursionDepth = 16
 
+    /// Cap on shell-function nesting, in the spirit of bash's `FUNCNEST`.
+    ///
+    /// `f() { f; }; f` is a one-line typo, and without this it recurses until
+    /// the stack overflows — an uncatchable crash that takes the whole app
+    /// down, every tab and every SSH session with it. Reporting a shell error
+    /// instead keeps the failure inside the script that caused it.
+    ///
+    /// 128, not something larger: one shell-level call costs a whole chain of
+    /// Swift frames (`execute` → `executeSimple` → expansion → `executeFunction`),
+    /// each carrying saved parameter and scope arrays. A first attempt at 1000
+    /// still overflowed the stack before the guard fired — the limit has to sit
+    /// where the frames actually run out, not where it reads generously. Real
+    /// recursive shell functions (a directory walk, a countdown) nest tens of
+    /// levels at most.
+    private static let maxFunctionNestingDepth = 128
+
+    /// Cap on nested `$( … )`, which each run a fresh interpreter, and on
+    /// nested `source`. Both recurse through Swift frames the same way a
+    /// function call does.
+    private static let maxSubstitutionNestingDepth = 64
+
+    /// Current shell-function nesting level.
+    private var functionDepth = 0
+
+    /// Current `source`/`eval` nesting level.
+    private var nestedExecutionDepth = 0
+
+    /// How many `$( … )` / `source` levels are already open above this
+    /// interpreter. Command substitution builds a new interpreter per level,
+    /// so this has to be carried across, not held in an instance counter.
+    private let nestingDepth: Int
+
     init(environment: ShellEnvironment,
          cancellationToken: CancellationToken,
          executeExternal: @escaping @Sendable (String) -> Int32,
@@ -110,7 +142,9 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
          backgroundStreamExternal: (@Sendable (String, (@Sendable () -> Data?)?, @escaping @Sendable (Data) -> Bool) -> Int32)? = nil,
          isLocallyCancelled: (@Sendable () -> Bool)? = nil,
          writeOutput: @escaping @Sendable (Data) -> Void,
-         readLine: @escaping @Sendable (String?, Bool) -> String?) {
+         readLine: @escaping @Sendable (String?, Bool) -> String?,
+         nestingDepth: Int = 0) {
+        self.nestingDepth = nestingDepth
         self.environment = environment
         self.cancellationToken = cancellationToken
         self.executeExternal = executeExternal
@@ -177,6 +211,10 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
     /// so their output is also captured into the buffer.
     func executeCommandSubstitution(_ command: String) throws -> String {
         try checkCancelled()
+        guard nestingDepth < Self.maxSubstitutionNestingDepth else {
+            throw ShellError.recursionLimit(
+                "command substitution nested more than \(Self.maxSubstitutionNestingDepth) levels deep")
+        }
 
         let tokenizer = ShellTokenizer(source: command)
         let parser = ShellParser(tokenizer: tokenizer)
@@ -220,7 +258,8 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
             canStreamExternalCommand: canStreamExternalCommand,
             requiresOwnExternalPipelineStage: requiresOwnExternalPipelineStage,
             writeOutput: { data in captured.append(data) },
-            readLine: { _, _ -> String? in nil }
+            readLine: { _, _ -> String? in nil },
+            nestingDepth: nestingDepth + 1
         )
 
         let exitCode: Int32
@@ -263,6 +302,23 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
         while result.hasSuffix("\r\n") { result.removeLast(2) }
         while result.hasSuffix("\n") { result.removeLast() }
         return result
+    }
+
+    /// Runs `body` one `source`/`eval` level deeper, refusing past the limit.
+    ///
+    /// Both execute in the current environment and re-enter `execute`, so a
+    /// script that sources itself — or the two-liner
+    /// `X='eval "$X"'; eval "$X"` — recurses through Swift frames with nothing
+    /// to stop it. Neither passes through `executeFunction`, so the function
+    /// nesting counter does not see them.
+    func withNestedExecution<T>(_ what: String, _ body: () throws -> T) throws -> T {
+        guard nestedExecutionDepth < Self.maxSubstitutionNestingDepth else {
+            throw ShellError.recursionLimit(
+                "\(what): nested more than \(Self.maxSubstitutionNestingDepth) levels deep")
+        }
+        nestedExecutionDepth += 1
+        defer { nestedExecutionDepth -= 1 }
+        return try body()
     }
 
     /// Evaluate an arithmetic expression.
@@ -1467,6 +1523,13 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
     // MARK: - Function Execution
 
     func executeFunction(_ name: String, args: [String], body: ShellCommand) throws -> Int32 {
+        guard functionDepth < Self.maxFunctionNestingDepth else {
+            throw ShellError.recursionLimit(
+                "\(name): maximum function nesting level exceeded (\(Self.maxFunctionNestingDepth))")
+        }
+        functionDepth += 1
+        defer { functionDepth -= 1 }
+
         // Save and set positional parameters
         let savedParams = environment.getAllPositionalParams()
         let savedName = environment.getScriptName()
@@ -2276,6 +2339,16 @@ nonisolated final class OutputThrottle: @unchecked Sendable {
 /// Full recursive-descent arithmetic evaluator supporting C-like operators
 /// with correct precedence, variable references, assignment, and integer literals.
 nonisolated enum ShellArithmeticEvaluator {
+    /// `Int64.min / -1` and `Int64.min % -1` overflow and trap on `/` and `%`.
+    /// C — and so bash — wraps: the quotient is `Int64.min`, the remainder 0.
+    fileprivate static func wrappingDivide(_ lhs: Int64, _ rhs: Int64) -> Int64 {
+        lhs.dividedReportingOverflow(by: rhs).partialValue
+    }
+
+    fileprivate static func wrappingRemainder(_ lhs: Int64, _ rhs: Int64) -> Int64 {
+        lhs.remainderReportingOverflow(dividingBy: rhs).partialValue
+    }
+
     static func evaluate(_ expr: String, environment: ShellEnvironment) throws -> Int64 {
         var parser = ArithParser(expr: expr, environment: environment)
         let result = try parser.parseComma()
@@ -2290,8 +2363,14 @@ nonisolated enum ShellArithmeticEvaluator {
     // MARK: - Recursive-Descent Parser
 
     private struct ArithParser {
+        /// Cap on `( … )` nesting. Each level is a `parsePrimary` →
+        /// `parseComma` frame, so an expression of thousands of open parens
+        /// blew the stack rather than reporting a syntax error.
+        static let maximumParenDepth = 128
+
         let chars: [Character]
         var pos: Int = 0
+        var parenDepth = 0
         let environment: ShellEnvironment
         /// When true, parse syntax but don't evaluate side effects (variable
         /// lookups return 0 and assignments are no-ops). Used for short-circuit
@@ -2447,12 +2526,15 @@ nonisolated enum ShellArithmeticEvaluator {
 
                 // Check for compound assignment operators (longer ones first to avoid
                 // prefix conflicts, e.g. `<<=` must be checked before `<=`).
+                // Wrapping (`&+`/`&-`/`&*`), like the C arithmetic bash does:
+                // the trapping operators killed the whole process on
+                // `(( x += 1 ))` at `Int64.max`.
                 let assignOps: [(String, ((Int64, Int64) -> Int64)?)] = [
                     ("<<=", { $0 << $1 }),
                     (">>=", { $0 >> $1 }),
-                    ("+=", { $0 + $1 }),
-                    ("-=", { $0 - $1 }),
-                    ("*=", { $0 * $1 }),
+                    ("+=", { $0 &+ $1 }),
+                    ("-=", { $0 &- $1 }),
+                    ("*=", { $0 &* $1 }),
                     ("/=", nil),  // special: division by zero check
                     ("%=", nil),  // special: division by zero check
                     ("&=", { $0 & $1 }),
@@ -2471,11 +2553,11 @@ nonisolated enum ShellArithmeticEvaluator {
                             newVal = op(currentVal, rhs)
                         } else if opStr == "/=" {
                             guard rhs != 0 else { throw ShellError.divisionByZero }
-                            newVal = currentVal / rhs
+                            newVal = ShellArithmeticEvaluator.wrappingDivide(currentVal, rhs)
                         } else {
                             // %=
                             guard rhs != 0 else { throw ShellError.divisionByZero }
-                            newVal = currentVal % rhs
+                            newVal = ShellArithmeticEvaluator.wrappingRemainder(currentVal, rhs)
                         }
                         environment.setVariable(name, value: String(newVal))
                         return newVal
@@ -2724,11 +2806,11 @@ nonisolated enum ShellArithmeticEvaluator {
                 if peek() == "+", peekAt(1) != "=" {
                     advance()
                     let rhs = try parseMultiplicative()
-                    result += rhs
+                    result = result &+ rhs
                 } else if peek() == "-", peekAt(1) != "=" {
                     advance()
                     let rhs = try parseMultiplicative()
-                    result -= rhs
+                    result = result &- rhs
                 } else {
                     break
                 }
@@ -2744,17 +2826,17 @@ nonisolated enum ShellArithmeticEvaluator {
                 if peek() == "*", peekAt(1) != "=" {
                     advance()
                     let rhs = try parseUnary()
-                    result *= rhs
+                    result = result &* rhs
                 } else if peek() == "/", peekAt(1) != "=" {
                     advance()
                     let rhs = try parseUnary()
                     guard rhs != 0 else { throw ShellError.divisionByZero }
-                    result /= rhs
+                    result = ShellArithmeticEvaluator.wrappingDivide(result, rhs)
                 } else if peek() == "%", peekAt(1) != "=" {
                     advance()
                     let rhs = try parseUnary()
                     guard rhs != 0 else { throw ShellError.divisionByZero }
-                    result %= rhs
+                    result = ShellArithmeticEvaluator.wrappingRemainder(result, rhs)
                 } else {
                     break
                 }
@@ -2773,7 +2855,7 @@ nonisolated enum ShellArithmeticEvaluator {
                     throw ShellError.arithmeticError("expected variable after '++'")
                 }
                 if skipEval { return 0 }
-                let newVal = resolveVariable(name) + 1
+                let newVal = resolveVariable(name) &+ 1
                 environment.setVariable(name, value: String(newVal))
                 return newVal
             }
@@ -2784,7 +2866,7 @@ nonisolated enum ShellArithmeticEvaluator {
                     throw ShellError.arithmeticError("expected variable after '--'")
                 }
                 if skipEval { return 0 }
-                let newVal = resolveVariable(name) - 1
+                let newVal = resolveVariable(name) &- 1
                 environment.setVariable(name, value: String(newVal))
                 return newVal
             }
@@ -2794,7 +2876,8 @@ nonisolated enum ShellArithmeticEvaluator {
             }
             if peek() == "-", peekAt(1) != "=" {
                 advance()
-                return -(try parseUnary())
+                // `0 &- x`, not `-x`: negating `Int64.min` traps.
+                return 0 &- (try parseUnary())
             }
             if peek() == "!", peekAt(1) != "=" {
                 advance()
@@ -2818,7 +2901,13 @@ nonisolated enum ShellArithmeticEvaluator {
 
             // Parenthesized expression
             if ch == "(" {
+                guard parenDepth < Self.maximumParenDepth else {
+                    throw ShellError.arithmeticError(
+                        "arithmetic expression nested more than \(Self.maximumParenDepth) levels deep")
+                }
                 advance()
+                parenDepth += 1
+                defer { parenDepth -= 1 }
                 let val = try parseComma()
                 skipWS()
                 guard peek() == ")" else {
@@ -2841,14 +2930,14 @@ nonisolated enum ShellArithmeticEvaluator {
                     advance(); advance()
                     if skipEval { return 0 }
                     let val = resolveVariable(name)
-                    environment.setVariable(name, value: String(val + 1))
+                    environment.setVariable(name, value: String(val &+ 1))
                     return val
                 }
                 if peek() == "-", peekAt(1) == "-" {
                     advance(); advance()
                     if skipEval { return 0 }
                     let val = resolveVariable(name)
-                    environment.setVariable(name, value: String(val - 1))
+                    environment.setVariable(name, value: String(val &- 1))
                     return val
                 }
                 if skipEval { return 0 }

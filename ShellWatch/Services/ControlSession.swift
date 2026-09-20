@@ -67,7 +67,9 @@ final class ControlSession {
         self.keys = keys
         self.reviewerStore = reviewerStore
         self.cache = cache
-        self.journal = try CommandJournal(store: journalStore)
+        // The journal judges its own retention window, so it has to share this
+        // session's clock rather than reading the wall clock behind its back.
+        self.journal = try CommandJournal(store: journalStore, now: now)
         self.now = now
     }
 
@@ -109,6 +111,13 @@ final class ControlSession {
     }
 
     // MARK: Gateway state
+
+    /// A reply arrived over the interactive channel, so the iPhone is
+    /// reachable whatever it answered. WatchConnectivity only reports
+    /// reachability changes, so a timeout it never saw must be undone here.
+    private func noteGatewayAnswered() {
+        isGatewayReachable = true
+    }
 
     func gatewayReachabilityChanged(_ reachable: Bool) {
         isGatewayReachable = reachable
@@ -228,6 +237,7 @@ final class ControlSession {
             }
             inbox = reconciler.state
             try? cache.commit(inbox)
+            noteGatewayAnswered()
             gatewayProblem = nil
             lastError = nil
             consecutiveFailures = 0
@@ -300,6 +310,7 @@ final class ControlSession {
             let record = try await client.approval(requestID)
             inbox.approvals[requestID] = record
             try? cache.commit(inbox)
+            noteGatewayAnswered()
             gatewayProblem = nil
             return record
         } catch {
@@ -373,8 +384,16 @@ final class ControlSession {
     private func note(_ error: any Error) {
         switch error {
         case let error as WatchGatewayError:
-            if error == .iPhoneUnreachable { isGatewayReachable = false }
+            switch error {
+            case .iPhoneUnreachable: isGatewayReachable = false
+            case .gatewayUnavailable: noteGatewayAnswered()
+            default: break
+            }
             gatewayProblem = describe(error)
+        case is ControlError where !isGatewayReachable:
+            // The iPhone relayed the Mac's answer, so it is reachable.
+            noteGatewayAnswered()
+            note(error)
         case let error as ControlError where error.code == .deviceRevoked:
             signOut()
             enrollmentMessage = String(localized: "This Watch was revoked")
@@ -408,7 +427,9 @@ final class ControlSession {
         }
     }
 
-    /// Forgets this Watch's reviewer identity, key, and cache together.
+    /// Forgets this Watch's reviewer identity, key, cache, and journal
+    /// together. The journal goes too: its entries are commands signed by the
+    /// key being discarded here, so nothing can retry or reconcile them.
     func signOut() {
         stopPolling()
         try? keys.removeAll()
@@ -417,7 +438,12 @@ final class ControlSession {
         inbox = InboxState()
         reviewer = nil
         submissions = [:]
+        pendingCommands = []
+        decisionProblems = [:]
         phase = .needsEnrollment
-        Task { await client.setWatchDeviceID(nil) }
+        Task {
+            try? await journal.clear()
+            await client.setWatchDeviceID(nil)
+        }
     }
 }

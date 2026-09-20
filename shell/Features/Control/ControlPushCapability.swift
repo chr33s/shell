@@ -87,12 +87,31 @@ enum ControlPushCapability {
         defaults.removeObject(forKey: deviceKey)
     }
 
-    static var environment: PushRegistration.Environment {
-        #if DEBUG
-        .development
+    /// The APNs environment the token was issued for. That follows the
+    /// signing profile's `aps-environment`, not the build configuration: a
+    /// Release build signed for development still gets a sandbox token.
+    static let environment: PushRegistration.Environment = {
+        #if targetEnvironment(simulator)
+        return .development
         #else
-        .production
+        // App Store and TestFlight builds carry no embedded profile and are
+        // always production.
+        guard let url = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision"),
+              let data = try? Data(contentsOf: url) else { return .production }
+        return profileEnvironment(data) ?? .production
         #endif
+    }()
+
+    /// Reads `Entitlements.aps-environment` from the plist inside a CMS-signed
+    /// provisioning profile.
+    static func profileEnvironment(_ profile: Data) -> PushRegistration.Environment? {
+        guard let start = profile.range(of: Data("<?xml".utf8)),
+              let end = profile.range(of: Data("</plist>".utf8), in: start.lowerBound..<profile.endIndex),
+              let plist = try? PropertyListSerialization.propertyList(from: profile[start.lowerBound..<end.upperBound], format: nil),
+              let entitlements = (plist as? [String: Any])?["Entitlements"] as? [String: Any],
+              let aps = entitlements["aps-environment"] as? String
+        else { return nil }
+        return aps == "development" ? .development : .production
     }
 
     /// Whether a remote notification is a Shell approval hint (as opposed to

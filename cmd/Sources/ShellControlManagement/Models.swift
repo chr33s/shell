@@ -93,6 +93,17 @@ public struct ManagementOperation: Codable, Equatable, Sendable {
     public init(command: String, plan: [String]) {
         id = UUID(); self.command = command; self.plan = plan; pendingStep = plan.first; createdResources = []
     }
+
+    /// An operation left by a release with the Cloudflare tunnel may list
+    /// `tunnel`; it is dropped here and setup removes the tunnel job itself.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        command = try container.decode(String.self, forKey: .command)
+        plan = try container.decode([String].self, forKey: .plan)
+        pendingStep = try container.decodeIfPresent(String.self, forKey: .pendingStep)
+        createdResources = try container.decode([String].self, forKey: .createdResources).compactMap(Component.init(rawValue:))
+    }
 }
 
 public struct RuntimeState: Codable, Equatable, Sendable {

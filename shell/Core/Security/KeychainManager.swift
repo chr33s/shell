@@ -60,38 +60,12 @@ class KeychainManager {
 
     // MARK: - Private Key Storage
 
-    /// Saves an SSH private key to the Keychain
-    /// - Parameters:
-    ///   - keyData: The private key data (PEM or OpenSSH format)
-    ///   - identifier: Unique identifier for the key (typically UUID)
-    /// - Throws: KeychainError if save fails
-    func savePrivateKey(_ keyData: Data, identifier: String) throws {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "com.ghostty.ssh.privatekey",
-            kSecAttrAccount as String: identifier,
-            kSecValueData as String: keyData,
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
-            kSecAttrSynchronizable as String: false, // Keep keys local only
-            kSecAttrAccessGroup as String: accessGroup
-        ]
-
-        Self.logger.debug("savePrivateKey - Account: \(identifier), Data size: \(keyData.count) bytes")
-
-        let status = SecItemAdd(query as CFDictionary, nil)
-
-        if status != errSecSuccess {
-            Self.logger.error("savePrivateKey failed - Status: \(status) (\(Self.keychainErrorString(status)))")
-        }
-
-        guard status != errSecDuplicateItem else {
-            throw KeychainError.duplicateItem
-        }
-
-        guard status == errSecSuccess else {
-            throw KeychainError.unexpectedStatus(status)
-        }
-    }
+    // A `savePrivateKey(_:identifier:)` without a storage level used to live
+    // here. It wrote every key `kSecAttrAccessibleAfterFirstUnlock`, which is
+    // included in device backups, while its comment claimed the key stayed
+    // local — that only described `kSecAttrSynchronizable: false`. Nothing
+    // called it; every caller chooses a `KeyStorageLevel` explicitly below, and
+    // `.deviceOnly` is the one that really keeps a key off backups.
 
     /// Saves an SSH private key with security configuration
     /// - Parameters:

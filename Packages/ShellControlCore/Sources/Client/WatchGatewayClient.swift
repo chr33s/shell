@@ -17,11 +17,26 @@ public protocol WatchGatewayLink: Sendable {
 /// logic the iPhone uses runs unchanged over the gateway, signed by the Watch's
 /// own key.
 public actor WatchGatewayClient: ControlDecisionService {
+    /// How long one round trip may take before it is reported as an
+    /// unreachable iPhone.
+    ///
+    /// `sendMessageData` promises exactly one of its two handlers, but a
+    /// session torn down mid-flight can deliver neither, and there is no other
+    /// transport to fall back to: without a deadline the review would sit
+    /// waiting forever with no way out but killing the app.
+    public static let roundTripTimeout: Duration = .seconds(20)
+
     private let link: any WatchGatewayLink
+    private let timeout: Duration
     private var watchDeviceID: ControlID?
 
-    public init(link: any WatchGatewayLink, watchDeviceID: ControlID? = nil) {
+    public init(
+        link: any WatchGatewayLink,
+        watchDeviceID: ControlID? = nil,
+        timeout: Duration = WatchGatewayClient.roundTripTimeout
+    ) {
         self.link = link
+        self.timeout = timeout
         self.watchDeviceID = watchDeviceID
     }
 
@@ -102,7 +117,7 @@ public actor WatchGatewayClient: ControlDecisionService {
         // queueing the request for a later, unobserved delivery.
         guard await link.isReachable() else { throw WatchGatewayError.iPhoneUnreachable }
         let request = try WatchGatewayRequest(type: type, watchDeviceID: identity, body: body)
-        let reply = try await link.send(try request.encoded())
+        let reply = try await send(try request.encoded())
         let response = try WatchGatewayResponse(data: reply)
         guard response.messageID == request.messageID else { throw WatchGatewayError.responseMismatch }
         switch response.result {
@@ -110,5 +125,50 @@ public actor WatchGatewayClient: ControlDecisionService {
         case .failure(let error): throw error
         case .gatewayUnavailable(let reason): throw WatchGatewayError.gatewayUnavailable(reason)
         }
+    }
+
+    /// One round trip, bounded by ``roundTripTimeout``.
+    ///
+    /// Two unstructured tasks race through a single-resume continuation rather
+    /// than a task group. A group awaits every child when its body returns, and
+    /// the child here is a `sendMessageData` continuation that a torn-down
+    /// `WCSession` may never resume and cannot be cancelled out of — so a group
+    /// would hang on exactly the case this deadline exists for. The losing task
+    /// keeps running; the caller has already returned.
+    private func send(_ payload: Data) async throws -> Data {
+        let link = self.link
+        let timeout = self.timeout
+        let claim = FirstToFinish()
+        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, any Error>) in
+            let work = Task<Void, Never> {
+                do {
+                    let reply = try await link.send(payload)
+                    if claim.take() { continuation.resume(returning: reply) }
+                } catch {
+                    if claim.take() { continuation.resume(throwing: error) }
+                }
+            }
+            Task<Void, Never> {
+                try? await Task.sleep(for: timeout)
+                if claim.take() {
+                    work.cancel()
+                    continuation.resume(throwing: WatchGatewayError.iPhoneUnreachable)
+                }
+            }
+        }
+    }
+}
+
+/// Lets exactly one of two racing tasks resume a continuation; a second resume
+/// would trap.
+private final class FirstToFinish: @unchecked Sendable {
+    private let lock = NSLock()
+    private var finished = false
+
+    func take() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        if finished { return false }
+        finished = true
+        return true
     }
 }

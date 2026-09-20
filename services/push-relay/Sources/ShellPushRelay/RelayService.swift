@@ -75,6 +75,15 @@ public struct RelayService: Sendable {
                 }
                 return json(201, try issueCapability(try body(request)))
             case ("POST", "/v1/push"):
+                // Before the capability is opened, not after: verifying its
+                // signature costs a P-256 check, so an unauthenticated caller
+                // must not be able to ask for an unbounded number of them.
+                // The per-capability limit below still bounds real senders.
+                if let client = clientAddress(request) {
+                    try await limiter.check(bucket: "push:\(client)", limit: 600, now: now())
+                } else {
+                    try await limiter.check(bucket: "push", limit: 3000, now: now())
+                }
                 return json(202, try await push(try body(request)))
             default:
                 throw ControlError(code: .notFound, message: "no such endpoint")
@@ -118,6 +127,13 @@ public struct RelayService: Sendable {
         }
         guard configuration.allowedTopics.contains(topic) else {
             throw ControlError(code: .notAuthorized, message: "topic is not served by this relay")
+        }
+        // An APNs device token is lowercase hex. Checking the shape here keeps
+        // a sealed capability from naming something APNs will never accept.
+        guard token.count >= 64, token.count <= 200,
+              token.allSatisfy({ $0.isHexDigit && $0.isASCII && !$0.isUppercase })
+        else {
+            throw ControlError(code: .invalidPayload, message: "apns_token is malformed")
         }
         let capability = try PushCapability(
             apnsToken: token,

@@ -258,9 +258,13 @@ nonisolated final class ShellEnvironment: @unchecked Sendable {
     }
 
     /// Shift positional parameters left by `n`.
+    ///
+    /// Clamped at both ends: `shift -1` is a plausible typo, and
+    /// `removeFirst(_:)` has a `k >= 0` precondition, so a negative count
+    /// trapped and took the app down instead of being a no-op.
     func shiftParams(_ n: Int = 1) {
         lock.withLock {
-            let count = min(n, positionalParams.count)
+            let count = min(max(n, 0), positionalParams.count)
             positionalParams.removeFirst(count)
         }
     }

@@ -116,7 +116,19 @@ public final class HTTPServer: @unchecked Sendable {
             let client = withUnsafeMutablePointer(to: &peer) { pointer in
                 pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { accept(socket, $0, &peerLength) }
             }
-            if client < 0 { continue }
+            if client < 0 {
+                // A persistent accept failure (EMFILE when the process is out
+                // of descriptors, say) would otherwise spin this loop at 100%
+                // CPU. Yield briefly so the condition can clear.
+                if errno == EMFILE || errno == ENFILE || errno == ENOBUFS || errno == ENOMEM {
+                    usleep(50_000)
+                }
+                continue
+            }
+            // Slowloris protection: a peer that opens a connection and then
+            // stalls would otherwise pin a thread forever, and threads here are
+            // unbounded. Both directions time out.
+            HTTPServer.setTimeouts(client)
             // A detached thread per connection rather than a shared pool: a
             // handler may block for the whole of a `wait=30` long poll, and a
             // bounded pool would stop serving short foreground control
@@ -149,6 +161,18 @@ public final class HTTPServer: @unchecked Sendable {
     }
 
     // MARK: Parsing
+
+    /// Per-connection receive and send deadlines. A request has to arrive, and
+    /// a response has to be accepted, within this window; the handler itself is
+    /// not covered, so a `wait=30` long poll is unaffected.
+    private static let connectionTimeout = timeval(tv_sec: 30, tv_usec: 0)
+
+    private static func setTimeouts(_ client: Int32) {
+        var timeout = connectionTimeout
+        let size = socklen_t(MemoryLayout<timeval>.size)
+        setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &timeout, size)
+        setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, &timeout, size)
+    }
 
     private static func address(_ peer: sockaddr_in) -> String? {
         var buffer = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
@@ -185,13 +209,20 @@ public final class HTTPServer: @unchecked Sendable {
             headers[name] = value
         }
         var body = Data(buffer[headerEnd.upperBound...])
-        let contentLength = Int(headers["content-length"] ?? "0") ?? 0
+        guard let contentLength = Int(headers["content-length"] ?? "0"), contentLength >= 0 else { return nil }
         guard contentLength <= 1 << 20 else { return nil }
         while body.count < contentLength {
             let read = recv(client, &chunk, chunk.count, 0)
-            if read <= 0 { break }
+            // A body that stops short of `Content-Length` is a truncated
+            // request, not a short one: handing the handler a partial document
+            // would let a peer choose which members a parser sees.
+            if read <= 0 { return nil }
             body.append(contentsOf: chunk[0..<read])
         }
+        // A pipelined or over-long write can leave bytes past the declared
+        // body in the same buffer; they belong to no request this server will
+        // serve, so they never reach the handler.
+        if body.count > contentLength { body = Data(body.prefix(contentLength)) }
         let (path, query) = parseTarget(target)
         return Request(method: method, path: path, query: query, headers: headers, body: body, peerAddress: peer)
     }

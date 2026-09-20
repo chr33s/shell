@@ -43,6 +43,11 @@ enum ShellError: Error {
 
     /// Feature not yet implemented — gives a clear error message.
     case unsupported(String)
+
+    /// A recursion limit was hit (function nesting, sourcing). Reported as an
+    /// error because the alternative is a stack overflow, which is a hard
+    /// crash that takes every other terminal session down with it.
+    case recursionLimit(String)
 }
 
 extension ShellError: LocalizedError {
@@ -72,6 +77,8 @@ extension ShellError: LocalizedError {
             return "${\(content)}: bad substitution"
         case .unsupported(let feature):
             return "not supported: \(feature)"
+        case .recursionLimit(let message):
+            return message
         }
     }
 }

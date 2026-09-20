@@ -1245,7 +1245,18 @@ final class CloudKitSyncManager {
         }
     }
 
-    /// Save a record with conflict resolution
+    /// Save a record, letting the server settle any conflict.
+    ///
+    /// `.ifServerRecordUnchanged`, not `.allKeys`: `toCKRecord()` builds a
+    /// fresh `CKRecord` with no change tag, and `.allKeys` tells CloudKit to
+    /// ignore tags and overwrite. That made `serverRecordChanged` unreachable
+    /// on this path — `resolveServerRecordConflict` below never ran — so a
+    /// stale copy drained from the offline queue, or re-pushed by `backfill`
+    /// and `pushAllLocalRecords`, silently clobbered a newer record written on
+    /// another device. A conditional save costs one extra round trip when the
+    /// record already exists and gives the `modifiedAt` comparison that the
+    /// last-write-wins design depends on. The settings path has always saved
+    /// this way; this is the same contract for the other three classes.
     private func saveRecord<T: CloudKitSyncable>(_ record: T) async throws {
         let ckRecord = record.toCKRecord()
 
@@ -1253,7 +1264,7 @@ final class CloudKitSyncManager {
             let (saveResults, _) = try await database.modifyRecords(
                 saving: [ckRecord],
                 deleting: [],
-                savePolicy: .allKeys
+                savePolicy: .ifServerRecordUnchanged
             )
             for (_, result) in saveResults {
                 if case .failure(let error) = result {
@@ -1262,6 +1273,12 @@ final class CloudKitSyncManager {
             }
         } catch let ckError as CKError where ckError.code == .serverRecordChanged {
             try await resolveServerRecordConflict(ckError, localRecord: record)
+        } catch let ckError as CKError where ckError.code == .partialFailure {
+            // A single-record save reports the per-record error here rather
+            // than as the top-level code.
+            guard let inner = ckError.partialErrorsByItemID?.values.first as? CKError,
+                  inner.code == .serverRecordChanged else { throw ckError }
+            try await resolveServerRecordConflict(inner, localRecord: record)
         }
     }
 
@@ -1276,12 +1293,16 @@ final class CloudKitSyncManager {
         }
 
         if localRecord.modifiedAt > serverModel.modifiedAt {
-            // Local is newer - apply local fields onto the server record and retry save
+            // Local is newer - apply local fields onto the server record and
+            // retry. `serverRecord` carries the tag this conflict reported, so
+            // the retry is still conditional: losing a second race throws, and
+            // the caller queues the record rather than overwriting a third
+            // device's newer write.
             localRecord.apply(to: serverRecord)
             let (saveResults, _) = try await database.modifyRecords(
                 saving: [serverRecord],
                 deleting: [],
-                savePolicy: .allKeys
+                savePolicy: .ifServerRecordUnchanged
             )
             for (_, result) in saveResults {
                 if case .failure(let error) = result {

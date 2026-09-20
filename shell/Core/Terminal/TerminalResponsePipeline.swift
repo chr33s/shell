@@ -257,6 +257,10 @@ final class TerminalResponsePipeline {
         return out
     }
 
+    /// The most a partial escape sequence may hold back before it is treated
+    /// as ordinary output. A well-formed CSI is far shorter than this.
+    nonisolated static let maxCarryOverBytes = 64 * 1024
+
     nonisolated static func filterSizeReports(
         from data: Data,
         carryOver: inout Data
@@ -271,6 +275,13 @@ final class TerminalResponsePipeline {
             input.append(data)
             carryOver.removeAll(keepingCapacity: true)
         }
+
+        // An unterminated CSI carries over to the next chunk, so a sequence
+        // that never reaches its final byte would otherwise grow this buffer
+        // without bound and make every chunk rescan all of it. Past the cap
+        // the partial sequence is no longer treated as one: it is passed
+        // through as ordinary bytes and parsing restarts.
+        guard input.count <= maxCarryOverBytes else { return input.isEmpty ? nil : input }
 
         return input.withUnsafeBytes { rawBuffer -> Data? in
             guard let bytes = rawBuffer.baseAddress?.assumingMemoryBound(to: UInt8.self) else {

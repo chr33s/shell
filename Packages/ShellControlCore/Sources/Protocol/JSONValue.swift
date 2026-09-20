@@ -314,23 +314,40 @@ private struct StrictJSONParser {
         return value
     }
 
+    /// RFC 8259 number grammar, enforced rather than approximated: a lenient
+    /// reader would accept `01`, `.5`, `1.` or `1e`, none of which can be
+    /// re-encoded to the bytes that were signed.
     private mutating func parseNumber() throws -> JSONNumber {
         let start = index
         if current == "-" { index += 1 }
+        // int: "0" | [1-9] digit*
+        guard let leading = current, ("0"..."9").contains(leading) else {
+            throw JSONError.syntax("invalid number")
+        }
+        index += 1
+        if leading == "0" {
+            if let next = current, ("0"..."9").contains(next) { throw JSONError.syntax("leading zero") }
+        } else {
+            while let scalar = current, ("0"..."9").contains(scalar) { index += 1 }
+        }
         var isInteger = true
-        while let scalar = current, ("0"..."9").contains(scalar) { index += 1 }
         if current == "." {
             isInteger = false
             index += 1
+            guard let scalar = current, ("0"..."9").contains(scalar) else {
+                throw JSONError.syntax("fraction needs a digit")
+            }
             while let scalar = current, ("0"..."9").contains(scalar) { index += 1 }
         }
         if current == "e" || current == "E" {
             isInteger = false
             index += 1
             if current == "+" || current == "-" { index += 1 }
+            guard let scalar = current, ("0"..."9").contains(scalar) else {
+                throw JSONError.syntax("exponent needs a digit")
+            }
             while let scalar = current, ("0"..."9").contains(scalar) { index += 1 }
         }
-        guard index > start else { throw JSONError.syntax("invalid number") }
         var view = String.UnicodeScalarView()
         view.append(contentsOf: scalars[start..<index])
         let text = String(view)

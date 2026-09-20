@@ -73,7 +73,11 @@ public struct OriginRoute: Sendable, Hashable {
         guard host.hasSuffix(".ts.net"), host.count > ".ts.net".count else { return false }
         let labels = host.split(separator: ".", omittingEmptySubsequences: false)
         return labels.count >= 3 && labels.allSatisfy { label in
-            !label.isEmpty && label.count <= 63 && label.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" }
+            // ASCII only. `isLetter` is true for every Unicode letter, which
+            // would accept a homograph like `аpple.ts.net` (Cyrillic а) as a
+            // tailnet name; a real MagicDNS label is LDH.
+            !label.isEmpty && label.count <= 63
+                && label.allSatisfy { ($0.isASCII && ($0.isLetter || $0.isNumber)) || $0 == "-" }
                 && label.first != "-" && label.last != "-"
         }
     }
