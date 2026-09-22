@@ -404,7 +404,9 @@ public struct BrokerService: Sendable {
             guard let requestID = ControlID(String(request.path.dropFirst("/v1/approvals/".count))) else {
                 throw ControlError(code: .notFound, message: "no such request")
             }
-            try principal.requireGrant(.requestsRead)
+            if principal.deviceID != nil {
+                try principal.requireGrant(.requestsRead)
+            }
             return json(status: 200, try await store.approval(requestID, principal: principal).json)
         }
         if request.method == "GET", request.path.hasPrefix("/v1/commands/") {

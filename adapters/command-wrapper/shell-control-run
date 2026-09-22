@@ -53,6 +53,9 @@ set -e
 
 capability="$(/usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["run_capability"])' "$result")"
 request_id="$(/usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["request_id"])' "$result")"
+decision_id="$(/usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["result"]["permit"]["decision_id"])' "$result")"
+consume_id="$(/usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["result"]["permit"]["consume_id"])' "$result")"
+request_hash="$(/usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["result"]["permit"]["request_hash"])' "$result")"
 
 # Re-check the precondition immediately before dispatch: the hash bound what
 # was requested, it does not keep the world still.
@@ -62,7 +65,7 @@ recheck="$(printf '%s\n' \
     "cwd=$(pwd)" \
     "path=${PATH}" | shasum -a 256 | cut -d' ' -f1)"
 if [ "$recheck" != "$context" ]; then
-    shell-control receipt --run-capability "$capability" --request "$request_id" \
+    shell-control receipt --run-capability "$capability" --request "$request_id" --decision "$decision_id" --consume "$consume_id" --request-hash "$request_hash" \
         --result not_applied --reason "context_changed_before_dispatch" > /dev/null
     echo "shell-control-run: the local context changed after review" >&2
     exit 1
@@ -74,6 +77,6 @@ set +e
 "$@"
 command_status=$?
 set -e
-shell-control receipt --run-capability "$capability" --request "$request_id" \
+shell-control receipt --run-capability "$capability" --request "$request_id" --decision "$decision_id" --consume "$consume_id" --request-hash "$request_hash" \
     --result applied --reason "wrapper_dispatched_command" > /dev/null
 exit "$command_status"

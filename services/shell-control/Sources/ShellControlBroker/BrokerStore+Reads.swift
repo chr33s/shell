@@ -25,6 +25,9 @@ extension BrokerStore {
             guard anchor.value <= highWater.value else {
                 throw ControlError(code: .cursorExpired, message: "snapshot expired")
             }
+            guard parsedOffset >= 0 else {
+                throw ControlError(code: .cursorExpired, message: "page token offset is not readable")
+            }
             offset = parsedOffset
         }
         let anchorSequence = pageToken.flatMap { token -> LogSequence? in
@@ -96,7 +99,7 @@ extension BrokerStore {
         sweepExpired()
         let sequence = try CursorCodec.decodeCursor(cursor, principal: principal, secret: cursorSecret)
         // A cursor older than the retained log cannot be honoured.
-        if sequence.value > 0, sequence.value + 1 < earliestSequence {
+        if sequence.value < UInt64.max, sequence.value > 0, sequence.value + 1 < earliestSequence {
             throw ControlError(code: .cursorExpired, message: "cursor is older than the retained log")
         }
         let limit = max(1, min(limit, ChangePage.maximumEvents))

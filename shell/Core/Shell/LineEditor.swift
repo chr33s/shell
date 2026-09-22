@@ -167,7 +167,9 @@ class LineEditor {
 
         let index = buffer.index(buffer.startIndex, offsetBy: cursorPosition)
         buffer.insert(contentsOf: text, at: index)
-        cursorPosition += text.count
+        // A combining mark can merge with the preceding Character, so the
+        // String's grapheme count may grow by fewer than `text.count`.
+        cursorPosition = min(buffer.count, cursorPosition + text.count)
         return true
     }
 
@@ -247,6 +249,6 @@ class LineEditor {
         let endIndex = buffer.index(buffer.startIndex, offsetBy: range.upperBound)
 
         buffer.replaceSubrange(startIndex..<endIndex, with: text)
-        cursorPosition = range.lowerBound + text.count
+        cursorPosition = min(buffer.count, range.lowerBound + text.count)
     }
 }

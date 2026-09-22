@@ -17,8 +17,7 @@ git_binary="$(command -v git)"
 # object ids rather than to a branch name that could move.
 refs=""
 while read -r local_ref local_sha remote_ref remote_sha; do
-    [ "$local_sha" = "0000000000000000000000000000000000000000" ] && continue
-    refs="${refs}${remote_ref}=${local_sha} "
+    refs="${refs}${remote_ref}=${local_sha}=${remote_sha} "
 done
 
 # Nothing to push: nothing to ask about.
@@ -82,6 +81,9 @@ print(document)' "$@"
 }
 capability="$(read_field "$result" run_capability)"
 request_id="$(read_field "$result" request_id)"
+decision_id="$(read_field "$result" result permit decision_id)"
+consume_id="$(read_field "$result" result permit consume_id)"
+request_hash="$(read_field "$result" result permit request_hash)"
 outcome="$(read_field "$result" result outcome)"
 [ "$outcome" = "approved" ] || { echo "shell-control: outcome was ${outcome}" >&2; exit 1; }
 
@@ -91,6 +93,9 @@ outcome="$(read_field "$result" result outcome)"
 shell-control receipt \
     --run-capability "$capability" \
     --request "$request_id" \
+    --decision "$decision_id" \
+    --consume "$consume_id" \
+    --request-hash "$request_hash" \
     --result applied \
     --reason "pre_push_hook_allowed_push" > /dev/null
 exit 0

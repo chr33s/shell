@@ -180,6 +180,7 @@ extension BrokerStore {
         if entry.projection.resolution == .approved, entry.consumedBy != nil {
             throw ControlError(code: .alreadyClaimed, message: "approval was already claimed", currentProjection: entry.record.json)
         }
+        let backup = stateBackup()
         switch entry.projection.resolution {
         case .pending:
             entry.projection.resolution = .cancelled
@@ -206,7 +207,7 @@ extension BrokerStore {
             accountID: entry.accountID,
             originID: originID
         )
-        try commit()
+        try commit(restoring: backup)
         return entry.record
     }
 
@@ -255,6 +256,7 @@ extension BrokerStore {
         guard let jws = entry.decisionJWS else {
             throw ControlError(code: .notFound, message: "no recorded decision")
         }
+        let backup = stateBackup()
         let applyBefore = min(timestamp.adding(ApprovalPolicy.permitLifetime), entry.spec.expiresAt)
         let permit = ConsumePermit(
             consumeID: request.consumeID,
@@ -285,7 +287,7 @@ extension BrokerStore {
             accountID: entry.accountID,
             originID: originID
         )
-        try commit()
+        try commit(restoring: backup)
         return permit
     }
 

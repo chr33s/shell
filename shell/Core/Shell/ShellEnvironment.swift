@@ -520,9 +520,15 @@ nonisolated final class ShellEnvironment: @unchecked Sendable {
             guard start < count else { return "" }
             var end = count
             if let lengthExpr {
-                let length = Int(try interp.evaluateArithmetic(lengthExpr))
+                let lengthValue = try interp.evaluateArithmetic(lengthExpr)
                 // Negative length stops that many chars short of the end (bash)
-                end = length < 0 ? max(start, count + length) : min(count, start + length)
+                if lengthValue < 0 {
+                    let magnitude = min(Int64(count - start), lengthValue == Int64.min ? Int64.max : -lengthValue)
+                    end = max(start, count - Int(magnitude))
+                } else {
+                    let available = Int64(count - start)
+                    end = start + Int(min(available, lengthValue))
+                }
             }
             guard start < end else { return "" }
             return String(chars[start..<end])

@@ -121,6 +121,7 @@ extension BrokerStore {
             throw ControlError(code: .challengeExpired, message: "command deadline passed")
         }
 
+        let backup = stateBackup()
         let result: CommandResult
         switch verified.command {
         case .approvalDecide(let command):
@@ -142,7 +143,7 @@ extension BrokerStore {
             result: result,
             recordedAt: now
         )
-        try commit()
+        try commit(restoring: backup)
         return (result, false)
     }
 

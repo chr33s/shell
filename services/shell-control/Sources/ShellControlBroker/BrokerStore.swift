@@ -37,6 +37,40 @@ public actor BrokerStore {
     var nextSequence: UInt64 = 1
     public private(set) var storeLoaded = false
 
+    struct StateBackup {
+        let devices: [ControlID: DeviceRecord]; let origins: [ControlID: OriginRecord]
+        let runs: [ControlID: RunRecord]; let approvals: [ControlID: ApprovalRecordEntry]
+        let notifications: [ControlID: InformationalEvent]; let notificationAccounts: [ControlID: ControlID]
+        let challenges: [String: ChallengeRecord]; let idempotency: [String: IdempotencyRecord]
+        let originMutations: [String: OriginMutationRecord]; let receipts: Set<ControlID>
+        let tombstones: [ControlID: Tombstone]; let changeLog: [ChangeEvent]
+        let outbox: [OutboxEntry]; let relayOutbox: [RelayPushEntry]
+        let policyVersion: Int64; let nextSequence: UInt64
+    }
+
+    func stateBackup() -> StateBackup {
+        StateBackup(devices: devices, origins: origins, runs: runs, approvals: approvals,
+                    notifications: notifications, notificationAccounts: notificationAccounts,
+                    challenges: challenges, idempotency: idempotency, originMutations: originMutations,
+                    receipts: receipts, tombstones: tombstones, changeLog: changeLog,
+                    outbox: outbox, relayOutbox: relayOutbox, policyVersion: policyVersion,
+                    nextSequence: nextSequence)
+    }
+
+    func restore(_ backup: StateBackup) {
+        devices = backup.devices; origins = backup.origins; runs = backup.runs
+        approvals = backup.approvals; notifications = backup.notifications
+        notificationAccounts = backup.notificationAccounts; challenges = backup.challenges
+        idempotency = backup.idempotency; originMutations = backup.originMutations
+        receipts = backup.receipts; tombstones = backup.tombstones; changeLog = backup.changeLog
+        outbox = backup.outbox; relayOutbox = backup.relayOutbox
+        policyVersion = backup.policyVersion; nextSequence = backup.nextSequence
+    }
+
+    func commit(restoring backup: StateBackup) throws {
+        do { try commit() } catch { restore(backup); throw error }
+    }
+
     let serviceIdentity: String
     let cursorSecret: Data
     let now: @Sendable () -> Date

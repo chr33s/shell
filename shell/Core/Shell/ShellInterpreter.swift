@@ -65,6 +65,7 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
 
     /// Reentrancy guard for ERR trap (prevents infinite recursion when trap body fails).
     private var inErrTrap = false
+    private var builtinOutputFD: Int32?
 
     /// Depth of `set -e`-exempt contexts: if/while/until conditions, the
     /// left arm of `&&`/`||`, and `!`-negated commands. Errexit only fires
@@ -188,7 +189,20 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
 
     func writeString(_ s: String) {
         let data = Data(s.utf8)
-        writeOutput(data)
+        if let fd = builtinOutputFD {
+            data.withUnsafeBytes { raw in
+                guard let base = raw.baseAddress else { return }
+                var written = 0
+                while written < raw.count {
+                    let count = write(fd, base.advanced(by: written), raw.count - written)
+                    if count > 0 { written += count }
+                    else if count < 0 && errno == EINTR { continue }
+                    else { break }
+                }
+            }
+        } else {
+            writeOutput(data)
+        }
         if outputThrottle.recordOutput(bytes: data.count) {
             Thread.sleep(forTimeInterval: 0.005)
         }
@@ -273,7 +287,7 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
             environment.setPositionalParams(savedParams, scriptName: savedName)
             environment.trapRegistry.restore(savedTraps)
             environment.updateOptions { $0 = savedOptions }
-            if let pwd = savedPwd, pwd != environment.getVariable("PWD") {
+            if let pwd = savedPwd {
                 let sessionPtr = IOSSystemSessionKey.key(for: environment.sessionID)
                 ios_switchSession(sessionPtr)
                 chdir(pwd)
@@ -289,7 +303,7 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
         environment.setPositionalParams(savedParams, scriptName: savedName)
         environment.trapRegistry.restore(savedTraps)
         environment.updateOptions { $0 = savedOptions }
-        if let pwd = savedPwd, pwd != environment.getVariable("PWD") {
+        if let pwd = savedPwd {
             let sessionPtr = IOSSystemSessionKey.key(for: environment.sessionID)
             ios_switchSession(sessionPtr)
             chdir(pwd)
@@ -417,7 +431,7 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
                 environment.setPositionalParams(savedParams, scriptName: savedName)
                 environment.trapRegistry.restore(savedTraps)
                 environment.updateOptions { $0 = savedOptions }
-                if let pwd = savedPwd, pwd != environment.getVariable("PWD") {
+                if let pwd = savedPwd {
                     let sessionPtr = IOSSystemSessionKey.key(for: environment.sessionID)
                     ios_switchSession(sessionPtr)
                     chdir(pwd)
@@ -432,7 +446,7 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
             environment.setPositionalParams(savedParams, scriptName: savedName)
             environment.trapRegistry.restore(savedTraps)
             environment.updateOptions { $0 = savedOptions }
-            if let pwd = savedPwd, pwd != environment.getVariable("PWD") {
+            if let pwd = savedPwd {
                 let sessionPtr = IOSSystemSessionKey.key(for: environment.sessionID)
                 ios_switchSession(sessionPtr)
                 chdir(pwd)
@@ -512,6 +526,29 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
         // Check for builtins
         if let builtin = ShellBuiltins.lookup(commandName) {
             let args = Array(expandedWords.dropFirst())
+
+            var builtinFD: Int32?
+            for redirection in cmd.redirections {
+                guard redirection.op == .outputTo || redirection.op == .appendTo else {
+                    throw ShellError.unsupported("redirection is not supported for shell builtins")
+                }
+                let word = ShellParser(tokenizer: ShellTokenizer(source: "")).parseShellWord(from: redirection.target)
+                let target = environment.resolvePath(try environment.expandScalarWord(word, interpreter: self))
+                let flags = redirection.op == .outputTo ? (O_WRONLY | O_CREAT | O_TRUNC) : (O_WRONLY | O_CREAT | O_APPEND)
+                let fd = open(target, flags, 0o644)
+                guard fd >= 0 else {
+                    writeString("sh: \(target): \(String(cString: strerror(errno)))\n")
+                    return 1
+                }
+                if let previous = builtinFD { close(previous) }
+                builtinFD = fd
+            }
+            let previousBuiltinFD = builtinOutputFD
+            builtinOutputFD = builtinFD
+            defer {
+                builtinOutputFD = previousBuiltinFD
+                if let fd = builtinFD { close(fd) }
+            }
 
             // Pre-command assignments: temporarily set for this command.
             // Save: (name, oldShellValue, wasExported, oldEnvValue)

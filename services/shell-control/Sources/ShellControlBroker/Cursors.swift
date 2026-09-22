@@ -5,8 +5,9 @@ import ShellControlProtocol
 /// Snapshot tokens and change cursors are authenticated and bound to the
 /// account and permission scope (spec.watch.md section 15).
 enum CursorCodec {
-    private static func tag(for principal: Principal, secret: Data) -> String {
+    private static func tag(for principal: Principal, sequence: LogSequence, secret: Data) -> String {
         var material = Data(principal.accountID.rawValue.utf8)
+        material.append(Data("sequence:\(sequence.decimalString):".utf8))
         switch principal {
         case .device(let deviceID, _, let grants):
             material.append(Data("device:\(deviceID.rawValue):".utf8))
@@ -21,7 +22,7 @@ enum CursorCodec {
     }
 
     static func encodeCursor(sequence: LogSequence, principal: Principal, secret: Data) -> ChangeCursor {
-        ChangeCursor("c1.\(sequence.decimalString).\(tag(for: principal, secret: secret))")
+        ChangeCursor("c1.\(sequence.decimalString).\(tag(for: principal, sequence: sequence, secret: secret))")
     }
 
     /// Returns the sequence, or throws `cursor_expired` / `not_authorized` if
@@ -33,14 +34,14 @@ enum CursorCodec {
         }
         // A permissions change changes the tag, which forces a fresh snapshot
         // so stale unauthorized objects are removed.
-        guard ContentDigest.matches(String(parts[2]), tag(for: principal, secret: secret)) else {
+        guard ContentDigest.matches(String(parts[2]), tag(for: principal, sequence: sequence, secret: secret)) else {
             throw ControlError(code: .cursorExpired, message: "cursor scope changed")
         }
         return sequence
     }
 
     static func encodeSnapshotToken(sequence: LogSequence, principal: Principal, secret: Data) -> String {
-        "s1.\(sequence.decimalString).\(tag(for: principal, secret: secret))"
+        "s1.\(sequence.decimalString).\(tag(for: principal, sequence: sequence, secret: secret))"
     }
 
     static func decodeSnapshotToken(_ token: String, principal: Principal, secret: Data) throws -> LogSequence {
@@ -48,7 +49,7 @@ enum CursorCodec {
         guard parts.count == 3, parts[0] == "s1", let sequence = LogSequence(decimalString: String(parts[1])) else {
             throw ControlError(code: .cursorExpired, message: "snapshot token is not readable")
         }
-        guard ContentDigest.matches(String(parts[2]), tag(for: principal, secret: secret)) else {
+        guard ContentDigest.matches(String(parts[2]), tag(for: principal, sequence: sequence, secret: secret)) else {
             throw ControlError(code: .cursorExpired, message: "snapshot scope changed")
         }
         return sequence

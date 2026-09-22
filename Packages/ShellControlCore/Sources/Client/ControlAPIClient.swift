@@ -135,7 +135,13 @@ public actor ControlAPIClient {
                 "request_hash": .string(requestHash)
             ])
         )
-        return try ApprovalProjection(json: value["projection"] ?? value)
+        let projection = value["projection"] ?? value
+        if let parsed = try? ApprovalProjection(json: projection) {
+            return parsed
+        }
+        // The broker returns an ApprovalRecord under `projection`; unwrap its
+        // nested projection for clients that only need the state projection.
+        return try ApprovalRecord(json: projection).projection
     }
 
     public func consumeApproval(_ requestID: ControlID, request: ConsumeRequest) async throws -> ConsumePermit {
