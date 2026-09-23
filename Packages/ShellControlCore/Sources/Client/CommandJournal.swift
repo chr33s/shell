@@ -93,6 +93,16 @@ public final class InMemoryCommandJournal: CommandJournalStore, @unchecked Senda
     }
 }
 
+/// The journal's store could not be read, so nothing may be recorded until
+/// it can be: a save now would overwrite the unread entries.
+public struct CommandJournalUnavailable: Error, LocalizedError, Sendable {
+    public let underlying: String
+
+    public var errorDescription: String? {
+        "Decisions are unavailable until this device's decision journal can be read (\(underlying))."
+    }
+}
+
 public actor CommandJournal {
     /// How long past its deadline an unreconciled command is kept. Past
     /// `not_after` it can never be retried, so it is only held to answer
@@ -106,56 +116,87 @@ public actor CommandJournal {
 
     private let store: any CommandJournalStore
     private let now: @Sendable () -> Date
-    private var commands: [ControlID: PendingCommand]
+    /// Nil until the store has been read. A read can fail for a while — a
+    /// protected file before first unlock — and is retried on every use
+    /// rather than replaced by an empty journal.
+    private var commands: [ControlID: PendingCommand]?
 
     public init(
         store: any CommandJournalStore = InMemoryCommandJournal(),
         now: @escaping @Sendable () -> Date = { Date() }
-    ) throws {
+    ) {
         self.store = store
         self.now = now
-        let loaded = Dictionary(uniqueKeysWithValues: try store.load().map { ($0.commandID, $0) })
-        self.commands = Self.pruned(loaded, now: now())
-        if commands.count != loaded.count { try store.save(Array(commands.values)) }
+        self.commands = try? Self.read(store, now: now())
     }
 
+    /// Whether the store has been read. False while it is unreadable; every
+    /// write refuses until it becomes true.
+    public var isAvailable: Bool { (try? loaded()) != nil }
+
     public var pending: [PendingCommand] {
-        commands.values.sorted { $0.notAfter < $1.notAfter }
+        ((try? loaded()) ?? [:]).values.sorted { $0.notAfter < $1.notAfter }
     }
 
     /// Records the exact command ID and JWS *before* it is sent, so a
     /// connection loss after submission still leaves a retrievable identity.
     public func record(_ command: PendingCommand) throws {
+        var commands = try loaded()
         commands[command.commandID] = command
-        try commit()
+        try commit(commands)
     }
 
     public func update(_ commandID: ControlID, status: PendingCommand.Status) throws {
+        var commands = try loaded()
         guard var command = commands[commandID] else { return }
         command.status = status
         commands[commandID] = command
-        try commit()
+        try commit(commands)
     }
 
     public func resolve(_ commandID: ControlID) throws {
+        var commands = try loaded()
         commands.removeValue(forKey: commandID)
-        try commit()
+        try commit(commands)
     }
 
-    public func command(_ commandID: ControlID) -> PendingCommand? { commands[commandID] }
+    public func command(_ commandID: ControlID) -> PendingCommand? { (try? loaded())?[commandID] }
 
     /// Drops every journalled command. Used when the device identity that
     /// signed them is discarded: a command signed by a key this device no
     /// longer holds can never be retried or reconciled, and leaving it behind
-    /// only produces confusing failures under the next identity.
+    /// only produces confusing failures under the next identity. Unlike the
+    /// other writes it needs no prior read: nothing it would keep.
     public func clear() throws {
-        commands = [:]
         try store.save([])
+        commands = [:]
     }
 
-    private func commit() throws {
-        commands = Self.pruned(commands, now: now())
-        try store.save(Array(commands.values))
+    private func loaded() throws -> [ControlID: PendingCommand] {
+        if let commands { return commands }
+        do {
+            let commands = try Self.read(store, now: now())
+            self.commands = commands
+            return commands
+        } catch {
+            throw CommandJournalUnavailable(underlying: String(describing: error))
+        }
+    }
+
+    private func commit(_ updated: [ControlID: PendingCommand]) throws {
+        let kept = Self.pruned(updated, now: now())
+        try store.save(Array(kept.values))
+        commands = kept
+    }
+
+    private static func read(_ store: any CommandJournalStore, now: Date) throws -> [ControlID: PendingCommand] {
+        let stored = try store.load()
+        let loaded = Dictionary(stored.map { ($0.commandID, $0) }, uniquingKeysWith: { _, last in last })
+        let kept = pruned(loaded, now: now)
+        // Pruning on load is housekeeping; failing to write it back loses
+        // nothing, so it never makes the journal unavailable.
+        if kept.count != stored.count { try? store.save(Array(kept.values)) }
+        return kept
     }
 
     /// Drops what can no longer be acted on: entries whose deadline passed

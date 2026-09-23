@@ -46,13 +46,32 @@ public actor DaemonCore {
         let capability: String
         let adapter: String
         let operationSchemas: Set<String>
-        var waiting: Set<ControlID> = []
+        /// Requests this run is blocked on, each until its expiry: past that
+        /// the broker can no longer approve it, so its presence is moot.
+        var waiting: [ControlID: Date] = [:]
+        /// Consume IDs journaled for this run's approved requests, reused by
+        /// every retry so the broker's idempotent consume can return the
+        /// permit it already granted.
+        var consumeIntents: [ControlID: ControlID] = [:]
+        var lastActivity: Date
     }
 
     let configuration: Configuration
     let client: ControlAPIClient
     let journal: DispatchJournal
+    /// Every CLI invocation says `hello`, so bindings are bounded: a binding
+    /// with no live wait is dropped once idle, and only runs blocked on a
+    /// request are sent in the presence heartbeat.
     private var runs: [String: RunBinding] = [:]
+    /// Runs whose last wait just ended: one more heartbeat clears the broker's
+    /// waiting flag, then they leave the presence set.
+    private var drainedRuns: Set<ControlID> = []
+    /// Long enough for an adapter to post its receipt after a long command.
+    static let runBindingIdleLifetime: TimeInterval = 24 * 60 * 60
+    static let maximumRunBindings = 4096
+    /// The broker's per-heartbeat limits.
+    static let heartbeatMaximumRuns = 256
+    static let heartbeatMaximumWaiting = 1024
     /// Recorded results for message IDs already handled, so a retransmission
     /// replays rather than mints a second request, event, or receipt.
     ///
@@ -71,6 +90,9 @@ public actor DaemonCore {
     private var startupCandidates: [ControlID: String]?
     private var recoveryPassRunning = false
     private var inFlight = 0
+    private var startupConsumes: [ControlID: DispatchJournal.ConsumeRecord] = [:]
+    /// What startup had to repair in the journal, surfaced through health.
+    private(set) var journalRepair: DispatchJournal.Repair?
 
     public init(
         configuration: Configuration,
@@ -92,8 +114,14 @@ public actor DaemonCore {
     /// candidates before the executable opens either IPC listener.
     public func discoverInterruptedWorkAtStartup() throws {
         guard startupCandidates == nil else { return }
+        if journalRepair == nil {
+            let repair = try journal.repairAtStartup(at: now())
+            journalRepair = repair
+            Self.report(repair, journal: journal.url)
+        }
         let frontier = try journal.startupFrontier()
         let recovered = try journal.recover(at: frontier)
+        startupConsumes = recovered.consumes
         var candidates = try journal.pendingStartupCandidates()
         for requestID in recovered.unresolved where candidates[requestID] == nil {
             let classification = recovered.uncertain.contains(requestID) ? "uncertain" : "unresolved"
@@ -140,10 +168,35 @@ public actor DaemonCore {
             do { record = try await client.approval(requestID) } catch { continue } // no authenticated state: retain the candidate
 
             if classification == "uncertain" {
+                let consume = startupConsumes[requestID]
+                var result = ReceiptResult.unknown
+                var reason = "daemon_restarted_after_claim"
+                if let consume, !consume.claimRecorded {
+                    // A consume intent without a recorded claim: the broker may
+                    // hold the claim with its reply lost. No permit left this
+                    // daemon, so whatever the claim, nothing was applied.
+                    switch await reclaim(requestID, record: record, consumeID: consume.consumeID) {
+                    case .claimed:
+                        startupConsumes[requestID]?.claimRecorded = true
+                        result = .notApplied
+                        reason = "daemon_restarted_before_dispatch"
+                    case .noClaim:
+                        // Nothing to report under our ID; an unconsumed
+                        // approval expires as not applied on the broker.
+                        try journal.append(.withdrawn(requestID: requestID))
+                        queuedRequests.insert(requestID)
+                        try retireStartupCandidate(requestID)
+                        continue
+                    case .retryLater:
+                        continue
+                    }
+                }
+                // The broker accepts an approved request's receipt only under
+                // the consume ID that holds its claim.
                 let receipt = Receipt(
-                    receiptID: .random(), decisionID: record.projection.decisionID, consumeID: nil,
-                    requestHash: record.requestHash, runID: record.spec.runID, result: .unknown,
-                    reasonCode: "daemon_restarted_after_claim", occurredAt: timestamp
+                    receiptID: .random(), decisionID: record.projection.decisionID, consumeID: consume?.consumeID,
+                    requestHash: record.requestHash, runID: record.spec.runID, result: result,
+                    reasonCode: reason, occurredAt: timestamp
                 )
                 let payload = String(decoding: try JSONCanonicalization.canonicalize(receipt.json), as: UTF8.self)
                 let mutationID = ControlID.random()
@@ -167,6 +220,61 @@ public actor DaemonCore {
         }
     }
 
+    private static func report(_ repair: DispatchJournal.Repair, journal: URL) {
+        guard !repair.isEmpty else { return }
+        var message = "shell-controld: repaired journal \(journal.path):"
+        if repair.discardedTornTail { message += " dropped a final record torn by a crash;" }
+        if repair.terminatedFinalRecord { message += " terminated a final record missing its newline;" }
+        if let quarantine = repair.quarantinedTo {
+            let lines = repair.discardedLines.map(String.init).joined(separator: ", ")
+            message += " corrupt record(s) at line(s) \(lines) were set aside; the original is kept at \(quarantine.path);"
+        }
+        FileHandle.standardError.write(Data((message + "\n").utf8))
+    }
+
+    private enum Reclaim { case claimed, noClaim, retryLater }
+
+    /// Re-runs the consume under the journaled ID. The broker returns the
+    /// permit it already granted to that ID, so a claim whose reply was lost
+    /// is found instead of stranded (spec.watch.md section 12).
+    private func reclaim(_ requestID: ControlID, record: ApprovalRecord, consumeID: ControlID) async -> Reclaim {
+        // Our consume never committed if the request is not approved: a claim
+        // would have left it approved.
+        guard record.projection.resolution == .approved, let decisionID = record.projection.decisionID else {
+            return .noClaim
+        }
+        do {
+            let permit = try await client.consumeApproval(requestID, request: ConsumeRequest(
+                consumeID: consumeID,
+                decisionID: decisionID,
+                requestHash: record.requestHash,
+                runID: record.spec.runID
+            ))
+            guard permit.consumeID == consumeID,
+                  permit.decisionID == decisionID,
+                  permit.originID == configuration.originID,
+                  permit.runID == record.spec.runID,
+                  ContentDigest.matches(permit.requestHash, record.requestHash) else {
+                return .retryLater
+            }
+            try journal.append(.claimed(requestID: requestID, consumeID: consumeID, applyBefore: permit.applyBefore))
+            return .claimed
+        } catch let error as ControlError where Self.provesNoClaim(error.code) {
+            return .noClaim
+        } catch {
+            return .retryLater
+        }
+    }
+
+    /// Broker answers that establish our consume ID holds no claim: a retry
+    /// under the ID that holds it would have returned its permit instead.
+    private static func provesNoClaim(_ code: ControlErrorCode) -> Bool {
+        switch code {
+        case .alreadyClaimed, .alreadyResolved, .requestExpired, .notFound, .hashMismatch, .deviceRevoked: return true
+        default: return false
+        }
+    }
+
     private func retireStartupCandidate(_ requestID: ControlID) throws {
         try journal.append(.recoveryCandidateRetired(requestID: requestID))
         startupCandidates?[requestID] = nil
@@ -176,10 +284,15 @@ public actor DaemonCore {
         guard let pending = try? journal.pendingRecoveries() else { return }
         for item in pending {
             do {
-                try await performRecovery(item)
+                do {
+                    try await performRecovery(item)
+                } catch let error as ControlError where item.kind == "unknown_receipt" && error.code == .alreadyResolved {
+                    // The dispatch is already terminal, or was never claimed:
+                    // an authenticated answer that no receipt remains owed.
+                }
                 if item.kind == "unknown_receipt" {
                     let receipt = try Receipt(json: try JSONValue.parse(Data(item.payload.utf8)))
-                    try journal.append(.dispatchResult(requestID: item.requestID, receiptID: receipt.receiptID, result: .unknown))
+                    try journal.append(.dispatchResult(requestID: item.requestID, receiptID: receipt.receiptID, result: receipt.result))
                 } else {
                     try journal.append(.withdrawn(requestID: item.requestID))
                 }
@@ -217,12 +330,13 @@ public actor DaemonCore {
         } else {
             state = "not_ready"
         }
-        return .object([
+        return JSONWriter.object([
             "state": .string(state),
             "store_loaded": .bool(true),
             "ipc_responsive": .bool(true),
             "origin_authenticated": .bool(originAuthenticationIsFresh),
-            "recovery_pending": .number(.int(Int64(recoveryPendingCount)))
+            "recovery_pending": .number(.int(Int64(recoveryPendingCount))),
+            "journal_quarantined": journalRepair?.quarantinedTo.map { .string($0.path) }
         ])
     }
 
@@ -341,8 +455,9 @@ public actor DaemonCore {
             startedAt: timestamp
         )
         try await client.registerRun(registration)
+        pruneRuns()
         runs[capability] = RunBinding(runID: runID, jobID: jobID, capability: capability,
-                                      adapter: adapter, operationSchemas: Set(schemas))
+                                      adapter: adapter, operationSchemas: Set(schemas), lastActivity: now())
         try journal.append(.runStarted(runID: runID, jobID: jobID))
         return .object([
             "protocol": .string(ServiceCapabilities.protocolName),
@@ -354,9 +469,11 @@ public actor DaemonCore {
     }
 
     private func binding(for request: IPCRequest) throws -> RunBinding {
-        guard let capability = request.runCapability, let binding = runs[capability] else {
+        guard let capability = request.runCapability, var binding = runs[capability] else {
             throw ControlError(code: .notAuthorized, message: "unknown run capability")
         }
+        binding.lastActivity = now()
+        runs[capability] = binding
         return binding
     }
 
@@ -414,9 +531,9 @@ public actor DaemonCore {
         // Re-read after the awaits above: a concurrent wait on the same
         // capability may have updated the binding, and writing back a stale
         // copy would drop its request from the presence heartbeat.
-        markWaiting(spec.requestID, capability: binding.capability, isWaiting: true)
-        let waiting = runs[binding.capability]?.waiting ?? [spec.requestID]
-        try await client.heartbeat(runIDs: [binding.runID], waitingRequestIDs: Array(waiting))
+        markWaiting(spec.requestID, capability: binding.capability, isWaiting: true, until: spec.expiresAt.date)
+        let waiting = runs[binding.capability].map { Array($0.waiting.keys) } ?? [spec.requestID]
+        try await client.heartbeat(runIDs: [binding.runID], waitingRequestIDs: waiting)
         return .object(["request_id": JSONValue(spec.requestID), "request_hash": .string(hash)])
     }
 
@@ -439,14 +556,15 @@ public actor DaemonCore {
             if !acceptingWork {
                 return ApprovalWaitOutcome.unavailable(reason: "daemon is shutting down").json
             }
-            let waiting = runs[binding.capability]?.waiting ?? [requestID]
-            try await client.heartbeat(runIDs: [binding.runID], waitingRequestIDs: Array(waiting))
+            let waiting = runs[binding.capability].map { Array($0.waiting.keys) } ?? [requestID]
+            try await client.heartbeat(runIDs: [binding.runID], waitingRequestIDs: waiting)
             let record = try await client.approval(requestID)
             guard ContentDigest.matches(record.requestHash, requestHash), record.spec.runID == binding.runID else {
                 throw ControlError(code: .hashMismatch, message: "the waiting request is not the one recorded")
             }
             switch record.projection.resolution {
             case .pending:
+                markWaiting(requestID, capability: binding.capability, isWaiting: true, until: record.spec.expiresAt.date)
                 try await Task.sleep(nanoseconds: UInt64(ApprovalPolicy.minimumPollInterval * 1_000_000_000))
                 continue
             case .rejected:
@@ -468,16 +586,19 @@ public actor DaemonCore {
                 }
                 try journal.append(.decisionObserved(requestID: requestID, decisionID: decisionID, resolution: .approved))
                 // The origin validates the waiting run, request hash, and local
-                // context before claiming (spec.watch.md section 12).
-                let consumeID = ControlID.random()
-                let permit = try await client.consumeApproval(
+                // context before claiming (spec.watch.md section 12). The
+                // consume ID is journaled first, so a lost reply is retried
+                // under the same ID, here or by restart recovery.
+                let consumeID = try journaledConsumeID(for: requestID, decisionID: decisionID, capability: binding.capability)
+                let permit = try await consume(
                     requestID,
                     request: ConsumeRequest(
                         consumeID: consumeID,
                         decisionID: decisionID,
                         requestHash: record.requestHash,
                         runID: binding.runID
-                    )
+                    ),
+                    deadline: deadline
                 )
                 guard permit.consumeID == consumeID,
                       permit.decisionID == decisionID,
@@ -515,6 +636,7 @@ public actor DaemonCore {
         )
         try journal.append(.withdrawn(requestID: requestID))
         markWaiting(requestID, capability: binding.capability, isWaiting: false)
+        runs[binding.capability]?.consumeIntents[requestID] = nil
         return projection.json
     }
 
@@ -543,31 +665,81 @@ public actor DaemonCore {
         try await client.postReceipt(receipt)
         if let requestID {
             try journal.append(.dispatchResult(requestID: requestID, receiptID: receipt.receiptID, result: result))
+            runs[binding.capability]?.consumeIntents[requestID] = nil
         }
         return .object(["receipt_id": JSONValue(receipt.receiptID)])
     }
 
-    /// Refreshes presence for active runs and their waiters.
+    /// Refreshes presence for the runs blocked on a request, batched.
+    ///
+    /// Presence only matters while a request can still be approved, so a run
+    /// with nothing waiting is not sent: without that, every `hello` since
+    /// launch would cost the broker a presence write every interval.
     public func heartbeatOnce() async {
-        if runs.isEmpty {
-            // A heartbeat with no runs still proves origin authentication.
-            do {
-                try await client.heartbeat(runIDs: [], waitingRequestIDs: [])
-                lastOriginAuthentication = .now
-            } catch {
-                lastOriginAuthentication = nil
+        pruneRuns()
+        let live = runs.values.filter { !$0.waiting.isEmpty }.sorted { $0.runID.rawValue < $1.runID.rawValue }
+        let liveIDs = Set(live.map(\.runID))
+        let drained = drainedRuns.subtracting(liveIDs)
+        drainedRuns.removeAll()
+
+        var batches: [(runIDs: [ControlID], waiting: [ControlID])] = []
+        var batch: (runIDs: [ControlID], waiting: [ControlID]) = ([], [])
+        func add(_ runID: ControlID, _ waiting: [ControlID]) {
+            let waiting = Array(waiting.prefix(Self.heartbeatMaximumWaiting))
+            if !batch.runIDs.isEmpty,
+               batch.runIDs.count >= Self.heartbeatMaximumRuns
+                || batch.waiting.count + waiting.count > Self.heartbeatMaximumWaiting {
+                batches.append(batch)
+                batch = ([], [])
             }
-            return
+            batch.runIDs.append(runID)
+            batch.waiting.append(contentsOf: waiting)
         }
-        for binding in runs.values {
+        for binding in live { add(binding.runID, Array(binding.waiting.keys)) }
+        // A drained run is sent once with nothing waiting, clearing the flag.
+        for runID in drained.sorted(by: { $0.rawValue < $1.rawValue }) { add(runID, []) }
+        // A heartbeat with no runs still proves origin authentication.
+        if !batch.runIDs.isEmpty || batches.isEmpty { batches.append(batch) }
+
+        var authenticated = false
+        for batch in batches {
             do {
-                try await client.heartbeat(runIDs: [binding.runID], waitingRequestIDs: Array(binding.waiting))
-                lastOriginAuthentication = .now
+                try await client.heartbeat(runIDs: batch.runIDs, waitingRequestIDs: batch.waiting)
+                authenticated = true
             } catch {
-                lastOriginAuthentication = nil
+                drainedRuns.formUnion(drained.intersection(batch.runIDs))
             }
         }
+        lastOriginAuthentication = authenticated ? .now : nil
     }
+
+    /// Drops expired waits, then idle bindings. A binding with a request that
+    /// can still be approved is never dropped.
+    private func pruneRuns() {
+        let current = now()
+        for (capability, var binding) in runs where !binding.waiting.isEmpty {
+            binding.waiting = binding.waiting.filter { $0.value > current }
+            if binding.waiting.isEmpty { drainedRuns.insert(binding.runID) }
+            runs[capability] = binding
+        }
+        let cutoff = current.addingTimeInterval(-Self.runBindingIdleLifetime)
+        runs = runs.filter { !$0.value.waiting.isEmpty || $0.value.lastActivity > cutoff }
+        if runs.count > Self.maximumRunBindings {
+            let idle = runs.filter { $0.value.waiting.isEmpty }.sorted { $0.value.lastActivity < $1.value.lastActivity }
+            for (capability, _) in idle.prefix(runs.count - Self.maximumRunBindings) {
+                runs[capability] = nil
+            }
+        }
+        let known = Set(runs.values.map(\.runID))
+        drainedRuns.formIntersection(known)
+    }
+
+    /// The run IDs the next heartbeat would carry, for tests.
+    func presenceRunIDs() -> Set<ControlID> {
+        Set(runs.values.filter { !$0.waiting.isEmpty }.map(\.runID)).union(drainedRuns)
+    }
+
+    var runBindingCount: Int { runs.count }
 
     private var originAuthenticationIsFresh: Bool {
         guard let lastOriginAuthentication else { return false }
@@ -586,14 +758,43 @@ public actor DaemonCore {
 
     /// Read-modify-write on the live binding, never on a copy captured before
     /// an `await`.
-    private func markWaiting(_ requestID: ControlID, capability: String, isWaiting: Bool) {
+    private func markWaiting(_ requestID: ControlID, capability: String, isWaiting: Bool, until expiry: Date? = nil) {
         guard var binding = runs[capability] else { return }
         if isWaiting {
-            binding.waiting.insert(requestID)
-        } else {
-            binding.waiting.remove(requestID)
+            binding.waiting[requestID] = expiry
+                ?? binding.waiting[requestID]
+                ?? now().addingTimeInterval(ApprovalPolicy.maximumLifetime)
+        } else if binding.waiting.removeValue(forKey: requestID) != nil, binding.waiting.isEmpty {
+            drainedRuns.insert(binding.runID)
         }
         runs[capability] = binding
+    }
+
+    /// The consume ID for this request, journaled before first use and reused
+    /// by every retry.
+    private func journaledConsumeID(for requestID: ControlID, decisionID: ControlID, capability: String) throws -> ControlID {
+        if let existing = runs[capability]?.consumeIntents[requestID] { return existing }
+        let consumeID = ControlID.random()
+        try journal.append(.consumeIntent(requestID: requestID, consumeID: consumeID, decisionID: decisionID))
+        runs[capability]?.consumeIntents[requestID] = consumeID
+        return consumeID
+    }
+
+    /// Retries a lost consume reply under the same consume ID until the wait's
+    /// deadline. A definitive broker refusal is not retried.
+    private func consume(_ requestID: ControlID, request: ConsumeRequest, deadline: Date) async throws -> ConsumePermit {
+        var delay: TimeInterval = 0.25
+        while true {
+            do {
+                return try await client.consumeApproval(requestID, request: request)
+            } catch let error as ControlError where !error.code.isRetryable {
+                throw error
+            } catch {
+                guard acceptingWork, now() < deadline, !Task.isCancelled else { throw error }
+                try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                delay = min(delay * 2, ApprovalPolicy.minimumPollInterval)
+            }
+        }
     }
 
     static func randomCapability() -> String {

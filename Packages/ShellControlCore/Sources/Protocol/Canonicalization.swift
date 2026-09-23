@@ -92,32 +92,68 @@ public enum JSONCanonicalization {
             return String(value)
         case .double(let value):
             guard value.isFinite else { throw JSONError.numberOutOfRange }
-            if value == 0 { return "0" }
-            if value.rounded() == value, value.magnitude < 1e21 {
-                // ES6 prints integral doubles without a fractional part.
-                if value.magnitude <= Double(JSONLimits.maxSafeInteger) {
-                    return String(Int64(value))
-                }
-            }
-            return shortestRoundTrip(value)
+            return ecmaScriptString(value)
         }
     }
 
-    private static func shortestRoundTrip(_ value: Double) -> String {
-        for precision in 1...17 {
-            let candidate = String(format: "%.\(precision)g", value)
-            if Double(candidate) == value { return normalizeExponent(candidate) }
+    /// ECMAScript `Number::toString(x)` (ECMA-262 section 6.1.6.1.20), which
+    /// RFC 8785 section 3.2.2.3 mandates.
+    ///
+    /// Swift's `description` already yields the shortest digit string that
+    /// round-trips (and the closest one when several do), so only the layout
+    /// differs: ES switches to exponent form outside `1e-7 <= |x| < 1e21`,
+    /// writes `e+`/`e-`, and never pads the exponent.
+    private static func ecmaScriptString(_ value: Double) -> String {
+        // -0 and +0 both serialize as "0".
+        if value == 0 { return "0" }
+        let (digits, pointPosition) = decimalDigits(of: value.magnitude)
+        let sign = value < 0 ? "-" : ""
+        // value = 0.d1d2...dk x 10^n with k = digits.count, n = pointPosition.
+        let k = digits.count
+        let n = pointPosition
+        if k <= n && n <= 21 {
+            return sign + digits + String(repeating: "0", count: n - k)
         }
-        return normalizeExponent(String(format: "%.17g", value))
+        if 0 < n && n <= 21 {
+            let split = digits.index(digits.startIndex, offsetBy: n)
+            return sign + digits[..<split] + "." + digits[split...]
+        }
+        if -6 < n && n <= 0 {
+            return sign + "0." + String(repeating: "0", count: -n) + digits
+        }
+        let exponent = n - 1
+        let exponentText = (exponent < 0 ? "e-" : "e+") + String(exponent.magnitude)
+        guard k > 1 else { return sign + digits + exponentText }
+        return sign + digits.prefix(1) + "." + digits.dropFirst() + exponentText
     }
 
-    private static func normalizeExponent(_ text: String) -> String {
-        guard let range = text.range(of: "e", options: .caseInsensitive) else { return text }
-        let mantissa = String(text[text.startIndex..<range.lowerBound])
-        var exponent = String(text[range.upperBound...])
-        var sign = "+"
-        if exponent.hasPrefix("-") { sign = "-"; exponent.removeFirst() } else if exponent.hasPrefix("+") { exponent.removeFirst() }
-        while exponent.count > 1 && exponent.hasPrefix("0") { exponent.removeFirst() }
-        return "\(mantissa)e\(sign)\(exponent)"
+    /// Shortest round-trip decimal digits of a positive finite double, without
+    /// leading or trailing zeros, and the position `n` of the decimal point
+    /// relative to them (`x = 0.digits x 10^n`).
+    private static func decimalDigits(of magnitude: Double) -> (digits: String, pointPosition: Int) {
+        // `description` is either "123.456" or "1.23456e-07" / "1e+21" style.
+        let text = magnitude.description
+        var mantissa = Substring(text)
+        var exponent = 0
+        if let marker = text.firstIndex(where: { $0 == "e" || $0 == "E" }) {
+            mantissa = text[..<marker]
+            exponent = Int(text[text.index(after: marker)...]) ?? 0
+        }
+        let integerPart: Substring
+        let fractionPart: Substring
+        if let dot = mantissa.firstIndex(of: ".") {
+            integerPart = mantissa[..<dot]
+            fractionPart = mantissa[mantissa.index(after: dot)...]
+        } else {
+            integerPart = mantissa
+            fractionPart = ""
+        }
+        var digits = Array(integerPart + fractionPart)
+        var pointPosition = integerPart.count + exponent
+        let leadingZeros = digits.prefix(while: { $0 == "0" }).count
+        digits.removeFirst(leadingZeros)
+        pointPosition -= leadingZeros
+        while digits.last == "0" { digits.removeLast() }
+        return (String(digits), pointPosition)
     }
 }

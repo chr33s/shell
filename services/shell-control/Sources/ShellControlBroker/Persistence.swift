@@ -25,8 +25,16 @@ public struct FileBrokerPersistence: BrokerPersistence {
         )
     }
 
+    /// The largest ledger ``load()`` accepts. ``persist(snapshot:)`` refuses to
+    /// write anything bigger, so growth fails the one mutation that caused it
+    /// rather than leaving a file the broker can no longer boot from.
+    public static let maximumBytes = 64 << 20
+
     public func persist(snapshot: JSONValue) throws {
         let data = try JSONCanonicalization.canonicalize(snapshot)
+        guard data.count <= FileBrokerPersistence.maximumBytes else {
+            throw ControlError(code: .temporarilyUnavailable, message: "broker state exceeds the restorable size")
+        }
         let temporary = url.appendingPathExtension("tmp")
         // Write, fsync, then rename: a crash leaves either the old or the new
         // state, never a torn one.
@@ -60,7 +68,7 @@ public struct FileBrokerPersistence: BrokerPersistence {
         let data = try Data(contentsOf: url)
         guard !data.isEmpty else { return nil }
         return try JSONValue.parse(data, limits: JSONLimits(
-            maxDocumentBytes: 64 << 20,
+            maxDocumentBytes: FileBrokerPersistence.maximumBytes,
             maxStringCharacters: 1 << 20,
             maxNestingDepth: 64,
             maxCollectionElements: 1 << 20
@@ -92,13 +100,16 @@ public enum BrokerSnapshotCodec {
             "idempotency": .array(store.idempotency.values.map(encodeIdempotency)),
             "origin_mutations": .array(store.originMutations.values.map { record in
                 .object([
+                    "kind": .string(record.kind.rawValue),
                     "origin_id": JSONValue(record.originID),
                     "mutation_id": JSONValue(record.mutationID),
                     "body_hash": .string(record.bodyHash),
                     "result": record.result
                 ])
             }),
-            "receipts": JSONValue(strings: store.receipts.map(\.rawValue).sorted()),
+            "receipts": .array(store.receipts.sorted { $0.key.rawValue < $1.key.rawValue }.map { entry in
+                .object(["receipt_id": JSONValue(entry.key), "recorded_at": JSONValue(entry.value)])
+            }),
             // Sessions, enrollments, and in-flight device grants are durable
             // state: without them a restart would 401 every enrolled device and
             // force an admin-approved re-enrollment.
@@ -339,7 +350,9 @@ public enum BrokerSnapshotCodec {
             "is_refresh": .bool(record.isRefresh),
             "enrollment_id": record.enrollmentID.map { JSONValue($0) },
             "device_code": record.deviceCode.map { .string($0) },
-            "revoked": .bool(record.revoked)
+            "revoked": .bool(record.revoked),
+            "rotated_at": record.rotatedAt.map { JSONValue($0) },
+            "rotation_seed": record.rotationSeed.map { .string($0) }
         ])
     }
 
@@ -355,6 +368,8 @@ public enum BrokerSnapshotCodec {
             deviceCode: try reader.optionalString("device_code", maxLength: 128)
         )
         record.revoked = try reader.optionalBool("revoked") ?? false
+        record.rotatedAt = try reader.optionalTimestamp("rotated_at")
+        record.rotationSeed = try reader.optionalString("rotation_seed", maxLength: 64)
         return record
     }
 

@@ -94,7 +94,7 @@ public struct ExecOperation: Sendable, Hashable {
     }
 
     static func isSHA256Hex(_ text: String) -> Bool {
-        text.count == 64 && text.allSatisfy { $0.isHexDigit && !$0.isUppercase }
+        ASCIIHex.isSHA256(text)
     }
 }
 

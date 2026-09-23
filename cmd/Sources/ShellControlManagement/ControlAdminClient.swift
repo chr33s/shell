@@ -157,7 +157,12 @@ public enum HealthChecks {
                 return .init(state: "not_ready", checkedAt: stamp, reason: "invalid daemon health response")
             }
             let state = object["state"] as? String ?? "not_ready"
-            return .init(state: state, checkedAt: stamp, reason: state == "ready" ? nil : "daemon is \(state)",
+            var reason = state == "ready" ? nil : "daemon is \(state)"
+            if let quarantined = object["journal_quarantined"] as? String {
+                let note = "corrupt journal records were set aside; the original is kept at \(quarantined)"
+                reason = reason.map { "\($0); \(note)" } ?? note
+            }
+            return .init(state: state, checkedAt: stamp, reason: reason,
                          recoveryPending: object["recovery_pending"] as? Int)
         } catch { return .init(state: "not_ready", checkedAt: stamp, reason: String(describing: error)) }
     }

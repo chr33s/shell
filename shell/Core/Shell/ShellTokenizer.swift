@@ -488,6 +488,19 @@ nonisolated final class ShellTokenizer: @unchecked Sendable {
                 let target = readRedirectTarget()
                 return .redirect(Redirection(op: .errorTo, fd: 2, target: target))
             }
+            // Explicit stdout: `1>`, `1>>`, `1>&2`. Same ops as a bare `>`,
+            // tagged fd 1 — without this `echo x 1>&2` passed `1` to echo.
+            if c == "1", let next = peekChar(), next == ">" {
+                advance() // consume '1'
+                advance() // consume '>'
+                if advanceIf(">") {
+                    return .redirect(Redirection(op: .appendTo, fd: 1, target: readRedirectTarget()))
+                }
+                if advanceIf("&") {
+                    return .redirect(Redirection(op: .duplicateOutput, fd: 1, target: readRedirectTarget()))
+                }
+                return .redirect(Redirection(op: .outputTo, fd: 1, target: readRedirectTarget()))
+            }
             return nil
         }
     }
@@ -654,8 +667,8 @@ nonisolated final class ShellTokenizer: @unchecked Sendable {
                 break
             }
 
-            // Check for 2> pattern at start of a new token
-            if currentPart.isEmpty && parts.isEmpty && c == "2" {
+            // Check for 2> / 1> pattern at start of a new token
+            if currentPart.isEmpty && parts.isEmpty && (c == "2" || c == "1") {
                 if let next = peekChar(), next == ">" {
                     break
                 }

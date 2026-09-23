@@ -73,6 +73,66 @@ final class ProtectedCacheTests: XCTestCase {
         XCTAssertNil(try cache.load())
     }
 
+    /// THE REGRESSION: the cache parsed with a 4096-element limit while the
+    /// reconciler only trims seen event IDs past 5000, so a valid cache with
+    /// 4097–5000 IDs failed to load and the Watch started empty offline.
+    func testACacheWithUpToFiveThousandSeenEventIDsStillLoads() throws {
+        let (cache, directory) = try makeCache()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let record = try WatchTestFixtures.makeRecord(createdAt: now, presentAt: now)
+        var state = InboxState()
+        state.approvals[record.spec.requestID] = record
+        state.cursor = ChangeCursor("c1.9.tag")
+        state.seenEventIDs = Set((0..<5000).map { _ in ControlID.random() })
+        // Written the way an older build did: unbounded.
+        let url = directory.appendingPathComponent("control-inbox.json")
+        try JSONCanonicalization.canonicalize(ProtectedInboxCache.encode(state)).write(to: url)
+
+        let loaded = try XCTUnwrap(try cache.load())
+        XCTAssertNotNil(loaded.approvals[record.spec.requestID])
+        XCTAssertEqual(loaded.cursor?.rawValue, "c1.9.tag")
+        XCTAssertEqual(loaded.seenEventIDs.count, InboxBounds.maxSeenEventIDs, "trimmed to the cap on load")
+    }
+
+    func testACommitIsBoundedAndReloads() throws {
+        let (cache, directory) = try makeCache()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var state = InboxState()
+        state.seenEventIDs = Set((0..<(InboxBounds.maxSeenEventIDs + 500)).map { _ in ControlID.random() })
+        var pendingIDs: Set<ControlID> = []
+        for index in 0..<(InboxBounds.maxApprovals + 50) {
+            let resolution: Resolution = index < 10 ? .pending : .approved
+            let record = try WatchTestFixtures.makeRecord(createdAt: now, resolution: resolution, presentAt: now)
+            state.approvals[record.spec.requestID] = record
+            if resolution == .pending { pendingIDs.insert(record.spec.requestID) }
+        }
+        try cache.commit(state)
+
+        let loaded = try XCTUnwrap(try cache.load())
+        XCTAssertEqual(loaded.seenEventIDs.count, InboxBounds.maxSeenEventIDs)
+        XCTAssertEqual(loaded.approvals.count, InboxBounds.maxApprovals)
+        XCTAssertTrue(pendingIDs.isSubset(of: Set(loaded.approvals.keys)), "every pending request survives trimming")
+    }
+
+    /// Unreadable dedup bookkeeping costs the cursor (forcing a fresh
+    /// snapshot), not the cached records.
+    func testUnreadableSeenIDsKeepTheRecords() throws {
+        let (cache, directory) = try makeCache()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let record = try WatchTestFixtures.makeRecord(createdAt: now, presentAt: now)
+        var state = InboxState()
+        state.approvals[record.spec.requestID] = record
+        state.cursor = ChangeCursor("c1.3.tag")
+        guard case .object(var members) = ProtectedInboxCache.encode(state) else { return XCTFail("expected object") }
+        members["seen_event_ids"] = .string("not an array")
+        let url = directory.appendingPathComponent("control-inbox.json")
+        try JSONCanonicalization.canonicalize(.object(members)).write(to: url)
+
+        let loaded = try XCTUnwrap(try cache.load())
+        XCTAssertNotNil(loaded.approvals[record.spec.requestID])
+        XCTAssertNil(loaded.cursor)
+    }
+
     /// Unresolved command ids are persisted apart from the projection, so a
     /// snapshot refresh cannot erase an ambiguous submitted decision.
     func testCommandJournalPersistsSeparately() throws {

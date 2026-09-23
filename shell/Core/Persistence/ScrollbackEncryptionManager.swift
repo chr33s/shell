@@ -42,7 +42,7 @@ final class ScrollbackEncryptionManager {
         // key generation. This used to be `try?`, which collapsed
         // `unexpectedStatus`/`dataConversionFailed` into the same "no key" answer
         // as `itemNotFound` — and because `saveScrollbackEncryptionKey` upserts
-        // (SecItemAdd -> errSecDuplicateItem -> SecItemUpdate), minting a key
+        // (SecItemUpdate, then SecItemAdd only if absent), minting a key
         // after a read that failed for any *other* reason silently overwrote the
         // still-present key. Every existing `<uuid>.ansi.enc` then failed
         // AES.GCM.open and was deleted as "corrupted", unrecoverably. Read

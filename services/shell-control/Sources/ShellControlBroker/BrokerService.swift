@@ -1,6 +1,7 @@
 import Foundation
 import ShellControlProtocol
 import ShellControlSecurity
+import ShellControlClient
 @_exported import ShellControlHTTPServer
 
 /// Routes `/v1` HTTP requests onto ``BrokerStore``.
@@ -588,18 +589,8 @@ public struct BrokerService: Sendable {
         BrokerService.forwardingHeaders.contains { request.header($0) != nil }
     }
 
-    /// Strips the brackets off an IPv6 literal before the port: splitting on
-    /// `:` first turned `[::1]:8443` into `[`, so IPv6 loopback never matched.
     private func isLoopbackHost(_ request: HTTPServer.Request) -> Bool {
-        var host = (request.header("Host") ?? "").lowercased()
-        if host.hasPrefix("["), let end = host.firstIndex(of: "]") {
-            host = String(host[host.index(after: host.startIndex)..<end])
-        } else if host.filter({ $0 == ":" }).count == 1,
-                  let colon = host.firstIndex(of: ":"),
-                  host[host.index(after: colon)...].allSatisfy(\.isNumber) {
-            host = String(host[..<colon])
-        }
-        return host == "localhost" || host == "127.0.0.1" || host == "::1"
+        ControlBrokerAddress.isLoopbackHost(request.header("Host") ?? "")
     }
 
     private func wantsHTML(_ request: HTTPServer.Request) -> Bool {

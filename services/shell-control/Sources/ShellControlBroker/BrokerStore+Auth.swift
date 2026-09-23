@@ -43,6 +43,11 @@ struct TokenRecord: Sendable {
     /// this record, never from an unbound `enrollmentID` lookup.
     let deviceCode: String?
     var revoked = false
+    /// Set when a refresh token is spent by rotation. With the seed, a retry
+    /// of the same token inside the grace window re-derives the identical
+    /// successor pair instead of failing (see ``BrokerStore/refreshSession``).
+    var rotatedAt: ControlTimestamp?
+    var rotationSeed: String?
 }
 
 extension BrokerStore {
@@ -293,9 +298,13 @@ extension BrokerStore {
 
     // MARK: Sessions
 
-    func issueSession(for device: DeviceRecord) throws -> DeviceSession {
-        let access = Base64URL.encode(BrokerStore.randomBytes(32))
-        let refresh = Base64URL.encode(BrokerStore.randomBytes(32))
+    func issueSession(
+        for device: DeviceRecord,
+        accessToken: String? = nil,
+        refreshToken: String? = nil
+    ) throws -> DeviceSession {
+        let access = accessToken ?? Base64URL.encode(BrokerStore.randomBytes(32))
+        let refresh = refreshToken ?? Base64URL.encode(BrokerStore.randomBytes(32))
         // Access tokens last ten minutes; refresh tokens rotate with a 30-day
         // idle lifetime (spec.watch.md section 5).
         let accessExpiry = timestamp.adding(10 * 60)
@@ -327,20 +336,75 @@ extension BrokerStore {
         )
     }
 
+    /// How long a just-rotated refresh token may be presented again. A lost
+    /// refresh response would otherwise leave the client holding only a spent
+    /// token, and a spent token sends the iPhone back to pairing
+    /// (spec.iphone-gateway.md, decisions).
+    static let refreshReplayGrace: TimeInterval = 60
+
     /// Rotating refresh: the presented token is spent, and revocation is
     /// verified before a new session is issued.
+    ///
+    /// Rotation is idempotent for ``refreshReplayGrace``: the successor pair
+    /// is derived from a stored random seed and the presented token, so a
+    /// retry re-derives the identical pair without the broker ever storing a
+    /// token in the clear. Once the successor has itself been used, or the
+    /// window has passed, the old token is plain reuse and is rejected.
     public func refreshSession(refreshToken: String) throws -> DeviceSession {
         let verifier = BrokerStore.verifier(for: refreshToken)
-        guard var record = refreshTokens[verifier], !record.revoked, timestamp < record.expiresAt,
+        guard var record = refreshTokens[verifier], timestamp < record.expiresAt,
               let device = devices[record.deviceID], !device.isRevoked
         else {
             throw ControlError(code: .invalidToken, message: "refresh token rejected")
         }
+        if record.revoked {
+            guard let session = replayedRotation(of: record, presented: refreshToken, device: device) else {
+                throw ControlError(code: .invalidToken, message: "refresh token rejected")
+            }
+            return session
+        }
+        let seed = BrokerStore.randomBytes(32)
+        let successor = BrokerStore.rotatedTokens(presented: refreshToken, seed: seed)
         record.revoked = true
+        record.rotatedAt = timestamp
+        record.rotationSeed = Base64URL.encode(seed)
         refreshTokens[verifier] = record
-        let session = try issueSession(for: device)
+        let session = try issueSession(for: device, accessToken: successor.access, refreshToken: successor.refresh)
         try commit()
         return session
+    }
+
+    /// The session a rotation already issued, if the presented token was
+    /// rotated inside the grace window and its successor is still unused.
+    private func replayedRotation(of record: TokenRecord, presented: String, device: DeviceRecord) -> DeviceSession? {
+        guard let rotatedAt = record.rotatedAt,
+              timestamp < rotatedAt.adding(BrokerStore.refreshReplayGrace),
+              let seed = record.rotationSeed.flatMap(Base64URL.decode)
+        else { return nil }
+        let successor = BrokerStore.rotatedTokens(presented: presented, seed: seed)
+        guard let refresh = refreshTokens[BrokerStore.verifier(for: successor.refresh)], !refresh.revoked,
+              let access = accessTokens[BrokerStore.verifier(for: successor.access)], !access.revoked,
+              refresh.deviceID == device.deviceID
+        else { return nil }
+        return DeviceSession(
+            deviceID: device.deviceID,
+            accountID: device.accountID,
+            accessToken: successor.access,
+            accessTokenExpiresAt: access.expiresAt,
+            refreshToken: successor.refresh,
+            grants: device.grants
+        )
+    }
+
+    /// Keyed by a per-rotation random seed and bound to the presented token:
+    /// neither the stored state nor an old token alone yields a successor.
+    static func rotatedTokens(presented: String, seed: Data) -> (access: String, refresh: String) {
+        let key = SymmetricKey(data: seed)
+        func derive(_ label: String) -> String {
+            let mac = HMAC<SHA256>.authenticationCode(for: Data("shell-control.refresh.v1:\(label):\(presented)".utf8), using: key)
+            return Base64URL.encode(Data(mac))
+        }
+        return (derive("access"), derive("refresh"))
     }
 
     /// Bearer authentication for device endpoints.

@@ -84,16 +84,46 @@ do {
     fail("cannot acquire singleton lock: \(error)")
 }
 
-let core = try DaemonCore(configuration: DaemonCore.Configuration(
-    brokerURL: brokerURL,
-    originID: originID,
-    originSecret: originSecret,
-    socketPath: socketPath,
-    journalURL: URL(fileURLWithPath: journalPath),
-    healthSocketPath: healthSocketPath
-))
+let core: DaemonCore
+do {
+    core = try DaemonCore(configuration: DaemonCore.Configuration(
+        brokerURL: brokerURL,
+        originID: originID,
+        originSecret: originSecret,
+        socketPath: socketPath,
+        journalURL: URL(fileURLWithPath: journalPath),
+        healthSocketPath: healthSocketPath
+    ))
+} catch {
+    fail("cannot open the dispatch journal \(journalPath): \(error)")
+}
 
-try await core.reconcileAfterRestart()
+func log(_ message: String) {
+    FileHandle.standardError.write(Data("shell-controld: \(message)\n".utf8))
+}
+
+// The startup frontier must be captured before any IPC work is admitted
+// (spec.cli.md section 10.1). A torn or corrupt journal is repaired in place;
+// anything else that stops discovery (an unreadable file, a full disk) is
+// retried here with backoff rather than by exiting into a launchd crash loop.
+var discoveryDelay: UInt64 = 1
+while true {
+    do {
+        try await core.discoverInterruptedWorkAtStartup()
+        break
+    } catch {
+        log("cannot read the dispatch journal \(journalPath), retrying in \(discoveryDelay)s: \(error)")
+        try? await Task.sleep(nanoseconds: discoveryDelay * 1_000_000_000)
+        discoveryDelay = min(discoveryDelay * 2, 60)
+    }
+}
+// Broker and journal-append failures leave obligations pending; the heartbeat
+// loop retries them, so they never stop the daemon from starting.
+do {
+    try await core.reconcileAfterRestart()
+} catch {
+    log("startup recovery is incomplete and will be retried: \(error)")
+}
 let heartbeat = Task { await core.runHeartbeats() }
 
 let controlServer = UnixSocketServer(path: socketPath)

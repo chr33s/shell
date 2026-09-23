@@ -30,6 +30,12 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
     /// Write output to the terminal (→ OutputBatcher.enqueue).
     let writeOutput: @Sendable (Data) -> Void
 
+    /// Write diagnostic output (a builtin's stderr). Defaults to `writeOutput`;
+    /// command substitutions and pipeline stages pass their parent's error
+    /// sink so `echo warn >&2` inside `$( … )` reaches the terminal instead
+    /// of the captured value.
+    let writeErrorOutput: @Sendable (Data) -> Void
+
     /// Read a line from the terminal for the `read` builtin.
     /// Parameters: prompt string (optional), silent flag (suppresses echo for `read -s`).
     /// Returns the line, or nil on EOF/cancellation.
@@ -65,7 +71,14 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
 
     /// Reentrancy guard for ERR trap (prevents infinite recursion when trap body fails).
     private var inErrTrap = false
-    private var builtinOutputFD: Int32?
+
+    /// Where a builtin's stdout, stderr and stdin currently point. Only
+    /// differs from the defaults while a builtin with redirections runs
+    /// (see `applyBuiltinRedirections`); nested builtins run by `eval` or
+    /// `source` inherit it.
+    private var builtinStdout: BuiltinOutputTarget = .stdout
+    private var builtinStderr: BuiltinOutputTarget = .stderr
+    private var builtinStdin: BuiltinInputSource?
 
     /// Depth of `set -e`-exempt contexts: if/while/until conditions, the
     /// left arm of `&&`/`||`, and `!`-negated commands. Errexit only fires
@@ -143,6 +156,7 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
          backgroundStreamExternal: (@Sendable (String, (@Sendable () -> Data?)?, @escaping @Sendable (Data) -> Bool) -> Int32)? = nil,
          isLocallyCancelled: (@Sendable () -> Bool)? = nil,
          writeOutput: @escaping @Sendable (Data) -> Void,
+         writeErrorOutput: (@Sendable (Data) -> Void)? = nil,
          readLine: @escaping @Sendable (String?, Bool) -> String?,
          nestingDepth: Int = 0) {
         self.nestingDepth = nestingDepth
@@ -173,6 +187,7 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
         self.backgroundStreamExternal = backgroundStreamExternal
         self.isLocallyCancelled = isLocallyCancelled
         self.writeOutput = writeOutput
+        self.writeErrorOutput = writeErrorOutput ?? writeOutput
         self.readLine = readLine
     }
 
@@ -187,31 +202,71 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
 
     // MARK: - Output Helpers
 
+    /// Write to the current command's stdout (the terminal/capture sink, or
+    /// wherever a builtin's redirections point it).
     func writeString(_ s: String) {
-        let data = Data(s.utf8)
-        if let fd = builtinOutputFD {
-            data.withUnsafeBytes { raw in
-                guard let base = raw.baseAddress else { return }
-                var written = 0
-                while written < raw.count {
-                    let count = write(fd, base.advanced(by: written), raw.count - written)
-                    if count > 0 { written += count }
-                    else if count < 0 && errno == EINTR { continue }
-                    else { break }
-                }
-            }
-        } else {
-            writeOutput(data)
-        }
-        if outputThrottle.recordOutput(bytes: data.count) {
-            Thread.sleep(forTimeInterval: 0.005)
-        }
+        emit(Data(s.utf8), to: builtinStdout)
     }
 
     func writeLine(_ s: String) {
         // Pure LF: the terminal-bound writeOutput sink converts lone LF to
         // CRLF at the boundary, so captures/pipes/files receive clean LF.
         writeString(s + "\n")
+    }
+
+    /// Write to the current command's stderr. Builtin diagnostics go here so
+    /// `cd "$d" 2>/dev/null` silences them.
+    func writeErrorString(_ s: String) {
+        emit(Data(s.utf8), to: builtinStderr)
+    }
+
+    func writeErrorLine(_ s: String) {
+        writeErrorString(s + "\n")
+    }
+
+    private func emit(_ data: Data, to target: BuiltinOutputTarget) {
+        sink(for: target)(data)
+        if outputThrottle.recordOutput(bytes: data.count) {
+            Thread.sleep(forTimeInterval: 0.005)
+        }
+    }
+
+    /// The raw byte sink behind an output target. Safe to hand to a child
+    /// interpreter (command substitution, pipeline stage) as its stderr:
+    /// it never touches this interpreter's mutable state.
+    private func sink(for target: BuiltinOutputTarget) -> @Sendable (Data) -> Void {
+        switch target {
+        case .stdout:
+            return writeOutput
+        case .stderr:
+            return writeErrorOutput
+        case .file(let fd):
+            return { data in
+                data.withUnsafeBytes { raw in
+                    guard let base = raw.baseAddress else { return }
+                    var written = 0
+                    while written < raw.count {
+                        let count = write(fd, base.advanced(by: written), raw.count - written)
+                        if count > 0 { written += count } else if count < 0 && errno == EINTR { continue } else { break }
+                    }
+                }
+            }
+        case .closed:
+            return { _ in }
+        }
+    }
+
+    /// Stderr sink for a child interpreter created while this one runs.
+    private var childErrorSink: @Sendable (Data) -> Void { sink(for: builtinStderr) }
+
+    /// Read one line of the current command's stdin for the `read` builtin:
+    /// a `<` file or here-document when the builtin has one, otherwise the
+    /// terminal (or upstream pipeline stage) via `readLine`.
+    func readInputLine(prompt: String?, silent: Bool) -> String? {
+        if let source = builtinStdin {
+            return source.readLine(cancellation: cancellationToken)
+        }
+        return readLine(prompt, silent)
     }
 
     // MARK: - Command Substitution
@@ -272,6 +327,7 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
             canStreamExternalCommand: canStreamExternalCommand,
             requiresOwnExternalPipelineStage: requiresOwnExternalPipelineStage,
             writeOutput: { data in captured.append(data) },
+            writeErrorOutput: childErrorSink,
             readLine: { _, _ -> String? in nil },
             nestingDepth: nestingDepth + 1
         )
@@ -516,60 +572,57 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
             writeLine("+ " + expandedWords.joined(separator: " "))
         }
 
-        // Check for shell functions
+        // Check for shell functions. Their redirections route every builtin
+        // in the body, and the stdout of external commands run from it.
         if let funcBody = environment.getFunction(commandName) {
-            return try executeFunction(commandName,
-                                        args: Array(expandedWords.dropFirst()),
-                                        body: funcBody)
+            return try withCommandRedirections(cmd, commandName: commandName) {
+                try executeFunction(commandName,
+                                    args: Array(expandedWords.dropFirst()),
+                                    body: funcBody)
+            }
         }
 
         // Check for builtins
         if let builtin = ShellBuiltins.lookup(commandName) {
             let args = Array(expandedWords.dropFirst())
-
-            var builtinFD: Int32?
-            for redirection in cmd.redirections {
-                guard redirection.op == .outputTo || redirection.op == .appendTo else {
-                    throw ShellError.unsupported("redirection is not supported for shell builtins")
+            return try withCommandRedirections(cmd, commandName: commandName) {
+                // Pre-command assignments: temporarily set for this command.
+                // Save: (name, oldShellValue, wasExported, oldEnvValue)
+                // We capture the ios_system env value separately so we can restore
+                // inherited env vars (like PATH) that aren't in our exportedNames set.
+                var savedVars: [(String, String?, Bool, String?)] = []
+                for (name, rawValue) in cmd.assignments {
+                    let value = try environment.expandScalarWord(
+                        ShellParser(tokenizer: ShellTokenizer(source: "")).parseShellWord(from: rawValue),
+                        interpreter: self
+                    )
+                    let oldEnvValue = environment.getExportedEnvValue(name)
+                    savedVars.append((name, environment.getVariable(name), environment.isExported(name), oldEnvValue))
+                    environment.exportVariable(name, value: value)
                 }
-                let word = ShellParser(tokenizer: ShellTokenizer(source: "")).parseShellWord(from: redirection.target)
-                let target = environment.resolvePath(try environment.expandScalarWord(word, interpreter: self))
-                let flags = redirection.op == .outputTo ? (O_WRONLY | O_CREAT | O_TRUNC) : (O_WRONLY | O_CREAT | O_APPEND)
-                let fd = open(target, flags, 0o644)
-                guard fd >= 0 else {
-                    writeString("sh: \(target): \(String(cString: strerror(errno)))\n")
-                    return 1
+
+                let exitCode: Int32
+                do {
+                    exitCode = try builtin(args, environment, self)
+                } catch {
+                    // Restore pre-command assignments before rethrowing
+                    for (name, oldValue, wasExported, oldEnvValue) in savedVars {
+                        if let old = oldValue {
+                            environment.setVariable(name, value: old)
+                        } else {
+                            environment.unsetVariable(name)
+                        }
+                        if !wasExported {
+                            environment.removeFromExportedSet(name)
+                        }
+                        if oldEnvValue != nil || !wasExported {
+                            environment.restoreExportedEnvValue(name, value: oldEnvValue)
+                        }
+                    }
+                    throw error
                 }
-                if let previous = builtinFD { close(previous) }
-                builtinFD = fd
-            }
-            let previousBuiltinFD = builtinOutputFD
-            builtinOutputFD = builtinFD
-            defer {
-                builtinOutputFD = previousBuiltinFD
-                if let fd = builtinFD { close(fd) }
-            }
 
-            // Pre-command assignments: temporarily set for this command.
-            // Save: (name, oldShellValue, wasExported, oldEnvValue)
-            // We capture the ios_system env value separately so we can restore
-            // inherited env vars (like PATH) that aren't in our exportedNames set.
-            var savedVars: [(String, String?, Bool, String?)] = []
-            for (name, rawValue) in cmd.assignments {
-                let value = try environment.expandScalarWord(
-                    ShellParser(tokenizer: ShellTokenizer(source: "")).parseShellWord(from: rawValue),
-                    interpreter: self
-                )
-                let oldEnvValue = environment.getExportedEnvValue(name)
-                savedVars.append((name, environment.getVariable(name), environment.isExported(name), oldEnvValue))
-                environment.exportVariable(name, value: value)
-            }
-
-            let exitCode: Int32
-            do {
-                exitCode = try builtin(args, environment, self)
-            } catch {
-                // Restore pre-command assignments before rethrowing
+                // Restore pre-command assignments
                 for (name, oldValue, wasExported, oldEnvValue) in savedVars {
                     if let old = oldValue {
                         environment.setVariable(name, value: old)
@@ -583,34 +636,18 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
                         environment.restoreExportedEnvValue(name, value: oldEnvValue)
                     }
                 }
-                throw error
-            }
 
-            // Restore pre-command assignments
-            for (name, oldValue, wasExported, oldEnvValue) in savedVars {
-                if let old = oldValue {
-                    environment.setVariable(name, value: old)
-                } else {
-                    environment.unsetVariable(name)
+                environment.setLastExitCode(exitCode)
+
+                // Fire ERR trap on non-zero exit from builtins (with reentrancy guard)
+                if exitCode != 0, !inErrTrap, let errTrap = trapRegistry.getHandler(for: .err) {
+                    inErrTrap = true
+                    _ = try? execute(errTrap)
+                    inErrTrap = false
                 }
-                if !wasExported {
-                    environment.removeFromExportedSet(name)
-                }
-                if oldEnvValue != nil || !wasExported {
-                    environment.restoreExportedEnvValue(name, value: oldEnvValue)
-                }
+
+                return exitCode
             }
-
-            environment.setLastExitCode(exitCode)
-
-            // Fire ERR trap on non-zero exit from builtins (with reentrancy guard)
-            if exitCode != 0, !inErrTrap, let errTrap = trapRegistry.getHandler(for: .err) {
-                inErrTrap = true
-                _ = try? execute(errTrap)
-                inErrTrap = false
-            }
-
-            return exitCode
         }
 
         // Isolated externals (e.g. WASM) with redirections must have their
@@ -703,6 +740,16 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
             exitCode = environment.withTemporaryChildProcessEnvironment(childEnvironment) {
                 executeExternalWithStdin(fullCommand, expandedContent)
             }
+        } else if builtinStdout != .stdout {
+            // Run from a function, `eval` or `source` whose stdout is
+            // redirected: ios_system writes straight to the terminal, so
+            // capture the output and route it. Stderr still reaches the
+            // terminal.
+            let (code, output) = environment.withTemporaryChildProcessEnvironment(childEnvironment) {
+                captureExternal(fullCommand)
+            }
+            emit(Data(output.utf8), to: builtinStdout)
+            exitCode = code
         } else {
             exitCode = environment.withTemporaryChildProcessEnvironment(childEnvironment) {
                 executeExternal(fullCommand)
@@ -743,15 +790,122 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
         case external([ShellCommand])
     }
 
-    /// Execute a pipeline of commands connected by `|`.
+    // MARK: - Builtin Redirections
+
+    /// Run `body` — a builtin or a shell function — with `cmd`'s redirections
+    /// applied to the stdout/stderr/stdin routing, restoring it and closing
+    /// any opened files afterwards. When a target can't be opened, `body`
+    /// does not run and the command exits 1.
+    private func withCommandRedirections(_ cmd: SimpleCommand,
+                                         commandName: String,
+                                         _ body: () throws -> Int32) throws -> Int32 {
+        guard !cmd.redirections.isEmpty else { return try body() }
+        let savedStdout = builtinStdout
+        let savedStderr = builtinStderr
+        let savedStdin = builtinStdin
+        var openedFDs: [Int32] = []
+        defer {
+            builtinStdout = savedStdout
+            builtinStderr = savedStderr
+            builtinStdin = savedStdin
+            for fd in openedFDs { close(fd) }
+        }
+        guard try applyBuiltinRedirections(cmd, commandName: commandName, openedFDs: &openedFDs) else {
+            environment.setLastExitCode(1)
+            return 1
+        }
+        return try body()
+    }
+
+    /// Point the builtin's stdout/stderr/stdin at its redirections, applied
+    /// left to right like POSIX (`> f 2>&1` sends both to `f`; `2>&1 > f`
+    /// leaves stderr on the old stdout).
     ///
-    /// Pure shell-native pipelines run concurrently with bounded in-memory pipes.
-    /// External-command stages also run concurrently, streaming their stdout into
-    /// the same bounded pipes so downstream stages see data as it is produced.
+    /// Supported: `>`, `>>`, `2>`, `2>>`, `1>`, `&>` / `>&file`, `>&2`,
+    /// `1>&2`, `2>&1`, `>&-` / `2>&-`, `<file` and here-documents (read by
+    /// `read`). Anything else — an arbitrary fd like `>&3` or `<&3` — is
+    /// ignored with a warning on stderr rather than aborting the script,
+    /// which is what an unhandled redirection used to do.
     ///
-    /// Non-last stages always run with isolated environments so shell-side
-    /// effects do not leak. The final stage inherits the parent environment,
-    /// matching shell behavior such as `cmd | while read line; do VAR=val; done`.
+    /// Returns false (after reporting on stderr) when a target can't be
+    /// opened; the builtin must then not run, and exits 1 as in bash.
+    private func applyBuiltinRedirections(_ cmd: SimpleCommand,
+                                          commandName: String,
+                                          openedFDs: inout [Int32]) throws -> Bool {
+        func expandTarget(_ raw: String) throws -> String {
+            let word = ShellParser(tokenizer: ShellTokenizer(source: "")).parseShellWord(from: raw)
+            return try environment.expandScalarWord(word, interpreter: self)
+        }
+        func openTarget(_ raw: String, flags: Int32) throws -> Int32? {
+            let path = environment.resolvePath(try expandTarget(raw))
+            let fd = open(path, flags | O_CLOEXEC, 0o644)
+            guard fd >= 0 else {
+                writeErrorLine("sh: \(path): \(String(cString: strerror(errno)))")
+                return nil
+            }
+            openedFDs.append(fd)
+            return fd
+        }
+        func ignore(_ redir: Redirection) {
+            writeErrorLine("sh: \(commandName): unsupported redirection '\(reconstructRedirection(redir))' ignored")
+        }
+        /// Resolve a `>&N` / `2>&N` target: nil means "not an fd we model".
+        func duplicate(_ target: String) -> BuiltinOutputTarget? {
+            switch target {
+            case "1": return builtinStdout
+            case "2": return builtinStderr
+            case "-": return .closed
+            default: return nil
+            }
+        }
+        let truncate = O_WRONLY | O_CREAT | O_TRUNC
+        let append = O_WRONLY | O_CREAT | O_APPEND
+
+        for redir in cmd.redirections {
+            let fd = redir.fd
+            switch redir.op {
+            case .outputTo, .appendTo:
+                guard fd == nil || fd == 1 || fd == 2 else { ignore(redir); continue }
+                guard let opened = try openTarget(redir.target, flags: redir.op == .outputTo ? truncate : append) else { return false }
+                if fd == 2 { builtinStderr = .file(opened) } else { builtinStdout = .file(opened) }
+            case .errorTo, .errorAppendTo:
+                guard let opened = try openTarget(redir.target, flags: redir.op == .errorTo ? truncate : append) else { return false }
+                builtinStderr = .file(opened)
+            case .mergeStderrStdout:
+                // `2>&N` — the tokenizer keeps N as the target.
+                let target = try expandTarget(redir.target)
+                guard let dup = duplicate(target) else { ignore(redir); continue }
+                builtinStderr = dup
+            case .duplicateOutput:
+                let target = try expandTarget(redir.target)
+                if let dup = duplicate(target) {
+                    // `>&N` / `1>&N`; `2>&N` if the tokenizer ever tags it.
+                    if fd == 2 { builtinStderr = dup } else { builtinStdout = dup }
+                } else if target.allSatisfy({ $0.isASCII && $0.isNumber }) || (fd != nil && fd != 1) {
+                    ignore(redir)
+                } else {
+                    // `&> file` / `>& file`: stdout and stderr both to `file`.
+                    guard let opened = try openTarget(redir.target, flags: truncate) else { return false }
+                    builtinStdout = .file(opened)
+                    builtinStderr = .file(opened)
+                }
+            case .inputFrom:
+                guard fd == nil || fd == 0 else { ignore(redir); continue }
+                guard let opened = try openTarget(redir.target, flags: O_RDONLY) else { return false }
+                builtinStdin = .fileDescriptor(opened)
+            case .heredocOp, .heredocStripOp:
+                guard let content = cmd.heredocContent else { continue }
+                let expanded = cmd.heredocQuoted == true ? content : try expandHeredocContent(content)
+                builtinStdin = .text(BuiltinTextInput(expanded))
+            case .duplicateInput:
+                let target = try expandTarget(redir.target)
+                if target == "0" { continue }
+                ignore(redir)
+            }
+        }
+        return true
+    }
+
     /// Single-shot Sendable wrapper for a heredoc payload feeding stdin
     /// through an `inputProvider` callback. Returns the payload once, then
     /// nil — matching POSIX semantics for a closed stdin after the heredoc.
@@ -948,6 +1102,15 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
         return exitCode
     }
 
+    /// Execute a pipeline of commands connected by `|`.
+    ///
+    /// Pure shell-native pipelines run concurrently with bounded in-memory pipes.
+    /// External-command stages also run concurrently, streaming their stdout into
+    /// the same bounded pipes so downstream stages see data as it is produced.
+    ///
+    /// Non-last stages always run with isolated environments so shell-side
+    /// effects do not leak. The final stage inherits the parent environment,
+    /// matching shell behavior such as `cmd | while read line; do VAR=val; done`.
     private func executePipeline(_ commands: [ShellCommand]) throws -> Int32 {
         try checkCancelled()
 
@@ -1033,7 +1196,10 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
         let outerExecuteExternal = self.executeExternal
         let outerExecuteExternalWithStdin = self.executeExternalWithStdin
         let outerCaptureExternal = self.captureExternal
-        let outerWriteOutput = self.writeOutput
+        // The current stdout/stderr targets, so `eval 'a | b' > file` lands
+        // the last stage's output in the file.
+        let outerWriteOutput = sink(for: builtinStdout)
+        let outerWriteErrorOutput = childErrorSink
         let outerReadLine = self.readLine
         let env = self.environment
         let token = self.cancellationToken
@@ -1087,6 +1253,7 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
                                     stageCancellation.cancel()
                                 }
                             },
+                            writeErrorOutput: outerWriteErrorOutput,
                             readLine: { [upstream] prompt, silent in
                                 if !isFirst, let upstream = upstream {
                                     return upstream.readLine()
@@ -1918,7 +2085,9 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
     /// quoting semantics.
     private func reconstructRedirection(_ redir: Redirection) -> String {
         let fdPrefix: String
-        if let fd = redir.fd {
+        // ios_system only understands a bare `>`; an explicit `1` would be
+        // left behind as an argument.
+        if let fd = redir.fd, fd != 1 {
             fdPrefix = String(fd)
         } else {
             fdPrefix = ""

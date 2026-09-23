@@ -206,7 +206,12 @@ extension BrokerStore {
             throw ControlError(code: .notAuthorized, message: "decision not allowed for this request")
         }
         if command.decision == .approve {
-            guard entry.spec.minimumReview == .watch, entry.projection.watchReviewAllowed else {
+            // A request that needs fuller review is approvable only from an
+            // enrolled full-review client. The device kind comes from the
+            // broker's own registration, never from the command
+            // (spec.watch.md section 6).
+            let fullReview = principal.deviceID.flatMap { devices[$0] }?.isFullReviewClient ?? false
+            guard fullReview || (entry.spec.minimumReview == .watch && entry.projection.watchReviewAllowed) else {
                 throw ControlError(code: .fullReviewRequired, message: "this request needs fuller review")
             }
             // Approve requires fresh source presence; Reject does not.

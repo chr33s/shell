@@ -28,7 +28,7 @@ nonisolated extension ShellInterpreter {
             }
             return try evaluateDB(expr) ? 0 : 1
         } catch let error as DoubleBracketError {
-            writeLine("sh: [[: \(error.message)")
+            writeErrorLine("sh: [[: \(error.message)")
             return 2
         }
     }

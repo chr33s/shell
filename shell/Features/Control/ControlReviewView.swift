@@ -76,8 +76,17 @@ struct ControlReviewView: View {
                 }
             }
             Section {
+                // The same gate the decision coordinator applies for a
+                // full-review client, so Approve is never offered for a
+                // request the submission would refuse.
                 Button(String(localized: "Approve once")) { confirming = .approve }
-                    .disabled(!record.spec.allowedDecisions.contains(.approve) || record.projection.resolution != .pending)
+                    .disabled(!record.canApprove(at: now, review: ControlCompanion.review))
+                if record.spec.allowedDecisions.contains(.approve),
+                   case .reviewElsewhere(let reason) = record.approvability(at: now, review: ControlCompanion.review) {
+                    Text(ControlCompanion.reviewElsewhereText(reason))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
                 Button(String(localized: "Reject"), role: .destructive) { confirming = .reject }
                     .disabled(!record.canReject(at: now))
             } footer: {
@@ -93,7 +102,12 @@ struct ControlReviewView: View {
         ) {
             if let decision = confirming {
                 Button(decision == .approve ? String(localized: "Approve once") : String(localized: "Reject")) {
-                    Task { await companion.decide(decision, on: record) }
+                    Task {
+                        await companion.decide(decision, on: record)
+                        // Always show the request as it now stands: after a
+                        // refusal this is the fresh review the user decides from.
+                        if let current = try? await companion.fetch(requestID) { self.record = current }
+                    }
                     confirming = nil
                 }
             }

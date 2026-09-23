@@ -47,7 +47,7 @@ struct ShellWatchApp: App {
                 ),
                 reviewerStore: DefaultsWatchReviewerStore(),
                 cache: try ProtectedInboxCache(),
-                journalStore: try FileCommandJournalStore()
+                journalStore: try FileCommandJournalStore(protection: .completeFileProtection)
             )
             gateway.onReachabilityChange = { reachable in session.gatewayReachabilityChanged(reachable) }
             gateway.onContext = { context in session.applyContext(context) }

@@ -1,6 +1,7 @@
 import UserNotifications
 import XCTest
 import ShellControlProtocol
+import ShellControlClient
 
 @testable import ShellWatch
 
@@ -48,6 +49,30 @@ final class NotificationRoutingTests: XCTestCase {
             actionIdentifier: PushCategory.Action.review.rawValue,
             userInfo: ["request_id": "surface-0x600001234"]
         ))
+    }
+
+    /// A tapped notification's intent waits in an observable router until
+    /// the inbox takes it — on a cold launch the inbox does not exist yet —
+    /// and opens review exactly once.
+    @MainActor
+    func testTheRouterHoldsAnIntentUntilTheInboxTakesItOnce() throws {
+        let requestID = try XCTUnwrap(ControlID("10000000-0000-4000-8000-000000000001"))
+        let router = WatchNotificationRouter()
+        router.receive(nil)
+        XCTAssertNil(router.pendingIntent, "a payload without a request id selects nothing")
+        router.receive(.proposeApprove(requestID: requestID))
+        XCTAssertEqual(router.pendingIntent, .proposeApprove(requestID: requestID))
+        XCTAssertEqual(router.consume(), .proposeApprove(requestID: requestID))
+        XCTAssertNil(router.consume())
+    }
+
+    /// Only a command whose fate is genuinely unknown is labelled so; one the
+    /// broker recorded shows as recorded while it awaits reconciliation.
+    func testActivityLabelsFollowTheJournalState() {
+        XCTAssertTrue(PendingCommandLabel.isAmbiguous(.outcomeUnknown))
+        XCTAssertTrue(PendingCommandLabel.isAmbiguous(.sending))
+        XCTAssertFalse(PendingCommandLabel.isAmbiguous(.decisionRecorded))
+        XCTAssertNotEqual(PendingCommandLabel.text(.decisionRecorded), PendingCommandLabel.text(.outcomeUnknown))
     }
 
     /// The Watch has no route of its own: no broker URL is baked into it and

@@ -85,8 +85,9 @@ final class ScrollbackPersistenceManager {
     /// shortly after the screen locks) the item is simply invisible to
     /// `SecItemCopyMatching`, which reports `errSecItemNotFound` —
     /// indistinguishable from "no key yet". Minting then overwrites the real key
-    /// (`KeychainManager.saveScrollbackEncryptionKey` upserts: `SecItemAdd` ->
-    /// `errSecDuplicateItem` -> `SecItemUpdate`) and permanently orphans every
+    /// (`KeychainManager.saveScrollbackEncryptionKey` upserts via
+    /// `Keychain.upsert`: `SecItemUpdate`, then `SecItemAdd` only when there is
+    /// no item) and permanently orphans every
     /// existing `<uuid>.ansi.enc`, which the restore path used to delete as
     /// "corrupted". One transient lock window would have cost the user every
     /// saved scrollback, silently.

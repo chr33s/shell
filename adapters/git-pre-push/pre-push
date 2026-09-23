@@ -13,11 +13,44 @@ remote_url="$2"
 repository="$(git rev-parse --show-toplevel)"
 git_binary="$(command -v git)"
 
+zeros() {
+    case "$1" in
+        *[!0]*) return 1 ;;
+        *) return 0 ;;
+    esac
+}
+
+# How a ref update changes the remote, so the reviewer sees deletions and
+# history rewrites rather than only an opaque context digest. A remote commit
+# this repository does not have cannot be checked, so it is treated as a
+# possible force-push.
+classify() {
+    new_sha="$1"
+    old_sha="$2"
+    if zeros "$new_sha"; then echo delete; return; fi
+    if zeros "$old_sha"; then echo create; return; fi
+    if ! git cat-file -e "${old_sha}^{commit}" 2>/dev/null </dev/null; then echo unknown; return; fi
+    set +e
+    git merge-base --is-ancestor "$old_sha" "$new_sha" 2>/dev/null </dev/null
+    ancestor=$?
+    set -e
+    case "$ancestor" in
+        0) echo push ;;
+        1) echo force ;;
+        *) echo unknown ;;
+    esac
+}
+
 # Read the refs Git is about to push, so the request commits to the exact
 # object ids rather than to a branch name that could move.
 refs=""
+updates="$(mktemp)"
+request="$(mktemp)"
+result="$(mktemp)"
+trap 'rm -f "$updates" "$request" "$result" 2>/dev/null || true' EXIT
 while read -r local_ref local_sha remote_ref remote_sha; do
     refs="${refs}${remote_ref}=${local_sha}=${remote_sha} "
+    printf '%s\t%s\t%s\n' "$(classify "$local_sha" "$remote_sha")" "$local_ref" "$remote_ref" >> "$updates"
 done
 
 # Nothing to push: nothing to ask about.
@@ -32,26 +65,92 @@ context="$(printf '%s\n' \
     "remote=${remote} ${remote_url}" \
     "refs=${refs}" | shasum -a 256 | cut -d' ' -f1)"
 
-request="$(mktemp)"
-result="$(mktemp)"
-trap 'rm -f "$request" "$result" 2>/dev/null || true' EXIT
-
 # The request document is serialised by a JSON encoder, never by shell
 # interpolation: a remote name or repository path containing a quote or
 # backslash would otherwise break the document, or inject a sibling field and
 # make the argument vector shown on the Watch differ from what this hook then
 # allows.
-/usr/bin/python3 - "$request" "$git_binary" "$remote" "$repository" "$context" <<'PY'
+#
+# The reviewer sees every ref update twice: as an explicit refspec per update in
+# the argument vector (`+src:dst` forces, `:dst` deletes), and in the summary,
+# riskiest first ("Delete origin/main", "Force-push main -> origin/main").
+/usr/bin/python3 - "$request" "$git_binary" "$remote" "$repository" "$context" "$updates" <<'PY'
 import json, sys
-out, git_binary, remote, repository, context = sys.argv[1:6]
+out, git_binary, remote, repository, context, updates_path = sys.argv[1:7]
+
+def short(ref):
+    for prefix, label in (("refs/heads/", ""), ("refs/tags/", "tag ")):
+        if ref.startswith(prefix):
+            return label + ref[len(prefix):]
+    return ref
+
+def target(ref):
+    name = short(ref)
+    if name.startswith("tag "):
+        return "tag " + remote + "/" + name[len("tag "):]
+    return remote + "/" + name
+
+order = {"delete": 0, "force": 1, "unknown": 2, "create": 3, "push": 4}
+updates = []
+with open(updates_path) as handle:
+    for line in handle:
+        kind, local_ref, remote_ref = line.rstrip("\n").split("\t")
+        updates.append((kind, local_ref, remote_ref))
+
+refspecs = []
+for kind, local_ref, remote_ref in updates:
+    if kind == "delete":
+        refspecs.append(":" + remote_ref)
+    elif kind in ("force", "unknown"):
+        refspecs.append("+" + local_ref + ":" + remote_ref)
+    else:
+        refspecs.append(local_ref + ":" + remote_ref)
+
+argv = [git_binary, "push", remote] + refspecs
+# exec.v1 carries at most 256 arguments; never hide an update to fit.
+if len(argv) > 256:
+    sys.stderr.write("shell-control: too many refs in one push to review (%d)\n" % len(updates))
+    sys.exit(1)
+
+def describe(kind, local_ref, remote_ref):
+    if kind == "delete":
+        return "Delete " + target(remote_ref)
+    if kind == "force":
+        return "Force-push " + short(local_ref) + " \u2192 " + target(remote_ref) + " (non-fast-forward)"
+    if kind == "unknown":
+        return "Possible force-push " + short(local_ref) + " \u2192 " + target(remote_ref) + " (remote commit unknown locally)"
+    if kind == "create":
+        return "Create " + target(remote_ref) + " from " + short(local_ref)
+    return "Push " + short(local_ref) + " \u2192 " + target(remote_ref)
+
+# The summary is capped at 200 characters; when the updates do not fit, the
+# riskiest come first and the rest are counted, never dropped silently.
+lines = [describe(*update) for update in sorted(updates, key=lambda update: order.get(update[0], 0))]
+limit = 200
+summary = ""
+for index, line in enumerate(lines):
+    candidate = line if not summary else summary + "; " + line
+    remaining = len(lines) - index - 1
+    suffix = "; +%d more" % remaining if remaining else ""
+    if len(candidate + suffix) <= limit:
+        summary = candidate
+        continue
+    rest = "+%d more" % (len(lines) - index)
+    if not summary:
+        summary = line[:limit - len("\u2026; " + rest)] + "\u2026; " + rest
+    else:
+        summary = summary + "; " + rest
+    break
+summary = summary[:limit]
+
 json.dump({
     "adapter": "git-pre-push",
     "job_label": ("git push " + remote)[:120],
-    "summary": ("Push to " + remote)[:200],
+    "summary": summary,
     "capabilities": ["consume.v1"],
     "operation": {
         "schema": "exec.v1",
-        "argv": [git_binary, "push", remote],
+        "argv": argv,
         "cwd": repository,
         "context_sha256": context,
     },

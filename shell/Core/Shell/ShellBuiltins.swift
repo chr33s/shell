@@ -176,7 +176,7 @@ nonisolated enum ShellBuiltins {
     static func builtinPrintf(_ args: [String], _ env: ShellEnvironment,
                                _ interp: ShellInterpreter) -> Int32 {
         guard let format = args.first else {
-            interp.writeLine("printf: usage: printf format [arguments]")
+            interp.writeErrorLine("printf: usage: printf format [arguments]")
             return 1
         }
 
@@ -712,7 +712,7 @@ nonisolated enum ShellBuiltins {
                 case "xtrace":   env.updateOptions { $0.xtrace = enable }
                 case "pipefail": env.updateOptions { $0.pipefail = enable }
                 default:
-                    interp.writeLine("sh: set: \(args[i]): invalid option name")
+                    interp.writeErrorLine("sh: set: \(args[i]): invalid option name")
                     return 2
                 }
                 i += 1
@@ -729,7 +729,7 @@ nonisolated enum ShellBuiltins {
                 case "a", "b", "C", "f", "h", "m", "n", "v":
                     break
                 default:
-                    interp.writeLine("sh: set: \(arg.hasPrefix("-") ? "-" : "+")\(flag): invalid option")
+                    interp.writeErrorLine("sh: set: \(arg.hasPrefix("-") ? "-" : "+")\(flag): invalid option")
                     return 2
                 }
             }
@@ -773,7 +773,7 @@ nonisolated enum ShellBuiltins {
         }
 
         // Read a line from the terminal (pass silent flag for echo suppression)
-        guard let line = interp.readLine(prompt, silent) else {
+        guard let line = interp.readInputLine(prompt: prompt, silent: silent) else {
             // EOF or cancelled
             return 1
         }
@@ -803,12 +803,12 @@ nonisolated enum ShellBuiltins {
     static func builtinSleep(_ args: [String], _ env: ShellEnvironment,
                               _ interp: ShellInterpreter) throws -> Int32 {
         guard let arg = args.first else {
-            interp.writeLine("sleep: missing operand")
+            interp.writeErrorLine("sleep: missing operand")
             return 1
         }
 
         guard let seconds = Double(arg), seconds >= 0 else {
-            interp.writeLine("sleep: invalid time interval '\(arg)'")
+            interp.writeErrorLine("sleep: invalid time interval '\(arg)'")
             return 1
         }
 
@@ -863,7 +863,7 @@ nonisolated enum ShellBuiltins {
             // trap-everything action. Match that rather than silently
             // registering or discarding it.
             guard let sig = TrapRegistry.parseSignal(args[0]) else {
-                interp.writeLine("trap: usage: trap [action] signal_spec ...")
+                interp.writeErrorLine("trap: usage: trap [action] signal_spec ...")
                 return 2
             }
             interp.trapRegistry.register(signal: sig, action: nil)
@@ -875,7 +875,7 @@ nonisolated enum ShellBuiltins {
 
         for sigName in signals {
             guard let sig = TrapRegistry.parseSignal(sigName) else {
-                interp.writeLine("trap: \(sigName): invalid signal specification")
+                interp.writeErrorLine("trap: \(sigName): invalid signal specification")
                 continue
             }
 
@@ -915,14 +915,14 @@ nonisolated enum ShellBuiltins {
     static func builtinSource(_ args: [String], _ env: ShellEnvironment,
                                _ interp: ShellInterpreter) throws -> Int32 {
         guard let path = args.first else {
-            interp.writeLine("source: filename argument required")
+            interp.writeErrorLine("source: filename argument required")
             return 1
         }
 
         let resolvedPath = env.resolvePath(path)
 
         guard let content = try? String(contentsOfFile: resolvedPath, encoding: .utf8) else {
-            interp.writeLine("source: \(path): No such file or directory")
+            interp.writeErrorLine("source: \(path): No such file or directory")
             return 1
         }
 
@@ -950,7 +950,7 @@ nonisolated enum ShellBuiltins {
             } else if ios_executable(name) != 0 {
                 interp.writeLine("\(name) is an external command")
             } else {
-                interp.writeLine("type: \(name): not found")
+                interp.writeErrorLine("type: \(name): not found")
                 exitCode = 1
             }
         }
@@ -1000,7 +1000,7 @@ nonisolated enum ShellBuiltins {
             var isDir: ObjCBool = false
             guard FileManager.default.fileExists(atPath: resolved, isDirectory: &isDir),
                   isDir.boolValue else {
-                interp.writeLine("cd: \(target): No such file or directory")
+                interp.writeErrorLine("cd: \(target): No such file or directory")
                 return 1
             }
             env.setVariable("PWD", value: resolved)
@@ -1024,7 +1024,7 @@ nonisolated enum ShellBuiltins {
             env.exportVariable("OLDPWD", value: oldPwd)
             return 0
         } else {
-            interp.writeLine("cd: \(target): No such file or directory")
+            interp.writeErrorLine("cd: \(target): No such file or directory")
             return 1
         }
     }

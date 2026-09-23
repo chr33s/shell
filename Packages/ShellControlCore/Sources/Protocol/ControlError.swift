@@ -69,6 +69,30 @@ public enum ControlErrorCode: String, Sendable, Hashable, CaseIterable {
         case backoffAndRetry
     }
 
+    /// A final rejection of a submitted command: the broker refused it, so
+    /// nothing was recorded and resending the identical command cannot
+    /// succeed. The command is not ambiguous and is not reconciled.
+    ///
+    /// Excluded, because they do not prove that: the recorded-state codes
+    /// (409), `not_found` (reconcile), `invalid_token` (refresh, then the same
+    /// command may be retried), the retryable codes, and `invalid_payload`,
+    /// which clients and the iPhone gateway also synthesize locally when a
+    /// response — possibly a success — could not be decoded.
+    public var provesCommandNotRecorded: Bool {
+        switch self {
+        case .unsupportedCommand, .deviceRevoked, .reviewerNotBound,
+             .notAuthorized, .fullReviewRequired,
+             .requestExpired, .challengeExpired, .cursorExpired,
+             .staleVersion, .hashMismatch, .policyChanged,
+             .unsupportedOperation, .originUnavailable:
+            return true
+        case .invalidPayload, .invalidToken, .notFound,
+             .alreadyResolved, .idempotencyConflict, .alreadyClaimed,
+             .rateLimited, .temporarilyUnavailable:
+            return false
+        }
+    }
+
     public var clientAction: ClientAction {
         switch self {
         case .invalidPayload, .unsupportedCommand: return .stopAndFix
@@ -114,6 +138,10 @@ public struct ControlError: Error, Sendable, Hashable {
         self.serverTime = serverTime
         self.currentProjection = currentProjection
     }
+
+    /// A non-retryable final rejection of a submitted command; see
+    /// ``ControlErrorCode/provesCommandNotRecorded``.
+    public var provesCommandNotRecorded: Bool { !retryable && code.provesCommandNotRecorded }
 
     public var json: JSONValue {
         JSONWriter.object([

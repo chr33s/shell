@@ -62,6 +62,8 @@ public struct SignerIdentity: Sendable, Hashable {
 /// the only authority the broker accepts (spec.watch.md sections 6 and 11).
 public actor DecisionCoordinator {
     public enum CoordinatorError: Error, Sendable, Equatable {
+        /// This device may not approve the request; review it elsewhere. On a
+        /// full-review client only `policyRequiresFullReview` never occurs.
         case notApprovableOnWatch(WatchApprovability.Reason)
         case decisionNotAllowed
         case requestChangedDuringReview
@@ -74,29 +76,47 @@ public actor DecisionCoordinator {
     private let key: any DeviceSigningKey
     private let session: SignerIdentity
     private let now: @Sendable () -> Date
+    /// The review this device provides. Only a full-review client may approve
+    /// a `minimum_review: full` request (spec.watch.md section 6); the broker
+    /// enforces the same rule from its own device registration.
+    public nonisolated let review: MinimumReview
 
+    /// `review` defaults to ``defaultReview(for:)``.
     public init(
         client: ControlAPIClient,
         journal: CommandJournal,
         key: any DeviceSigningKey,
         session: DeviceSession,
+        review: MinimumReview? = nil,
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
-        self.init(service: client, journal: journal, key: key, signer: SignerIdentity(session: session), now: now)
+        self.init(service: client, journal: journal, key: key, signer: SignerIdentity(session: session), review: review, now: now)
     }
 
+    /// `review` defaults to ``defaultReview(for:)``.
     public init(
         service: any ControlDecisionService,
         journal: CommandJournal,
         key: any DeviceSigningKey,
         signer: SignerIdentity,
+        review: MinimumReview? = nil,
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.client = service
         self.journal = journal
         self.key = key
         self.session = signer
+        self.review = review ?? Self.defaultReview(for: signer)
         self.now = now
+    }
+
+    /// A Watch reviewer, identified by its gateway-only read grants, is a
+    /// Watch whatever it runs on; otherwise the build's platform decides:
+    /// Watch-sized review on watchOS, full review elsewhere (the iPhone).
+    public static func defaultReview(for signer: SignerIdentity) -> MinimumReview {
+        let gatewayOnly: Set<DeviceGrant> = [.requestsReadViaGateway, .notificationsReadViaGateway]
+        guard signer.grants.isDisjoint(with: gatewayOnly) else { return .watch }
+        return .providedByThisPlatform
     }
 
     private var timestamp: ControlTimestamp { ControlTimestamp(now()) }
@@ -121,7 +141,7 @@ public actor DecisionCoordinator {
             throw CoordinatorError.requestChangedDuringReview
         }
         if decision == .approve {
-            switch current.watchApprovability(at: timestamp, supportedFeatures: supportedFeatures) {
+            switch current.approvability(at: timestamp, review: review, supportedFeatures: supportedFeatures) {
             case .approvable: break
             case .reviewElsewhere(let reason): throw CoordinatorError.notApprovableOnWatch(reason)
             }
@@ -240,6 +260,10 @@ public actor DecisionCoordinator {
 
     /// Sends, and on an ambiguous failure leaves the journal entry so the
     /// outcome can be queried later by the same command ID.
+    ///
+    /// Throws the broker's `ControlError` for a final rejection
+    /// (``ControlError/provesCommandNotRecorded``): nothing was recorded, so
+    /// the entry is dropped and reconciliation never resends that JWS.
     private func submit(commandID: ControlID, jws: String) async throws -> SubmissionState {
         // Journal status writes after the send are best effort: the entry was
         // recorded before sending, so a failed update leaves it pending and it
@@ -252,6 +276,12 @@ public actor DecisionCoordinator {
             // Already resolved or an idempotency conflict: surface the recorded
             // state, never create a replacement command.
             try? await journal.update(commandID, status: .decisionRecorded)
+            throw error
+        } catch let error as ControlError where error.provesCommandNotRecorded {
+            // The broker refused the command outright (stale version, expired
+            // challenge, origin not present, not authorized...). The outcome
+            // is known — not recorded — so it is not left for reconciliation.
+            try? await journal.resolve(commandID)
             throw error
         } catch {
             try? await journal.update(commandID, status: .outcomeUnknown)

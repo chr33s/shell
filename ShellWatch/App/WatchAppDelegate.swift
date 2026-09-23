@@ -9,9 +9,6 @@ import ShellControlProtocol
 /// (spec.iphone-gateway.md section 16.4).
 final class WatchAppDelegate: NSObject, WKApplicationDelegate, UNUserNotificationCenterDelegate {
     var session: ControlSession?
-    /// The request a notification asked the user to look at. The UI opens
-    /// review; it never approves from the payload.
-    @MainActor static var pendingIntent: ShellNotificationCategories.ReviewIntent?
 
     func applicationDidFinishLaunching() {
         ShellNotificationCategories.register()
@@ -33,7 +30,9 @@ final class WatchAppDelegate: NSObject, WKApplicationDelegate, UNUserNotificatio
             actionIdentifier: response.actionIdentifier,
             userInfo: response.notification.request.content.userInfo
         )
-        await MainActor.run { WatchAppDelegate.pendingIntent = intent }
+        // The request the notification asked the user to look at. The inbox
+        // opens review; it never approves from the payload.
+        await MainActor.run { WatchNotificationRouter.shared.receive(intent) }
         // Opening a notification starts a live fetch through the iPhone; the
         // notification itself is never the ledger.
         await session?.refresh()

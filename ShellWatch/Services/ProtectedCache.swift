@@ -21,20 +21,25 @@ final class ProtectedInboxCache: InboxCacheStore, @unchecked Sendable {
         url = base.appendingPathComponent("control-inbox.json")
     }
 
+    /// Parse limits with headroom over what ``InboxBounds`` lets a commit
+    /// write, and over the 5000 seen event IDs older builds persisted, so a
+    /// valid cache always loads.
+    static let limits = JSONLimits(
+        maxDocumentBytes: 8 << 20,
+        maxStringCharacters: 1 << 16,
+        maxNestingDepth: 32,
+        maxCollectionElements: 8192
+    )
+
     func load() throws -> InboxState? {
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         let data = try Data(contentsOf: url)
         guard !data.isEmpty else { return nil }
-        return try ProtectedInboxCache.decode(try JSONValue.parse(data, limits: JSONLimits(
-            maxDocumentBytes: 4 << 20,
-            maxStringCharacters: 1 << 16,
-            maxNestingDepth: 32,
-            maxCollectionElements: 4096
-        )))
+        return InboxBounds.bounded(try ProtectedInboxCache.decode(try JSONValue.parse(data, limits: Self.limits)))
     }
 
     func commit(_ state: InboxState) throws {
-        let data = try JSONCanonicalization.canonicalize(ProtectedInboxCache.encode(state))
+        let data = try JSONCanonicalization.canonicalize(ProtectedInboxCache.encode(InboxBounds.bounded(state)))
         try data.write(to: url, options: [.atomic, .completeFileProtection])
     }
 
@@ -67,9 +72,63 @@ final class ProtectedInboxCache: InboxCacheStore, @unchecked Sendable {
                 state.notifications[event.eventID] = event
             }
         }
-        state.cursor = try reader.optionalString("cursor", maxLength: 512).map(ChangeCursor.init)
-        state.lastRefreshedAt = try reader.optionalTimestamp("last_refreshed_at")
-        state.seenEventIDs = Set(try reader.stringArray("seen_event_ids", maxCount: 5000, maxLength: 36).compactMap(ControlID.init))
+        state.lastRefreshedAt = try? reader.optionalTimestamp("last_refreshed_at")
+        // Dedup bookkeeping and the cursor are recoverable: if either is
+        // unreadable, keep the records and let the next refresh take a
+        // fresh snapshot instead of discarding the whole cache.
+        do {
+            let seen = try reader.stringArray("seen_event_ids", maxCount: limits.maxCollectionElements, maxLength: 36)
+            let cursor = try reader.optionalString("cursor", maxLength: 512)
+            state.seenEventIDs = Set(seen.compactMap(ControlID.init))
+            state.cursor = cursor.map(ChangeCursor.init)
+        } catch {
+            state.seenEventIDs = []
+            state.cursor = nil
+        }
+        return state
+    }
+}
+
+/// What the Watch keeps of the inbox, so the in-memory projection and the
+/// persisted cache stay bounded and always parse within
+/// ``ProtectedInboxCache/limits``. `InboxReconciler` only trims seen event
+/// IDs past 5000 and never drops approvals or notifications; this is applied
+/// after every reconcile and on every commit.
+enum InboxBounds {
+    /// Seen event IDs kept for at-least-once dedup. Trimmed *to* this cap.
+    /// A reconcile applies at most one change page (100 events), so the
+    /// reconciler's own 5000 threshold is never reached.
+    static let maxSeenEventIDs = 2048
+    /// Approvals kept: every pending one first (soonest expiry first), then
+    /// the most recently decided.
+    static let maxApprovals = 512
+    /// Notifications kept: unacknowledged first, then the most recent.
+    static let maxNotifications = 256
+
+    static func bounded(_ state: InboxState) -> InboxState {
+        var state = state
+        if state.seenEventIDs.count > maxSeenEventIDs {
+            // Unordered: which IDs go does not matter once the cursor that
+            // covers their events is committed.
+            state.seenEventIDs = Set(state.seenEventIDs.prefix(maxSeenEventIDs))
+        }
+        if state.approvals.count > maxApprovals {
+            let kept = state.pendingApprovals + state.recentOutcomes
+            state.approvals = Dictionary(
+                kept.prefix(maxApprovals).map { ($0.spec.requestID, $0) },
+                uniquingKeysWith: { first, _ in first }
+            )
+        }
+        if state.notifications.count > maxNotifications {
+            let kept = state.notifications.values.sorted { lhs, rhs in
+                if (lhs.acknowledgedAt == nil) != (rhs.acknowledgedAt == nil) { return lhs.acknowledgedAt == nil }
+                return lhs.occurredAt > rhs.occurredAt
+            }
+            state.notifications = Dictionary(
+                kept.prefix(maxNotifications).map { ($0.eventID, $0) },
+                uniquingKeysWith: { first, _ in first }
+            )
+        }
         return state
     }
 }

@@ -239,11 +239,13 @@ final class StreamAndEnrollmentTests: XCTestCase {
             )
         }
 
-        // The issued session authenticates, and a rotated refresh spends itself.
+        // The issued session authenticates, and a rotated refresh spends itself
+        // once its successor is used.
         let principal = try await harness.store.authenticate(bearer: session.accessToken)
         XCTAssertEqual(principal.accountID, harness.accountID)
         let refreshed = try await harness.store.refreshSession(refreshToken: session.refreshToken)
         XCTAssertNotEqual(refreshed.refreshToken, session.refreshToken)
+        _ = try await harness.store.refreshSession(refreshToken: refreshed.refreshToken)
         await assertControlError(.invalidToken) {
             _ = try await harness.store.refreshSession(refreshToken: session.refreshToken)
         }

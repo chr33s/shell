@@ -15,6 +15,14 @@ actor FakeBroker: ControlHTTPTransport {
     var failReceipts = false
     var receiptAttempts = 0
     var withdrawals = 0
+    /// The `run_ids` of every heartbeat, in order.
+    var heartbeatRuns: [[String]] = []
+    /// Which consume ID holds each request's claim, as the real broker keeps.
+    var consumedBy: [ControlID: ControlID] = [:]
+    /// Every consume ID presented, in order.
+    var consumeIDs: [ControlID] = []
+    /// Commit the next consume, then lose its reply.
+    var dropNextConsumeReply = false
     let now: @Sendable () -> Date
 
     init(now: @escaping @Sendable () -> Date) { self.now = now }
@@ -38,6 +46,8 @@ actor FakeBroker: ControlHTTPTransport {
             return try ok(.object(["ok": true]))
         case ("POST", "/v1/origins/me/heartbeat"):
             heartbeats += 1
+            let body = try JSONValue.parse(request.body ?? Data())
+            heartbeatRuns.append(body["run_ids"]?.arrayValue?.compactMap(\.stringValue) ?? [])
             return try ok(.object(["ok": true]))
         case ("POST", "/v1/notifications"):
             let event = try InformationalEvent(json: try JSONValue.parse(request.body ?? Data()))
@@ -77,6 +87,14 @@ actor FakeBroker: ControlHTTPTransport {
             guard let requestID = ControlID(idText), var record = approvals[requestID] else {
                 return ControlHTTPResponse(status: 404, body: Data("{}".utf8))
             }
+            consumeIDs.append(consume.consumeID)
+            // Same-ID retries return the recorded permit; another ID is refused.
+            if let holder = consumedBy[requestID] {
+                if holder == consume.consumeID, let permit = permits[holder] { return try ok(permit.json) }
+                return ControlHTTPResponse(status: 409, body: try JSONCanonicalization.canonicalize(
+                    ControlError(code: .alreadyClaimed, message: "approval was already claimed").json
+                ))
+            }
             let permit = ConsumePermit(
                 consumeID: consume.consumeID,
                 decisionID: consume.decisionID,
@@ -88,8 +106,13 @@ actor FakeBroker: ControlHTTPTransport {
                 decisionJWS: "header.payload.signature"
             )
             permits[consume.consumeID] = permit
+            consumedBy[requestID] = consume.consumeID
             record.projection.dispatch = .claimed
             approvals[requestID] = record
+            if dropNextConsumeReply {
+                dropNextConsumeReply = false
+                throw TransportError.offline
+            }
             return try ok(permit.json)
         }
         if request.method == "POST", request.path.hasSuffix("/withdraw") {
@@ -610,8 +633,65 @@ final class DaemonTests: XCTestCase {
         let directory = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("shell-corrupt-journal-\(UUID())")
         defer { try? FileManager.default.removeItem(at: directory) }
         let journal = try DispatchJournal(url: directory.appendingPathComponent("journal.ndjson"))
-        try Data("{truncated".utf8).write(to: journal.url)
+        // A damaged record in the middle is corruption, not a torn append.
+        try Data("{truncated\n".utf8).write(to: journal.url)
+        try journal.append(.withdrawn(requestID: .random()))
         XCTAssertThrowsError(try journal.startupFrontier())
+    }
+
+    func testTornFinalRecordIsDroppedAndTheJournalStaysAppendable() throws {
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("shell-torn-journal-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let journal = try DispatchJournal(url: directory.appendingPathComponent("journal.ndjson"))
+        let requestID = ControlID.random()
+        try journal.append(.requestPersisted(requestID: requestID, requestHash: "sha256:" + String(repeating: "0", count: 64), runID: .random()))
+        try journal.append(.requestPublished(requestID: requestID))
+        // A crash part-way through `append`: no newline, not a whole record.
+        let handle = try FileHandle(forWritingTo: journal.url)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data(#"{"kind":"withdrawn","request_id":"#.utf8))
+        try handle.close()
+
+        XCTAssertEqual(try journal.load().count, 2)
+        let repair = try journal.repairAtStartup()
+        XCTAssertTrue(repair.discardedTornTail)
+        XCTAssertNil(repair.quarantinedTo)
+        XCTAssertEqual(try Data(contentsOf: journal.url).last, 0x0A)
+
+        // The next record lands on its own line rather than on the torn bytes.
+        try journal.append(.withdrawn(requestID: requestID))
+        XCTAssertEqual(try journal.load().count, 3)
+        XCTAssertFalse(try journal.recover().unresolved.contains(requestID))
+    }
+
+    func testMidFileCorruptionIsQuarantinedAndStartupStillSucceeds() async throws {
+        let clock = Date(timeIntervalSince1970: 1_788_000_000)
+        let broker = FakeBroker(now: { clock })
+        let (core, directory) = try makeCore(broker, now: { clock })
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let journal = try DispatchJournal(url: directory.appendingPathComponent("journal.ndjson"))
+        let kept = ControlID.random()
+        try journal.append(.runStarted(runID: .random(), jobID: .random()))
+        let handle = try FileHandle(forWritingTo: journal.url)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data("{not json\n".utf8))
+        try handle.close()
+        try journal.append(.requestPersisted(requestID: kept, requestHash: "sha256:" + String(repeating: "0", count: 64), runID: .random()))
+        let original = try Data(contentsOf: journal.url)
+        XCTAssertThrowsError(try journal.load())
+
+        // Startup neither throws nor crash-loops; the damage is surfaced.
+        try await core.reconcileAfterRestart()
+        let health = await core.health()
+        let quarantinedPath = try XCTUnwrap(health["journal_quarantined"]?.stringValue)
+        XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: quarantinedPath)), original)
+        // Every readable record is kept; the recovery candidate follows them.
+        let salvaged = try journal.load()
+        XCTAssertEqual(salvaged.count, 3)
+        XCTAssertTrue(salvaged.contains { entry in
+            if case .requestPersisted(let requestID, _, _) = entry { return requestID == kept }
+            return false
+        })
     }
 
     private func createPending(on core: DaemonCore) async throws -> (id: ControlID, hash: String, capability: String) {
@@ -630,6 +710,205 @@ final class DaemonTests: XCTestCase {
             ])))
         var reader = try JSONReader(created.body)
         return (try reader.id("request_id"), try reader.string("request_hash", maxLength: 80), capability)
+    }
+
+    // MARK: Run bindings and presence
+
+    private func hello(on core: DaemonCore) async throws -> String {
+        let hello = await core.handle(IPCRequest(messageID: .random(), type: .hello, runCapability: nil, body: .object([
+            "protocol": .string(ServiceCapabilities.protocolName), "adapter": "test", "job_label": "notify",
+            "capabilities": .array([]), "operation_schemas": .array([.string(ExecOperation.schema)])
+        ])))
+        var reader = try JSONReader(hello.body)
+        return try reader.string("run_capability", maxLength: 128)
+    }
+
+    private func runID(of requestID: ControlID, on broker: FakeBroker) async -> String? {
+        await broker.approvals[requestID]?.spec.runID.rawValue
+    }
+
+    func testHeartbeatCarriesOnlyWaitingRunsInOneBatch() async throws {
+        let clock = Date(timeIntervalSince1970: 1_788_000_000)
+        let broker = FakeBroker(now: { clock })
+        let (core, directory) = try makeCore(broker, now: { clock })
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        // Many one-shot commands: each says hello and is done.
+        for _ in 0..<20 { _ = try await hello(on: core) }
+        await core.heartbeatOnce()
+        var sent = await broker.heartbeatRuns
+        XCTAssertEqual(sent.count, 1, "one heartbeat per interval, not one per hello")
+        XCTAssertEqual(sent.last, [], "runs with nothing waiting need no presence")
+
+        let first = try await createPending(on: core)
+        let second = try await createPending(on: core)
+        let before = await broker.heartbeatRuns.count
+        await core.heartbeatOnce()
+        sent = await broker.heartbeatRuns
+        XCTAssertEqual(sent.count, before + 1, "live runs are batched into one heartbeat")
+        let firstRunID = await runID(of: first.id, on: broker)
+        let secondRunID = await runID(of: second.id, on: broker)
+        let firstRun = try XCTUnwrap(firstRunID)
+        let secondRun = try XCTUnwrap(secondRunID)
+        XCTAssertEqual(Set(sent.last ?? []), [firstRun, secondRun])
+
+        // The first request resolves: its run is sent once more to clear the
+        // waiting flag, then drops out of presence.
+        try await broker.resolve(first.id, as: .rejected, decisionID: .random())
+        _ = await core.handle(IPCRequest(messageID: .random(), type: .approvalWait, runCapability: first.capability, body: .object([
+            "request_id": JSONValue(first.id), "request_hash": .string(first.hash), "timeout_seconds": 5
+        ])))
+        await core.heartbeatOnce()
+        let drained = await broker.heartbeatRuns.last
+        XCTAssertEqual(Set(drained ?? []), [firstRun, secondRun])
+        await core.heartbeatOnce()
+        let settled = await broker.heartbeatRuns.last
+        XCTAssertEqual(settled, [secondRun])
+    }
+
+    func testIdleBindingsExpireWhilePendingRequestsKeepTheirs() async throws {
+        nonisolated(unsafe) var clock = Date(timeIntervalSince1970: 1_788_000_000)
+        let broker = FakeBroker(now: { clock })
+        let (core, directory) = try makeCore(broker, now: { clock })
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let idle = try await hello(on: core)
+        let pending = try await createPending(on: core)
+        let pendingRunID = await runID(of: pending.id, on: broker)
+        let pendingRun = try XCTUnwrap(pendingRunID)
+
+        // Still approvable: the pending request's run keeps its binding and
+        // its presence.
+        clock = clock.addingTimeInterval(4 * 60)
+        await core.heartbeatOnce()
+        let present = await core.presenceRunIDs()
+        let bindings = await core.runBindingCount
+        XCTAssertEqual(present.map(\.rawValue), [pendingRun])
+        XCTAssertEqual(bindings, 2)
+
+        // Past the request's expiry and the idle lifetime, both are released.
+        clock = clock.addingTimeInterval(DaemonCore.runBindingIdleLifetime + 60)
+        await core.heartbeatOnce()
+        await core.heartbeatOnce()
+        let remaining = await core.runBindingCount
+        let stillPresent = await core.presenceRunIDs()
+        let lastSent = await broker.heartbeatRuns.last
+        XCTAssertEqual(remaining, 0)
+        XCTAssertTrue(stillPresent.isEmpty)
+        XCTAssertEqual(lastSent, [])
+        let refused = await core.handle(IPCRequest(messageID: .random(), type: .notify, runCapability: idle,
+                                                   body: .object(["title": "late"])))
+        XCTAssertEqual(refused.errorCode, ControlErrorCode.notAuthorized.rawValue)
+    }
+
+    // MARK: Consume identity
+
+    func testLostConsumeReplyIsRetriedWithTheJournaledConsumeID() async throws {
+        let clock = Date(timeIntervalSince1970: 1_788_000_000)
+        let broker = FakeBroker(now: { clock })
+        let (core, directory) = try makeCore(broker, now: { clock })
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try await core.reconcileAfterRestart()
+        let created = try await createPending(on: core)
+        try await broker.resolve(created.id, as: .approved, decisionID: .random())
+        // The broker commits the claim, and the reply is lost.
+        await broker.setDropNextConsumeReply(true)
+
+        let waited = await core.handle(IPCRequest(messageID: .random(), type: .approvalWait,
+            runCapability: created.capability, body: .object([
+                "request_id": JSONValue(created.id), "request_hash": .string(created.hash), "timeout_seconds": 30
+            ])))
+        XCTAssertTrue(waited.ok, waited.errorMessage ?? "")
+        guard case .approved(let permit) = try ApprovalWaitOutcome(json: waited.body) else {
+            return XCTFail("the retry must recover the permit the broker already granted")
+        }
+        let presented = await broker.consumeIDs
+        XCTAssertEqual(presented, [permit.consumeID, permit.consumeID])
+
+        // The consume ID was journaled before the broker saw it.
+        let entries = try DispatchJournal(url: directory.appendingPathComponent("journal.ndjson")).load()
+        let intent = entries.firstIndex { entry in
+            if case .consumeIntent(created.id, permit.consumeID, _) = entry { return true }
+            return false
+        }
+        let claim = entries.firstIndex { entry in
+            if case .claimed(created.id, permit.consumeID, _) = entry { return true }
+            return false
+        }
+        XCTAssertNotNil(intent)
+        XCTAssertNotNil(claim)
+        XCTAssertLessThan(try XCTUnwrap(intent), try XCTUnwrap(claim))
+    }
+
+    func testRestartRecoveryReclaimsAnIntentWithoutResultUnderTheSameID() async throws {
+        let clock = Date(timeIntervalSince1970: 1_788_000_000)
+        let broker = FakeBroker(now: { clock })
+        let (core, directory) = try makeCore(broker, now: { clock })
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try await core.reconcileAfterRestart()
+        let created = try await createPending(on: core)
+        let decisionID = ControlID.random()
+        try await broker.resolve(created.id, as: .approved, decisionID: decisionID)
+
+        // The daemon journaled its intent and the broker committed the claim,
+        // then the process died before the reply was recorded.
+        let journal = try DispatchJournal(url: directory.appendingPathComponent("journal.ndjson"))
+        let consumeID = ControlID.random()
+        try journal.append(.decisionObserved(requestID: created.id, decisionID: decisionID, resolution: .approved))
+        try journal.append(.consumeIntent(requestID: created.id, consumeID: consumeID, decisionID: decisionID))
+        try await broker.commitClaim(created.id, consumeID: consumeID)
+
+        let frontier = try journal.recover()
+        XCTAssertTrue(frontier.uncertain.contains(created.id), "an intent without a result is uncertain")
+        XCTAssertEqual(frontier.consumes[created.id], .init(consumeID: consumeID, claimRecorded: false))
+
+        let configuration = await core.configuration
+        let client = ControlAPIClient(baseURL: configuration.brokerURL, transport: broker,
+                                      credential: .origin(originID: configuration.originID, secret: configuration.originSecret))
+        let restarted = try DaemonCore(configuration: configuration, client: client, now: { clock })
+        try await restarted.reconcileAfterRestart()
+
+        // The same ID recovers the claim instead of hitting `already_claimed`,
+        // and the permit that never left the daemon is reported not applied.
+        let presented = await broker.consumeIDs
+        XCTAssertEqual(presented, [consumeID])
+        let receipts = await broker.receipts
+        XCTAssertEqual(receipts.count, 1)
+        XCTAssertEqual(receipts.first?.consumeID, consumeID)
+        XCTAssertEqual(receipts.first?.result, .notApplied)
+        let after = try journal.recover()
+        XCTAssertFalse(after.uncertain.contains(created.id))
+        XCTAssertFalse(after.unresolved.contains(created.id))
+        XCTAssertTrue(try journal.pendingRecoveries().isEmpty)
+        let health = await restarted.health()
+        XCTAssertEqual(health["recovery_pending"], .number(.int(0)))
+    }
+
+    func testRestartReceiptForARecordedClaimCarriesItsConsumeID() async throws {
+        let clock = Date(timeIntervalSince1970: 1_788_000_000)
+        let broker = FakeBroker(now: { clock })
+        let (core, directory) = try makeCore(broker, now: { clock })
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try await core.reconcileAfterRestart()
+        let created = try await createPending(on: core)
+        try await broker.resolve(created.id, as: .approved, decisionID: .random())
+        _ = await core.handle(IPCRequest(messageID: .random(), type: .approvalWait,
+            runCapability: created.capability, body: .object([
+                "request_id": JSONValue(created.id), "request_hash": .string(created.hash), "timeout_seconds": 5
+            ])))
+        let holder = await broker.consumedBy[created.id]
+        let claimedBy = try XCTUnwrap(holder)
+
+        let configuration = await core.configuration
+        let client = ControlAPIClient(baseURL: configuration.brokerURL, transport: broker,
+                                      credential: .origin(originID: configuration.originID, secret: configuration.originSecret))
+        let restarted = try DaemonCore(configuration: configuration, client: client, now: { clock })
+        try await restarted.reconcileAfterRestart()
+        let receipts = await broker.receipts
+        XCTAssertEqual(receipts.map(\.result), [.unknown])
+        XCTAssertEqual(receipts.first?.consumeID, claimedBy, "the broker accepts an approved receipt only under its claim")
+        let presented = await broker.consumeIDs
+        XCTAssertEqual(presented, [claimedBy], "a recorded claim is not consumed again")
     }
 
     func testRecoveryRetriesReuseTheSameReceiptID() async throws {
@@ -674,5 +953,27 @@ final class DaemonTests: XCTestCase {
 extension FakeBroker {
     func setFailReceipts(_ flag: Bool) {
         failReceipts = flag
+    }
+
+    func setDropNextConsumeReply(_ flag: Bool) {
+        dropNextConsumeReply = flag
+    }
+
+    /// The broker committed a claim whose reply never reached the origin.
+    func commitClaim(_ requestID: ControlID, consumeID: ControlID) throws {
+        guard var record = approvals[requestID], let decisionID = record.projection.decisionID else { return }
+        permits[consumeID] = ConsumePermit(
+            consumeID: consumeID,
+            decisionID: decisionID,
+            originID: record.spec.originID,
+            runID: record.spec.runID,
+            requestHash: record.requestHash,
+            applyBefore: ControlTimestamp(now()).adding(ApprovalPolicy.permitLifetime),
+            decision: .approve,
+            decisionJWS: "header.payload.signature"
+        )
+        consumedBy[requestID] = consumeID
+        record.projection.dispatch = .claimed
+        approvals[requestID] = record
     }
 }

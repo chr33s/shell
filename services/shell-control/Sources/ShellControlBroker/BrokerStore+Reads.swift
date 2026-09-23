@@ -78,9 +78,15 @@ extension BrokerStore {
         case notification(InformationalEvent)
     }
 
-    var currentSequence: UInt64 { changeLog.last.map { $0.sequence.value } ?? 0 }
+    /// The last sequence ever assigned. It comes from the persisted counter,
+    /// not the log's tail: seven-day retention can empty the log, and a
+    /// high-water mark of zero would hide older items from new snapshots.
+    var currentSequence: UInt64 { nextSequence - 1 }
 
-    var earliestSequence: UInt64 { changeLog.first.map { $0.sequence.value } ?? 0 }
+    /// The oldest sequence still retained. An empty log retains nothing, so
+    /// the next sequence to be assigned is the earliest a cursor can resume
+    /// from.
+    var earliestSequence: UInt64 { changeLog.first.map { $0.sequence.value } ?? nextSequence }
 
     func isVisible(approval entry: ApprovalRecordEntry, to principal: Principal) -> Bool {
         guard entry.accountID == principal.accountID else { return false }
@@ -99,7 +105,7 @@ extension BrokerStore {
         sweepExpired()
         let sequence = try CursorCodec.decodeCursor(cursor, principal: principal, secret: cursorSecret)
         // A cursor older than the retained log cannot be honoured.
-        if sequence.value < UInt64.max, sequence.value > 0, sequence.value + 1 < earliestSequence {
+        if sequence.value < UInt64.max, sequence.value + 1 < earliestSequence {
             throw ControlError(code: .cursorExpired, message: "cursor is older than the retained log")
         }
         let limit = max(1, min(limit, ChangePage.maximumEvents))

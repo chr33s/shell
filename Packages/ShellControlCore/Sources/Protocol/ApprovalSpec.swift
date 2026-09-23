@@ -7,6 +7,16 @@ public enum MinimumReview: String, Sendable, Hashable, CaseIterable {
     /// Needs an enrolled full-review client; the Watch shows "Review on another
     /// device" and never mints an approval (spec.watch.md section 6).
     case full
+
+    /// The review this build's UI provides: Watch-sized on watchOS, full on
+    /// every other platform.
+    public static var providedByThisPlatform: MinimumReview {
+        #if os(watchOS)
+        return .watch
+        #else
+        return .full
+        #endif
+    }
 }
 
 public enum ControlDecision: String, Sendable, Hashable, CaseIterable {

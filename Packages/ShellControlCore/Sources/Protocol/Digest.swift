@@ -32,3 +32,29 @@ public enum ContentDigest {
         return difference == 0
     }
 }
+
+/// ASCII-only hex checks for protocol fields.
+///
+/// `Character.isHexDigit` is true for fullwidth forms such as "Ａ" and "０", so
+/// it would let a non-canonical string past a check that a digest or token
+/// comparison later relies on. These look at UTF-8 bytes only.
+public enum ASCIIHex {
+    /// Nonempty, and every byte is `0-9` or `a-f`.
+    public static func isLowercase(_ text: String) -> Bool {
+        !text.utf8.isEmpty && text.utf8.allSatisfy(isLowercaseDigit)
+    }
+
+    /// Nonempty, and every byte is `0-9`, `a-f`, or `A-F`.
+    public static func isHex(_ text: String) -> Bool {
+        !text.utf8.isEmpty && text.utf8.allSatisfy { isLowercaseDigit($0) || (UInt8(ascii: "A")...UInt8(ascii: "F")).contains($0) }
+    }
+
+    /// `64` lowercase hex characters: the body of a `sha256:` digest.
+    public static func isSHA256(_ text: String) -> Bool {
+        text.utf8.count == 64 && isLowercase(text)
+    }
+
+    private static func isLowercaseDigit(_ byte: UInt8) -> Bool {
+        (UInt8(ascii: "0")...UInt8(ascii: "9")).contains(byte) || (UInt8(ascii: "a")...UInt8(ascii: "f")).contains(byte)
+    }
+}

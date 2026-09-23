@@ -38,16 +38,30 @@ extension BrokerStore {
 
     /// `POST /v1/origins/me/heartbeat`: replaceable presence observations, not
     /// authorizations (spec.watch.md section 10).
+    ///
+    /// A heartbeat that only extends a lease is kept in memory: presence is
+    /// read live from `last_seen_at` whenever a projection is served, and a
+    /// lease lost to a restart only reads stale until the next heartbeat. An
+    /// event is logged, and the ledger committed, only when presence
+    /// materially changes — a run coming back from stale or absent, or its
+    /// waiting set changing — so a steady origin neither floods the change
+    /// feed nor rewrites the ledger every 15 seconds.
     public func heartbeat(principal: Principal, runIDs: [ControlID], waitingRequestIDs: [ControlID]) throws {
         guard let originID = principal.originID else {
             throw ControlError(code: .notAuthorized, message: "only origins send heartbeats")
         }
         let now = timestamp
+        var changed = false
         for runID in runIDs {
             guard var run = runs[runID], run.originID == originID else { continue }
+            let wasFresh = run.lastSeenAt.map { now.date.timeIntervalSince($0.date) <= ApprovalPolicy.presenceStaleAfter } ?? false
+            let waiting = Set(waitingRequestIDs.filter { approvals[$0]?.spec.runID == runID })
+            let material = !wasFresh || waiting != run.waitingRequestIDs
             run.lastSeenAt = now
-            run.waitingRequestIDs = Set(waitingRequestIDs.filter { approvals[$0]?.spec.runID == runID })
+            run.waitingRequestIDs = waiting
             runs[runID] = run
+            guard material else { continue }
+            changed = true
             append(
                 .originPresenceChanged,
                 resourceID: runID,
@@ -61,7 +75,7 @@ extension BrokerStore {
                 originID: originID
             )
         }
-        try commit()
+        if changed { try commit() }
     }
 
     /// `POST /v1/notifications`: idempotent by event ID and body hash
@@ -70,7 +84,7 @@ extension BrokerStore {
         guard let originID = principal.originID, event.originID == originID else {
             throw ControlError(code: .notAuthorized, message: "origins create only their own events")
         }
-        let key = "notify|\(originID.rawValue)|\(event.eventID.rawValue)"
+        let key = OriginMutationRecord.key(.notify, originID: originID, mutationID: event.eventID)
         let bodyHash = try event.bodyHash()
         if let existing = originMutations[key] {
             guard ContentDigest.matches(existing.bodyHash, bodyHash) else {
@@ -83,6 +97,7 @@ extension BrokerStore {
         notificationAccounts[event.eventID] = principal.accountID
         itemSequences[event.eventID] = nextSequence
         originMutations[key] = OriginMutationRecord(
+            kind: .notify,
             originID: originID,
             mutationID: event.eventID,
             bodyHash: bodyHash,
@@ -127,6 +142,7 @@ extension BrokerStore {
         guard run.cancellationRequestedAt == nil else {
             throw ControlError(code: .alreadyResolved, message: "job cancellation was requested")
         }
+        try validateLifetime(of: spec)
         var entry = ApprovalRecordEntry(
             spec: spec,
             requestHash: hash,
@@ -148,6 +164,26 @@ extension BrokerStore {
         enqueueApprovalPushes(accountID: principal.accountID, spec: spec)
         enqueueRelayPushes(accountID: principal.accountID, spec: spec)
         return entry.record
+    }
+
+    /// The spec only caps `expires_at - created_at`; the broker is
+    /// authoritative for deadlines, so both ends are also checked against its
+    /// own clock. The spec is immutable and hashed, so an out-of-range value is
+    /// rejected rather than clamped (spec.watch.md sections 15 and 16).
+    private func validateLifetime(of spec: ApprovalSpec) throws {
+        let now = timestamp
+        guard spec.createdAt <= now.adding(BrokerStore.originClockSkew) else {
+            throw ControlError(code: .invalidPayload, message: "created_at is ahead of the broker clock")
+        }
+        guard spec.expiresAt > now else {
+            throw ControlError(code: .requestExpired, message: "expires_at has already passed")
+        }
+        guard spec.expiresAt <= now.adding(ApprovalPolicy.maximumLifetime) else {
+            throw ControlError(
+                code: .invalidPayload,
+                message: "expires_at exceeds the \(Int(ApprovalPolicy.maximumLifetime))s cap from now"
+            )
+        }
     }
 
     /// `POST /v1/approvals/{id}/withdraw`.
@@ -173,7 +209,7 @@ extension BrokerStore {
         guard entry.spec.runID == runID, ContentDigest.matches(entry.requestHash, requestHash) else {
             throw ControlError(code: .hashMismatch, message: "withdrawal describes another run or hash")
         }
-        let key = "withdraw|\(originID.rawValue)|\(mutationID.rawValue)"
+        let key = OriginMutationRecord.key(.withdraw, originID: originID, mutationID: mutationID)
         if let existing = originMutations[key] {
             return (try? ApprovalRecord(json: existing.result)) ?? entry.record
         }
@@ -194,6 +230,7 @@ extension BrokerStore {
         entry.projection.stateVersion += 1
         approvals[requestID] = entry
         originMutations[key] = OriginMutationRecord(
+            kind: .withdraw,
             originID: originID,
             mutationID: mutationID,
             bodyHash: requestHash,
@@ -297,7 +334,7 @@ extension BrokerStore {
         guard let originID = principal.originID else {
             throw ControlError(code: .notAuthorized, message: "only origins report receipts")
         }
-        guard !receipts.contains(receipt.receiptID) else { return }
+        guard receipts[receipt.receiptID] == nil else { return }
         guard let run = runs[receipt.runID], run.originID == originID else {
             throw ControlError(code: .notFound, message: "no such run")
         }
@@ -313,7 +350,7 @@ extension BrokerStore {
             }
             updated.jobVersion += 1
             runs[receipt.runID] = updated
-            receipts.insert(receipt.receiptID)
+            receipts[receipt.receiptID] = timestamp
             append(
                 .jobUpdated,
                 resourceID: jobID,
@@ -370,7 +407,7 @@ extension BrokerStore {
         entry.projection.stateVersion += 1
         entry.receiptID = receipt.receiptID
         approvals[entry.spec.requestID] = entry
-        receipts.insert(receipt.receiptID)
+        receipts[receipt.receiptID] = timestamp
         append(
             .approvalDispatchUpdated,
             resourceID: entry.spec.requestID,

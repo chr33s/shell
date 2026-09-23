@@ -43,6 +43,9 @@ final class ControlSession {
     private let journal: CommandJournal
     private let now: @Sendable () -> Date
     private var pollTask: Task<Void, Never>?
+    /// Identifies the current poll loop, so a cancelled loop that finishes
+    /// late cannot clear the task that replaced it.
+    private var pollGeneration = 0
     private var sceneActive = true
     private var screenNeedsData = false
     private var inFlightRefresh: Task<Void, Never>?
@@ -69,7 +72,7 @@ final class ControlSession {
         self.cache = cache
         // The journal judges its own retention window, so it has to share this
         // session's clock rather than reading the wall clock behind its back.
-        self.journal = try CommandJournal(store: journalStore, now: now)
+        self.journal = CommandJournal(store: journalStore, now: now)
         self.now = now
     }
 
@@ -235,7 +238,9 @@ final class ControlSession {
                 }
                 try reconciler.applyCompletedSnapshot(accumulator, at: page.serverTime)
             }
-            inbox = reconciler.state
+            // The reconciler never drops old approvals and trims seen event
+            // IDs only past 5000; bound what is kept and cached.
+            inbox = InboxBounds.bounded(reconciler.state)
             try? cache.commit(inbox)
             noteGatewayAnswered()
             gatewayProblem = nil
@@ -277,6 +282,8 @@ final class ControlSession {
 
     private func startPollingIfNeeded() {
         guard sceneActive, screenNeedsData, pollTask == nil else { return }
+        pollGeneration += 1
+        let generation = pollGeneration
         pollTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 guard let self, self.sceneActive, self.screenNeedsData else { break }
@@ -284,7 +291,9 @@ final class ControlSession {
                 let interval = self.nextPollInterval()
                 try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
             }
-            self?.pollTask = nil
+            // Only this loop's own slot: after cancel-then-restart, a newer
+            // loop already owns `pollTask`.
+            if let self, self.pollGeneration == generation { self.pollTask = nil }
         }
     }
 
@@ -329,7 +338,12 @@ final class ControlSession {
         } catch let error as ControlError {
             submissions[record.spec.requestID] = nil
             lastError = "\(error.code.rawValue): \(error.message)"
-            decisionProblems[record.spec.requestID] = describe(error)
+            // A final refusal means nothing was recorded (and the journal
+            // entry is gone): say why, and send the user back to a fresh
+            // review — the view reloads the request after deciding.
+            decisionProblems[record.spec.requestID] = error.provesCommandNotRecorded
+                ? Self.notRecordedText(error)
+                : describe(error)
             if error.code == .deviceRevoked || error.code == .reviewerNotBound { note(error) }
         } catch let error as WatchGatewayError {
             // Nothing was queued: an unreachable iPhone fails closed.
@@ -408,11 +422,31 @@ final class ControlSession {
         }
     }
 
+    /// A definitive broker refusal: nothing was recorded and the journal
+    /// entry is gone, so nothing retries it. Says why, and what to do next.
+    static func notRecordedText(_ error: ControlError) -> String {
+        let reason = String(localized: "Not recorded: \(error.message)")
+        switch error.code {
+        case .staleVersion, .policyChanged, .hashMismatch, .challengeExpired:
+            return reason + "\n" + String(localized: "The request changed. Review it again before deciding.")
+        case .originUnavailable:
+            return reason + "\n" + String(localized: "The Mac is not present right now.")
+        case .requestExpired:
+            return reason + "\n" + String(localized: "The request expired.")
+        case .fullReviewRequired:
+            return reason + "\n" + String(localized: "Review it on your iPhone or Mac.")
+        default:
+            return reason
+        }
+    }
+
     private func describe(_ error: any Error) -> String {
         switch error {
         case WatchGatewayError.iPhoneUnreachable: return String(localized: "iPhone unavailable")
         case WatchGatewayError.gatewayUnavailable: return String(localized: "The iPhone cannot reach the Mac right now")
         case let error as ControlError: return error.message
+        case is CommandJournalUnavailable:
+            return String(localized: "Decisions are unavailable until this Watch is unlocked")
         case DecisionCoordinator.CoordinatorError.requestChangedDuringReview:
             return String(localized: "This request changed while you were reviewing it. Review it again.")
         case DecisionCoordinator.CoordinatorError.notApprovableOnWatch:

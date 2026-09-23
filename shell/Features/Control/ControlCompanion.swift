@@ -62,7 +62,14 @@ final class ControlCompanion {
     }
 
     @ObservationIgnored let gateway: ControlGatewaySession
+    /// Signed decisions whose outcome is not yet known. File-backed, so an
+    /// ambiguous submission survives a relaunch and is still reconciled by
+    /// its original command ID rather than forgotten.
     @ObservationIgnored private var journal: CommandJournal?
+    @ObservationIgnored private let makeJournalStore: () throws -> any CommandJournalStore
+    /// The Mac's approvals as last reconciled, with the change cursor that
+    /// lets the next refresh fetch only what changed.
+    @ObservationIgnored private var inbox = InboxReconciler()
 
     /// The gateway must reach its own session while the phone is locked in a
     /// pocket, or the Watch it relays for is cut off.
@@ -77,10 +84,22 @@ final class ControlCompanion {
     init(
         credentials: any DeviceCredentialStore = ControlCompanion.defaultCredentials(),
         origins: any PinnedOriginStore = KeychainPinnedOriginStore(),
-        transport: any ControlHTTPTransport = ControlTailnetTransport()
+        transport: any ControlHTTPTransport = ControlTailnetTransport(),
+        journalStore: @escaping () throws -> any CommandJournalStore = { try FileCommandJournalStore() }
     ) {
         gateway = ControlGatewaySession(credentials: credentials, origins: origins, transport: transport)
-        journal = try? CommandJournal()
+        makeJournalStore = journalStore
+        journal = try? CommandJournal(store: journalStore())
+    }
+
+    /// The journal, reopened if its store could not be created earlier.
+    /// Never replaced by an empty in-memory journal: that would drop the
+    /// persisted entries. A store that exists but cannot be read yet (before
+    /// first unlock) is retried by the journal itself.
+    private func commandJournal() -> CommandJournal? {
+        if let journal { return journal }
+        journal = try? CommandJournal(store: makeJournalStore())
+        return journal
     }
 
     var originFingerprint: String? { pinnedOrigin?.origin.fingerprint }
@@ -201,6 +220,7 @@ final class ControlCompanion {
     }
 
     private func clear() {
+        inbox = InboxReconciler()
         pending = []
         lastRefreshedAt = nil
         statusMessage = nil
@@ -216,14 +236,9 @@ final class ControlCompanion {
         var fetched = false
         do {
             let client = try await gateway.authenticatedClient()
-            var page = try await client.snapshot()
-            var approvals = page.approvals
-            while let next = page.nextPageToken {
-                page = try await client.snapshot(pageToken: next)
-                approvals += page.approvals
-            }
-            pending = approvals.filter { $0.projection.resolution == .pending }
-            lastRefreshedAt = page.serverTime
+            let state = try await reconcileInbox(client: client)
+            pending = state.pendingApprovals
+            lastRefreshedAt = state.lastRefreshedAt
             routeState = .reachable(await gateway.currentRoute?.url.host ?? "")
             statusMessage = nil
             fetched = true
@@ -233,6 +248,56 @@ final class ControlCompanion {
         }
         publishWatchContext(refreshRequested: false)
         return fetched
+    }
+
+    /// One full snapshot, then only the change log after its cursor: a
+    /// refresh (every approval hint, every pull) costs the deltas since the
+    /// last one rather than the whole approval history, 50 per page. A
+    /// cursor the broker no longer honours falls back to a fresh snapshot.
+    private func reconcileInbox(client: ControlAPIClient) async throws -> InboxState {
+        var reconciler = inbox
+        if let cursor = reconciler.state.cursor {
+            do {
+                var next = cursor
+                for _ in 0..<Self.maxChangePagesPerRefresh {
+                    let page = try await client.changes(after: next)
+                    reconciler.apply(page)
+                    next = page.cursor
+                    if page.events.count < ChangePage.maximumEvents { break }
+                }
+            } catch let error as ControlError where error.code == .cursorExpired || error.code == .notFound {
+                reconciler = InboxReconciler()
+            }
+        }
+        if reconciler.state.cursor == nil {
+            var page = try await client.snapshot()
+            var accumulator = InboxReconciler.SnapshotAccumulator(firstPage: page)
+            while let next = page.nextPageToken {
+                page = try await client.snapshot(pageToken: next)
+                try accumulator.append(page)
+            }
+            try reconciler.applyCompletedSnapshot(accumulator, at: page.serverTime)
+        }
+        inbox = Self.bounded(reconciler)
+        return inbox.state
+    }
+
+    /// A long-idle phone catches up over several refreshes rather than one
+    /// unbounded loop.
+    private static let maxChangePagesPerRefresh = 10
+    /// Decided requests kept in memory. Only pending ones are shown.
+    private static let maxResolvedApprovals = 256
+
+    /// The reconciler never drops resolved approvals; trim the oldest so a
+    /// long-running app does not grow without bound.
+    private static func bounded(_ reconciler: InboxReconciler) -> InboxReconciler {
+        let resolved = reconciler.state.recentOutcomes
+        guard resolved.count > maxResolvedApprovals else { return reconciler }
+        var state = reconciler.state
+        for record in resolved.dropFirst(maxResolvedApprovals) {
+            state.approvals.removeValue(forKey: record.spec.requestID)
+        }
+        return InboxReconciler(state: state)
     }
 
     /// Always re-fetches: the phone is a fuller review surface, not a cache the
@@ -247,22 +312,100 @@ final class ControlCompanion {
     }
 
     func decide(_ decision: ControlDecision, on record: ApprovalRecord) async {
-        guard let journal, let material = await gateway.signingMaterial() else { return }
+        guard let journal = commandJournal() else {
+            // Never sign without somewhere durable to record the command.
+            statusMessage = String(localized: "Decisions are unavailable: this iPhone cannot store them right now.")
+            return
+        }
+        guard let material = await gateway.signingMaterial() else { return }
+        let outcome: String?
         do {
             let client = try await gateway.authenticatedClient()
-            let coordinator = DecisionCoordinator(service: client, journal: journal, key: material.key, signer: material.signer)
-            statusMessage = Self.describe(try await coordinator.decide(decision, reviewed: record))
+            let coordinator = DecisionCoordinator(
+                service: client, journal: journal, key: material.key, signer: material.signer, review: Self.review
+            )
+            outcome = Self.describe(try await coordinator.decide(decision, reviewed: record))
+        } catch let error as ControlError where error.provesCommandNotRecorded
+            && error.code != .deviceRevoked && error.code != .reviewerNotBound {
+            // A final refusal: nothing was recorded and nothing will be
+            // retried. Say why; the review screen refetches the request so
+            // the user reviews it afresh before deciding again.
+            outcome = Self.notRecordedText(error)
+        } catch let error as DecisionCoordinator.CoordinatorError {
+            outcome = Self.describe(error)
+        } catch is CommandJournalUnavailable {
+            // Nothing was signed or sent: the journal could not be read, and
+            // recording into it now would overwrite what it holds.
+            outcome = String(localized: "Decisions are unavailable until this iPhone is unlocked.")
         } catch {
             await note(error)
+            outcome = statusMessage
         }
         await refresh()
+        // A successful refresh clears the status line; the decision's outcome
+        // is what the user needs to see.
+        if let outcome { statusMessage = outcome }
+    }
+
+    /// The phone is a full-review client: it may approve requests whose
+    /// `minimum_review` is `full` (spec.watch.md section 6). The review
+    /// screen gates its Approve button on the same level.
+    nonisolated static let review: MinimumReview = .full
+
+    /// A definitive broker refusal: the command was not recorded and was
+    /// dropped from the journal, so nothing retries it. Says why, and what to
+    /// do next.
+    static func notRecordedText(_ error: ControlError) -> String {
+        let reason = String(localized: "Not recorded: \(error.message)")
+        switch error.code {
+        case .staleVersion, .policyChanged, .hashMismatch, .challengeExpired:
+            return reason + "\n" + String(localized: "The request changed. Review it again before deciding.")
+        case .originUnavailable:
+            return reason + "\n" + String(localized: "The Mac is not present right now.")
+        case .requestExpired:
+            return reason + "\n" + String(localized: "The request expired.")
+        default:
+            return reason
+        }
+    }
+
+    static func describe(_ error: DecisionCoordinator.CoordinatorError) -> String {
+        switch error {
+        case .requestChangedDuringReview:
+            return String(localized: "This request changed while you were reviewing it. Review it again.")
+        case .notApprovableOnWatch(let reason):
+            return reviewElsewhereText(reason)
+        case .decisionNotAllowed:
+            return String(localized: "That decision is not allowed for this request")
+        case .missingGrant:
+            return String(localized: "This iPhone is not allowed to do that")
+        case .noSession:
+            return String(localized: "Pair this iPhone with your Mac again")
+        }
+    }
+
+    static func reviewElsewhereText(_ reason: WatchApprovability.Reason) -> String {
+        switch reason {
+        case .unknownOperationSchema, .unsupportedRequiredFeature:
+            return String(localized: "This operation is not supported on this iPhone")
+        case .policyRequiresFullReview:
+            return String(localized: "Policy requires review on another device")
+        case .alreadyResolved:
+            return String(localized: "Already resolved")
+        case .expired:
+            return String(localized: "Expired")
+        case .sourceNotPresent:
+            return String(localized: "The host is not waiting right now")
+        }
     }
 
     /// Ambiguous outcomes are reconciled by their original command ID; a
     /// replacement decision is never minted.
     private func reconcileJournal(client: ControlAPIClient) async {
-        guard let journal, let material = await gateway.signingMaterial() else { return }
-        let coordinator = DecisionCoordinator(service: client, journal: journal, key: material.key, signer: material.signer)
+        guard let journal = commandJournal(), let material = await gateway.signingMaterial() else { return }
+        let coordinator = DecisionCoordinator(
+            service: client, journal: journal, key: material.key, signer: material.signer, review: Self.review
+        )
         for command in await journal.pending {
             _ = try? await coordinator.reconcile(command)
         }

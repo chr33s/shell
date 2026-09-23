@@ -92,7 +92,7 @@ nonisolated extension ShellInterpreter {
     /// they own the prompt lifecycle / session mode and can't run headless.
     func launchBackgroundJob(_ command: ShellCommand) throws -> Int32 {
         if let refusal = backgroundRefusalReason(command) {
-            writeLine("sh: cannot background: \(refusal)")
+            writeErrorLine("sh: cannot background: \(refusal)")
             environment.setLastExitCode(1)
             return 1
         }
@@ -131,6 +131,7 @@ nonisolated extension ShellInterpreter {
             requiresOwnExternalPipelineStage: requiresOwnExternalPipelineStage,
             backgroundStreamExternal: backgroundStreamExternal,
             writeOutput: writeOutput,
+            writeErrorOutput: writeErrorOutput,
             readLine: { _, _ in nil } // background jobs get EOF stdin
         )
 

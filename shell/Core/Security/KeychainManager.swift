@@ -2,6 +2,7 @@ import Foundation
 import LocalAuthentication
 import os.log
 import Security
+import ShellControlSecurity
 
 @MainActor
 class KeychainManager {
@@ -560,34 +561,22 @@ class KeychainManager {
     ///   - identifier: Unique identifier for the cluster (typically UUID)
     /// - Throws: KeychainError if save fails
     func saveKubeconfig(_ kubeconfigData: Data, identifier: String) throws {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "com.ghostty.kubernetes.kubeconfig",
-            kSecAttrAccount as String: identifier,
-            kSecValueData as String: kubeconfigData,
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
-            kSecAttrSynchronizable as String: false,
-            kSecAttrAccessGroup as String: accessGroup
-        ]
-
         Self.logger.debug("saveKubeconfig - Saving kubeconfig for cluster: \(identifier), Data size: \(kubeconfigData.count) bytes")
 
-        var status = SecItemAdd(query as CFDictionary, nil)
-
-        // If item already exists, update it instead
-        if status == errSecDuplicateItem {
-            Self.logger.debug("saveKubeconfig - Item exists, updating instead")
-            let searchQuery: [String: Any] = [
+        // Upsert: an existing item keeps its attributes and gets the new data.
+        let status = Keychain.upsert(
+            query: [
                 kSecClass as String: kSecClassGenericPassword,
                 kSecAttrService as String: "com.ghostty.kubernetes.kubeconfig",
                 kSecAttrAccount as String: identifier,
                 kSecAttrAccessGroup as String: accessGroup
+            ],
+            attributes: [kSecValueData as String: kubeconfigData],
+            creationAttributes: [
+                kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
+                kSecAttrSynchronizable as String: false
             ]
-            let updateAttributes: [String: Any] = [
-                kSecValueData as String: kubeconfigData
-            ]
-            status = SecItemUpdate(searchQuery as CFDictionary, updateAttributes as CFDictionary)
-        }
+        )
 
         Self.logger.debug("saveKubeconfig - Status: \(status)")
         if status != errSecSuccess {
@@ -941,39 +930,23 @@ class KeychainManager {
     private let scrollbackEncryptionService = "com.ghostty.scrollback.encryptionkey"
 
     func saveScrollbackEncryptionKey(_ keyData: Data) throws {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: scrollbackEncryptionService,
-            kSecAttrAccount as String: "default",
-            kSecValueData as String: keyData,
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
-            kSecAttrSynchronizable as String: false,
-            kSecAttrAccessGroup as String: accessGroup
-        ]
-
         let dataSize = keyData.count
         Self.logger.debug("saveScrollbackEncryptionKey - Data size: \(dataSize) bytes")
 
-        let status = SecItemAdd(query as CFDictionary, nil)
-
-        if status == errSecDuplicateItem {
-            // Upsert: update existing key
-            let searchQuery: [String: Any] = [
+        // Upsert: an existing key item keeps its attributes and gets the new data.
+        let status = Keychain.upsert(
+            query: [
                 kSecClass as String: kSecClassGenericPassword,
                 kSecAttrService as String: scrollbackEncryptionService,
                 kSecAttrAccount as String: "default",
                 kSecAttrAccessGroup as String: accessGroup
+            ],
+            attributes: [kSecValueData as String: keyData],
+            creationAttributes: [
+                kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+                kSecAttrSynchronizable as String: false
             ]
-            let attributes: [String: Any] = [
-                kSecValueData as String: keyData
-            ]
-            let updateStatus = SecItemUpdate(searchQuery as CFDictionary, attributes as CFDictionary)
-            guard updateStatus == errSecSuccess else {
-                Self.logger.error("saveScrollbackEncryptionKey update failed - Status: \(updateStatus)")
-                throw KeychainError.unexpectedStatus(updateStatus)
-            }
-            return
-        }
+        )
 
         guard status == errSecSuccess else {
             Self.logger.error("saveScrollbackEncryptionKey failed - Status: \(status) (\(Self.keychainErrorString(status)))")
@@ -1014,36 +987,20 @@ class KeychainManager {
     private let clipboardEncryptionService = "com.ghostty.clipboard.encryptionkey"
 
     func saveClipboardEncryptionKey(_ keyData: Data) throws {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: clipboardEncryptionService,
-            kSecAttrAccount as String: "default",
-            kSecValueData as String: keyData,
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
-            kSecAttrSynchronizable as String: false,
-            kSecAttrAccessGroup as String: accessGroup
-        ]
-
-        let status = SecItemAdd(query as CFDictionary, nil)
-
-        if status == errSecDuplicateItem {
-            // Upsert: update existing key
-            let searchQuery: [String: Any] = [
+        // Upsert: an existing key item keeps its attributes and gets the new data.
+        let status = Keychain.upsert(
+            query: [
                 kSecClass as String: kSecClassGenericPassword,
                 kSecAttrService as String: clipboardEncryptionService,
                 kSecAttrAccount as String: "default",
                 kSecAttrAccessGroup as String: accessGroup
+            ],
+            attributes: [kSecValueData as String: keyData],
+            creationAttributes: [
+                kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+                kSecAttrSynchronizable as String: false
             ]
-            let attributes: [String: Any] = [
-                kSecValueData as String: keyData
-            ]
-            let updateStatus = SecItemUpdate(searchQuery as CFDictionary, attributes as CFDictionary)
-            guard updateStatus == errSecSuccess else {
-                Self.logger.error("saveClipboardEncryptionKey update failed - Status: \(updateStatus)")
-                throw KeychainError.unexpectedStatus(updateStatus)
-            }
-            return
-        }
+        )
 
         guard status == errSecSuccess else {
             Self.logger.error("saveClipboardEncryptionKey failed - Status: \(status) (\(Self.keychainErrorString(status)))")

@@ -1,5 +1,6 @@
 import Foundation
 import ShellControlProtocol
+import ShellControlHostSupport
 
 /// The daemon's durable dispatch journal.
 ///
@@ -12,6 +13,10 @@ public struct DispatchJournal: Sendable {
         case requestPersisted(requestID: ControlID, requestHash: String, runID: ControlID)
         case requestPublished(requestID: ControlID)
         case decisionObserved(requestID: ControlID, decisionID: ControlID, resolution: Resolution)
+        /// The consume ID is persisted *before* the broker call, so a lost
+        /// reply is retried with the same ID and the broker's idempotent
+        /// consume returns the permit it already granted.
+        case consumeIntent(requestID: ControlID, consumeID: ControlID, decisionID: ControlID)
         case claimed(requestID: ControlID, consumeID: ControlID, applyBefore: ControlTimestamp)
         case dispatchIntent(requestID: ControlID, consumeID: ControlID)
         case dispatchResult(requestID: ControlID, receiptID: ControlID, result: ReceiptResult)
@@ -44,6 +49,13 @@ public struct DispatchJournal: Sendable {
                     "request_id": JSONValue(requestID),
                     "decision_id": JSONValue(decisionID),
                     "resolution": .string(resolution.rawValue)
+                ])
+            case .consumeIntent(let requestID, let consumeID, let decisionID):
+                return .object([
+                    "kind": "consume_intent",
+                    "request_id": JSONValue(requestID),
+                    "consume_id": JSONValue(consumeID),
+                    "decision_id": JSONValue(decisionID)
                 ])
             case .claimed(let requestID, let consumeID, let applyBefore):
                 return .object([
@@ -104,6 +116,12 @@ public struct DispatchJournal: Sendable {
                     decisionID: try reader.id("decision_id"),
                     resolution: Resolution(rawValue: resolutionText) ?? .pending
                 )
+            case "consume_intent":
+                return .consumeIntent(
+                    requestID: try reader.id("request_id"),
+                    consumeID: try reader.id("consume_id"),
+                    decisionID: try reader.id("decision_id")
+                )
             case "claimed":
                 return .claimed(
                     requestID: try reader.id("request_id"),
@@ -159,28 +177,144 @@ public struct DispatchJournal: Sendable {
     }
 
     /// Appends and fsyncs, so the record survives the crash it exists for.
+    ///
+    /// A write that fails part-way is cut back off: the next record must never
+    /// be glued onto a torn one, which would corrupt the middle of the journal.
     public func append(_ entry: Entry) throws {
         var line = try JSONCanonicalization.canonicalize(entry.json)
         line.append(0x0A)
         let handle = try FileHandle(forWritingTo: url)
         defer { try? handle.close() }
-        try handle.seekToEnd()
-        try handle.write(contentsOf: line)
-        try handle.synchronize()
+        let offset = try handle.seekToEnd()
+        do {
+            try handle.write(contentsOf: line)
+            try handle.synchronize()
+        } catch {
+            try? handle.truncate(atOffset: offset)
+            try? handle.synchronize()
+            throw error
+        }
     }
 
+    /// Every record, in order.
+    ///
+    /// An unterminated, unparseable final record is an `append` torn by a
+    /// crash: that append never returned, so nothing acted on it, and it is not
+    /// a record. Corruption anywhere else still fails closed; only
+    /// `repairAtStartup` may set it aside (spec.cli.md section 10.2).
     public func load() throws -> [Entry] {
-        let data = try Data(contentsOf: url)
-        var entries: [Entry] = []
-        let lines = data.split(separator: 0x0A, omittingEmptySubsequences: false)
-        for (index, line) in lines.enumerated() {
-            if line.isEmpty {
-                if index == lines.count - 1 { continue }
-                throw ValidationError.invalid("journal", "contains an empty record at line \(index + 1)")
-            }
-            do { entries.append(try Entry.decode(try JSONValue.parse(Data(line)))) } catch { throw ValidationError.invalid("journal", "has a corrupt record at line \(index + 1): \(error)") }
+        let scan = Self.scan(try Data(contentsOf: url))
+        if let line = scan.corruptLines.first {
+            throw ValidationError.invalid("journal", "has a corrupt record at line \(line)")
         }
-        return entries
+        return scan.entries
+    }
+
+    struct Scan {
+        var entries: [Entry] = []
+        /// The byte ranges of the records that decoded, in order.
+        var validRanges: [Range<Int>] = []
+        /// 1-based line numbers of terminated records that do not decode.
+        var corruptLines: [Int] = []
+        /// Where an unterminated, unparseable final record begins.
+        var tornTailOffset: Int?
+        /// A final record that decodes but whose newline never landed.
+        var unterminatedTail = false
+    }
+
+    static func scan(_ data: Data) -> Scan {
+        var scan = Scan()
+        let bytes = [UInt8](data)
+        var start = 0
+        var lineNumber = 0
+        while start < bytes.count {
+            lineNumber += 1
+            let newline = bytes[start...].firstIndex(of: 0x0A)
+            let end = newline ?? bytes.count
+            let line = Data(bytes[start..<end])
+            let entry = line.isEmpty ? nil : try? Entry.decode(try JSONValue.parse(line))
+            if let entry {
+                scan.entries.append(entry)
+                scan.validRanges.append(start..<end)
+                if newline == nil { scan.unterminatedTail = true }
+            } else if newline == nil {
+                scan.tornTailOffset = start
+            } else {
+                scan.corruptLines.append(lineNumber)
+            }
+            guard let newline else { break }
+            start = newline + 1
+        }
+        return scan
+    }
+
+    /// What `repairAtStartup` had to do before the frontier could be read.
+    public struct Repair: Sendable, Equatable {
+        /// A crash tore the final `append`; its bytes were cut off.
+        public var discardedTornTail = false
+        /// A complete final record was missing its newline; one was added.
+        public var terminatedFinalRecord = false
+        /// Mid-file corruption: the original journal is preserved here, and
+        /// the live journal holds only the records that still decode.
+        public var quarantinedTo: URL?
+        /// 1-based line numbers of the records that could not be kept.
+        public var discardedLines: [Int] = []
+
+        public var isEmpty: Bool { self == Repair() }
+    }
+
+    /// Makes the journal loadable before the startup frontier is captured, so
+    /// a crash mid-`append` or a damaged record cannot crash-loop the daemon.
+    ///
+    /// A torn final record is dropped: its append never returned. Mid-file
+    /// corruption is not silently skipped: the whole original file is kept as
+    /// `<journal>.corrupt-<unix time>` and reported, and the live journal is
+    /// rebuilt from every record that still decodes. Starting empty instead
+    /// would also drop every readable obligation, and refusing to start would
+    /// block all approvals until someone edits the file by hand.
+    public func repairAtStartup(at date: Date = Date()) throws -> Repair {
+        let data = try Data(contentsOf: url)
+        let scan = Self.scan(data)
+        var repair = Repair()
+        guard scan.corruptLines.isEmpty else {
+            let quarantine = try quarantineCopy(at: date)
+            var salvaged = Data()
+            for range in scan.validRanges {
+                salvaged.append(data[data.startIndex + range.lowerBound ..< data.startIndex + range.upperBound])
+                salvaged.append(0x0A)
+            }
+            try SecureFileSystem.atomicWrite(salvaged, to: url)
+            repair.quarantinedTo = quarantine
+            repair.discardedLines = scan.corruptLines
+            repair.discardedTornTail = scan.tornTailOffset != nil
+            return repair
+        }
+        if let torn = scan.tornTailOffset {
+            let handle = try FileHandle(forWritingTo: url)
+            defer { try? handle.close() }
+            try handle.truncate(atOffset: UInt64(torn))
+            try handle.synchronize()
+            repair.discardedTornTail = true
+        } else if scan.unterminatedTail {
+            let handle = try FileHandle(forWritingTo: url)
+            defer { try? handle.close() }
+            try handle.seekToEnd()
+            try handle.write(contentsOf: Data([0x0A]))
+            try handle.synchronize()
+            repair.terminatedFinalRecord = true
+        }
+        return repair
+    }
+
+    private func quarantineCopy(at date: Date) throws -> URL {
+        let directory = url.deletingLastPathComponent()
+        var candidate = directory.appendingPathComponent("\(url.lastPathComponent).corrupt-\(Int(date.timeIntervalSince1970))")
+        if FileManager.default.fileExists(atPath: candidate.path) {
+            candidate = directory.appendingPathComponent("\(candidate.lastPathComponent)-\(UUID().uuidString.lowercased())")
+        }
+        try FileManager.default.copyItem(at: url, to: candidate)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: candidate.path)
+        return candidate
     }
 
     /// Immutable process-start boundary. The caller captures this before
@@ -194,6 +328,16 @@ public struct DispatchJournal: Sendable {
         public var uncertain: Set<ControlID> = []
         /// Persisted but never published, or published and still unresolved.
         public var unresolved: Set<ControlID> = []
+        /// The journaled consume ID of each uncertain request, so recovery
+        /// reuses it rather than minting one the broker would refuse.
+        public var consumes: [ControlID: ConsumeRecord] = [:]
+    }
+
+    public struct ConsumeRecord: Sendable, Hashable {
+        public var consumeID: ControlID
+        /// Whether the broker's permit for this consume ID was ever recorded
+        /// locally. Without it the permit never reached an adapter.
+        public var claimRecorded: Bool
     }
 
     public func recover() throws -> Recovery { try recover(at: startupFrontier()) }
@@ -202,28 +346,39 @@ public struct DispatchJournal: Sendable {
         var recovery = Recovery()
         var claimed: Set<ControlID> = []
         var intended: Set<ControlID> = []
+        // A consume intent without a recorded claim: the broker may have
+        // committed the claim and lost the reply.
+        var consuming: Set<ControlID> = []
         for entry in frontier {
             switch entry {
             case .requestPersisted(let requestID, _, _):
                 recovery.unresolved.insert(requestID)
             case .decisionObserved(let requestID, _, let resolution) where resolution != .pending:
                 recovery.unresolved.remove(requestID)
-            case .claimed(let requestID, _, _):
+            case .consumeIntent(let requestID, let consumeID, _):
+                consuming.insert(requestID)
+                recovery.consumes[requestID] = ConsumeRecord(consumeID: consumeID, claimRecorded: false)
+            case .claimed(let requestID, let consumeID, _):
                 claimed.insert(requestID)
-            case .dispatchIntent(let requestID, _):
+                recovery.consumes[requestID] = ConsumeRecord(consumeID: consumeID, claimRecorded: true)
+            case .dispatchIntent(let requestID, let consumeID):
                 intended.insert(requestID)
+                recovery.consumes[requestID] = ConsumeRecord(consumeID: consumeID, claimRecorded: true)
             case .dispatchResult(let requestID, _, _):
                 claimed.remove(requestID)
                 intended.remove(requestID)
+                consuming.remove(requestID)
                 recovery.unresolved.remove(requestID)
             case .withdrawn(let requestID):
                 recovery.unresolved.remove(requestID)
                 claimed.remove(requestID)
+                consuming.remove(requestID)
             default:
                 break
             }
         }
-        recovery.uncertain = claimed.union(intended)
+        recovery.uncertain = claimed.union(intended).union(consuming)
+        recovery.consumes = recovery.consumes.filter { recovery.uncertain.contains($0.key) }
         return recovery
     }
 

@@ -254,7 +254,7 @@ final class GatewayTests: XCTestCase {
 
         let coordinator = DecisionCoordinator(
             service: watch.client,
-            journal: try CommandJournal(),
+            journal: CommandJournal(),
             key: watch.key,
             signer: SignerIdentity(deviceID: watch.status.watchDeviceID, audience: try XCTUnwrap(watch.status.audience), grants: watch.status.grants),
             now: { [clock = fixture.harness.clock] in clock.now }
@@ -390,7 +390,7 @@ final class GatewayTests: XCTestCase {
         watch.link.setReachable(false)
         let sentBefore = watch.link.sent
 
-        let journal = try CommandJournal()
+        let journal = CommandJournal()
         let coordinator = DecisionCoordinator(
             service: watch.client, journal: journal, key: watch.key,
             signer: SignerIdentity(deviceID: watch.status.watchDeviceID, audience: try XCTUnwrap(watch.status.audience), grants: watch.status.grants),
@@ -418,11 +418,11 @@ final class GatewayTests: XCTestCase {
         let record = try await fixture.publishApproval()
         let clock = fixture.harness.clock
         let watchCoordinator = DecisionCoordinator(
-            service: watch.client, journal: try CommandJournal(), key: watch.key,
+            service: watch.client, journal: CommandJournal(), key: watch.key,
             signer: SignerIdentity(deviceID: watch.status.watchDeviceID, audience: try XCTUnwrap(watch.status.audience), grants: watch.status.grants),
             now: { clock.now }
         )
-        let phoneCoordinator = DecisionCoordinator(client: phone.client, journal: try CommandJournal(), key: phone.key, session: phone.session, now: { clock.now })
+        let phoneCoordinator = DecisionCoordinator(client: phone.client, journal: CommandJournal(), key: phone.key, session: phone.session, now: { clock.now })
         async let fromWatch = try? watchCoordinator.decide(.approve, reviewed: record)
         async let fromPhone = try? phoneCoordinator.decide(.reject, reviewed: record)
         let outcomes = await [fromWatch, fromPhone]

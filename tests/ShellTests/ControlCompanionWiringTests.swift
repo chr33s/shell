@@ -284,6 +284,63 @@ final class ControlCompanionWiringTests: XCTestCase {
         XCTAssertEqual(try credentials.loadSession()?.refreshToken, "refresh-2")
     }
 
+    /// A refresh (every pull, every approval hint) fetches the whole
+    /// approval history only once; after that it asks for the changes since
+    /// the last cursor.
+    func testRefreshAfterTheFirstFetchesOnlyChanges() async throws {
+        let key = OriginSigningKey()
+        let stub = OriginStub(key: key)
+        let companion = ControlCompanion(
+            credentials: try enrolledCredentials(),
+            origins: InMemoryPinnedOriginStore(try pinned(key)),
+            transport: stub,
+            journalStore: { InMemoryCommandJournal() }
+        )
+        await companion.start()
+        XCTAssertEqual(companion.phase, .ready)
+        let refreshed = await companion.refresh()
+        XCTAssertTrue(refreshed)
+        XCTAssertEqual(stub.paths.count(of: "/v1/snapshot"), 1)
+        XCTAssertEqual(stub.paths.count(of: "/v1/changes"), 1)
+    }
+
+    /// Signed decisions whose outcome is unknown survive a relaunch: the
+    /// phone's journal is file-backed like the Watch's, not in memory.
+    func testThePhonesCommandJournalPersistsAcrossRelaunch() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("control-journal-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let command = PendingCommand(
+            commandID: .random(),
+            signedCommand: "header.payload.signature",
+            type: .approvalDecide,
+            targetID: .random(),
+            notAfter: ControlTimestamp(Date().addingTimeInterval(60)),
+            status: .outcomeUnknown
+        )
+        try await CommandJournal(store: try FileCommandJournalStore(directory: directory)).record(command)
+
+        let relaunched = CommandJournal(store: try FileCommandJournalStore(directory: directory))
+        let pending = await relaunched.pending
+        XCTAssertEqual(pending.map(\.commandID), [command.commandID])
+        XCTAssertEqual(pending.first?.status, .outcomeUnknown)
+    }
+
+    /// An unreadable journal is an error, never an empty journal whose next
+    /// save would overwrite the entries it could not read.
+    func testAnUnreadableJournalThrowsRatherThanReadingEmpty() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("control-journal-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try FileCommandJournalStore(directory: directory)
+        XCTAssertEqual(try store.load().count, 0, "a missing file is an empty journal")
+        // A directory where the file should be cannot be read as one.
+        try FileManager.default.createDirectory(
+            at: directory.appendingPathComponent("control-commands.json"), withIntermediateDirectories: true
+        )
+        XCTAssertThrowsError(try store.load())
+    }
+
     func testSettingsExposesAControlSectionAndGatewayPairing() throws {
         let source = try controlSource()
         XCTAssertTrue(source.contains("case control"), "Settings must include the Control companion section")
@@ -326,9 +383,11 @@ private struct OriginStub: ControlHTTPTransport {
     /// The session `/v1/oauth/token` hands back.
     var refreshed: DeviceSession?
     let refreshes = RefreshCounter()
+    let paths = PathLog()
 
     func send(_ request: ControlHTTPRequest, baseURL: URL) async throws -> ControlHTTPResponse {
         if unreachable { throw TailnetUnavailable(reason: "Tailscale is off") }
+        paths.record(request.path)
         func json(_ value: JSONValue) throws -> ControlHTTPResponse {
             ControlHTTPResponse(status: 200, body: try JSONCanonicalization.canonicalize(value))
         }
@@ -344,6 +403,8 @@ private struct OriginStub: ControlHTTPTransport {
         case "/v1/snapshot":
             return try json(SnapshotPage(approvals: [], notifications: [], snapshotToken: "s1.1.t", nextPageToken: nil,
                                          cursor: ChangeCursor("c1.1.t"), serverTime: ControlTimestamp(Date())).json)
+        case "/v1/changes":
+            return try json(ChangePage(events: [], cursor: ChangeCursor("c1.2.t"), serverTime: ControlTimestamp(Date())).json)
         default:
             return ControlHTTPResponse(status: 404, body: try JSONCanonicalization.canonicalize(ControlError(code: .notFound, message: "no such endpoint").json))
         }
@@ -366,6 +427,13 @@ private final class OriginRegistry: @unchecked Sendable {
             return id
         }
     }
+}
+
+final class PathLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var paths: [String] = []
+    func record(_ path: String) { lock.withLock { paths.append(path) } }
+    func count(of path: String) -> Int { lock.withLock { paths.filter { $0 == path }.count } }
 }
 
 final class RefreshCounter: @unchecked Sendable {

@@ -20,6 +20,7 @@ let package = Package(
             dependencies: [
                 .product(name: "ShellControlProtocol", package: "ShellControlCore"),
                 .product(name: "ShellControlSecurity", package: "ShellControlCore"),
+                .product(name: "ShellControlClient", package: "ShellControlCore"),
                 .product(name: "ShellControlHTTPServer", package: "ShellControlCore")
             ]
         ),

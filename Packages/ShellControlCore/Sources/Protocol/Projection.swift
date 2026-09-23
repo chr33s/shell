@@ -221,13 +221,28 @@ extension ApprovalRecord {
         at now: ControlTimestamp,
         supportedFeatures: Set<String> = ControlFeature.supported
     ) -> WatchApprovability {
+        approvability(at: now, review: .watch, supportedFeatures: supportedFeatures)
+    }
+
+    /// Whether a client that provides `review` may approve this request.
+    ///
+    /// A full-review client (the iPhone) may approve a `minimum_review: full`
+    /// request and one whose policy withholds Watch review; everything else —
+    /// schema, features, deadline, presence — applies to every client. The
+    /// broker makes the same distinction from its own device registration
+    /// (spec.watch.md section 6).
+    public func approvability(
+        at now: ControlTimestamp,
+        review: MinimumReview,
+        supportedFeatures: Set<String> = ControlFeature.supported
+    ) -> WatchApprovability {
         if projection.resolution.isTerminal { return .reviewElsewhere(reason: .alreadyResolved) }
         if spec.isExpired(at: now) { return .reviewElsewhere(reason: .expired) }
         if !spec.operation.isRecognized { return .reviewElsewhere(reason: .unknownOperationSchema) }
         if !Set(spec.requiredFeatures).isSubset(of: supportedFeatures) {
             return .reviewElsewhere(reason: .unsupportedRequiredFeature)
         }
-        if spec.minimumReview != .watch || !projection.watchReviewAllowed {
+        if review != .full, spec.minimumReview != .watch || !projection.watchReviewAllowed {
             return .reviewElsewhere(reason: .policyRequiresFullReview)
         }
         if !projection.presence.isFresh(at: now) { return .reviewElsewhere(reason: .sourceNotPresent) }
@@ -241,8 +256,12 @@ extension ApprovalRecord {
             && spec.allowedDecisions.contains(.reject)
     }
 
-    public func canApprove(at now: ControlTimestamp, supportedFeatures: Set<String> = ControlFeature.supported) -> Bool {
+    public func canApprove(
+        at now: ControlTimestamp,
+        supportedFeatures: Set<String> = ControlFeature.supported,
+        review: MinimumReview = .watch
+    ) -> Bool {
         spec.allowedDecisions.contains(.approve)
-            && watchApprovability(at: now, supportedFeatures: supportedFeatures) == .approvable
+            && approvability(at: now, review: review, supportedFeatures: supportedFeatures) == .approvable
     }
 }

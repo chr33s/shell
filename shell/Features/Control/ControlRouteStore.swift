@@ -48,13 +48,10 @@ final class KeychainPinnedOriginStore: PinnedOriginStore, @unchecked Sendable {
             kSecValueData as String: data,
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         ]
-        let updated = SecItemUpdate(baseQuery as CFDictionary, attributes as CFDictionary)
-        if updated == errSecSuccess { return }
-        guard updated == errSecItemNotFound else { throw KeychainCredentialStore.KeychainError.status(updated) }
-        var insert = baseQuery
-        insert.merge(attributes) { _, new in new }
-        let added = SecItemAdd(insert as CFDictionary, nil)
-        guard added == errSecSuccess else { throw KeychainCredentialStore.KeychainError.status(added) }
+        // Accessibility is in `attributes`, not `creationAttributes`, so an
+        // item written by an earlier build is moved to after-first-unlock too.
+        let status = Keychain.upsert(query: baseQuery, attributes: attributes)
+        guard status == errSecSuccess else { throw KeychainCredentialStore.KeychainError.status(status) }
     }
 
     func remove() throws {
@@ -124,13 +121,10 @@ final class KeychainWatchBindingStore: WatchBindingStore, @unchecked Sendable {
             kSecValueData as String: try JSONCanonicalization.canonicalize(status.json),
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         ]
-        let updated = SecItemUpdate(baseQuery as CFDictionary, attributes as CFDictionary)
-        if updated == errSecSuccess { return }
-        guard updated == errSecItemNotFound else { throw KeychainCredentialStore.KeychainError.status(updated) }
-        var insert = baseQuery
-        insert.merge(attributes) { _, new in new }
-        let added = SecItemAdd(insert as CFDictionary, nil)
-        guard added == errSecSuccess else { throw KeychainCredentialStore.KeychainError.status(added) }
+        // Accessibility is in `attributes`, not `creationAttributes`, so an
+        // item written by an earlier build is moved to after-first-unlock too.
+        let written = Keychain.upsert(query: baseQuery, attributes: attributes)
+        guard written == errSecSuccess else { throw KeychainCredentialStore.KeychainError.status(written) }
     }
 
     /// Moves a binding written by an earlier build into the Keychain. This

@@ -21,7 +21,9 @@ public actor BrokerStore {
     var challenges: [String: ChallengeRecord] = [:]
     var idempotency: [String: IdempotencyRecord] = [:]
     var originMutations: [String: OriginMutationRecord] = [:]
-    var receipts: Set<ControlID> = []
+    /// Receipt IDs already applied, with when, so they age out with the other
+    /// command records (spec.watch.md section 15).
+    var receipts: [ControlID: ControlTimestamp] = [:]
     var tombstones: [ControlID: Tombstone] = [:]
     var changeLog: [ChangeEvent] = []
     var outbox: [OutboxEntry] = []
@@ -35,14 +37,20 @@ public actor BrokerStore {
     var refreshTokens: [String: TokenRecord] = [:]
     var policyVersion: Int64 = 1
     var nextSequence: UInt64 = 1
+    /// When terminal records were last purged; purging is throttled so it
+    /// does not rescan the ledger on every commit.
+    var lastPurgeAt: Date?
     public private(set) var storeLoaded = false
+
+    /// How far ahead of the broker clock an origin's `created_at` may be.
+    static let originClockSkew: TimeInterval = 60
 
     struct StateBackup {
         let devices: [ControlID: DeviceRecord]; let origins: [ControlID: OriginRecord]
         let runs: [ControlID: RunRecord]; let approvals: [ControlID: ApprovalRecordEntry]
         let notifications: [ControlID: InformationalEvent]; let notificationAccounts: [ControlID: ControlID]
         let challenges: [String: ChallengeRecord]; let idempotency: [String: IdempotencyRecord]
-        let originMutations: [String: OriginMutationRecord]; let receipts: Set<ControlID>
+        let originMutations: [String: OriginMutationRecord]; let receipts: [ControlID: ControlTimestamp]
         let tombstones: [ControlID: Tombstone]; let changeLog: [ChangeEvent]
         let outbox: [OutboxEntry]; let relayOutbox: [RelayPushEntry]
         let policyVersion: Int64; let nextSequence: UInt64
@@ -105,7 +113,7 @@ public actor BrokerStore {
         guard let snapshot = try persistence?.load() else { return }
         var reader = try JSONReader(snapshot)
         policyVersion = try reader.integer("policy_version")
-        nextSequence = UInt64(try reader.string("next_sequence", maxLength: 20)) ?? 1
+        nextSequence = max(1, UInt64(try reader.string("next_sequence", maxLength: 20)) ?? 1)
         for value in try reader.value("devices").arrayValue ?? [] {
             let device = try BrokerSnapshotCodec.decodeDevice(value)
             devices[device.deviceID] = device
@@ -138,7 +146,13 @@ public actor BrokerStore {
             idempotency[BrokerStore.idempotencyKey(account: record.accountID, device: record.deviceID, command: record.commandID)] = record
         }
         for value in try reader.value("receipts").arrayValue ?? [] {
-            if let id = value.stringValue.flatMap(ControlID.init) { receipts.insert(id) }
+            // Older ledgers stored bare IDs; those start their retention now.
+            if let id = value.stringValue.flatMap(ControlID.init) {
+                receipts[id] = timestamp
+            } else {
+                var item = try JSONReader(value)
+                receipts[try item.id("receipt_id")] = try item.timestamp("recorded_at")
+            }
         }
         // Origin mutation records are what make a retried withdraw or notify a
         // replay rather than a second execution.
@@ -146,15 +160,24 @@ public actor BrokerStore {
             var item = try JSONReader(value)
             let originID = try item.id("origin_id")
             let mutationID = try item.id("mutation_id")
-            let record = OriginMutationRecord(
-                originID: originID,
-                mutationID: mutationID,
-                bodyHash: try item.string("body_hash", maxLength: 80),
-                result: try item.value("result")
-            )
-            // The key shape must match the one the writers use.
-            for prefix in ["notify", "withdraw"] {
-                originMutations["\(prefix)|\(originID.rawValue)|\(mutationID.rawValue)"] = record
+            let bodyHash = try item.string("body_hash", maxLength: 80)
+            let result = try item.value("result")
+            // Ledgers written before records carried their kind are loaded as
+            // both kinds, as they were then.
+            let kinds: [OriginMutationRecord.Kind]
+            if let name = try item.optionalString("kind", maxLength: 16) {
+                guard let kind = OriginMutationRecord.Kind(rawValue: name) else {
+                    throw ControlError(code: .invalidPayload, message: "unknown origin mutation kind")
+                }
+                kinds = [kind]
+            } else {
+                kinds = OriginMutationRecord.Kind.allCases
+            }
+            for kind in kinds {
+                let record = OriginMutationRecord(
+                    kind: kind, originID: originID, mutationID: mutationID, bodyHash: bodyHash, result: result
+                )
+                originMutations[record.key] = record
             }
         }
         for value in reader.optionalValue("item_sequences")?.arrayValue ?? [] {
@@ -209,6 +232,8 @@ public actor BrokerStore {
                 scopes[event.eventID] = EventScope(accountID: accountID, originID: try item.optionalID("origin_id"))
             }
         }
+        // The counter never falls behind the log it numbers.
+        if let last = changeLog.last { nextSequence = max(nextSequence, last.sequence.value + 1) }
     }
 
     // MARK: Administration
@@ -389,8 +414,9 @@ public actor BrokerStore {
     var itemSequences: [ControlID: UInt64] = [:]
 
     /// Ordered deltas are retained for at least seven days
-    /// (spec.watch.md section 15).
-    private func trimChangeLog() {
+    /// (spec.watch.md section 15). This can empty the log; sequence numbers
+    /// come from ``nextSequence``, never from the log's contents.
+    func trimChangeLog() {
         let cutoff = timestamp.adding(-ApprovalPolicy.changeLogRetention)
         while let first = changeLog.first, first.serverTime < cutoff {
             scopes.removeValue(forKey: first.eventID)
@@ -410,6 +436,7 @@ public actor BrokerStore {
     }
 
     func commit() throws {
+        purgeRetainedIfDue()
         guard let persistence else { return }
         // Never return a success response before durable commit
         // (spec.watch.md section 11).

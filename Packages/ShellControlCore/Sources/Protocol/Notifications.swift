@@ -234,7 +234,7 @@ public struct PushRegistration: Sendable, Hashable {
     public let topic: String
 
     public init(token: String, platform: Platform, environment: Environment, topic: String) throws {
-        guard token.count >= 32, token.count <= 200, token.allSatisfy({ $0.isHexDigit }) else {
+        guard token.utf8.count >= 32, token.utf8.count <= 200, ASCIIHex.isHex(token) else {
             throw ValidationError.invalid("token", "must be a hex APNs device token")
         }
         guard !topic.isEmpty, topic.count <= 200 else {

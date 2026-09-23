@@ -10,6 +10,7 @@ struct InboxView: View {
     @Environment(ControlSession.self) private var session
     @Environment(\.scenePhase) private var scenePhase
     @State private var reviewing: ControlID?
+    private var router: WatchNotificationRouter { .shared }
 
     var body: some View {
         NavigationStack {
@@ -64,12 +65,11 @@ struct InboxView: View {
         .onChange(of: scenePhase) { _, phase in
             session.noteSceneActive(phase == .active)
         }
-        .task(id: WatchAppDelegate.pendingIntent) {
-            // A notification action opens review; it never decides.
-            if let intent = WatchAppDelegate.pendingIntent {
-                reviewing = intent.requestID
-                WatchAppDelegate.pendingIntent = nil
-            }
+        // A notification action opens review; it never decides. `initial`
+        // covers a cold launch, where the tap lands before the inbox exists.
+        .onChange(of: router.pendingIntent, initial: true) { _, intent in
+            guard intent != nil, let intent = router.consume() else { return }
+            reviewing = intent.requestID
         }
     }
 }

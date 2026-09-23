@@ -274,4 +274,41 @@ final class ControlSessionTests: XCTestCase {
         rig.session.noteSceneActive(false)
         XCTAssertFalse(rig.session.isPolling)
     }
+
+    /// A loop cancelled by backgrounding exits late, after the scene came
+    /// back and a new loop started. It must not clear the new loop's slot,
+    /// which left the Watch polling with `isPolling` false and a second
+    /// loop able to start beside it.
+    func testALateExitingCancelledLoopDoesNotClobberItsReplacement() async throws {
+        let rig = try await rig()
+        await rig.session.start()
+        rig.session.startPolling()
+        rig.session.noteSceneActive(false)
+        rig.session.noteSceneActive(true)
+        XCTAssertTrue(rig.session.isPolling)
+        // Let the cancelled loop wake from its sleep and finish.
+        try await Task.sleep(nanoseconds: 200_000_000)
+        XCTAssertTrue(rig.session.isPolling, "the replacement loop is still registered")
+        rig.session.stopPolling()
+        XCTAssertFalse(rig.session.isPolling)
+    }
+
+    /// A reconcile keeps the in-memory inbox within the cache's bounds: the
+    /// reconciler itself never drops a resolved approval.
+    func testRefreshKeepsTheInboxBounded() async throws {
+        let cache = InMemoryInboxCache()
+        var seeded = InboxState()
+        for _ in 0..<(InboxBounds.maxApprovals + 20) {
+            let record = try WatchTestFixtures.makeRecord(createdAt: now, resolution: .rejected, presentAt: now)
+            seeded.approvals[record.spec.requestID] = record
+        }
+        let pending = try WatchTestFixtures.makeRecord(createdAt: now, presentAt: now)
+        seeded.approvals[pending.spec.requestID] = pending
+        seeded.cursor = ChangeCursor("c1.1.tag")
+        try cache.commit(seeded)
+        let rig = try await rig(cache: cache)
+        await rig.session.start()
+        XCTAssertLessThanOrEqual(rig.session.inbox.approvals.count, InboxBounds.maxApprovals)
+        XCTAssertNotNil(rig.session.inbox.approvals[pending.spec.requestID], "pending requests are always kept")
+    }
 }

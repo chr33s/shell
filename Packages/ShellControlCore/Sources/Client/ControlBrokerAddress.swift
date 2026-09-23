@@ -29,7 +29,7 @@ public enum ControlBrokerAddress {
             hostname = String(hostname[hostname.index(after: hostname.startIndex)..<end])
         } else if hostname.filter({ $0 == ":" }).count == 1,
                   let colon = hostname.firstIndex(of: ":"),
-                  hostname[hostname.index(after: colon)...].allSatisfy(\.isNumber) {
+                  hostname[hostname.index(after: colon)...].allSatisfy({ $0.isASCII && $0.isNumber }) {
             hostname = String(hostname[..<colon])
         }
         return loopbackHosts.contains(hostname.lowercased())

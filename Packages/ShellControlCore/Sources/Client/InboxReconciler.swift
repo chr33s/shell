@@ -177,10 +177,10 @@ public struct InboxReconciler: Sendable {
             appliedVersions[event.resourceID] = event.resourceVersion
         }
         state.seenEventIDs.insert(event.eventID)
-        if state.seenEventIDs.count > 5000 {
+        if state.seenEventIDs.count > 2048 {
             // Bounded: the server retains the ordered log, so an old event ID
             // cannot be redelivered once its retention window has passed.
-            state.seenEventIDs = Set(state.seenEventIDs.prefix(2500))
+            state.seenEventIDs = Set(state.seenEventIDs.prefix(1024))
         }
         return true
     }

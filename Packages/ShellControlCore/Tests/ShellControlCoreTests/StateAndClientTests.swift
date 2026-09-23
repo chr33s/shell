@@ -201,7 +201,7 @@ final class StateAndClientTests: XCTestCase {
 
     func testJournalKeepsAmbiguousCommandsAcrossSnapshots() async throws {
         let notAfter = try XCTUnwrap(ControlTimestamp(rfc3339: "2026-09-07T09:01:00Z"))
-        let journal = try CommandJournal(now: { notAfter.date })
+        let journal = CommandJournal(now: { notAfter.date })
         let commandID = ControlID.random()
         try await journal.record(PendingCommand(
             commandID: commandID,
@@ -224,7 +224,7 @@ final class StateAndClientTests: XCTestCase {
     func testJournalDropsCommandsPastTheRetentionWindow() async throws {
         let notAfter = try XCTUnwrap(ControlTimestamp(rfc3339: "2026-09-07T09:01:00Z"))
         let store = InMemoryCommandJournal()
-        let live = try CommandJournal(store: store, now: { notAfter.date })
+        let live = CommandJournal(store: store, now: { notAfter.date })
         try await live.record(PendingCommand(
             commandID: .random(), signedCommand: "a.b.c", type: .approvalDecide,
             targetID: .random(), notAfter: notAfter
@@ -233,10 +233,10 @@ final class StateAndClientTests: XCTestCase {
         XCTAssertEqual(count, 1)
 
         // Still held just inside the window, gone once it closes.
-        let inside = try CommandJournal(store: store, now: { notAfter.date.addingTimeInterval(CommandJournal.retention - 60) })
+        let inside = CommandJournal(store: store, now: { notAfter.date.addingTimeInterval(CommandJournal.retention - 60) })
         count = await inside.pending.count
         XCTAssertEqual(count, 1)
-        let outside = try CommandJournal(store: store, now: { notAfter.date.addingTimeInterval(CommandJournal.retention + 60) })
+        let outside = CommandJournal(store: store, now: { notAfter.date.addingTimeInterval(CommandJournal.retention + 60) })
         count = await outside.pending.count
         XCTAssertEqual(count, 0)
         XCTAssertEqual(try store.load().count, 0, "the prune is persisted, not just in memory")
@@ -244,7 +244,7 @@ final class StateAndClientTests: XCTestCase {
 
     func testJournalIsCappedAtItsMaximumEntries() async throws {
         let base = try XCTUnwrap(ControlTimestamp(rfc3339: "2026-09-07T09:01:00Z"))
-        let journal = try CommandJournal(now: { base.date })
+        let journal = CommandJournal(now: { base.date })
         for offset in 0..<(CommandJournal.maximumEntries + 25) {
             try await journal.record(PendingCommand(
                 commandID: .random(), signedCommand: "a.b.c", type: .approvalDecide,
@@ -255,6 +255,66 @@ final class StateAndClientTests: XCTestCase {
         XCTAssertEqual(pending.count, CommandJournal.maximumEntries)
         // The newest deadlines survive; the oldest are the ones dropped.
         XCTAssertEqual(pending.last?.notAfter, base.adding(TimeInterval(CommandJournal.maximumEntries + 24)))
+    }
+
+    /// A store that cannot be read yet — a protected file before first
+    /// unlock — must not be treated as empty: a save would overwrite it.
+    func testUnreadableJournalRefusesWritesUntilItCanBeRead() async throws {
+        final class LockedStore: CommandJournalStore, @unchecked Sendable {
+            let lock = NSLock()
+            var locked = true
+            var saved: [PendingCommand]
+            var saves = 0
+            init(_ saved: [PendingCommand]) { self.saved = saved }
+            func load() throws -> [PendingCommand] {
+                try lock.withLock {
+                    if locked { throw CocoaError(.fileReadNoPermission) }
+                    return saved
+                }
+            }
+            func save(_ commands: [PendingCommand]) throws {
+                lock.withLock { saved = commands; saves += 1 }
+            }
+        }
+        let notAfter = try XCTUnwrap(ControlTimestamp(rfc3339: "2026-09-07T09:01:00Z"))
+        let earlier = PendingCommand(
+            commandID: .random(), signedCommand: "a.b.c", type: .approvalDecide,
+            targetID: .random(), notAfter: notAfter, status: .outcomeUnknown
+        )
+        let store = LockedStore([earlier])
+        let journal = CommandJournal(store: store, now: { notAfter.date })
+
+        var available = await journal.isAvailable
+        XCTAssertFalse(available)
+        let unreadable = await journal.pending
+        XCTAssertEqual(unreadable, [])
+        do {
+            try await journal.record(PendingCommand(
+                commandID: .random(), signedCommand: "d.e.f", type: .approvalDecide,
+                targetID: .random(), notAfter: notAfter
+            ))
+            XCTFail("recorded into an unread journal")
+        } catch is CommandJournalUnavailable {}
+        XCTAssertEqual(store.saves, 0, "nothing overwrote the unread entries")
+
+        store.lock.withLock { store.locked = false }
+        available = await journal.isAvailable
+        XCTAssertTrue(available)
+        let pending = await journal.pending
+        XCTAssertEqual(pending, [earlier])
+    }
+
+    func testFileJournalSetsAsideBytesThatDoNotParse() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = try FileCommandJournalStore(directory: directory, protection: [])
+        let url = directory.appendingPathComponent("control-commands.json")
+        try Data("[{\"command_id\":".utf8).write(to: url)
+
+        XCTAssertEqual(try store.load(), [])
+        let names = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+        XCTAssertFalse(names.contains("control-commands.json"))
+        XCTAssertTrue(names.contains { $0.hasPrefix("control-commands.json.corrupt-") }, "the bytes are kept")
     }
 }
 

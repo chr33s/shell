@@ -23,6 +23,11 @@ struct DeviceRecord: Sendable {
 
     var isRevoked: Bool { revokedAt != nil }
     var isWatchReviewer: Bool { gatewayDeviceID != nil }
+    /// The iPhone is a full-review client; a Watch, standalone or behind a
+    /// gateway, is a glance-sized surface that never approves a request
+    /// demanding fuller review (spec.iphone-gateway.md section 4.5,
+    /// spec.watch.md section 6).
+    var isFullReviewClient: Bool { platform == .iOS && !isWatchReviewer }
 }
 
 /// A one-use, short-lived pairing the Mac minted for its setup QR. The secret
@@ -150,12 +155,24 @@ struct IdempotencyRecord: Sendable {
     let recordedAt: ControlTimestamp
 }
 
-/// An origin mutation's idempotency record, keyed by its mutation ID.
+/// An origin mutation's idempotency record, keyed by its kind, origin, and
+/// mutation ID.
 struct OriginMutationRecord: Sendable {
+    enum Kind: String, Sendable, CaseIterable {
+        case notify, withdraw
+    }
+
+    let kind: Kind
     let originID: ControlID
     let mutationID: ControlID
     let bodyHash: String
     let result: JSONValue
+
+    var key: String { OriginMutationRecord.key(kind, originID: originID, mutationID: mutationID) }
+
+    static func key(_ kind: Kind, originID: ControlID, mutationID: ControlID) -> String {
+        "\(kind.rawValue)|\(originID.rawValue)|\(mutationID.rawValue)"
+    }
 }
 
 /// A queued alert. The push is a hint; the ledger is the change stream

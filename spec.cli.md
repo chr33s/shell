@@ -365,7 +365,7 @@ If request lookup fails, retain the candidate and report recovery pending; do no
 
 An abandoned claim may require an unknown-outcome receipt. A live claim awaiting its adapter receipt must never receive that restart receipt. No recovery path dispatches or replays the underlying operation.
 
-During normal shutdown, stop accepting new work, signal cancellable handlers, drain bounded in-flight work, flush durable records, and let restart recovery handle unresolved obligations. Do not perform synchronous unlimited network work in a signal handler. Journal corruption must be surfaced; silently skipping an authority-relevant record is not safe recovery.
+During normal shutdown, stop accepting new work, signal cancellable handlers, drain bounded in-flight work, flush durable records, and let restart recovery handle unresolved obligations. Do not perform synchronous unlimited network work in a signal handler. Journal corruption must be surfaced; silently skipping an authority-relevant record is not safe recovery. An unparseable final record without a trailing newline is a torn append that never returned and may be dropped. Corruption anywhere else preserves the original bytes beside the journal, rebuilds the live journal from every record that still decodes, and reports `journal_quarantined` in daemon health so the loss is visible; startup must not crash-loop on it.
 
 ## 11. Native packaging and installation
 

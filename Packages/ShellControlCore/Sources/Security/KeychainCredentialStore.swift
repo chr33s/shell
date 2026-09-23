@@ -123,16 +123,10 @@ public final class KeychainCredentialStore: DeviceCredentialStore, @unchecked Se
             kSecValueData as String: data,
             kSecAttrAccessible as String: accessibility.attribute
         ]
-        let updateStatus = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
-        if updateStatus == errSecSuccess {
-            lock.withLock { _ = unmigrated.remove(account) }
-            return
-        }
-        guard updateStatus == errSecItemNotFound else { throw KeychainError.status(updateStatus) }
-        var insert = query
-        insert.merge(attributes) { _, new in new }
-        let addStatus = SecItemAdd(insert as CFDictionary, nil)
-        guard addStatus == errSecSuccess else { throw KeychainError.status(addStatus) }
+        // The accessibility class goes in the update too: rewriting it is
+        // how an item created under an older, stricter class migrates.
+        let status = Keychain.upsert(query: query, attributes: attributes)
+        guard status == errSecSuccess else { throw KeychainError.status(status) }
         lock.withLock { _ = unmigrated.remove(account) }
     }
 }
