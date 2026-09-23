@@ -11,7 +11,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#if compiler(>=6.2)
 extension _HTable {
   @usableFromInline
   internal mutating func insertNew_Small(
@@ -27,8 +26,8 @@ extension _HTable {
     _maxProbeLength = _count
     return r
   }
-  
-  
+
+
   @usableFromInline
   internal mutating func insertNew_Large(
     hashValue: Int,
@@ -37,13 +36,13 @@ extension _HTable {
   ) -> Bucket {
     assert(!isSmall)
     assert(!isFull)
-    
+
 #if COLLECTIONS_NO_ROBIN_HOOD_HASHING
     let ideal = idealBucket(forHashValue: hashValue)
     let bitmap = self.bitmap
-    var actual = bitmap.firstUnoccupiedBucket(from: ideal)
+    var actual = bitmap.collisionChainEnd(from: ideal)
     if actual._offset >= self.bucketCount {
-      actual = bitmap.firstUnoccupiedBucket(from: Bucket(offset: 0))
+      actual = bitmap.collisionChainEnd(from: Bucket(offset: 0))
     }
     bitmap.setOccupied(actual)
     let probeLength = self.probeLength(from: ideal, to: actual)
@@ -84,4 +83,3 @@ extension _HTable {
 #endif
   }
 }
-#endif

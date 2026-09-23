@@ -88,9 +88,6 @@ var defines: [SwiftSetting] = [
   
   // Enables longer, more exhaustive tests.
 //  .define("COLLECTIONS_LONG_TESTS"),
-
-  // Enable the use of `Builtin.Borrow` in `struct Ref`.
-//  .define("COLLECTIONS_BORROW_BUILTIN")
 ]
 
 let availabilityMacros: KeyValuePairs<String, String> = [
@@ -105,7 +102,7 @@ let availabilityMacros: KeyValuePairs<String, String> = [
   "SwiftStdlib 6.1":  "macOS 15.4, iOS 18.4, watchOS 11.4, tvOS 18.4, visionOS 2.4",
   "SwiftStdlib 6.2":  "macOS 26.0, iOS 26.0, watchOS 26.0, tvOS 26.0, visionOS 26.0",
   "SwiftStdlib 6.3":  "macOS 26.4, iOS 26.4, watchOS 26.4, tvOS 26.4, visionOS 26.4",
-  "SwiftStdlib 6.4":  "macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999",
+  "SwiftStdlib 6.4":  "macOS 27.0, iOS 27.0, watchOS 27.0, tvOS 27.0, visionOS 27.0",
   "SwiftStdlib 6.5":  "macOS 9999, iOS 9999, watchOS 9999, tvOS 9999, visionOS 9999",
   // Note: if you touch these, please make sure to also update the similar lists in
   // CMakeLists.txt and Xcode/Shared.xcconfig.
@@ -120,7 +117,7 @@ let extraSettings: [SwiftSetting] = [
   .enableExperimentalFeature("AddressableParameters"),
   .enableExperimentalFeature("AddressableTypes"),
   .enableExperimentalFeature("SuppressedAssociatedTypesWithDefaults"), // Requires Swift 6.4
-
+  .enableExperimentalFeature("BorrowingSequence"), // 6.4
   // Note: if you touch these, please make sure to also update the similar lists in
   // CMakeLists.txt and Xcode/Shared.xcconfig.
 ]
@@ -224,6 +221,7 @@ let targets: [CustomTarget] = [
       "InternalCollectionsUtilities",
       "ContainersPreview",
       "BasicContainers",
+      "SpanPreview",
     ]),
   .target(
     kind: .test,
@@ -239,10 +237,7 @@ let targets: [CustomTarget] = [
   .target(
     kind: .exported,
     name: "BasicContainers",
-    dependencies: [
-      "InternalCollectionsUtilities",
-      "ContainersPreview",
-    ],
+    dependencies: ["InternalCollectionsUtilities", "SpanPreview"],
     exclude: ["CMakeLists.txt"]
   ),
   .target(
@@ -267,7 +262,12 @@ let targets: [CustomTarget] = [
   .target(
     kind: .exported,
     name: "ContainersPreview",
-    dependencies: ["InternalCollectionsUtilities"],
+    dependencies: [
+      "InternalCollectionsUtilities",
+      "BasicContainers",
+      "DequeModule",
+      "SpanPreview",
+    ],
     exclude: ["CMakeLists.txt"]),
   .target(
     kind: .test,
@@ -279,7 +279,7 @@ let targets: [CustomTarget] = [
   .target(
     kind: .exported,
     name: "DequeModule",
-    dependencies: ["ContainersPreview", "InternalCollectionsUtilities"],
+    dependencies: ["InternalCollectionsUtilities", "SpanPreview"],
     exclude: ["CMakeLists.txt"]),
   .target(
     kind: .test,
@@ -331,6 +331,16 @@ let targets: [CustomTarget] = [
 
   .target(
     kind: .exported,
+    name: "SpanPreview",
+    dependencies: ["InternalCollectionsUtilities"],
+    exclude: ["CMakeLists.txt"]),
+  .target(
+    kind: .test,
+    name: "SpanPreviewTests",
+    dependencies: ["SpanPreview", "_CollectionsTestSupport"]),
+
+  .target(
+    kind: .exported,
     name: "TrailingElementsModule",
     exclude: ["CMakeLists.txt"]),
   .target(
@@ -338,7 +348,6 @@ let targets: [CustomTarget] = [
     name: "TrailingElementsTests",
     dependencies: ["TrailingElementsModule"]),
 
-  // These aren't ready for production use yet.
   .target(
     kind: .exported,
     name: "SortedCollections",
@@ -365,7 +374,7 @@ let targets: [CustomTarget] = [
     kind: .test,
     name: "CollectionsModuleTests",
     dependencies: ["Collections", "_CollectionsTestSupport"],
-    settings: _baseSettings),
+    settings: _baseSettings + [.enableUpcomingFeature("MemberImportVisibility")]),
 ]
 
 let _products: [Product] = targets.compactMap { t in

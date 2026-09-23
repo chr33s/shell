@@ -84,7 +84,7 @@ Clone the source and initialize its JOE submodule using public HTTPS URLs:
 ```sh
 git clone --recurse-submodules https://github.com/kitknox/ios_system-rootshell.git
 cd ios_system-rootshell
-swift run --package-path xcfs build
+xcrun swift run --package-path xcfs build
 ```
 
 The build command creates the five core XCFrameworks plus JOE for iOS,
@@ -97,7 +97,7 @@ JOE archive with the matching `joe-rootshell` release. Update each
 To build one or more schemes, pass a comma-separated list, for example:
 
 ```sh
-swift run --package-path xcfs build ios_system,shell
+xcrun swift run --package-path xcfs build ios_system,shell
 ```
 
 ## Building in Xcode

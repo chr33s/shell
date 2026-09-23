@@ -11,10 +11,15 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 //===----------------------------------------------------------------------===//
-#if CRYPTO_IN_SWIFTPM && !CRYPTO_IN_SWIFTPM_FORCE_BUILD_API
+
+#if canImport(CryptoKit)
 @_exported import CryptoKit
 #else
-import Foundation
+#if canImport(FoundationEssentials)
+public import FoundationEssentials
+#else
+public import Foundation
+#endif
 
 /// A container for hybrid public key encryption (HPKE) operations.
 ///
@@ -45,11 +50,14 @@ import Foundation
 ///
 /// ### Handling errors
 ///  - ``Errors``
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
-public enum HPKE {}
+@nonexhaustive
+public enum HPKE: Sendable {}
 
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
 extension HPKE {
+    /// Static constant used to store the fixed-string label for the HPKE export API
+    /// See: https://datatracker.ietf.org/doc/html/rfc9180#name-secret-export
+    fileprivate static let exportLabel = Data("sec".utf8)
+
     /// A type that represents the sending side of an HPKE message exchange.
     ///
     /// To create encrypted messages, initialize a `Sender` specifying the appropriate cipher suite,
@@ -58,12 +66,11 @@ extension HPKE {
     /// in turn to retrieve its ciphertext. The recipient of the messages needs to process them in the
     /// same order as the `Sender`, using the same encryption mode, cipher suite, and key schedule information
     ///  (`info`), as well as the `Sender`'s ``encapsulatedKey``.
-    @available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
-    public struct Sender {
+    public struct Sender: Sendable {
         private var context: Context
         /// The encapsulated symmetric key that the recipient uses to decrypt messages.
         public let encapsulatedKey: Data
-
+        
         /// The exporter secret.
         internal var exporterSecret: SymmetricKey {
             return context.keySchedule.exporterSecret
@@ -77,13 +84,13 @@ extension HPKE {
         public func exportSecret<Context: DataProtocol>(context: Context, outputByteCount: Int) throws -> SymmetricKey {
             precondition(outputByteCount > 0);
             return LabeledExpand(prk: self.exporterSecret,
-                                 label: Data("sec".utf8),
+                                 label: exportLabel,
                                  info: context,
                                  outputByteCount: UInt16(outputByteCount),
                                  suiteID: self.context.keySchedule.ciphersuite.identifier,
                                  kdf: self.context.keySchedule.ciphersuite.kdf)
         }
-
+        
         /// Creates a sender in base mode.
         ///
         /// The `Sender` encrypts messages in base mode with a symmetric encryption key it derives using a key derivation function (KDF).
@@ -100,7 +107,24 @@ extension HPKE {
             self.context = try Context(senderRoleWithCiphersuite: ciphersuite, mode: .base, psk: nil, pskID: nil, pkR: recipientKey, info: info)
             self.encapsulatedKey = context.encapsulated
         }
-        
+
+        /// Creates a sender in base mode.
+        ///
+        /// The `Sender` encrypts messages in base mode with a symmetric encryption key it derives using a key derivation function (KDF).
+        /// The KDF uses the key schedule data in `info` as input to generate the key.
+        /// The `Sender` encapsulates the derived key using the recipient's public key.
+        /// You access the encapsulated key using ``encapsulatedKey``.
+        ///
+        /// - Parameters:
+        ///   - recipientKey: The recipient's public key for encrypting the messages.
+        ///   - ciphersuite: The cipher suite that defines the cryptographic algorithms to use.
+        ///   - info: Data that the key derivation function uses to compute the symmetric key material. The sender and the recipient need to use the same `info` data.
+        /// - Note: The system throws errors from ``CryptoKit/HPKE/Errors`` when it encounters them.
+        public init<PK: HPKEKEMPublicKey>(recipientKey: PK, ciphersuite: Ciphersuite, info: Data) throws {
+            self.context = try Context(senderRoleWithCiphersuite: ciphersuite, mode: .base, psk: nil, pskID: nil, pkR: recipientKey, info: info)
+            self.encapsulatedKey = context.encapsulated
+        }
+
         /// Creates a sender in preshared key (PSK) mode.
         ///
         /// The `Sender` encrypts messages in PSK mode using a symmetric encryption key that the sender and recipient both know in advance, in combination with a key it derives using a key derivation function (KDF) and
@@ -196,16 +220,15 @@ extension HPKE {
     /// same order as the `Sender`, using the same cipher suite, encryption mode, and key schedule information
     /// (`info` data).
     /// Use a separate `Recipient` instance for each stream of messages.
-    @available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
-    public struct Recipient {
+    public struct Recipient: Sendable {
         
         private var context: Context
-
+        
         /// The exporter secret.
         internal var exporterSecret: SymmetricKey {
             return context.keySchedule.exporterSecret
         }
-
+        
         /// Exports a secret given domain-separation context and the desired output length.
         /// - Parameters:
         ///   - context: Application-specific information providing context on the use of this key.
@@ -214,11 +237,25 @@ extension HPKE {
         public func exportSecret<Context: DataProtocol>(context: Context, outputByteCount: Int) throws -> SymmetricKey {
             precondition(outputByteCount > 0);
             return LabeledExpand(prk: self.exporterSecret,
-                                 label: Data("sec".utf8),
+                                 label: exportLabel,
                                  info: context,
                                  outputByteCount: UInt16(outputByteCount),
                                  suiteID: self.context.keySchedule.ciphersuite.identifier,
                                  kdf: self.context.keySchedule.ciphersuite.kdf)
+        }
+        
+        /// Creates a recipient in base mode.
+        ///
+        /// The `Receiver` decrypts messages in base mode using the encapsulated key with the key schedule information (`info` data).
+        ///
+        /// - Parameters:
+        ///   - privateKey: The recipient's private key for decrypting the incoming messages.
+        ///   - ciphersuite: The cipher suite that defines the cryptographic algorithms to use.
+        ///   - info: Data that the key derivation function uses to compute the symmetric key material. The sender and the recipient need to use the same `info` data.
+        ///   - encapsulatedKey: The encapsulated symmetric key that the sender provides.
+        /// - Note: The system throws errors from ``CryptoKit/HPKE/Errors`` when it encounters them.
+        public init<SK: HPKEDiffieHellmanPrivateKey>(privateKey: SK, ciphersuite: Ciphersuite, info: Data, encapsulatedKey: Data) throws {
+            self.context = try Context(recipientRoleWithCiphersuite: ciphersuite, mode: .base, enc: encapsulatedKey, psk: nil, pskID: nil, skR: privateKey, info: info, pkS: nil)
         }
 
         /// Creates a recipient in base mode.
@@ -231,7 +268,7 @@ extension HPKE {
         ///   - info: Data that the key derivation function uses to compute the symmetric key material. The sender and the recipient need to use the same `info` data.
         ///   - encapsulatedKey: The encapsulated symmetric key that the sender provides.
         /// - Note: The system throws errors from ``CryptoKit/HPKE/Errors`` when it encounters them.
-        public init<SK: HPKEDiffieHellmanPrivateKey>(privateKey: SK, ciphersuite: Ciphersuite, info: Data, encapsulatedKey: Data) throws {
+        public init<SK: HPKEKEMPrivateKey>(privateKey: SK, ciphersuite: Ciphersuite, info: Data, encapsulatedKey: Data) throws {
             self.context = try Context(recipientRoleWithCiphersuite: ciphersuite, mode: .base, enc: encapsulatedKey, psk: nil, pskID: nil, skR: privateKey, info: info, pkS: nil)
         }
 
@@ -321,4 +358,4 @@ extension HPKE {
     }
 }
 
-#endif // Linux or !SwiftPM
+#endif // canImport(CryptoKit)

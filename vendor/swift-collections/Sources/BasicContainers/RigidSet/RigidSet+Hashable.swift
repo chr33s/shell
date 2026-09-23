@@ -13,16 +13,15 @@
 
 #if !COLLECTIONS_SINGLE_MODULE
 import InternalCollectionsUtilities
-import ContainersPreview
 #endif
 
-#if compiler(>=6.4) && UnstableHashedContainers && UnstableContainersPreview
+#if compiler(>=6.4) && UnstableHashedContainers
 
 @available(SwiftStdlib 6.4, *)
-extension RigidSet: Hashable {}
+extension RigidSet: Hashable where Element: ~Copyable {}
 
 @available(SwiftStdlib 5.0, *)
-extension RigidSet {
+extension RigidSet where Element: ~Copyable {
   @inlinable
   public func hash(into hasher: inout Hasher) {
     // Generate a seed from a snapshot of the hasher.  This makes members' hash
@@ -35,24 +34,17 @@ extension RigidSet {
   
   @inlinable
   public func _rawHashValue(seed: Int) -> Int {
-#if UnstableContainersPreview
     var hash = 0
-    var it = self.makeBorrowingIterator_()
+    var it = self.makeBorrowingIterator()
     while true {
-      let next = it.nextSpan_()
+      let next = it.nextSpan()
       var i = 0
       while i < next.count {
-        hash ^= next[i]._rawHashValue(seed: seed)
+        hash ^= next[unchecked: i]._rawHashValue(seed: seed)
         i &+= 1
       }
     }
     return hash
-#else
-    var hasher = Hasher()
-    hasher.combine(seed)
-    self.hash(into: &hasher)
-    return hasher.finalize()
-#endif
   }
 }
 

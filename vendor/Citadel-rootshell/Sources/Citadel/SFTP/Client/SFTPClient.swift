@@ -37,21 +37,29 @@ public final class SFTPClient: Sendable {
         try await self.channel.close()
     }
     
-    fileprivate static func setupChannelHanders(channel: Channel, logger: Logger) -> EventLoopFuture<SFTPClient> {
+    fileprivate static func setupChannelHanders(
+        channel: Channel,
+        logger: Logger,
+        wrapsSSHChannelData: Bool = true
+    ) -> EventLoopFuture<SFTPClient> {
         let responses = SFTPResponses(sftpVersion: channel.eventLoop.makePromise())
-        
+
         let deserializeHandler = ByteToMessageHandler(SFTPMessageParser())
         let serializeHandler = MessageToByteHandler(SFTPMessageSerializer())
         let sftpInboundHandler = SFTPClientInboundHandler(responses: responses, logger: logger)
-        
-        return channel.pipeline.addHandlers(
-            SSHChannelDataUnwrapper(),
-            SSHOutboundChannelDataWrapper(),
+
+        var handlers: [ChannelHandler] = []
+        if wrapsSSHChannelData {
+            handlers += [SSHChannelDataUnwrapper(), SSHOutboundChannelDataWrapper()]
+        }
+        handlers += [
             deserializeHandler,
             serializeHandler,
             sftpInboundHandler,
-            CloseErrorHandler(logger: logger)
-        ).map {
+            CloseErrorHandler(logger: logger),
+        ]
+
+        return channel.pipeline.addHandlers(handlers).map {
             let client = SFTPClient(channel: channel, responses: responses, logger: logger)
 
             client.channel.closeFuture.whenComplete { _ in
@@ -417,6 +425,87 @@ public final class SFTPClient: Sendable {
         return realpath.path
     }
 
+    /// Attributes of a path without following a trailing symlink.
+    public func getLinkAttributes(at path: String) async throws -> SFTPFileAttributes {
+        guard case .attributes(let attributes) = try await sendRequest(.lstat(.init(
+            requestId: allocateRequestId(),
+            path: path
+        ))) else {
+            throw SFTPError.invalidResponse
+        }
+        return attributes.attributes
+    }
+
+    /// Sets attributes on a path; only the fields present in `attributes` are changed.
+    ///
+    /// ## Example
+    /// ```swift
+    /// var attributes = SFTPFileAttributes()
+    /// attributes.permissions = 0o755
+    /// try await sftp.setAttributes(at: "script.sh", attributes: attributes)
+    /// ```
+    public func setAttributes(at path: String, attributes: SFTPFileAttributes) async throws {
+        _ = try await sendRequest(.setstat(.init(
+            requestId: allocateRequestId(),
+            path: path,
+            attributes: attributes
+        )))
+    }
+
+    /// The target a symlink points at.
+    public func readLink(at path: String) async throws -> String {
+        guard case let .name(name) = try await sendRequest(.readlink(.init(
+            requestId: allocateRequestId(),
+            path: path
+        ))) else {
+            throw SFTPError.invalidResponse
+        }
+        return name.path
+    }
+
+    /// Creates a symlink at `linkPath` pointing at `targetPath`.
+    ///
+    /// OpenSSH's sftp-server reads the two SSH_FXP_SYMLINK arguments in the reverse
+    /// of the draft's order, and every common server follows it, so they are swapped here.
+    public func createSymlink(linkPath: String, targetPath: String) async throws {
+        _ = try await sendRequest(.symlink(.init(
+            requestId: allocateRequestId(),
+            linkPath: targetPath,
+            targetPath: linkPath
+        )))
+    }
+
+    /// Runs SFTP over any channel that carries raw SFTP bytes, such as a pipe to
+    /// an `sftp-server` process reached through a non-SSH transport.
+    public static func connect(
+        rawChannel channel: Channel,
+        logger: Logger = .init(label: "nl.orlandos.citadel.sftp")
+    ) async throws -> SFTPClient {
+        try await channel.eventLoop.flatSubmit {
+            setupChannelHanders(channel: channel, logger: logger, wrapsSSHChannelData: false)
+                .flatMap { client in client.initialize() }
+        }.get()
+    }
+
+    /// Sends SSH_FXP_INIT and waits for a v3-or-later version reply.
+    fileprivate func initialize() -> EventLoopFuture<SFTPClient> {
+        let initializeMessage = SFTPMessage.initialize(.init(version: .v3))
+
+        logger.debug("SFTP start with version \(SFTPProtocolVersion.v3)")
+        logger.trace("SFTP OUT: \(initializeMessage.debugDescription)")
+
+        return channel.writeAndFlush(initializeMessage).flatMap {
+            self.responses.sftpVersion.futureResult
+        }.flatMapThrowing { serverVersion in
+            guard serverVersion.version >= .v3 else {
+                self.logger.warning("SFTP ERROR: Server version is unrecognized: \(serverVersion.version.rawValue)")
+                throw SFTPError.unsupportedVersion(serverVersion.version)
+            }
+
+            self.logger.info("SFTP connection opened and ready")
+            return self
+        }
+    }
 }
 
 extension SSHClient {
@@ -525,24 +614,7 @@ extension SSHClient {
                 return createClient.futureResult
             }.flatMap { (client: SFTPClient) in
                 timeoutCheck.succeed(())
-                
-                let initializeMessage = SFTPMessage.initialize(.init(version: .v3))
-                
-                logger.debug("SFTP start with version \(SFTPProtocolVersion.v3)")
-                logger.trace("SFTP OUT: \(initializeMessage.debugDescription)")
-                //logger.trace("SFTP OUT: \(initializeMessage.debugRawBytesRepresentation)")
-
-                return client.channel.writeAndFlush(initializeMessage).flatMap {
-                    return client.responses.sftpVersion.futureResult
-                }.flatMapThrowing { serverVersion in
-                    guard serverVersion.version >= .v3 else {
-                        logger.warning("SFTP ERROR: Server version is unrecognized: \(serverVersion.version.rawValue)")
-                        throw SFTPError.unsupportedVersion(serverVersion.version)
-                    }
-                    
-                    logger.info("SFTP connection opened and ready")
-                    return client
-                }
+                return client.initialize()
             }
         }.get()
     }

@@ -102,6 +102,65 @@ final class TerminalSurfaceController: NSObject {
         lastSentGridSize = nil
     }
 
+    /// A pipe-backed surface sizes its session from the pty_resize action,
+    /// which the IO thread sends once the terminal has resized. Sending right
+    /// after ghostty_surface_set_size raced its 25 ms resize coalescing: the
+    /// application's redraw could be parsed into the old grid. Other backends
+    /// keep sizing straight after the surface call.
+    var sizesSessionFromPtyResizeAction: Bool { slaveFd >= 0 }
+
+    /// Grid the IO thread last reported through pty_resize.
+    private var appliedGrid: (rows: UInt16, cols: UInt16)?
+    /// Layout-requested grid whose acknowledgement releases the deferred
+    /// scrollback replay. The constructor's provisional resize acknowledges
+    /// too and must not release it into that grid.
+    private var restoreGrid: (rows: UInt16, cols: UInt16)?
+
+    func notePtyResizeApplied(rows: UInt16, cols: UInt16) {
+        appliedGrid = (rows: rows, cols: cols)
+        guard let restoreGrid, restoreGrid.rows == rows, restoreGrid.cols == cols else { return }
+        runLayoutRestore()
+    }
+
+    /// True when the IO thread already applied this framebuffer, so set_size
+    /// queues nothing and no action follows. Evaluate before that call: it
+    /// updates the requested size at once, synchronously on Catalyst.
+    func surfaceHasAppliedFramebuffer(for size: CGSize, scale: CGFloat) -> Bool {
+        guard sizesSessionFromPtyResizeAction, let surfaceSize, let appliedGrid,
+              appliedGrid.rows == surfaceSize.rows, appliedGrid.cols == surfaceSize.columns
+        else { return false }
+        return surfaceSize.width_px == UInt32(size.width * scale)
+            && surfaceSize.height_px == UInt32(size.height * scale)
+    }
+
+    /// Main-actor follow-up once the surface call returned.
+    private func completeSurfaceResize(needsRestore: Bool) {
+        let restorePending = needsRestore && host.surfacePendingScrollbackRestoreForLayout
+        guard sizesSessionFromPtyResizeAction else {
+            host.surfaceUpdatePTYSize()
+            if restorePending { runLayoutRestore() }
+            return
+        }
+        guard restorePending, let size = surfaceSize else { return }
+        if let appliedGrid, appliedGrid.rows == size.rows, appliedGrid.cols == size.columns {
+            runLayoutRestore()
+        } else {
+            restoreGrid = (rows: size.rows, cols: size.columns)
+        }
+    }
+
+    /// Claim the deferred restore only when this main-actor callback actually
+    /// runs. Clearing it before the IO/main queue hops lets a concurrent
+    /// transport `.running` event mistake "queued" for "already restored" and
+    /// replay at stale dimensions; a second queued size callback could then
+    /// replay it again. ROOTSHELL-TMUX (id=layout-restore-main-actor-claim)
+    private func runLayoutRestore() {
+        restoreGrid = nil
+        guard host.surfacePendingScrollbackRestoreForLayout else { return }
+        host.surfacePendingScrollbackRestoreForLayout = false
+        host.surfaceRunLayoutDeferredScrollbackRestore()
+    }
+
     func shouldSendPTYSize(for sessionID: ObjectIdentifier, gridSize: (rows: UInt16, cols: UInt16)) -> Bool {
         if lastSizedSessionID != sessionID {
             lastSizedSessionID = sessionID
@@ -515,39 +574,21 @@ final class TerminalSurfaceController: NSObject {
         guard !host.surfaceTmuxDetachInProgressAtomic else { return }
         ghostty_surface_set_content_scale(surface, scale, scale)
         ghostty_surface_set_size(surface, framebufferWidth, framebufferHeight)
-        // Retain the host across the queue hop (matches the iOS path) so the
-        // deferred update can't dangle if the view is released meanwhile.
-        nonisolated(unsafe) let hostRef = host
-        Ghostty.TerminalView.ghosttyAPIQueue.async {
+        Ghostty.TerminalView.ghosttyAPIQueue.async { [weak self] in
             Task { @MainActor in
-                hostRef.surfaceUpdatePTYSize()
-                if needsRestore && hostRef.surfacePendingScrollbackRestoreForLayout {
-                    // Claim the deferred restore only when this main-actor
-                    // callback actually runs. Clearing it before the IO/main
-                    // queue hops lets a concurrent transport `.running` event
-                    // mistake "queued" for "already restored" and replay at
-                    // stale dimensions; a second queued size callback could
-                    // then replay it again. ROOTSHELL-TMUX
-                    // (id=layout-restore-main-actor-claim)
-                    hostRef.surfacePendingScrollbackRestoreForLayout = false
-                    hostRef.surfaceRunLayoutDeferredScrollbackRestore()
-                }
+                self?.completeSurfaceResize(needsRestore: needsRestore)
             }
         }
         #else
         nonisolated(unsafe) let surfacePtr = surface
         nonisolated(unsafe) let hostRef = host
         Ghostty.TerminalView.ghosttyAPIQueue.async { [weak self] in
-            guard self != nil else { return }
+            guard let self else { return }
             guard hostRef.surfaceTmuxDetachInProgressAtomic != true else { return }
             ghostty_surface_set_content_scale(surfacePtr, scale, scale)
             ghostty_surface_set_size(surfacePtr, framebufferWidth, framebufferHeight)
             Task { @MainActor in
-                hostRef.surfaceUpdatePTYSize()
-                if needsRestore && hostRef.surfacePendingScrollbackRestoreForLayout {
-                    hostRef.surfacePendingScrollbackRestoreForLayout = false
-                    hostRef.surfaceRunLayoutDeferredScrollbackRestore()
-                }
+                self.completeSurfaceResize(needsRestore: needsRestore)
             }
         }
         #endif
@@ -562,31 +603,20 @@ final class TerminalSurfaceController: NSObject {
         #if targetEnvironment(macCatalyst)
         guard !host.surfaceTmuxDetachInProgressAtomic else { return }
         ghostty_surface_set_size(surface, framebufferWidth, framebufferHeight)
-        // Retain the host across the queue hop (matches the iOS path) so the
-        // deferred update can't dangle if the view is released meanwhile.
-        nonisolated(unsafe) let hostRef = host
-        Ghostty.TerminalView.ghosttyAPIQueue.async {
+        Ghostty.TerminalView.ghosttyAPIQueue.async { [weak self] in
             Task { @MainActor in
-                hostRef.surfaceUpdatePTYSize()
-                if needsRestore && hostRef.surfacePendingScrollbackRestoreForLayout {
-                    hostRef.surfacePendingScrollbackRestoreForLayout = false
-                    hostRef.surfaceRunLayoutDeferredScrollbackRestore()
-                }
+                self?.completeSurfaceResize(needsRestore: needsRestore)
             }
         }
         #else
         nonisolated(unsafe) let surfacePtr = surface
         nonisolated(unsafe) let hostRef = host
         Ghostty.TerminalView.ghosttyAPIQueue.async { [weak self] in
-            guard self != nil else { return }
+            guard let self else { return }
             guard hostRef.surfaceTmuxDetachInProgressAtomic != true else { return }
             ghostty_surface_set_size(surfacePtr, framebufferWidth, framebufferHeight)
             Task { @MainActor in
-                hostRef.surfaceUpdatePTYSize()
-                if needsRestore && hostRef.surfacePendingScrollbackRestoreForLayout {
-                    hostRef.surfacePendingScrollbackRestoreForLayout = false
-                    hostRef.surfaceRunLayoutDeferredScrollbackRestore()
-                }
+                self.completeSurfaceResize(needsRestore: needsRestore)
             }
         }
         #endif
@@ -688,6 +718,8 @@ final class TerminalSurfaceController: NSObject {
         host.surfaceGhosttyApp?.unregisterSurface(surface)
 
         self.surface = nil
+        appliedGrid = nil
+        restoreGrid = nil
         host.surfaceControllerDidSetSurface(nil)
         slaveFd = -1
         responseFd = -1

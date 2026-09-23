@@ -11,11 +11,12 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 //===----------------------------------------------------------------------===//
-#if CRYPTO_IN_SWIFTPM && !CRYPTO_IN_SWIFTPM_FORCE_BUILD_API
+
+#if canImport(CryptoKit)
 @_exported import CryptoKit
 #else
 /// General cryptography errors used by CryptoKit.
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
+@nonexhaustive
 public enum CryptoKitError: Error {
     /// The key size is incorrect.
     case incorrectKeySize
@@ -34,11 +35,10 @@ public enum CryptoKitError: Error {
     case invalidParameter
 }
 
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
 extension CryptoKitError: Equatable, Hashable {}
 
 /// Errors from decoding ASN.1 content.
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
+@nonexhaustive
 public enum CryptoKitASN1Error: Equatable, Error, Hashable {
     /// The ASN.1 tag for this field is invalid or unsupported.
     case invalidFieldIdentifier
@@ -66,4 +66,49 @@ public enum CryptoKitASN1Error: Equatable, Error, Hashable {
     /// The string doesn’t parse as a PEM document.
     case invalidPEMDocument
 }
+
+enum RSAPSSSPKIErrors: Error {
+    case invalidPSSOID
+    case missingParameters
+    case incorrectHashFunction
+    case incorrectMGF
+    case missingMGFHashFunction
+    case incorrectMGFHashFunction
+    case invalidSaltLength
+}
+
+#if hasFeature(Embedded)
+public struct RSAPSSSPKIError: Error {
+    internal var error: RSAPSSSPKIErrors
+}
+#else
+struct RSAPSSSPKIError: Error {
+    internal var error: RSAPSSSPKIErrors
+}
+#endif
+
+#if hasFeature(Embedded)
+@nonexhaustive
+public enum CryptoKitMetaError: Error {
+    case cryptoKitError(underlyingError: CryptoKitError)
+    case asn1Error(underlyingError: CryptoKitASN1Error)
+    case rsapssspkiError(underlyingError: RSAPSSSPKIError)
+}
+
+internal func error(_ error: CryptoKitError) -> CryptoKitMetaError {
+    .cryptoKitError(underlyingError: error)
+}
+internal func error(_ error: CryptoKitASN1Error) -> CryptoKitMetaError {
+    .asn1Error(underlyingError: error)
+}
+internal func error(_ error: RSAPSSSPKIErrors) -> CryptoKitMetaError {
+    .rsapssspkiError(underlyingError: RSAPSSSPKIError(error: error))
+}
+#else
+public typealias CryptoKitMetaError = any Error
+internal func error(_ error: CryptoKitError) -> CryptoKitError { error }
+internal func error(_ error: CryptoKitASN1Error) -> CryptoKitASN1Error { error }
+internal func error(_ error: RSAPSSSPKIErrors) -> RSAPSSSPKIErrors { error }
+#endif
+
 #endif

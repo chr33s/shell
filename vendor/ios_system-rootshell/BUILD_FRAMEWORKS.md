@@ -1,139 +1,106 @@
 # Building ios_system XCFrameworks
 
-This document describes how to rebuild all ios_system xcframeworks with visionOS support.
+This document describes how to build the binary frameworks published by the
+rootshell fork of `ios_system`.
 
 ## Prerequisites
 
-1. Xcode 26+ with visionOS SDK support
-2. OpenSSL built with deprecated API support (see below)
-3. libssh2-for-iOS repository at `../libssh2-for-iOS`
+- Xcode 27 or later with the iOS and visionOS SDKs installed
+- Frameworks target iOS / Mac Catalyst 18.0 and visionOS 26.0
+- macOS 13 or later
+- Git submodules initialized
 
-## Building OpenSSL with Deprecated API
+From a fresh clone, initialize the public JOE dependency before building:
 
-The SSH frameworks require OpenSSL's deprecated low-level APIs (RSA, DSA, EC_KEY types).
-By default, OpenSSL 3.x builds with `no-deprecated` which removes these APIs.
-
-```bash
-cd /Users/kit/Development/libssh2-for-iOS
-
-# Build OpenSSL with deprecated API enabled
-./openssl/build-all.sh --deprecated
-
-# Create combined openssl.xcframework (libssl + libcrypto merged)
-# This avoids duplicate header conflicts in Xcode
-
-# Create temp directories for combined libraries
-mkdir -p tmp_combined/{ios-arm64,ios-arm64-simulator,ios-arm64_x86_64-maccatalyst,xros-arm64,xros-arm64-simulator}/lib
-
-# Merge static libraries for each platform
-libtool -static bin/iPhoneOS26.1-arm64.sdk/lib/libssl.a bin/iPhoneOS26.1-arm64.sdk/lib/libcrypto.a \
-    -o tmp_combined/ios-arm64/lib/libcrypto.a
-
-libtool -static bin/iPhoneSimulator26.1-arm64.sdk/lib/libssl.a bin/iPhoneSimulator26.1-arm64.sdk/lib/libcrypto.a \
-    -o tmp_combined/ios-arm64-simulator/lib/libcrypto.a
-
-libtool -static bin/MacOSX15.2-arm64.sdk/lib/libssl.a bin/MacOSX15.2-arm64.sdk/lib/libcrypto.a \
-    -o tmp_combined/ios-arm64_x86_64-maccatalyst/lib/libcrypto.a
-
-libtool -static bin/XROS26.1-arm64.sdk/lib/libssl.a bin/XROS26.1-arm64.sdk/lib/libcrypto.a \
-    -o tmp_combined/xros-arm64/lib/libcrypto.a
-
-libtool -static bin/XRSimulator26.1-arm64.sdk/lib/libssl.a bin/XRSimulator26.1-arm64.sdk/lib/libcrypto.a \
-    -o tmp_combined/xros-arm64-simulator/lib/libcrypto.a
-
-# Copy headers (use any platform's headers, they're identical)
-mkdir -p tmp_headers
-cp -R bin/iPhoneOS26.1-arm64.sdk/include/openssl tmp_headers/
-
-# Create combined xcframework
-rm -rf openssl.xcframework
-xcodebuild -create-xcframework \
-    -library tmp_combined/ios-arm64/lib/libcrypto.a -headers tmp_headers \
-    -library tmp_combined/ios-arm64-simulator/lib/libcrypto.a -headers tmp_headers \
-    -library tmp_combined/ios-arm64_x86_64-maccatalyst/lib/libcrypto.a -headers tmp_headers \
-    -library tmp_combined/xros-arm64/lib/libcrypto.a -headers tmp_headers \
-    -library tmp_combined/xros-arm64-simulator/lib/libcrypto.a -headers tmp_headers \
-    -output openssl.xcframework
-
-# Cleanup
-rm -rf tmp_combined tmp_headers
+```sh
+git submodule update --init --recursive
 ```
 
-## ios_system Project Configuration
+## Build all release frameworks
 
-The project references `openssl.xcframework` from `../libssh2-for-iOS/openssl.xcframework`.
+Run the builder from the repository root:
 
-Key project file changes (already applied):
-- `ios_system.xcodeproj/project.pbxproj`: Updated to use combined `openssl.xcframework` instead of separate libssl/libcrypto
-
-## Building All XCFrameworks
-
-```bash
-cd /Users/kit/Development/ios_system
-
-# Build all frameworks (ios_system, awk, curl_ios, files, shell, ssh_cmd, ssh_cmdA, ssh_agent, sshd, tar, text)
-swift run --package-path xcfs build
-
-# Or build specific frameworks:
-swift run --package-path xcfs build ssh_cmd,ssh_cmdA,ssh_agent
+```sh
+xcrun swift run --package-path xcfs build
 ```
 
-## Build Output
+Use `xcrun swift`, not a bare `swift`: a swiftly or other open-source toolchain
+earlier on `PATH` cannot build against the Xcode 27 SDK (`unknown argument:
+'-target-arch-variant'`, `no such module 'Combine'`).
 
-XCFrameworks are created in `.build/<scheme>/<scheme>.xcframework`:
-- `.build/ios_system/ios_system.xcframework`
-- `.build/ssh_cmd/ssh_cmd.xcframework`
-- `.build/ssh_cmdA/ssh_cmdA.xcframework`
-- `.build/ssh_agent/ssh_agent.xcframework`
-- etc.
+The default build includes these schemes:
 
-Each xcframework includes slices for:
-- `ios-arm64` (iPhone/iPad device)
-- `ios-arm64-simulator` (Simulator on Apple Silicon)
-- `ios-arm64_x86_64-maccatalyst` (Mac Catalyst)
-- `xros-arm64` (visionOS device)
-- `xros-arm64-simulator` (visionOS Simulator)
+- `ios_system`
+- `awk`
+- `files`
+- `joe`
+- `shell`
+- `text`
 
-## ghostty-ios Integration
+To build selected schemes, pass a comma-separated list:
 
-The ghostty-ios project references frameworks directly from the ios_system build directory.
-After rebuilding, the frameworks are automatically available to ghostty-ios.
-
-Framework paths referenced in ghostty-ios:
-- `../ios_system/.build/ios_system/ios_system.xcframework`
-- `../ios_system/.build/ssh_cmd/ssh_cmd.xcframework`
-- etc.
-
-## Troubleshooting
-
-### "framework 'ios_system' not found" during visionOS builds
-
-The build script pre-builds ios_system for visionOS platforms to populate DerivedData.
-If this fails, manually build ios_system first:
-
-```bash
-xcodebuild build -project ios_system.xcodeproj -scheme ios_system -sdk xros \
-    -configuration Release EXCLUDED_ARCHS=x86_64
-
-xcodebuild build -project ios_system.xcodeproj -scheme ios_system -sdk xrsimulator \
-    -configuration Release EXCLUDED_ARCHS=x86_64
+```sh
+xcrun swift run --package-path xcfs build ios_system,shell
 ```
 
-### Duplicate symbol errors (RSA_sign, RSA_verify, BN_is_prime_ex)
+## Supported platforms
 
-These errors occur when OpenSSL is built with deprecated API enabled but `openssl-compat.c`
-still defines compatibility functions. The fix is applied in `ssh_keygen/openbsd-compat/openssl-compat.c`:
+Each XCFramework contains release builds for:
 
-The RSA/BN wrapper functions are now wrapped with `#ifdef OPENSSL_NO_DEPRECATED_3_0` so they
-only compile when the deprecated API is NOT available from OpenSSL.
+- iOS device and Simulator
+- Mac Catalyst
+- visionOS device and Simulator
 
-### visionOS Simulator archive builds for wrong platform
+The builder archives `ios_system` first for visionOS so dependent frameworks
+can resolve it while their visionOS archives are created.
 
-Use explicit `SDKROOT` and `SUPPORTED_PLATFORMS` settings:
+## Build output
 
-```bash
-xcodebuild archive -project ios_system.xcodeproj -scheme <scheme> -sdk xrsimulator \
-    ... SDKROOT=xrsimulator SUPPORTED_PLATFORMS=xrsimulator ...
+Generated files are written under `.build/`:
+
+- `<scheme>/<scheme>.xcframework` contains the assembled framework.
+- `<scheme>.xcframework.zip` is the Swift package release asset.
+- `release.md` lists the generated archives and their SHA-256 checksums.
+
+XCFrameworks include their matching dSYMs. Treat the generated archives as
+release artifacts and inspect them before publishing.
+
+## Publishing a release
+
+Build releases from a fresh checkout of the exact commit that will be tagged.
+Do not reuse archives or DerivedData from an earlier source revision.
+
+Publish the five core archives (`ios_system`, `awk`, `files`, `shell`, and
+`text`) with the matching `ios_system-rootshell` release. Publish the JOE
+archive with the matching `joe-rootshell` release.
+
+Before creating the tag:
+
+1. Update the binary target URLs and checksums in the appropriate
+   `Package.swift` files.
+2. Verify the checksums against `.build/release.md`.
+3. Validate both package manifests:
+
+   ```sh
+   xcrun swift package dump-package
+   xcrun swift package --package-path xcfs dump-package
+   ```
+
+4. Commit the manifest changes and tag that exact commit.
+5. Upload the corresponding archives without rebuilding them.
+
+## Troubleshooting visionOS builds
+
+If a dependent framework cannot find `ios_system.framework`, pre-build the
+core framework for both visionOS SDKs and rerun the builder:
+
+```sh
+xcodebuild build -project ios_system.xcodeproj -scheme ios_system \
+    -sdk xros -configuration Release EXCLUDED_ARCHS=x86_64
+
+xcodebuild build -project ios_system.xcodeproj -scheme ios_system \
+    -sdk xrsimulator -configuration Release EXCLUDED_ARCHS=x86_64
 ```
 
-This is handled automatically by the xcfs build script.
+The builder passes explicit `SDKROOT` and `SUPPORTED_PLATFORMS` values to the
+visionOS archive commands so Xcode creates archives for the requested SDK.

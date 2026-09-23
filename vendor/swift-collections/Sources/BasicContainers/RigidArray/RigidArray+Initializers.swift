@@ -13,10 +13,7 @@
 
 #if !COLLECTIONS_SINGLE_MODULE
 import InternalCollectionsUtilities
-import ContainersPreview
 #endif
-
-#if compiler(>=6.2)
 
 @available(SwiftStdlib 5.0, *)
 extension RigidArray where Element: ~Copyable {
@@ -25,18 +22,21 @@ extension RigidArray where Element: ~Copyable {
   /// - Complexity: O(1)
   @inlinable
   public init() {
-    unsafe _storage = .init(start: nil, count: 0)
+    unsafe _ptr = ._dangling()
+    _capacity = 0
     _count = 0
   }
-  
+
   /// Initializes a new rigid array with the specified capacity and no elements.
   @inlinable
   public init(capacity: Int) {
     precondition(capacity >= 0, "Array capacity must be nonnegative")
     if capacity > 0 {
-      unsafe _storage = .allocate(capacity: capacity)
+      unsafe _ptr = .allocate(capacity: capacity)
+      _capacity = capacity
     } else {
-      unsafe _storage = .init(start: nil, count: 0)
+      unsafe _ptr = ._dangling()
+      _capacity = 0
     }
     _count = 0
   }
@@ -49,7 +49,7 @@ extension RigidArray where Element: ~Copyable {
   ///
   /// - Parameters:
   ///   - capacity: The storage capacity of the new array.
-  ///   - body: A callback that gets called at most once to directly
+  ///   - initializer: A callback that gets called at most once to directly
   ///       populate newly reserved storage within the array. The function
   ///       is allowed to add fewer than `capacity` items. The array is
   ///       initialized with however many items the callback adds to the
@@ -112,8 +112,8 @@ extension RigidArray /*where Element: Copyable*/ {
     self.init(capacity: capacity)
     self.append(copying: contents)
   }
-  
-#if compiler(>=6.4) && UnstableContainersPreview
+
+#if compiler(>=6.4)
   /// Creates a new array with the specified capacity, holding a copy
   /// of the contents of a given container.
   ///
@@ -122,19 +122,21 @@ extension RigidArray /*where Element: Copyable*/ {
   ///      just enough capacity to store the contents.
   ///   - contents: The container whose contents to copy into the new array.
   ///      The container must not contain more than `capacity` elements.
+  @available(SwiftStdlib 6.4, *)
   @_alwaysEmitIntoClient
   @inline(__always)
-  public init<Source: BorrowingSequence_<Element> & ~Copyable & ~Escapable>(
+  public init<Source: Iterable & ~Copyable & ~Escapable>(
     capacity: Int,
     copying contents: borrowing Source
-  ) {
+  ) throws(Source.Failure)
+  where Source.Element == Element {
     self.init(capacity: capacity)
-    self.append(copying: contents)
+    try self.append(copying: contents)
   }
-  
+
 #endif
-  
-#if compiler(>=6.4) && UnstableContainersPreview
+
+#if compiler(>=6.4)
   /// Creates a new array with the specified capacity, holding a copy
   /// of the contents of a given container.
   ///
@@ -143,19 +145,19 @@ extension RigidArray /*where Element: Copyable*/ {
   ///      just enough capacity to store the contents.
   ///   - contents: The container whose contents to copy into the new array.
   ///      The container must not contain more than `capacity` elements.
+  @available(SwiftStdlib 6.4, *)
   @_alwaysEmitIntoClient
   @inline(__always)
-  public init<Source: BorrowingSequence_<Element> & Sequence<Element>>(
+  public init<Source: Iterable & Sequence<Element>>(
     capacity: Int,
     copying contents: Source
-  ) {
+  ) throws(Source.Failure)
+  where Source.Element == Element {
     self.init(capacity: capacity)
-    self.append(copying: contents)
+    try self.append(copying: contents)
   }
 #endif
-  
-  // FIXME: Add a version that's generic over `Container`, with an optional capacity
-  
+
   /// Creates a new array with the specified capacity, holding a copy
   /// of the contents of a given collection.
   ///
@@ -192,7 +194,3 @@ extension RigidArray /*where Element: Copyable*/ {
     self.append(copying: span)
   }
 }
-
-// FIXME: Add init(moving:), init(consuming:)
-
-#endif

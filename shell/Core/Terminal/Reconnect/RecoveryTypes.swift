@@ -250,8 +250,7 @@ protocol RecoveryClock: Sendable {
 
 /// Production clock: `DispatchTime.uptimeNanoseconds` does not move backwards
 /// and is unaffected by wall-clock adjustments.
-struct SystemRecoveryClock: RecoveryClock {
-    nonisolated init() {}
+nonisolated struct SystemRecoveryClock: RecoveryClock {
     var now: MonotonicInstant {
         MonotonicInstant(seconds: Double(DispatchTime.now().uptimeNanoseconds) / 1_000_000_000)
     }
@@ -263,7 +262,7 @@ protocol RecoveryJitterSource: Sendable {
     func nextUnitInterval() -> Double
 }
 
-struct SystemRecoveryJitter: RecoveryJitterSource {
+nonisolated struct SystemRecoveryJitter: RecoveryJitterSource {
     func nextUnitInterval() -> Double { Double.random(in: 0..<1) }
 }
 

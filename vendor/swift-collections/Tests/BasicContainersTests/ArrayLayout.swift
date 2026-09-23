@@ -16,6 +16,7 @@ import XCTest
 import Collections
 #else
 import _CollectionsTestSupport
+import SpanPreview
 import BasicContainers
 import ContainersPreview
 #endif
@@ -29,7 +30,7 @@ struct ArrayLayout {
     self.capacity = capacity
     self.count = count
   }
-  
+
   var isFull: Bool { count == capacity }
   var isEmpty: Bool { count == 0 }
   var freeCapacity: Int { capacity - count }
@@ -73,7 +74,6 @@ func withSomeArrayLayouts<E: Error>(
   }
 }
 
-#if compiler(>=6.2)
 extension RigidArray where Element: ~Copyable {
   init(layout: ArrayLayout, using generator: (Int) -> Element) {
     self.init(capacity: layout.capacity) { span in
@@ -97,7 +97,7 @@ extension LifetimeTracker {
   ) -> RigidArray<LifetimeTracked<Element>> {
     RigidArray(layout: layout, using: { self.instance(for: generator($0)) })
   }
-  
+
   func uniqueArray<Element>(
     layout: ArrayLayout,
     using generator: (Int) -> Element = { $0 }
@@ -107,7 +107,7 @@ extension LifetimeTracker {
     }
     return UniqueArray(consuming: contents)
   }
-  
+
 #if UnstableContainersPreview
   func withInputSpan<Element>(
     layout: ArrayLayout,
@@ -127,7 +127,7 @@ extension LifetimeTracker {
     buffer.deallocate()
   }
 #endif
-  
+
   func withOutputSpan<Element>(
     layout: ArrayLayout,
     using generator: (Int) -> Element,
@@ -139,4 +139,3 @@ extension LifetimeTracker {
     contents.edit(body)
   }
 }
-#endif

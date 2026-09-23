@@ -125,7 +125,7 @@ final class SFTPMessageSerializer: MessageToByteEncoder {
             out.writeSSHString(symlink.linkPath)
             out.writeSSHString(symlink.targetPath)
         case .readlink(let readlink):
-            out.writeInteger(SFTPMessage.Symlink.id.rawValue)
+            out.writeInteger(SFTPMessage.Readlink.id.rawValue)
             out.writeInteger(readlink.requestId)
             out.writeSSHString(readlink.path)
         case .rename(let rename):

@@ -15,7 +15,6 @@
 import InternalCollectionsUtilities
 #endif
 
-#if compiler(>=6.2)
 extension _HTable {
   /// Identifies a particular bucket within a hash table by its offset.
   /// Having a dedicated wrapper type for this prevents passing a bucket number
@@ -82,13 +81,27 @@ extension _HTable.Bucket: Comparable {
   }
 }
 
+extension _HTable.Bucket: Hashable {
+  @_transparent
+  @usableFromInline
+  package func hash(into hasher: inout Hasher) {
+    hasher.combine(self.offset)
+  }
+
+  @_transparent
+  @usableFromInline
+  package func _rawHashValue(seed: Int) -> Int {
+    self.offset._rawHashValue(seed: seed)
+  }
+}
+
 extension _HTable.Bucket {
   @_alwaysEmitIntoClient
   @_transparent
   package var word: Int {
     Int(truncatingIfNeeded: offset &>> Word.wordShift)
   }
-  
+
   @_alwaysEmitIntoClient
   @_transparent
   package var bit: UInt {
@@ -121,7 +134,7 @@ extension UnsafeMutableBufferPointer where Element: ~Copyable {
       return _ptr(at: bucket.offset)
     }
   }
-  
+
   @_alwaysEmitIntoClient
   @_transparent
   package func _ptr(
@@ -129,7 +142,7 @@ extension UnsafeMutableBufferPointer where Element: ~Copyable {
   ) -> UnsafeMutablePointer<Element> {
     _ptr(at: bucket.offset)
   }
-  
+
   @_alwaysEmitIntoClient
   @_transparent
   package func _initializeElement(
@@ -138,7 +151,7 @@ extension UnsafeMutableBufferPointer where Element: ~Copyable {
   ) {
     initializeElement(at: bucket.offset, to: value)
   }
-  
+
   @_alwaysEmitIntoClient
   @_transparent
   package func _extracting(_ buckets: Range<_HTable.Bucket>) -> Self {
@@ -157,5 +170,3 @@ extension Range where Bound == _HTable.Bucket {
     }
   }
 }
-
-#endif

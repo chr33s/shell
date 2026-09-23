@@ -11,24 +11,29 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 //===----------------------------------------------------------------------===//
-#if CRYPTO_IN_SWIFTPM && !CRYPTO_IN_SWIFTPM_FORCE_BUILD_API
+
+#if canImport(CryptoKit)
 @_exported import CryptoKit
 #else
-import Foundation
 
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
+import Foundation
+#endif
+
 extension Bool: ASN1ImplicitlyTaggable {
     static var defaultIdentifier: ASN1.ASN1Identifier {
         .boolean
     }
 
-    init(asn1Encoded node: ASN1.ASN1Node, withIdentifier identifier: ASN1.ASN1Identifier) throws {
+    init(asn1Encoded node: ASN1.ASN1Node, withIdentifier identifier: ASN1.ASN1Identifier) throws(CryptoKitMetaError) {
         guard node.identifier == identifier else {
-            throw CryptoKitASN1Error.invalidASN1Object
+            throw error(CryptoKitASN1Error.invalidASN1Object)
         }
 
         guard case .primitive(let bytes) = node.content, bytes.count == 1 else {
-            throw CryptoKitASN1Error.invalidASN1Object
+            throw error(CryptoKitASN1Error.invalidASN1Object)
         }
 
         switch bytes[bytes.startIndex] {
@@ -40,12 +45,12 @@ extension Bool: ASN1ImplicitlyTaggable {
             self = true
         default:
             // If we come to support BER then these values are all "true" as well.
-            throw CryptoKitASN1Error.invalidASN1Object
+            throw error(CryptoKitASN1Error.invalidASN1Object)
         }
     }
 
-    func serialize(into coder: inout ASN1.Serializer, withIdentifier identifier: ASN1.ASN1Identifier) throws {
-        coder.appendPrimitiveNode(identifier: identifier) { bytes in
+    func serialize(into coder: inout ASN1.Serializer, withIdentifier identifier: ASN1.ASN1Identifier) throws(CryptoKitMetaError) {
+        try coder.appendPrimitiveNode(identifier: identifier) { bytes in
             if self {
                 bytes.append(0xff)
             } else {
@@ -55,4 +60,4 @@ extension Bool: ASN1ImplicitlyTaggable {
     }
 }
 
-#endif // Linux or !SwiftPM
+#endif // canImport(CryptoKit)

@@ -11,7 +11,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#if compiler(>=6.2)
 /// Unsafely discard any lifetime dependency on the `dependent` argument.
 /// Return a value identical to `dependent` with an immortal lifetime.
 @unsafe
@@ -22,8 +21,6 @@
 package func _unsafeImmortalize<T: ~Copyable & ~Escapable>(
   _ dependent: consuming T
 ) -> T {
-  // TODO: Remove @_unsafeNonescapableResult. Instead, the unsafe dependence
-  // should be expressed by a builtin that is hidden within the function body.
   dependent
 }
 
@@ -40,8 +37,6 @@ package func _overrideLifetime<
 >(
   _ dependent: consuming T, borrowing source: borrowing U
 ) -> T {
-  // TODO: Remove @_unsafeNonescapableResult. Instead, the unsafe dependence
-  // should be expressed by a builtin that is hidden within the function body.
   dependent
 }
 
@@ -58,8 +53,6 @@ package func _overrideLifetime<
 >(
   _ dependent: consuming T, copying source: borrowing U
 ) -> T {
-  // TODO: Remove @_unsafeNonescapableResult. Instead, the unsafe dependence
-  // should be expressed by a builtin that is hidden within the function body.
   dependent
 }
 
@@ -82,4 +75,17 @@ package func _overrideLifetime<
   // should be expressed by a builtin that is hidden within the function body.
   dependent
 }
-#endif
+
+/// Unsafely discard any lifetime dependency on the `dependent` inout
+/// argument, replacing it with a lifetime dependency on the caller's borrow
+/// scope of the `source` argument.
+@unsafe
+@_unsafeNonescapableResult
+@_alwaysEmitIntoClient
+@_transparent
+@_lifetime(dependent: borrow source)
+public func _overrideLifetime<
+  T: ~Copyable & ~Escapable, U: ~Copyable & ~Escapable
+>(
+  _ dependent: inout T, borrowing source: borrowing U
+) {}

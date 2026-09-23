@@ -735,7 +735,6 @@ final class KeyboardTracker {
             guard let input = GCKeyboard.coalesced?.keyboardInput else { return }
             let held = Self.livePhysicalModifierFlags(input: input)
             let ctrlHeld = held.contains(.control)
-            let shiftHeld = held.contains(.shift)
 
             // Check if this is an arrow key
             let isArrowKey = keyCode == .upArrow || keyCode == .downArrow ||
@@ -763,11 +762,7 @@ final class KeyboardTracker {
             if altHeld && !cmdHeld && !isSpecialKey {
                 if pressed {
                     Self.deliverKeyEdgeInOrder { [weak self] in
-                        self?.handleModifierPrintableKeyDown(
-                            keyCode,
-                            controlHeld: ctrlHeld,
-                            shiftHeld: shiftHeld
-                        )
+                        self?.handleModifierPrintableKeyDown(keyCode, hardwareModifiers: held)
                     }
                 } else {
                     Self.deliverKeyEdgeInOrder { [weak self] in
@@ -903,50 +898,57 @@ final class KeyboardTracker {
     @MainActor
     private func handleModifierPrintableKeyDown(
         _ keyCode: GCKeyCode,
-        controlHeld: Bool,
-        shiftHeld: Bool
+        hardwareModifiers: UIKeyModifierFlags
     ) {
         guard UIApplication.shared.applicationState == .active,
-              let terminalView = focusedTerminalView() else { return }
-        guard terminalView.shouldOptionActAsAlt() else { return }
+              let terminalView = focusedTerminalView(),
+              !terminalView.shouldYieldHardwareInputToEmojiUI else { return }
+        stopTrackedKeyRepeat()
+        // Only the newest printable chord owns repeat/text suppression. An
+        // older control-action key may still be physically down during rollover.
+        terminalView.inputController.controlCharacterPresses.removeAll()
 
         // GCKeyCode raw values match UIKeyboardHIDUsage raw values (both are USB HID)
         guard let hidUsage = UIKeyboardHIDUsage(rawValue: Int(keyCode.rawValue)) else { return }
 
-        var keyModifiers: UIKeyModifierFlags = .alternate
-        if controlHeld { keyModifiers.insert(.control) }
-        if shiftHeld { keyModifiers.insert(.shift) }
+        let heldModifierKeys = Set(pressedHardwareModifierKeys.compactMap {
+            UIKeyboardHIDUsage(rawValue: Int($0.rawValue))
+        })
+        guard let chord = terminalView.catalystModifierPrintableChord(
+            hidUsage: hidUsage, hardwareModifiers: hardwareModifiers, heldModifierKeys: heldModifierKeys
+        ) else { return }
+        let keyModifiers = chord.modifiers
 
-        let sent = terminalView.sendCatalystPrintableKeyViaGhostty(
-            hidUsage: hidUsage,
-            action: .press,
-            control: controlHeld,
-            shift: shiftHeld,
-            alt: true
+        let sent = terminalView.sendCatalystModifierPrintableChord(
+            chord, hidUsage: hidUsage, action: .press
         )
 
         guard sent else { return }
         terminalView.didHandleOptionKey = true
-        terminalView.specialKeyPressModifiers[hidUsage] = keyModifiers
+        if let byte = chord.controlCharacter {
+            terminalView.inputController.controlCharacterPresses[hidUsage] = byte
+        } else {
+            terminalView.specialKeyPressModifiers[hidUsage] = keyModifiers
+        }
 
-        startTrackedKeyRepeat(for: keyCode, validator: {
-            guard terminalView.shouldOptionActAsAlt() else { return false }
-            guard let input = GCKeyboard.coalesced?.keyboardInput else { return false }
-            guard input.button(forKeyCode: keyCode)?.isPressed == true else { return false }
+        startTrackedKeyRepeat(for: keyCode, validator: { [weak terminalView] in
+            guard let terminalView, terminalView.isFirstResponder,
+                  UIApplication.shared.applicationState == .active,
+                  !terminalView.shouldYieldHardwareInputToEmojiUI,
+                  let input = GCKeyboard.coalesced?.keyboardInput,
+                  input.button(forKeyCode: keyCode)?.isPressed == true else { return false }
+            if let byte = chord.controlCharacter {
+                guard terminalView.inputController.controlCharacterPresses[hidUsage] == byte else { return false }
+            } else {
+                guard terminalView.specialKeyPressModifiers[hidUsage] == keyModifiers else { return false }
+            }
 
             let held = Self.livePhysicalModifierFlags(input: input)
-            guard held.contains(.alternate) else { return false }
-            if controlHeld, !held.contains(.control) { return false }
-            if shiftHeld, !held.contains(.shift) { return false }
-            return true
+            return held.isSuperset(of: hardwareModifiers)
         }, action: { [weak terminalView] in
             guard let terminalView else { return }
-            _ = terminalView.sendCatalystPrintableKeyViaGhostty(
-                hidUsage: hidUsage,
-                action: .repeat,
-                control: controlHeld,
-                shift: shiftHeld,
-                alt: true
+            _ = terminalView.sendCatalystModifierPrintableChord(
+                chord, hidUsage: hidUsage, action: .repeat
             )
         })
     }
@@ -959,6 +961,7 @@ final class KeyboardTracker {
         guard let terminalView = focusedTerminalView() else { return }
         guard let hidUsage = UIKeyboardHIDUsage(rawValue: Int(keyCode.rawValue)) else { return }
 
+        terminalView.inputController.controlCharacterPresses.removeValue(forKey: hidUsage)
         if let pressModifiers = terminalView.specialKeyPressModifiers.removeValue(forKey: hidUsage) {
             terminalView.sendKeyViaGhostty(
                 keyCode: hidUsage, action: .release, modifiers: pressModifiers
@@ -1024,6 +1027,7 @@ final class KeyboardTracker {
         if flags.contains(.maskControl) { modifiers.insert(.control) }
         if flags.contains(.maskShift) { modifiers.insert(.shift) }
         if flags.contains(.maskAlternate) { modifiers.insert(.alternate) }
+        if flags.contains(.maskAlphaShift) { modifiers.insert(.alphaShift) }
         return modifiers
         #elseif os(visionOS)
         return []
@@ -1033,6 +1037,14 @@ final class KeyboardTracker {
         return modifierFlags(for: Set(keys))
         #endif
     }
+
+    #if targetEnvironment(macCatalyst)
+    /// UIKeyCommand flags describe a binding, so toggle state must be read
+    /// from the live event flags rather than from the command declaration.
+    nonisolated static var isCapsLockActive: Bool {
+        livePhysicalModifierFlags(input: nil).contains(.alphaShift)
+    }
+    #endif
 
     @MainActor
     private func updateHardwareModifierState(keyCode: GCKeyCode, pressed: Bool) {

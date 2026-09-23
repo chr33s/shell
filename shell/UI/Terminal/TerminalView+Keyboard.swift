@@ -95,196 +95,103 @@ extension Ghostty {
 
 extension Ghostty {
 
-    /// State machine for mod-tap key behavior (deferred decision model).
-    ///
-    /// When a mod-tap key is pressed, we don't know yet if it's a tap or hold.
-    /// We defer the decision until one of:
-    /// - Another key is pressed → held (activate modifier, replay key with modifier)
-    /// - Timer fires → held (activate modifier)
-    /// - Mod-tap key released before timer/other key → tap (fire tap action)
+    /// Tracks a source press without replaying the other key: the caller keeps
+    /// ownership of dispatch and can still forward unhandled presses to UIKit.
     final class ModTapInterceptor {
-
-        enum State {
-            case idle
-            case pending(rule: ModTapRule, pressTime: Date)
-            case held(rule: ModTapRule)
-        }
-
-        private(set) var state: State = .idle
+        private(set) var state: ModTapState?
+        private(set) var rule: ModTapRule?
         private var thresholdWorkItem: DispatchWorkItem?
+        private var generation = 0
 
-        /// Called when a tap action should be sent (e.g., send Escape)
         var onTapAction: ((ModTapAction) -> Void)?
-
-        /// Called when the virtual modifier should be activated or deactivated
         var onModifierChanged: ((ModTapModifier?) -> Void)?
-
-        /// Called when a key should be replayed with the virtual modifier active
-        var onReplayKeyWithModifier: ((UIPress, ModTapModifier) -> Void)?
-
-        /// Called when a mod-tap source key's fate is resolved (tap or hold).
-        /// Parameters: (rule, isHold). Fires once per press at resolution time.
+        /// Fires once per source press; Bool is true for hold, false for tap.
         var onSourceKeyResolved: ((ModTapRule, Bool) -> Void)?
 
-        /// Check if a press is a mod-tap source key and begin tracking.
-        /// Returns true if the press was consumed (caller should skip normal handling).
+        /// Returns true only for the source key. Other keys resolve the hold,
+        /// then proceed through the caller's ordinary dispatch exactly once.
         func handlePressBegan(_ press: UIPress, rules: [UIKeyboardHIDUsage: ModTapRule]) -> Bool {
             guard let key = press.key else { return false }
-            let keyCode = key.keyCode
-
-            // If we're in pending state and a different key arrives, transition to held
-            if case .pending(let rule, _) = state {
-                if keyCode != rule.sourceKey.hidUsage {
-                    transitionToHeld(rule)
-                    // Replay this key with the virtual modifier
-                    onReplayKeyWithModifier?(press, rule.holdAction)
+            if let state {
+                if key.keyCode == state.sourceKey {
+                    advanceThreshold()
                     return true
                 }
-                // Same mod-tap key pressed again while pending (key repeat from OS) — ignore
-                return true
+                noteChordUse()
+                return false
             }
-
-            // If already held, ignore repeated presses of the same source key.
-            // This prevents key-repeat from re-entering pending state and dropping the modifier.
-            if case .held(let rule) = state, keyCode == rule.sourceKey.hidUsage {
-                return true
-            }
-
-            // Check if this key matches a mod-tap rule
-            guard let rule = rules[keyCode] else { return false }
-
-            // Start pending state
-            state = .pending(rule: rule, pressTime: Date())
-            let thresholdSeconds = Double(rule.holdThresholdMs) / 1000.0
-            let capturedRule = rule
-            let workItem = DispatchWorkItem { [weak self] in
-                self?.timerFired(rule: capturedRule)
-            }
-            thresholdWorkItem = workItem
-            DispatchQueue.main.asyncAfter(deadline: .now() + thresholdSeconds, execute: workItem)
+            guard let rule = rules[key.keyCode] else { return false }
+            startPending(for: rule)
             return true
         }
 
-        /// Check if a release is for the mod-tap source key.
-        /// Returns true if the release was consumed.
         func handlePressEnded(_ press: UIPress) -> Bool {
             guard let key = press.key else { return false }
-            let keyCode = key.keyCode
-
-            switch state {
-            case .pending(let rule, _):
-                if keyCode == rule.sourceKey.hidUsage {
-                    // Released before threshold/other key → tap action
-                    cancelTimer()
-                    state = .idle
-                    onSourceKeyResolved?(rule, false)
-                    onTapAction?(rule.tapAction)
-                    return true
-                }
-            case .held(let rule):
-                if keyCode == rule.sourceKey.hidUsage {
-                    // Released after being held → deactivate modifier
-                    state = .idle
-                    onModifierChanged?(nil)
-                    return true
-                }
-            case .idle:
-                break
-            }
-            return false
+            return handleKeyReleased(keyCode: key.keyCode)
         }
 
-        /// Reset state (e.g., on pressesCancelled or app backgrounding)
-        func reset() {
-            cancelTimer()
-            if case .held = state {
-                onModifierChanged?(nil)
-            }
-            state = .idle
-        }
-
-        /// Whether the interceptor is currently in held state with a specific modifier
         var activeModifier: ModTapModifier? {
-            if case .held(let rule) = state {
-                return rule.holdAction
-            }
-            return nil
+            state?.phase == .held ? rule?.holdAction : nil
         }
 
-        /// Start pending state for a rule directly (used by handleEscapeKey UIKeyCommand path)
-        func startPending(for rule: ModTapRule) {
-            // On Mac Catalyst, UIKeyCommand for Escape can repeat while the key is held.
-            // If we're already tracking this source key, keep the existing timer/state so
-            // hold resolution can occur instead of continually restarting the threshold.
-            switch state {
-            case .pending(let currentRule, let pressTime):
-                if currentRule.sourceKey == rule.sourceKey {
-                    // If repeat events continue but timer delivery is delayed, promote to held
-                    // once we've exceeded threshold.
-                    let elapsedMs = Date().timeIntervalSince(pressTime) * 1000.0
-                    if elapsedMs >= Double(currentRule.holdThresholdMs) {
-                        transitionToHeld(currentRule)
-                    }
-                    return
-                }
-            case .held(let currentRule):
-                if currentRule.sourceKey == rule.sourceKey {
-                    return
-                }
-            case .idle:
-                break
-            }
+        func noteChordUse() {
+            if state?.useInChord() == true { didResolveHold() }
+        }
 
-            cancelTimer()
-            state = .pending(rule: rule, pressTime: Date())
-            let thresholdSeconds = Double(rule.holdThresholdMs) / 1000.0
-            let capturedRule = rule
+        func startPending(for rule: ModTapRule) {
+            if state?.sourceKey == rule.sourceKey.hidUsage {
+                advanceThreshold()
+                return
+            }
+            reset()
+            self.rule = rule
+            state = ModTapState(
+                sourceKey: rule.sourceKey.hidUsage,
+                holdModifier: rule.holdAction.uiKeyModifierFlag,
+                startedAt: ProcessInfo.processInfo.systemUptime,
+                threshold: Double(rule.holdThresholdMs) / 1000
+            )
+            let currentGeneration = generation
             let workItem = DispatchWorkItem { [weak self] in
-                self?.timerFired(rule: capturedRule)
+                guard let self, self.generation == currentGeneration else { return }
+                self.noteChordUse()
             }
             thresholdWorkItem = workItem
-            DispatchQueue.main.asyncAfter(deadline: .now() + thresholdSeconds, execute: workItem)
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(rule.holdThresholdMs) / 1000, execute: workItem)
         }
 
-        /// Handle release for a specific HID usage code (used by handleEscapeKey path
-        /// where we don't have a UIPress but know the key code)
+        @discardableResult
         func handleKeyReleased(keyCode: UIKeyboardHIDUsage) -> Bool {
-            switch state {
-            case .pending(let rule, _):
-                if keyCode == rule.sourceKey.hidUsage {
-                    cancelTimer()
-                    state = .idle
-                    onSourceKeyResolved?(rule, false)
-                    onTapAction?(rule.tapAction)
-                    return true
-                }
-            case .held(let rule):
-                if keyCode == rule.sourceKey.hidUsage {
-                    state = .idle
-                    onModifierChanged?(nil)
-                    return true
-                }
-            case .idle:
-                break
+            guard let resolution = state?.resolution(onRelease: keyCode), let rule else { return false }
+            reset()
+            if resolution == .tap {
+                onSourceKeyResolved?(rule, false)
+                onTapAction?(rule.tapAction)
             }
-            return false
+            return true
         }
 
-        private func timerFired(rule: ModTapRule) {
-            // Only transition if still pending with the same rule
-            if case .pending(let currentRule, _) = state, currentRule.id == rule.id {
-                transitionToHeld(rule)
-            }
-        }
-
-        private func transitionToHeld(_ rule: ModTapRule) {
+        func reset() {
             cancelTimer()
-            state = .held(rule: rule)
+            let wasHeld = state?.phase == .held
+            state = nil
+            rule = nil
+            if wasHeld { onModifierChanged?(nil) }
+        }
+
+        private func advanceThreshold() {
+            if state?.advance(to: ProcessInfo.processInfo.systemUptime) == true { didResolveHold() }
+        }
+
+        private func didResolveHold() {
+            cancelTimer()
+            guard let rule else { return }
             onSourceKeyResolved?(rule, true)
             onModifierChanged?(rule.holdAction)
         }
 
         private func cancelTimer() {
+            generation += 1
             thresholdWorkItem?.cancel()
             thresholdWorkItem = nil
         }
@@ -355,12 +262,13 @@ extension Ghostty.TerminalView {
         }
 
         var handled = false
-        var shouldSkipSuper = false
+        var forwardedPresses = Set<UIPress>()
 
         syncHeldModifierSides(from: event)
 
         #if !targetEnvironment(macCatalyst)
         if presses.contains(where: { shouldPassHardwareCtrlSpaceToSystem($0) }) {
+            modTapInterceptor.noteChordUse()
             yieldInputLanguageOverrideForSystemCycle()
             keyboardAccessory?.toolbarView.clearOneShotModifiers()
             super.pressesBegan(presses, with: event)
@@ -368,37 +276,33 @@ extension Ghostty.TerminalView {
         }
         #endif
 
-        var remainingPresses = presses
-
-        // Mod-tap interception: check each press against active rules
+        // A Set has no key order. Start any source before resolving the other
+        // keys in the same delivery, then process each non-source exactly once.
         let modTapRules = ModTapManager.shared.activeRulesByKey
-        if !modTapRules.isEmpty {
-            for press in presses {
-                if modTapInterceptor.handlePressBegan(press, rules: modTapRules) {
-                    remainingPresses.remove(press)
-                    handled = true
-                    shouldSkipSuper = true
-                }
-            }
+        let orderedPresses = presses.sorted {
+            let lhs = $0.key.map { modTapRules[$0.keyCode] != nil } ?? false
+            let rhs = $1.key.map { modTapRules[$0.keyCode] != nil } ?? false
+            if lhs != rhs { return lhs }
+            return ($0.key?.keyCode.rawValue ?? 0) < ($1.key?.keyCode.rawValue ?? 0)
         }
-
-        for press in remainingPresses {
-            // Process through the standard key handling path,
-            // merging any virtual mod-tap modifier
+        for press in orderedPresses {
+            if modTapInterceptor.handlePressBegan(press, rules: modTapRules) {
+                if let key = press.key, ModTapState.modifierFlag(for: key.keyCode) != nil {
+                    // UIKit needs the modifier-down edge for its own shortcuts.
+                    forwardedPresses.insert(press)
+                } else {
+                    handled = true
+                }
+                continue
+            }
             let result = processKeyPress(press, virtualModifier: virtualModTapModifier)
             if result.handled { handled = true }
-            if result.skipSuper { shouldSkipSuper = true }
+            if !result.handled && !result.skipSuper { forwardedPresses.insert(press) }
         }
 
-        // Clear one-shot toolbar modifiers after hardware key dispatch
-        if handled {
-            keyboardAccessory?.toolbarView.clearOneShotModifiers()
-        }
-
-        // Only call super if we didn't handle any keys AND we're not skipping CMD+arrow
-        // This allows unhandled keys to propagate up the responder chain
-        if !remainingPresses.isEmpty && !handled && !shouldSkipSuper {
-            super.pressesBegan(remainingPresses, with: event)
+        if handled { keyboardAccessory?.toolbarView.clearOneShotModifiers() }
+        if !forwardedPresses.isEmpty {
+            super.pressesBegan(forwardedPresses, with: event)
         }
     }
 
@@ -406,7 +310,6 @@ extension Ghostty.TerminalView {
     /// Returns whether the press was handled and whether super should be skipped.
     @discardableResult
     func processKeyPress(_ press: UIPress, virtualModifier: ModTapModifier?) -> (handled: Bool, skipSuper: Bool) {
-        // Also cover deferred mod-tap replays, which bypass pressesBegan.
         guard !shouldYieldHardwareInputToEmojiUI else { return (false, false) }
         lastHardwareTextInputTime = ProcessInfo.processInfo.systemUptime
         lastDictationActivityAt = nil
@@ -429,27 +332,43 @@ extension Ghostty.TerminalView {
         }
 
         let hardwareModifiers = normalizedHardwareModifierFlags(key.modifierFlags)
-        var effectiveModifiers = hardwareModifiers
-        if !hardwareModifiers.isEmpty {
-            isGCKeyboardModifierStateTrusted = true
-        }
-        // Merge virtual mod-tap modifier
-        if let virtualMod = virtualModifier {
-            effectiveModifiers.insert(virtualMod.uiKeyModifierFlag)
-        }
-        effectiveModifiers = normalizedHardwareModifierFlags(
-            effectiveModifiers,
-            virtualModifier: virtualModifier
+        if !hardwareModifiers.isEmpty { isGCKeyboardModifierStateTrusted = true }
+        // Recover the original chord before substituting mod-tap. Recovering
+        // afterward would reintroduce the Command bit we just consumed.
+        let recoveredModifiers = mergeHardwareCommandChordFromGCKeyboard(
+            into: hardwareModifiers, hardwareModifiers: hardwareModifiers
         )
+        let originalTrigger = KeyCode(uiKey: key, modifiers: recoveredModifiers).map {
+            normalizedBindingTrigger(KeyTrigger(key: $0, modifiers: KeybindModifiers(uiModifierFlags: recoveredModifiers)))
+        }
+        let originalShortcutIsBound = modTapInterceptor.state != nil
+            && originalTrigger.map(keybindClaimsTrigger) == true
+        // The rest of the input path must also know whether this particular
+        // key uses the virtual modifier (Option/AltGr and Control fast paths).
+        let virtualModifier = originalShortcutIsBound ? nil : virtualModifier
+        var effectiveModifiers: UIKeyModifierFlags
+        if let state = modTapInterceptor.state {
+            effectiveModifiers = state.modifiers(
+                hardware: recoveredModifiers,
+                originalShortcutIsBound: originalShortcutIsBound,
+                heldKeys: inputController.heldModifierKeys
+            )
+        } else {
+            effectiveModifiers = recoveredModifiers
+            if let virtualModifier { effectiveModifiers.insert(virtualModifier.uiKeyModifierFlag) }
+        }
+        effectiveModifiers = normalizedHardwareModifierFlags(effectiveModifiers, virtualModifier: virtualModifier)
 
-        // Changing input language during a focus handoff can strip the entire
-        // chord from UIKit events until the modifiers are released. Recover it
-        // from live hardware transitions shared across terminal responders.
-        let modifiersBeforeHardwareRecovery = effectiveModifiers
-        effectiveModifiers = mergeHardwareCommandChordFromGCKeyboard(
-            into: effectiveModifiers,
-            hardwareModifiers: hardwareModifiers
-        )
+        let didSubstituteModifiers = modTapInterceptor.state != nil && effectiveModifiers != recoveredModifiers
+        let consumedOption = didSubstituteModifiers && hardwareModifiers.contains(.alternate)
+            && !effectiveModifiers.contains(.alternate)
+        // UIKit translated characters using the physical chord. Both fallback
+        // encoding and printable/repeat output must use the substituted chord.
+        let needsTextTranslation = didSubstituteModifiers
+            || key.modifierFlags.contains(.alphaShift) != effectiveModifiers.contains(.alphaShift)
+        lazy var effectiveCharacters = needsTextTranslation
+            ? retranslatedHardwareText(for: key, modifiers: effectiveModifiers)
+            : key.characters
 
         // Track hardware modifier state for mouse events (Cmd+click link detection)
         heldHardwareModifiers = ghosttyInputMods(from: effectiveModifiers, virtualModifier: virtualModifier)
@@ -545,27 +464,16 @@ extension Ghostty.TerminalView {
         let hardwareTrigger = logicalKey.map {
             KeyTrigger(key: $0, modifiers: KeybindModifiers(uiModifierFlags: effectiveModifiers))
         }
-        let bindingTrigger = hardwareTrigger.map { trigger in
-            guard effectiveModifiers != modifiersBeforeHardwareRecovery,
-                  effectiveModifiers.contains(.command),
-                  let symbolTrigger = trigger.shiftedSymbolEquivalent else { return trigger }
-            let manager = KeybindManager.shared
-            let pending = KeySequenceTracker.shared
-            @MainActor
-            func isClaimed(_ candidate: KeyTrigger) -> Bool {
-                if pending.isAwaitingSecondKey {
-                    return pending.possibleBindings.contains { $0.sequence.triggers.last == candidate }
-                }
-                return manager.keybind(for: candidate) != nil || manager.isSequencePrefix(candidate)
-            }
-            // Explicit base-key bindings take precedence over symbol aliases.
-            return !isClaimed(trigger) && isClaimed(symbolTrigger) ? symbolTrigger : trigger
+        let bindingTrigger = originalShortcutIsBound ? originalTrigger : hardwareTrigger.map {
+            normalizedBindingTrigger($0)
         }
 
         // Early custom binding check: if the user has a non-default binding for this
         // key combo (from external config or in-app override), execute it immediately.
         // This takes priority over all hardcoded special-case handlers below (Cmd+arrow,
         // modified Return, Cmd+backspace, etc.) so that custom keybindings always win.
+        // Preserving a default mod-tap chord only preserves its trigger: it must
+        // still reach the existing Control/scroll/backspace repeat handlers.
         if let trigger = bindingTrigger {
             // Let KeySequenceTracker claim the press first so the second key of a
             // pending sequence (which may itself be an unmodified letter that
@@ -582,11 +490,22 @@ extension Ghostty.TerminalView {
                 return (true, true)
             }
 
-            // Command-V is a known UIKit edit command. If it reaches the raw
-            // press path, yield it back to UIKit instead of executing the
-            // configurable binding as an app-initiated pasteboard read.
-            if trigger.key == .v,
-               trigger.modifiers == .command,
+            // Tab changes move first responder, so a per-terminal repeat timer
+            // cannot own this chord. Before shifted-symbol normalization these
+            // presses reached UIKit's repeating menu/UIKeyCommand path. Keep
+            // that ownership when the physical chord matches, including when
+            // an original shortcut wins over mod-tap. Synthetic/recovered
+            // chords still need local dispatch because UIKit never saw them.
+            if let keybind = KeybindManager.shared.keybind(for: trigger),
+               keybind.action == .previous_tab || keybind.action == .next_tab,
+               trigger.matchesHardwareChord(key) {
+                return (false, false)
+            }
+
+            // Preserve UIKit's paste intent for an original bound shortcut,
+            // including custom Cmd+Shift+V, when it reaches the raw press path.
+            // The source modifier was forwarded, so UIKit can match the chord.
+            if originalShortcutIsBound || (trigger.key == .v && trigger.modifiers == .command),
                let keybind = KeybindManager.shared.keybind(for: trigger),
                keybind.action == .paste_from_clipboard,
                !KeybindManager.shared.isSequencePrefix(trigger) {
@@ -594,9 +513,8 @@ extension Ghostty.TerminalView {
             }
 
             if let keybind = KeybindManager.shared.keybind(for: trigger),
-               keybind.source != .default,
-               !keybind.action.isControlCharacter {
-                if effectiveModifiers.contains(.alternate) { didHandleOptionKey = true }
+               keybind.source != .default && !keybind.action.isControlCharacter {
+                if effectiveModifiers.contains(.alternate) || consumedOption { didHandleOptionKey = true }
                 executeKeybindAction(keybind.action, parameter: keybind.actionParameter)
                 return (true, true)
             }
@@ -656,7 +574,8 @@ extension Ghostty.TerminalView {
         // On iOS hardware keyboards, these can come through pressesBegan AND GCKeyboard,
         // causing duplicate/wrong input.
         #if !os(visionOS)
-        if effectiveModifiers.contains(.control) && !effectiveModifiers.contains(.command) &&
+        if virtualModifier != .control || hardwareModifiers.contains(.control),
+           effectiveModifiers.contains(.control) && !effectiveModifiers.contains(.command) &&
             (key.keyCode == .keyboardUpArrow || key.keyCode == .keyboardDownArrow ||
              key.keyCode == .keyboardLeftArrow || key.keyCode == .keyboardRightArrow) {
             return (true, true)
@@ -747,6 +666,7 @@ extension Ghostty.TerminalView {
             #endif
 
             if let controlByte = logicalKey?.controlCharacterByte {
+                if consumedOption { didHandleOptionKey = true }
                 let controlData = Data([controlByte])
 
                 // Handle Ctrl-C for local shell interrupt (non-Catalyst only)
@@ -800,7 +720,7 @@ extension Ghostty.TerminalView {
             }
 
             // Suppress the composed-character insertText that follows an Option chord.
-            if effectiveModifiers.contains(.alternate) { didHandleOptionKey = true }
+            if effectiveModifiers.contains(.alternate) || consumedOption { didHandleOptionKey = true }
             // Execute the action through the keybind system (with parameter if present)
             executeKeybindAction(keybind.action, parameter: keybind.actionParameter)
 
@@ -838,25 +758,27 @@ extension Ghostty.TerminalView {
                 if !isSpecialKey {
                     let shifted = effectiveModifiers.contains(.shift)
                     if rightOptionActsAsAlt {
-                        keyText = printableTextForGhostty(hidUsage: key.keyCode, shift: shifted)
+                        keyText = printableTextForGhostty(hidUsage: key.keyCode, modifiers: effectiveModifiers)
                         if shifted {
                             consumed.insert(.shift)
                         }
-                    } else if shifted {
-                        // Shift held: charsIM may return layout-correct base with Shift dropped.
-                        // For letters, uppercased() is layout-correct.
-                        // For non-ASCII charsIM (broken Opt+Shift), fall back to KeyCode.
+                    } else if shifted || effectiveModifiers.contains(.alphaShift)
+                        || key.modifierFlags.contains(.alphaShift) {
+                        // Use the same effective Caps Lock state for encoder
+                        // text as for modifier flags, including a repurposed
+                        // Caps Lock key whose OS toggle is still latched.
+                        #if targetEnvironment(macCatalyst)
+                        keyText = printableTextForGhostty(hidUsage: key.keyCode, modifiers: effectiveModifiers)
+                        #else
                         let charsIM = key.charactersIgnoringModifiers
                         let isAscii = !charsIM.isEmpty && charsIM.unicodeScalars.allSatisfy({ $0.value >= 0x20 && $0.value < 0x7F })
-                        if isAscii, let ch = charsIM.first, ch.isLetter {
-                            keyText = charsIM.uppercased()
-                        } else if isAscii, let ch = charsIM.first {
-                            keyText = String(Self.shiftedCharacter(ch))
-                        } else if let kc = KeyCode(hidUsage: key.keyCode),
-                                  let baseChar = kc.literalKeyInput?.first {
-                            keyText = String(Self.shiftedCharacter(baseChar))
-                        }
-                        consumed.insert(.shift)
+                        keyText = HardwareKeyboardText.printableText(
+                            modifiers: effectiveModifiers,
+                            fallbackCharacter: isAscii ? charsIM.first : KeyCode(hidUsage: key.keyCode)?.literalKeyInput?.first,
+                            translate: { _ in nil }
+                        )
+                        #endif
+                        if shifted { consumed.insert(.shift) }
                     } else {
                         // No Shift: prefer layout-aware charsIM, KeyCode fallback
                         let charsIM = key.charactersIgnoringModifiers
@@ -882,7 +804,7 @@ extension Ghostty.TerminalView {
                 ) {
                     specialKeyPressModifiers[key.keyCode] = ghosttyMods
                     NotificationCenter.default.post(name: .ghosttyDidReceiveInput, object: self)
-                    if hasOption { didHandleOptionKey = true }
+                    if hasOption || consumedOption { didHandleOptionKey = true }
                     let keyCode = key.keyCode
                     keyRepeatManager.start(for: key) { [weak self] in
                         self?.sendKeyViaGhostty(
@@ -898,7 +820,7 @@ extension Ghostty.TerminalView {
 
         // Try to handle as a special key (arrows, etc.)
         // Note: Tab is handled via UIKeyCommand, not here
-        if let sequence = handleSpecialKey(key) {
+        if let sequence = handleSpecialKey(key, characters: effectiveCharacters, modifiers: effectiveModifiers) {
             // Apply OPTION modifier (Meta key - prefix with ESC).
             // Keys reaching this path are single-byte sequences (Tab, Backspace, control chars)
             // since CSI/SS3 keys (arrows, Home, End, etc.) are handled by sendKeyViaGhostty.
@@ -924,6 +846,7 @@ extension Ghostty.TerminalView {
             }
 
             if !localHandled, let data = finalSequence.data(using: .utf8) {
+                if consumedOption { didHandleOptionKey = true }
                 // Send the result to session (SSH or other control sequences)
                 // Notify that input was received (for scroll-to-bottom behavior)
                 NotificationCenter.default.post(name: .ghosttyDidReceiveInput, object: self)
@@ -936,13 +859,13 @@ extension Ghostty.TerminalView {
                 startKeyRepeat(for: key, sequence: finalSequence)
             }
             return (true, true)
-        } else if let sentinel = KeyCode.sentinelKey(for: key.characters),
+        } else if let sentinel = KeyCode.sentinelKey(for: effectiveCharacters),
                   !effectiveModifiers.contains(.command) {
             // Sentinel characters on an unrecognized key: never text. Swallow
             // so super cannot re-offer it to the text input system.
             Ghostty.logger.debug("processKeyPress: dropped UIKit sentinel \(sentinel.rawValue)")
             return (true, true)
-        } else if !key.characters.isEmpty && !effectiveModifiers.contains(.command) {
+        } else if !effectiveCharacters.isEmpty && !effectiveModifiers.contains(.command) {
             // When a CJK input method is active, defer character keys to the text
             // input system so IME composition can begin. This handles the FIRST
             // keystroke before any marked text exists.
@@ -955,38 +878,12 @@ extension Ghostty.TerminalView {
             // Handle regular printable characters directly to bypass iOS text transformations
             // (autocapitalization, autocorrect, etc.) that occur in super.pressesBegan()
             // Skip if Command modifier is present (let UIKeyCommand handle shortcuts)
-            var characters: String
+            let characters = effectiveCharacters
 
             // Apply OPTION modifier handling
             // When Option acts as Alt, the Ghostty encoder path above handles it.
             // This path only runs when Option produces characters (not Alt mode).
-            if hasOption {
-                // Character mode: send OS-translated character (e.g., @ for ⌥L on German layout)
-                characters = key.characters
-                didHandleOptionKey = true
-            } else {
-                characters = key.characters
-                // When CapsLock is a mod-tap key, the OS toggles CapsLock at the HID level
-                // before we can intercept. Compensate by reading the actual OS CapsLock state
-                // and comparing it to what the user intends.
-                if let capsLockRule = ModTapManager.shared.activeRulesByKey[.keyboardCapsLock] {
-                    let osCapsLock = key.modifierFlags.contains(.alphaShift)
-                    // tap=none means CapsLock on tap — desired state is userWantsCapsLock.
-                    // Any other tap action means CapsLock is fully repurposed — desired is always OFF.
-                    let desiredCapsLock = capsLockRule.tapAction == .none ? userWantsCapsLock : false
-                    if osCapsLock != desiredCapsLock {
-                        let shiftHeld = effectiveModifiers.contains(.shift)
-                        // Compute target case from desired CapsLock + Shift state (XOR = Mac convention).
-                        // This is independent of what the OS reports in key.characters.
-                        let wantUppercase = desiredCapsLock != shiftHeld
-                        characters = String(characters.map { char in
-                            if wantUppercase && char.isLowercase { return Character(char.uppercased()) }
-                            if !wantUppercase && char.isUppercase { return Character(char.lowercased()) }
-                            return char
-                        })
-                    }
-                }
-            }
+            if hasOption || consumedOption { didHandleOptionKey = true }
 
             if let data = characters.data(using: .utf8) {
                 // Notify that input was received (for scroll-to-bottom behavior)
@@ -1011,6 +908,8 @@ extension Ghostty.TerminalView {
             super.pressesEnded(presses, with: event)
             return
         }
+        // A non-source release may belong to a key pressed before mod-tap.
+        // Only key-down or an actual command dispatch proves chord use.
         // Reset OPTION key flag on key release
         didHandleOptionKey = false
 
@@ -1022,6 +921,7 @@ extension Ghostty.TerminalView {
             }
 
             guard let key = press.key else { continue }
+            inputController.controlCharacterPresses.removeValue(forKey: key.keyCode)
             // A translated Cmd+Period press can be tracked as Escape by the
             // Escape handler but released at the layout's Period position.
             if keysConsumedByOverlayAction.contains(.keyboardEscape),
@@ -1085,6 +985,8 @@ extension Ghostty.TerminalView {
         virtualModTapModifier = nil
         heldControlSide = .none
         heldOptionSide = .none
+        inputController.heldModifierKeys.removeAll()
+        inputController.controlCharacterPresses.removeAll()
         heldHardwareModifiers = .none
         isGCKeyboardModifierStateTrusted = false
 
@@ -1256,6 +1158,12 @@ extension Ghostty.TerminalView {
     func syncHeldModifierSides(from event: UIPressesEvent?) {
         guard let allPresses = event?.allPresses else { return }
 
+        inputController.heldModifierKeys = Set(allPresses.compactMap { press in
+            guard press.phase == .began || press.phase == .changed || press.phase == .stationary,
+                  let key = press.key, ModTapState.modifierFlag(for: key.keyCode) != nil else { return nil }
+            return key.keyCode
+        })
+
         var leftAlt = false
         var rightAlt = false
         var leftControl = false
@@ -1298,6 +1206,7 @@ extension Ghostty.TerminalView {
             }
         }
         if normalized.contains(.shift) { mods.insert(.shift) }
+        if normalized.contains(.alphaShift) { mods.insert(.caps) }
         if normalized.contains(.alternate) {
             mods.insert(.alt)
             if heldOptionSide == .right {
@@ -1324,7 +1233,16 @@ extension Ghostty.TerminalView {
             normalized.remove(.control)
         }
 
-        return normalized
+        return effectiveCapsLockModifiers(normalized)
+    }
+
+    /// Caps Lock used as a mod-tap source still toggles at the OS level. All
+    /// text, Ghostty events and held mouse flags must use the intended state.
+    func effectiveCapsLockModifiers(_ modifiers: UIKeyModifierFlags) -> UIKeyModifierFlags {
+        let desiredCapsLock = ModTapManager.shared.activeRulesByKey[.keyboardCapsLock].map {
+            $0.tapAction == .none ? userWantsCapsLock : false
+        }
+        return HardwareKeyboardModifiers.applyingCapsLock(desiredCapsLock, to: modifiers)
     }
 
     /// iPadOS can strip the Command modifier from certain reserved shortcuts
@@ -1469,29 +1387,139 @@ extension Ghostty.TerminalView {
     }
     #endif
 
-    /// Derive the printable text Ghostty should use for a physical key.
-    /// On Catalyst, prefer the active keyboard layout via UCKeyTranslate.
-    func printableTextForGhostty(hidUsage: UIKeyboardHIDUsage, shift: Bool) -> String? {
+    /// Re-translate a physical key after mod-tap changes its modifiers. UIKit
+    /// exposes only the base text on iPad; Catalyst can query the active layout.
+    private func retranslatedHardwareText(for key: UIKey, modifiers: UIKeyModifierFlags) -> String {
+        var layoutText: String?
         #if targetEnvironment(macCatalyst)
-        if let cgKeyCode = cgKeyCode(for: hidUsage) {
-            let layout = CatalystKeyboardLayout.shared
-            if layout.isAvailable,
-               let translated = layout.translateKey(cgKeyCode: UInt16(cgKeyCode), shift: shift),
-               !translated.isEmpty {
-                return translated.precomposedStringWithCanonicalMapping
-            }
+        if !Self.specialKeycodes.contains(key.keyCode), let code = cgKeyCode(for: key.keyCode) {
+            layoutText = CatalystKeyboardLayout.shared.translateKey(
+                cgKeyCode: UInt16(code), shift: modifiers.contains(.shift),
+                command: modifiers.contains(.command), option: modifiers.contains(.alternate),
+                capsLock: modifiers.contains(.alphaShift)
+            )
         }
         #endif
+        return HardwareKeyboardText.text(for: key, modifiers: modifiers, layoutText: layoutText)
+    }
 
-        if let kc = KeyCode(hidUsage: hidUsage),
-           let baseChar = kc.literalKeyInput?.first {
-            return shift ? String(Self.shiftedCharacter(baseChar)) : String(baseChar)
+    /// Derive the printable text Ghostty should use for a physical key.
+    /// On Catalyst, prefer the active keyboard layout via UCKeyTranslate.
+    func printableTextForGhostty(hidUsage: UIKeyboardHIDUsage, shift: Bool, command: Bool = false) -> String? {
+        var modifiers: UIKeyModifierFlags = []
+        if shift { modifiers.insert(.shift) }
+        if command { modifiers.insert(.command) }
+        return printableTextForGhostty(hidUsage: hidUsage, modifiers: modifiers)
+    }
+
+    private func printableTextForGhostty(
+        hidUsage: UIKeyboardHIDUsage,
+        modifiers: UIKeyModifierFlags,
+        fallbackCharacter: Character? = nil
+    ) -> String? {
+        HardwareKeyboardText.printableText(
+            modifiers: modifiers,
+            fallbackCharacter: KeyCode(hidUsage: hidUsage)?.literalKeyInput?.first ?? fallbackCharacter
+        ) { layoutModifiers in
+        #if targetEnvironment(macCatalyst)
+            if let cgKeyCode = cgKeyCode(for: hidUsage) {
+                return CatalystKeyboardLayout.shared.translateKey(
+                    cgKeyCode: UInt16(cgKeyCode), shift: layoutModifiers.contains(.shift),
+                    command: layoutModifiers.contains(.command), capsLock: layoutModifiers.contains(.alphaShift)
+                )
+            }
+        #endif
+            return nil
         }
-
-        return nil
     }
 
     #if targetEnvironment(macCatalyst)
+    /// Option-printable presses bypass pressesBegan on Catalyst. Resolve the
+    /// same mod-tap/binding policy before GCKeyboard encodes or repeats them.
+    func catalystModifierPrintableChord(
+        hidUsage: UIKeyboardHIDUsage,
+        hardwareModifiers: UIKeyModifierFlags,
+        heldModifierKeys: Set<UIKeyboardHIDUsage>
+    ) -> ModifierPrintableChord? {
+        modTapInterceptor.noteChordUse()
+        let hardware = normalizedHardwareModifierFlags(hardwareModifiers)
+        func trigger(for modifiers: UIKeyModifierFlags) -> KeyTrigger? {
+            let text = printableTextForGhostty(
+                hidUsage: hidUsage, shift: false, command: modifiers.contains(.command)
+            )
+            guard let key = text.flatMap({ KeyCode(uiKeyInput: $0.lowercased()) })
+                    ?? KeyCode(hidUsage: hidUsage) else { return nil }
+            return normalizedBindingTrigger(KeyTrigger(key: key, modifiers: KeybindModifiers(uiModifierFlags: modifiers)))
+        }
+        let originalTrigger = trigger(for: hardware)
+        let originalIsBound = originalTrigger.map(keybindClaimsTrigger) == true
+        let manager = KeybindManager.shared
+        let originalControlCharacter = originalTrigger.flatMap { manager.keybind(for: $0)?.action.controlCharacterByte }
+        // Direct control actions have no UIKeyCommand, but a sequence sharing
+        // this prefix can generate one. That command owns both deliveries of
+        // the physical chord; GC must not also advance the sequence, even if
+        // UIKit has already processed its delivery and changed pending state.
+        if let originalTrigger, originalControlCharacter != nil {
+            if originalTrigger.hasKeyCommand(
+                in: keyCommands ?? [], action: #selector(handleKeybindCommand(_:))
+            ) {
+                return nil
+            }
+            // Prefixes without a registered command remain owned by GC.
+            let (handled, keybind) = KeySequenceTracker.shared.consume(owner: self, trigger: originalTrigger)
+            if let keybind {
+                didHandleOptionKey = true
+                executeKeybindAction(keybind.action, parameter: keybind.actionParameter)
+                return nil
+            }
+            if handled {
+                didHandleOptionKey = true
+                return nil
+            }
+        }
+        guard let chord = ModifierPrintableChord(
+            hardware: hardware,
+            state: modTapInterceptor.state,
+            originalShortcutIsBound: originalIsBound,
+            heldKeys: inputController.heldModifierKeys.union(heldModifierKeys),
+            optionActsAsAlt: shouldOptionActAsAlt(virtualModifier: virtualModTapModifier, optionInEvent: true),
+            originalControlCharacter: originalControlCharacter,
+            effectiveControlCharacter: { modifiers in
+                trigger(for: modifiers).flatMap { manager.keybind(for: $0)?.action.controlCharacterByte }
+            }
+        ) else { return nil }
+
+        // UIKit cannot match a shortcut introduced by substitution. Dispatch
+        // those here; direct control characters keep the byte/repeat path.
+        if chord.modifiers != hardware, let effectiveTrigger = trigger(for: chord.modifiers),
+           keybindClaimsTrigger(effectiveTrigger) {
+            let isControlCharacter = manager.keybind(for: effectiveTrigger)?.action.isControlCharacter == true
+            if !isControlCharacter || manager.isSequencePrefix(effectiveTrigger)
+                || KeySequenceTracker.shared.isAwaitingSecondKey {
+                didHandleOptionKey = true
+                dispatchKeybindTrigger(effectiveTrigger)
+                return nil
+            }
+        }
+        return chord
+    }
+
+    @discardableResult
+    func sendCatalystModifierPrintableChord(
+        _ chord: ModifierPrintableChord, hidUsage: UIKeyboardHIDUsage, action: Ghostty.Input.Action
+    ) -> Bool {
+        if let byte = chord.controlCharacter {
+            if action != .release {
+                didHandleOptionKey = true
+                sendUserInput(Data([byte]))
+            }
+            return true
+        }
+        let sent = sendCatalystPrintableKeyViaGhostty(hidUsage: hidUsage, action: action, modifiers: chord.modifiers)
+        if sent && action != .release { didHandleOptionKey = true }
+        return sent
+    }
+
     /// Whether the current printable Catalyst key can be encoded through Ghostty.
     func canEncodeCatalystPrintableKey(_ hidUsage: UIKeyboardHIDUsage) -> Bool {
         guard surface != nil else { return false }
@@ -1505,21 +1533,23 @@ extension Ghostty.TerminalView {
     func sendCatalystPrintableKeyViaGhostty(
         hidUsage: UIKeyboardHIDUsage,
         action: Ghostty.Input.Action,
-        control: Bool = false,
-        shift: Bool = false,
-        alt: Bool = false,
+        modifiers: UIKeyModifierFlags,
         fallbackCharacter: Character? = nil
     ) -> Bool {
+        let modifiers = effectiveCapsLockModifiers(modifiers)
         var mods = Ghostty.Input.Mods.none
-        if control { mods.insert(.ctrl) }
-        if shift { mods.insert(.shift) }
-        if alt { mods.insert(.alt) }
+        if modifiers.contains(.control) { mods.insert(.ctrl) }
+        if modifiers.contains(.shift) { mods.insert(.shift) }
+        if modifiers.contains(.alternate) { mods.insert(.alt) }
+        if modifiers.contains(.command) { mods.insert(.cmd) }
+        if modifiers.contains(.alphaShift) { mods.insert(.caps) }
 
         var consumed = Ghostty.Input.Mods.none
-        if shift { consumed.insert(.shift) }
+        if modifiers.contains(.shift) { consumed.insert(.shift) }
 
-        let keyText = printableTextForGhostty(hidUsage: hidUsage, shift: shift)
-            ?? fallbackCharacter.map { shift ? String(Self.shiftedCharacter($0)) : String($0) }
+        let keyText = printableTextForGhostty(
+            hidUsage: hidUsage, modifiers: modifiers, fallbackCharacter: fallbackCharacter
+        )
         guard let keyText else { return false }
 
         return sendKeyViaGhostty(
@@ -1567,23 +1597,26 @@ extension Ghostty.TerminalView {
     /// Handle Ctrl+A-Z key commands (Mac Catalyst only - iOS uses pressesBegan path)
     #if targetEnvironment(macCatalyst)
     @objc func handleControlKey(_ command: UIKeyCommand) {
+        noteModTapCommand(command)
         commitKoreanCompositionIfNeeded(external: true)
         guard let input = command.input, let char = input.first else { return }
 
-        let modifiers = command.modifierFlags
+        // UIKeyCommand carries its declared chord, not the live toggle state.
+        let modifiers = effectiveCapsLockModifiers(HardwareKeyboardModifiers.applyingCapsLock(
+            KeyboardTracker.isCapsLockActive, to: command.modifierFlags
+        ))
 
         // When Shift is also held, route through Ghostty's encoder for correct
         // CSI u / Kitty protocol encoding (Ctrl+Shift is distinct from Ctrl).
         if modifiers.contains(.shift) {
             let hidUsage = currentCatalystPressedPrintableHIDUsage() ?? Self.charToHIDUsage[char]
             if let hidUsage {
-                let keyModifiers: UIKeyModifierFlags = [.control, .shift]
+                let keyModifiers: UIKeyModifierFlags = modifiers.intersection([.control, .shift, .alphaShift])
                 let action: Ghostty.Input.Action = specialKeyPressModifiers[hidUsage] != nil ? .repeat : .press
                 if sendCatalystPrintableKeyViaGhostty(
                     hidUsage: hidUsage,
                     action: action,
-                    control: true,
-                    shift: true,
+                    modifiers: keyModifiers,
                     fallbackCharacter: char
                 ) {
                     if action == .press {
@@ -1610,6 +1643,7 @@ extension Ghostty.TerminalView {
     #endif
 
     @objc func handleArrowKey(_ command: UIKeyCommand) {
+        noteModTapCommand(command)
         commitKoreanCompositionIfNeeded(external: true)
         guard let input = command.input else { return }
 
@@ -1645,6 +1679,7 @@ extension Ghostty.TerminalView {
     }
 
     @objc func handleReturnKey(_ command: UIKeyCommand) {
+        noteModTapCommand(command)
         commitKoreanCompositionIfNeeded(external: true)
         // A one-shot action consumed this press; swallow repeats until release
         // so the held key doesn't leak input into the newly focused session.
@@ -1666,6 +1701,7 @@ extension Ghostty.TerminalView {
     }
 
     @objc func handleModifiedReturnKey(_ command: UIKeyCommand) {
+        noteModTapCommand(command)
         commitKoreanCompositionIfNeeded(external: true)
         if keysConsumedByOverlayAction.contains(.keyboardReturnOrEnter) { return }
         if case .manualReconnectRequired = reconnectionManager?.state {
@@ -1696,6 +1732,7 @@ extension Ghostty.TerminalView {
     }
 
     @objc func handleEscapeKey(_ command: UIKeyCommand) {
+        noteModTapCommand(command)
         // The reserved Cmd+Period system-cancel chord can arrive as a
         // translated plain Escape. Give a cmd+period binding first refusal; a
         // twin of a chord delivery already handled on another rail is
@@ -1743,6 +1780,7 @@ extension Ghostty.TerminalView {
     /// keybind claims cmd+period (KeybindCommandGenerator only registers this
     /// command then).
     @objc func handleSystemCancelCommand(_ command: UIKeyCommand) {
+        noteModTapCommand(command)
         guard inputController.consumeSystemCancelChordDelivery() else { return }
         handleSystemCancelChordDelivery()
     }
@@ -1754,6 +1792,7 @@ extension Ghostty.TerminalView {
     /// system beep. ShortcutCaptureUIView implements this selector too and
     /// wins while it is first responder, so recording works.
     @objc func menuSystemCancel(_ sender: Any?) {
+        noteModTapCommand(sender as? UIKeyCommand)
         guard inputController.consumeSystemCancelChordDelivery() else { return }
         handleSystemCancelChordDelivery()
     }
@@ -1774,6 +1813,7 @@ extension Ghostty.TerminalView {
     /// Handle dynamically registered mod-tap source key commands on Catalyst.
     /// These keys are routed through UIKeyCommand so mod-tap can track tap/hold.
     @objc func handleModTapSourceKey(_ command: UIKeyCommand) {
+        noteModTapCommand(command)
         guard command.modifierFlags.isEmpty, let input = command.input else { return }
 
         // Match command input back to an active mod-tap rule source key.
@@ -1784,6 +1824,7 @@ extension Ghostty.TerminalView {
     #endif
 
     @objc func handleTabKey(_ command: UIKeyCommand) {
+        noteModTapCommand(command)
         commitKoreanCompositionIfNeeded(external: true)
         if command.modifierFlags.isEmpty,
            let rule = ModTapManager.shared.activeRulesByKey[.keyboardTab] {
@@ -1802,6 +1843,7 @@ extension Ghostty.TerminalView {
     }
 
     @objc func handleShiftTabKey(_ command: UIKeyCommand) {
+        noteModTapCommand(command)
         commitKoreanCompositionIfNeeded(external: true)
         // Send backtab escape sequence \e[Z to session
         sendUserInput(Data("\u{1B}[Z".utf8))
@@ -1814,10 +1856,12 @@ extension Ghostty.TerminalView {
     /// happens in the `pressesBegan` → `processKeyPress` → `sendKeyViaGhostty`
     /// path. Processing here too would cause double key events on Mac Catalyst.
     @objc func handleFunctionKey(_ command: UIKeyCommand) {
+        noteModTapCommand(command)
         // No-op: see comment above.
     }
 
     @objc func increaseFontSize(_ command: UIKeyCommand) {
+        noteModTapCommand(command)
         guard surface != nil, ghosttyApp != nil else { return }
         Ghostty.logger.info("Increasing font size for this tab")
         // tmux: change the whole window uniformly; re-sync via handleCellSizeChange.
@@ -1832,6 +1876,7 @@ extension Ghostty.TerminalView {
     }
 
     @objc func decreaseFontSize(_ command: UIKeyCommand) {
+        noteModTapCommand(command)
         guard surface != nil, ghosttyApp != nil else { return }
         Ghostty.logger.info("Decreasing font size for this tab")
         if applyTmuxWindowFontSize(delta: -1) { return }
@@ -1845,6 +1890,7 @@ extension Ghostty.TerminalView {
     }
 
     @objc func resetFontSizeToDefault(_ command: UIKeyCommand) {
+        noteModTapCommand(command)
         guard surface != nil, ghosttyApp != nil else { return }
         Ghostty.logger.info("Resetting font size to default for this tab")
         if resetTmuxWindowFontSize() { return }
@@ -1863,6 +1909,7 @@ extension Ghostty.TerminalView {
 extension Ghostty.TerminalView {
 
     @objc func closeSplit(_ command: UIKeyCommand) {
+        noteModTapCommand(command)
         Ghostty.logger.info("TerminalView.closeSplit called on terminal \(self.uuid.uuidString.prefix(8))")
         NotificationCenter.default.post(
             name: .closeSplit,
@@ -1877,6 +1924,7 @@ extension Ghostty.TerminalView {
 extension Ghostty.TerminalView {
 
     @objc func findInTerminal(_ command: UIKeyCommand) {
+        noteModTapCommand(command)
         performActionAsync("start_search")
     }
 
@@ -1885,176 +1933,219 @@ extension Ghostty.TerminalView {
     // They post notifications with `self` as the object so MainView can route to the correct window.
 
     @objc func menuNewTab(_ sender: Any?) {
+        noteModTapCommand(sender as? UIKeyCommand)
         NotificationCenter.default.post(name: .newTab, object: self)
     }
 
     @objc func menuNewWindow(_ sender: Any?) {
+        noteModTapCommand(sender as? UIKeyCommand)
         NotificationCenter.default.post(name: .newWindow, object: self)
     }
 
     @objc func menuCreateLocalShell(_ sender: Any?) {
+        noteModTapCommand(sender as? UIKeyCommand)
         NotificationCenter.default.post(name: .createLocalShell, object: self)
     }
 
     @objc func menuDuplicateTabWithSSH(_ sender: Any?) {
+        noteModTapCommand(sender as? UIKeyCommand)
         NotificationCenter.default.post(name: .duplicateTabWithSSH, object: self)
     }
 
     @objc func menuPreviousTab(_ sender: Any?) {
+        noteModTapCommand(sender as? UIKeyCommand)
         NotificationCenter.default.post(name: .previousTab, object: self)
     }
 
     @objc func menuNextTab(_ sender: Any?) {
+        noteModTapCommand(sender as? UIKeyCommand)
         NotificationCenter.default.post(name: .nextTab, object: self)
     }
 
     @objc func menuSelectTab1(_ sender: Any?) {
+        noteModTapCommand(sender as? UIKeyCommand)
         NotificationCenter.default.post(name: .selectTab, object: self, userInfo: ["tabIndex": 1])
     }
 
     @objc func menuSelectTab2(_ sender: Any?) {
+        noteModTapCommand(sender as? UIKeyCommand)
         NotificationCenter.default.post(name: .selectTab, object: self, userInfo: ["tabIndex": 2])
     }
 
     @objc func menuSelectTab3(_ sender: Any?) {
+        noteModTapCommand(sender as? UIKeyCommand)
         NotificationCenter.default.post(name: .selectTab, object: self, userInfo: ["tabIndex": 3])
     }
 
     @objc func menuSelectTab4(_ sender: Any?) {
+        noteModTapCommand(sender as? UIKeyCommand)
         NotificationCenter.default.post(name: .selectTab, object: self, userInfo: ["tabIndex": 4])
     }
 
     @objc func menuSelectTab5(_ sender: Any?) {
+        noteModTapCommand(sender as? UIKeyCommand)
         NotificationCenter.default.post(name: .selectTab, object: self, userInfo: ["tabIndex": 5])
     }
 
     @objc func menuSelectTab6(_ sender: Any?) {
+        noteModTapCommand(sender as? UIKeyCommand)
         NotificationCenter.default.post(name: .selectTab, object: self, userInfo: ["tabIndex": 6])
     }
 
     @objc func menuSelectTab7(_ sender: Any?) {
+        noteModTapCommand(sender as? UIKeyCommand)
         NotificationCenter.default.post(name: .selectTab, object: self, userInfo: ["tabIndex": 7])
     }
 
     @objc func menuSelectTab8(_ sender: Any?) {
+        noteModTapCommand(sender as? UIKeyCommand)
         NotificationCenter.default.post(name: .selectTab, object: self, userInfo: ["tabIndex": 8])
     }
 
     @objc func menuSelectTab9(_ sender: Any?) {
+        noteModTapCommand(sender as? UIKeyCommand)
         NotificationCenter.default.post(name: .selectTab, object: self, userInfo: ["tabIndex": 9])
     }
 
     @objc func menuSplitRight(_ sender: Any?) {
+        noteModTapCommand(sender as? UIKeyCommand)
         NotificationCenter.default.post(name: .createSplit, object: self, userInfo: ["direction": "right"])
     }
 
     @objc func menuSplitLeft(_ sender: Any?) {
+        noteModTapCommand(sender as? UIKeyCommand)
         NotificationCenter.default.post(name: .createSplit, object: self, userInfo: ["direction": "left"])
     }
 
     @objc func menuSplitDown(_ sender: Any?) {
+        noteModTapCommand(sender as? UIKeyCommand)
         NotificationCenter.default.post(name: .createSplit, object: self, userInfo: ["direction": "down"])
     }
 
     @objc func menuSplitUp(_ sender: Any?) {
+        noteModTapCommand(sender as? UIKeyCommand)
         NotificationCenter.default.post(name: .createSplit, object: self, userInfo: ["direction": "up"])
     }
 
     @objc func menuNavigateSplitLeft(_ sender: Any?) {
+        noteModTapCommand(sender as? UIKeyCommand)
         NotificationCenter.default.post(name: .navigateSplit, object: self, userInfo: ["direction": "left"])
     }
 
     @objc func menuNavigateSplitRight(_ sender: Any?) {
+        noteModTapCommand(sender as? UIKeyCommand)
         NotificationCenter.default.post(name: .navigateSplit, object: self, userInfo: ["direction": "right"])
     }
 
     @objc func menuNavigateSplitUp(_ sender: Any?) {
+        noteModTapCommand(sender as? UIKeyCommand)
         NotificationCenter.default.post(name: .navigateSplit, object: self, userInfo: ["direction": "up"])
     }
 
     @objc func menuNavigateSplitDown(_ sender: Any?) {
+        noteModTapCommand(sender as? UIKeyCommand)
         NotificationCenter.default.post(name: .navigateSplit, object: self, userInfo: ["direction": "down"])
     }
 
     @objc func menuToggleSplitZoom(_ sender: Any?) {
+        noteModTapCommand(sender as? UIKeyCommand)
         NotificationCenter.default.post(name: .toggleSplitZoom, object: self)
     }
 
     @objc func menuEqualizeSplits(_ sender: Any?) {
+        noteModTapCommand(sender as? UIKeyCommand)
         NotificationCenter.default.post(name: .equalizeSplits, object: self)
     }
 
     @objc func menuOpenSettings(_ sender: Any?) {
+        noteModTapCommand(sender as? UIKeyCommand)
         NotificationCenter.default.post(name: .openSettings, object: self)
     }
 
     @objc func menuBrowseHosts(_ sender: Any?) {
+        noteModTapCommand(sender as? UIKeyCommand)
         NotificationCenter.default.post(name: .browseHosts, object: self)
     }
 
     @objc func menuBrowseProfiles(_ sender: Any?) {
+        noteModTapCommand(sender as? UIKeyCommand)
         NotificationCenter.default.post(name: .browseProfiles, object: self)
     }
 
     @objc func menuToggleTabBar(_ sender: Any?) {
+        noteModTapCommand(sender as? UIKeyCommand)
         NotificationCenter.default.post(name: .toggleTabBar, object: self)
     }
 
     @objc func menuToggleGroupMode(_ sender: Any?) {
+        noteModTapCommand(sender as? UIKeyCommand)
         NotificationCenter.default.post(name: .toggleGroupMode, object: self)
     }
 
     @objc func menuPreviousGroup(_ sender: Any?) {
+        noteModTapCommand(sender as? UIKeyCommand)
         NotificationCenter.default.post(name: .previousGroup, object: self)
     }
 
     @objc func menuNextGroup(_ sender: Any?) {
+        noteModTapCommand(sender as? UIKeyCommand)
         NotificationCenter.default.post(name: .nextGroup, object: self)
     }
 
     @objc func menuShowTmuxSessions(_ sender: Any?) {
+        noteModTapCommand(sender as? UIKeyCommand)
         NotificationCenter.default.post(name: .showTmuxSessions, object: self)
     }
 
     @objc func menuDetachOtherClients(_ sender: Any?) {
+        noteModTapCommand(sender as? UIKeyCommand)
         NotificationCenter.default.post(name: .detachOtherClients, object: self)
     }
 
     @objc func menuToggleTransparency(_ sender: Any?) {
+        noteModTapCommand(sender as? UIKeyCommand)
         NotificationCenter.default.post(name: .toggleTransparency, object: self)
     }
 
     @objc func menuToggleTitleBar(_ sender: Any?) {
+        noteModTapCommand(sender as? UIKeyCommand)
         NotificationCenter.default.post(name: .toggleTitleBar, object: self)
     }
 
     @objc func menuToggleFullScreen(_ sender: Any?) {
+        noteModTapCommand(sender as? UIKeyCommand)
         NotificationCenter.default.post(name: .toggleFullScreen, object: self)
     }
 
     // Terminal actions - use ghostty_surface_binding_action
     // Note: Copy/Paste/Select All are handled by system Edit menu routing to responder chain
     @objc func menuClearScreen(_ sender: Any?) {
+        noteModTapCommand(sender as? UIKeyCommand)
         performActionAsync("clear_screen")
     }
 
     @objc func menuScrollPageUp(_ sender: Any?) {
+        noteModTapCommand(sender as? UIKeyCommand)
         performActionAsync("scroll_page_up")
     }
 
     @objc func menuScrollPageDown(_ sender: Any?) {
+        noteModTapCommand(sender as? UIKeyCommand)
         performActionAsync("scroll_page_down")
     }
 
     @objc func menuScrollToTop(_ sender: Any?) {
+        noteModTapCommand(sender as? UIKeyCommand)
         performActionAsync("scroll_to_top")
     }
 
     @objc func menuScrollToBottom(_ sender: Any?) {
+        noteModTapCommand(sender as? UIKeyCommand)
         performActionAsync("scroll_to_bottom")
     }
 
     @objc func menuToggleCompose(_ sender: Any?) {
+        noteModTapCommand(sender as? UIKeyCommand)
         if showComposeOverlay {
             becomeFirstResponder()
         }
@@ -2063,6 +2154,7 @@ extension Ghostty.TerminalView {
     }
 
     @objc func menuToggleMouseCapture(_ sender: Any?) {
+        noteModTapCommand(sender as? UIKeyCommand)
         toggleMouseReporting()
         // `toggleMouseReporting()` refreshes `isMouseCaptured` synchronously,
         // so the menu bar's checkmark reads the settled value. `isMouseCaptured`
@@ -2071,6 +2163,7 @@ extension Ghostty.TerminalView {
     }
 
     @objc func menuCycleInputSource(_ sender: Any?) {
+        noteModTapCommand(sender as? UIKeyCommand)
         cycleInputSource()
     }
 }
@@ -2079,8 +2172,43 @@ extension Ghostty.TerminalView {
 
 extension Ghostty.TerminalView {
 
+    /// UIKit can dispatch an action without a raw key-down. Mark the chord
+    /// before the action can move focus or its source can be released.
+    func noteModTapCommand(_ command: UIKeyCommand? = nil) {
+        guard let source = modTapInterceptor.state?.sourceKey else { return }
+        if let command {
+            // Escape/Tab/printable source commands also arrive on key repeat.
+            if command.modifierFlags.isEmpty, KeyCode(hidUsage: source)?.uiKeyInput == command.input { return }
+        } else if ModTapState.modifierFlag(for: source) == nil {
+            // Menu/edit actions without a key identity only prove chord use
+            // for modifier sources, not for a pending printable source key.
+            return
+        }
+        modTapInterceptor.noteChordUse()
+    }
+
+    private func keybindClaimsTrigger(_ trigger: KeyTrigger) -> Bool {
+        let manager = KeybindManager.shared
+        let sequence = KeySequenceTracker.shared
+        return manager.keybind(for: trigger) != nil || manager.isSequencePrefix(trigger)
+            || (sequence.isAwaitingSecondKey && sequence.possibleBindings.contains { $0.sequence.triggers.last == trigger })
+    }
+
+    private func normalizedBindingTrigger(_ trigger: KeyTrigger) -> KeyTrigger {
+        @MainActor
+        func isClaimed(_ candidate: KeyTrigger) -> Bool {
+            let sequence = KeySequenceTracker.shared
+            if sequence.isAwaitingSecondKey {
+                return sequence.possibleBindings.contains { $0.sequence.triggers.last == candidate }
+            }
+            return keybindClaimsTrigger(candidate)
+        }
+        return trigger.resolvingShiftedSymbol(isClaimed: isClaimed)
+    }
+
     /// Handler for dynamically bound keyboard shortcuts from KeybindCommandGenerator
     @objc func handleKeybindCommand(_ command: UIKeyCommand) {
+        noteModTapCommand(command)
         commitKoreanCompositionIfNeeded(external: true)
         // An Option chord (⌘⌥[) still reaches the text input system as its
         // composed character ("“"); insertText would turn that into ESC+[.

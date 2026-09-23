@@ -13,10 +13,8 @@
 
 #if !COLLECTIONS_SINGLE_MODULE
 import InternalCollectionsUtilities
-import ContainersPreview
+import SpanPreview
 #endif
-
-#if compiler(>=6.2)
 
 @available(SwiftStdlib 5.0, *)
 extension UniqueArray where Element: ~Copyable {
@@ -34,16 +32,17 @@ extension UniqueArray where Element: ~Copyable {
   /// make room for the new item.
   ///
   /// - Parameter item: The new element to insert into the array.
-  /// - Parameter i: The position at which to insert the new element.
+  /// - Parameter index: The position at which to insert the new element.
   ///   `index` must be a valid index in the array.
-  ///
+  /// - Returns: A valid index to the newly inserted item.
   /// - Complexity: O(`self.count`)
   @inlinable
-  public mutating func insert(_ item: consuming Element, at index: Int) {
+  @discardableResult
+  public mutating func insert(_ item: consuming Element, at index: Int) -> Int {
     precondition(index >= 0 && index <= count)
     // FIXME: Avoid moving the subsequent elements twice.
     _ensureFreeCapacity(1)
-    _storage.insert(item, at: index)
+    return _storage.insert(item, at: index)
   }
 }
 
@@ -72,24 +71,25 @@ extension UniqueArray where Element: ~Copyable {
   ///     // `buffer` now contains [-999, 0, 1, 2, 999]
   ///
   /// - Parameters:
-  ///    - count: The number of items to insert into the array.
+  ///    - newItemCount: The number of items to insert into the array.
   ///    - index: The position at which to insert the new items.
   ///       `index` must be a valid index in the array.
   ///    - body: A callback that gets called at most once to directly
   ///       populate newly reserved storage within the array. The function
   ///       is called with an empty output span of capacity matching the
   ///       supplied count, and it must fully populate it before returning.
-  ///
+  /// - Returns: A valid index range addressing the newly inserted items.
   /// - Complexity: O(`self.count` + `count`)
   @_alwaysEmitIntoClient
   @inline(__always)
+  @discardableResult
   public mutating func insert<E: Error>(
     addingCount newItemCount: Int,
     at index: Int,
     initializingWith initializer: (inout OutputSpan<Element>) throws(E) -> Void
-  ) throws(E) {
+  ) throws(E) -> Range<Int> {
     _ensureFreeCapacity(newItemCount)
-    try _storage.insert(
+    return try _storage.insert(
       addingCount: newItemCount,
       at: index,
       initializingWith: initializer)
@@ -109,16 +109,17 @@ extension UniqueArray where Element: ~Copyable {
   /// - Parameters:
   ///    - items: A fully initialized buffer whose contents to move into
   ///        the array.
-  ///
+  /// - Returns: A valid index range addressing the newly inserted items.
   /// - Complexity: O(`self.count` + `items.count`)
   @_alwaysEmitIntoClient
+  @discardableResult
   public mutating func insert(
     moving items: UnsafeMutableBufferPointer<Element>,
     at index: Int
-  ) {
+  ) -> Range<Int> {
     // FIXME: Avoid moving the subsequent elements twice.
     _ensureFreeCapacity(items.count)
-    _storage.insert(moving: items, at: index)
+    return _storage.insert(moving: items, at: index)
   }
 
 #if UnstableContainersPreview
@@ -137,15 +138,17 @@ extension UniqueArray where Element: ~Copyable {
   ///        the array.
   ///    - index: The position at which to insert the new items.
   ///       `index` must be a valid index in the array.
-  ///
+  /// - Returns: A valid index range addressing the newly inserted items.
   /// - Complexity: O(`self.count` + `items.count`)
   @_alwaysEmitIntoClient
+  @discardableResult
   public mutating func insert(
     moving items: inout InputSpan<Element>,
     at index: Int
-  ) {
+  ) -> Range<Int> {
+    // FIXME: Remove when InputSpan starts conforming to RangeReplaceableContainer
     _ensureFreeCapacity(items.count)
-    _storage.insert(moving: &items, at: index)
+    return _storage.insert(moving: &items, at: index)
   }
 #endif
 
@@ -164,15 +167,17 @@ extension UniqueArray where Element: ~Copyable {
   ///        the array.
   ///    - index: The position at which to insert the new items.
   ///       `index` must be a valid index in the array.
-  ///
+  /// - Returns: A valid index range addressing the newly inserted items.
   /// - Complexity: O(`self.count` + `items.count`)
   @_alwaysEmitIntoClient
+  @discardableResult
   public mutating func insert(
     moving items: inout OutputSpan<Element>,
     at index: Int
-  ) {
+  ) -> Range<Int> {
+    // FIXME: Remove when OutputSpan starts conforming to RangeReplaceableContainer
     _ensureFreeCapacity(items.count)
-    _storage.insert(moving: &items, at: index)
+    return _storage.insert(moving: &items, at: index)
   }
 
   /// Inserts the elements of a given array into the given position in this
@@ -186,97 +191,19 @@ extension UniqueArray where Element: ~Copyable {
   ///
   /// - Parameters:
   ///    - items: An array whose contents to move into `self`.
-  ///
+  ///    - index: The position in `self` at which to insert the new items.
+  /// - Returns: A valid index range addressing the newly inserted items.
   /// - Complexity: O(`self.count` + `items.count`)
   @_alwaysEmitIntoClient
+  @discardableResult
   public mutating func insert(
     moving items: inout RigidArray<Element>,
     at index: Int
-  ) {
+  ) -> Range<Int> {
     // FIXME: Avoid moving the subsequent elements twice.
     _ensureFreeCapacity(items.count)
-    _storage.insert(moving: &items, at: index)
+    return _storage.insert(moving: &items, at: index)
   }
-}
-
-@available(SwiftStdlib 5.0, *)
-extension UniqueArray where Element: ~Copyable {
-#if UnstableContainersPreview
-  /// Inserts the elements of a given array into the given position in this
-  /// array by consuming the source container.
-  ///
-  /// If the array does not have sufficient capacity to hold all elements,
-  /// then this reallocates storage to extend its capacity, using a geometric
-  /// growth rate.
-  ///
-  /// - Parameters:
-  ///    - items: A fully initialized buffer whose contents to move into
-  ///        the array.
-  ///
-  /// - Complexity: O(`self.count` + `items.count`)
-  @_alwaysEmitIntoClient
-  public mutating func insert(
-    consuming items: consuming RigidArray<Element>,
-    at index: Int
-  ) {
-    // FIXME: Remove this in favor of a generic algorithm over consumable containers
-    // FIXME: Avoid moving the subsequent elements twice.
-    _ensureFreeCapacity(items.count)
-    _storage.insert(consuming: items, at: index)
-  }
-#endif
-}
-
-@available(SwiftStdlib 5.0, *)
-extension UniqueArray where Element: ~Copyable {
-#if compiler(>=6.4) && UnstableContainersPreview
-  /// Inserts at most `newItemCount` items generated by a producer into this
-  /// array, starting at the given index.
-  ///
-  /// Existing elements in the array's storage are moved as needed to make room
-  /// for the new items.
-  ///
-  /// If the array does not have sufficient capacity to hold enough items,
-  /// then this reallocates the array's storage to grow its capacity, using a
-  /// geometric growth rate.
-  ///
-  /// This operation inserts as many items as the producer can generate before
-  /// either reaching `newItemCount`, or the producer hitting its end, or
-  /// throwing an error. If the producer has more than `newItemCount` items
-  /// left in its underlying sequence, then extra items remain available after
-  /// this method returns.
-  ///
-  /// If the operation inserts fewer than `newItemCount` items, then it results
-  /// in a gap in array storage that needs to be closed by moving some
-  /// items to their correct positions given the adjusted count. This adds some
-  /// overhead compared to adding exactly as many items as promised.
-  ///
-  /// - Parameters:
-  ///    - newItemCount: The maximum number of items to insert into the array.
-  ///    - index: The position at which to insert the new items.
-  ///       `index` must be a valid index in the array.
-  ///    - producer: A producer that generates the items to append.
-  ///
-  /// - Complexity: O(`self.count` + `newItemCount`) when amortized over many
-  ///     similar invocations on the same array.
-  @_alwaysEmitIntoClient
-  public mutating func insert<
-    E: Error,
-    P: Producer<Element, E> & ~Copyable & ~Escapable
-  >(
-    addingCount newItemCount: Int,
-    from producer: inout P,
-    at index: Int
-  ) throws(E)
-  where P.Element: ~Copyable
-  {
-    try insert(addingCount: newItemCount, at: index) { target throws(E) in
-      while !target.isFull, try producer.generate(into: &target) {
-        // Do nothing
-      }
-    }
-  }
-  #endif
 }
 
 @available(SwiftStdlib 5.0, *)
@@ -300,15 +227,16 @@ extension UniqueArray {
   ///       must be fully initialized.
   ///    - index: The position at which to insert the new elements. It must be
   ///       a valid index of the array.
-  ///
+  /// - Returns: A valid index range addressing the newly inserted items.
   /// - Complexity: O(`self.count` + `newElements.count`)
   @inlinable
+  @discardableResult
   public mutating func insert(
     copying newElements: UnsafeBufferPointer<Element>, at index: Int
-  ) {
+  ) -> Range<Int> {
     // FIXME: Avoid moving the subsequent elements twice.
     _ensureFreeCapacity(newElements.count)
-    unsafe _storage.insert(copying: newElements, at: index)
+    return unsafe _storage.insert(copying: newElements, at: index)
   }
 
   /// Copies the elements of a fully initialized buffer pointer into this
@@ -330,13 +258,14 @@ extension UniqueArray {
   ///       must be fully initialized.
   ///    - index: The position at which to insert the new elements. It must be
   ///       a valid index of the array.
-  ///
+  /// - Returns: A valid index range addressing the newly inserted items.
   /// - Complexity: O(`self.count` + `newElements.count`)
   @inlinable
+  @discardableResult
   public mutating func insert(
     copying newElements: UnsafeMutableBufferPointer<Element>,
     at index: Int
-  ) {
+  ) -> Range<Int> {
     unsafe self.insert(copying: UnsafeBufferPointer(newElements), at: index)
   }
 
@@ -357,52 +286,17 @@ extension UniqueArray {
   ///    - newElements: The new elements to insert into the array.
   ///    - index: The position at which to insert the new elements. It must be
   ///        a valid index of the array.
-  ///
+  /// - Returns: A valid index range addressing the newly inserted items.
   /// - Complexity: O(`self.count` + `newElements.count`)
   @inlinable
+  @discardableResult
   public mutating func insert(
     copying newElements: Span<Element>, at index: Int
-  ) {
+  ) -> Range<Int> {
     // FIXME: Avoid moving the subsequent elements twice.
     _ensureFreeCapacity(newElements.count)
-    _storage.insert(copying: newElements, at: index)
+    return _storage.insert(copying: newElements, at: index)
   }
-
-#if compiler(>=6.4) && UnstableContainersPreview
-  /// Copies the elements of a container into this array at the specified
-  /// position.
-  ///
-  /// The new elements are inserted before the element currently at the
-  /// specified index. If you pass the array's `endIndex` as the `index`
-  /// parameter, then the new elements are appended to the end of the array.
-  ///
-  /// All existing elements at or following the specified position are moved to
-  /// make room for the new item.
-  ///
-  /// If the array does not have sufficient capacity to hold enough elements,
-  /// then this reallocates the array's storage to extend its capacity, using a
-  /// geometric growth rate.
-  ///
-  /// - Parameters:
-  ///    - newElements: The new elements to insert into the array.
-  ///    - index: The position at which to insert the new elements. It must be
-  ///        a valid index of the array.
-  ///
-  /// - Complexity: O(*n* + *m*), where *n* is count of this array and
-  ///    *m* is the count of `newElements`.
-  @_alwaysEmitIntoClient
-  @inline(__always)
-  public mutating func insert<
-    C: Container<Element> & ~Copyable & ~Escapable
-  >(
-    copying newElements: borrowing C, at index: Int
-  ) {
-    // FIXME: Avoid moving the subsequent elements twice.
-    let c = newElements.count
-    _ensureFreeCapacity(c)
-    _storage._insertContainer(at: index, copying: newElements, newCount: c)
-  }
-#endif
 
   /// Copies the elements of a collection into this array at the specified
   /// position.
@@ -422,54 +316,20 @@ extension UniqueArray {
   ///    - newElements: The new elements to insert into the array.
   ///    - index: The position at which to insert the new elements. It must be
   ///        a valid index of the array.
-  ///
+  /// - Returns: A valid index range addressing the newly inserted items.
   /// - Complexity: O(`self.count` + `newElements.count`)
   @inlinable
+  @discardableResult
   public mutating func insert(
     copying newElements: some Collection<Element>, at index: Int
-  ) {
+  ) -> Range<Int> {
+    // FIXME: Remove this -- RangeReplaceContainer already has this algorithm.
+    // (Note that this would be source breaking while RRC lives in the separate
+    // ContainersPreview module.)
     // FIXME: Avoid moving the subsequent elements twice.
     let newCount = newElements.count
     _ensureFreeCapacity(newCount)
-    _storage._insertCollection(
-      at: index, copying: newElements, newCount: newCount)
+    return _storage._insertCollection(
+      addingCount: newCount, copying: newElements, at: index)
   }
-  
-#if compiler(>=6.4) && UnstableContainersPreview
-  /// Copies the elements of a container into this array at the specified
-  /// position.
-  ///
-  /// The new elements are inserted before the element currently at the
-  /// specified index. If you pass the array's `endIndex` as the `index`
-  /// parameter, then the new elements are appended to the end of the array.
-  ///
-  /// All existing elements at or following the specified position are moved to
-  /// make room for the new item.
-  ///
-  /// If the array does not have sufficient capacity to hold enough elements,
-  /// then this reallocates the array's storage to extend its capacity, using a
-  /// geometric growth rate.
-  ///
-  /// - Parameters:
-  ///    - newElements: The new elements to insert into the array.
-  ///    - index: The position at which to insert the new elements. It must be
-  ///        a valid index of the array.
-  ///
-  /// - Complexity: O(*n* + *m*), where *n* is count of this array and
-  ///    *m* is the count of `newElements`.
-  @_alwaysEmitIntoClient
-  @inline(__always)
-  public mutating func insert<
-    C: Container<Element> & Collection<Element>
-  >(
-    copying newElements: borrowing C, at index: Int
-  ) {
-    // FIXME: Avoid moving the subsequent elements twice.
-    let c = newElements.count
-    _ensureFreeCapacity(c)
-    _storage._insertContainer(at: index, copying: newElements, newCount: c)
-  }
-#endif
 }
-
-#endif

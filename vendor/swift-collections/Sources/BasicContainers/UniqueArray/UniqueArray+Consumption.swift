@@ -13,19 +13,12 @@
 
 #if !COLLECTIONS_SINGLE_MODULE
 import InternalCollectionsUtilities
-import ContainersPreview
+import SpanPreview
 #endif
-
-#if compiler(>=6.2)
 
 #if UnstableContainersPreview
 @available(SwiftStdlib 5.0, *)
 extension UniqueArray where Element: ~Copyable {
-  @_lifetime(&self)
-  public mutating func _consumeAll() -> InputSpan<Element> {
-    _storage._consumeAll()
-  }
-
   /// Remove the specified subrange of items from this array,
   /// passing an input span to the given function to consume them in place.
   ///
@@ -35,14 +28,16 @@ extension UniqueArray where Element: ~Copyable {
   ///    The function is not required to consume all items in the span;
   ///    however, the span's remaining items will still be removed from
   ///    the array.
-  ///
+  /// - Returns: A valid index addressing the position following the consumed
+  ///    range in the resulting array.
   /// - Complexity: O(`self.count`)
   @_alwaysEmitIntoClient
-  public mutating func consume(
+  @discardableResult
+  public mutating func consumeSubrange(
     _ subrange: Range<Int>,
     consumingWith consumer: (inout InputSpan<Element>) -> Void
-  ) {
-    _storage.consume(subrange, consumingWith: consumer)
+  ) -> Index {
+    _storage.consumeSubrange(subrange, consumingWith: consumer)
   }
 
   /// Remove the specified subrange of items from this deque,
@@ -60,15 +55,18 @@ extension UniqueArray where Element: ~Copyable {
   /// - Parameter consumer: A function taking an input span of the removed items,
   ///    allowing them to be consumed straight out of the array's storage.
   ///    The function is called at most once.
- ///
+  /// - Returns: A valid index addressing the position following the consumed
+  ///    range in the resulting array.
   /// - Complexity: O(`self.count`)
   @_alwaysEmitIntoClient
   @inline(__always)
-  public mutating func consume<R: RangeExpression<Index>>(
+  @discardableResult
+  public mutating func consumeSubrange<R: RangeExpression<Index>>(
     _ subrange: R,
     consumingWith consumer: (inout InputSpan<Element>) -> Void
-  ) {
-    _storage.consume(subrange.relative(to: indices), consumingWith: consumer)
+  ) -> Index {
+    _storage.consumeSubrange(
+      subrange.relative(to: indices), consumingWith: consumer)
   }
 
   /// Remove all items currently in this array, passing an input
@@ -81,13 +79,12 @@ extension UniqueArray where Element: ~Copyable {
   /// - Parameter consumer: A function taking an input span of the removed items,
   ///    allowing them to be consumed straight out of the array's storage.
   ///    The function is called at most once.
-  ///
   /// - Complexity: O(`self.count`)
   @_alwaysEmitIntoClient
   public mutating func consumeAll(
     consumingWith consumer: (inout InputSpan<Element>) -> Void
   ) {
-    _storage.consume(indices, consumingWith: consumer)
+    _storage.consumeSubrange(indices, consumingWith: consumer)
   }
 
   /// Remove the specified number of items from the end of this array,
@@ -116,7 +113,7 @@ extension UniqueArray where Element: ~Copyable {
 }
 #endif
 
-#if compiler(>=6.3) && UnstableContainersPreview
+#if compiler(>=6.4) && UnstableContainersPreview
 @available(SwiftStdlib 5.0, *)
 extension UniqueArray where Element: ~Copyable {
   public typealias SubrangeConsumer = RigidArray<Element>.SubrangeConsumer
@@ -124,10 +121,8 @@ extension UniqueArray where Element: ~Copyable {
   @_alwaysEmitIntoClient
   @inline(__always)
   @_lifetime(&self)
-  public mutating func consume(_ subrange: Range<Index>) -> SubrangeConsumer {
+  public mutating func consumeSubrange(_ subrange: Range<Index>) -> SubrangeConsumer {
     SubrangeConsumer(_base: &self._storage, offsetRange: subrange)
   }
 }
-#endif
-
 #endif

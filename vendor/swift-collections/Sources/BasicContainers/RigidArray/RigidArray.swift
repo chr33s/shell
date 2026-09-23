@@ -13,7 +13,6 @@
 
 #if !COLLECTIONS_SINGLE_MODULE
 import InternalCollectionsUtilities
-import ContainersPreview
 #endif
 
 #if compiler(<6.2)
@@ -24,14 +23,19 @@ import ContainersPreview
 @available(*, unavailable, message: "RigidArray requires a Swift 6.2 toolchain")
 public struct RigidArray<Element: ~Copyable>: ~Copyable {
   @usableFromInline
-  internal var _storage: UnsafeMutableBufferPointer<Element>
+  internal var _ptr: UnsafeMutablePointer<Element>
+
+  @usableFromInline
+  internal var _capacity: Int
 
   @usableFromInline
   internal var _count: Int
 
   deinit {
-    _storage.extracting(0 ..< _count).deinitialize()
-    _storage.deallocate()
+    if _capacity != 0 {
+      _ptr.deinitialize(count: _count)
+      _ptr.deallocate()
+    }
   }
 
   public init() {
@@ -75,7 +79,7 @@ public struct RigidArray<Element: ~Copyable>: ~Copyable {
 /// time-constrained applications that cannot accommodate unexpected latency
 /// spikes due to a reallocation getting triggered at an inopportune moment.
 ///
-/// For use cases outside of these narrow domains, we generally recommmend
+/// For use cases outside of these narrow domains, we generally recommend
 /// the use of ``UniqueArray`` rather than `RigidArray`. (For copyable elements,
 /// the standard `Array` is an even more convenient choice.)
 @available(SwiftStdlib 5.0, *)
@@ -83,20 +87,28 @@ public struct RigidArray<Element: ~Copyable>: ~Copyable {
 @frozen
 public struct RigidArray<Element: ~Copyable>: ~Copyable {
   @usableFromInline
-  internal var _storage: UnsafeMutableBufferPointer<Element>
+  internal var _ptr: UnsafeMutablePointer<Element>
+
+  @usableFromInline
+  internal var _capacity: Int
 
   @usableFromInline
   internal var _count: Int
 
   @_alwaysEmitIntoClient
   deinit {
-    unsafe _storage.extracting(0 ..< _count).deinitialize()
-    unsafe _storage.deallocate()
+    if _capacity == 0 {
+      return
+    }
+
+    unsafe _ptr.deinitialize(count: _count)
+    unsafe _ptr.deallocate()
   }
 
   @_alwaysEmitIntoClient
   package init(_storage: UnsafeMutableBufferPointer<Element>, count: Int) {
-    self._storage = _storage
+    unsafe self._ptr = _storage.baseAddress.unsafelyUnwrapped
+    self._capacity = _storage.count
     self._count = count
   }
 }
@@ -104,17 +116,22 @@ public struct RigidArray<Element: ~Copyable>: ~Copyable {
 @available(SwiftStdlib 5.0, *)
 extension RigidArray: @unchecked Sendable where Element: Sendable & ~Copyable {}
 
-
 //MARK: - Basics
 
 @available(SwiftStdlib 5.0, *)
 extension RigidArray where Element: ~Copyable {
+  @_alwaysEmitIntoClient
+  @_transparent
+  internal var _storage: UnsafeMutableBufferPointer<Element> {
+    unsafe UnsafeMutableBufferPointer<Element>(start: _ptr, count: _capacity)
+  }
+
   /// The maximum number of elements this rigid array can hold.
   ///
   /// - Complexity: O(1)
   @inlinable
   @_transparent
-  public var capacity: Int { _assumeNonNegative(unsafe _storage.count) }
+  public var capacity: Int { _assumeNonNegative(_capacity) }
 
   /// The number of additional elements that can be added to this array without
   /// exceeding its storage capacity.
@@ -344,20 +361,25 @@ extension RigidArray where Element: ~Copyable {
   /// buffer of the specified capacity, moving all existing elements
   /// to its new storage. The old storage is then deallocated.
   ///
-  /// - Parameter newCapacity: The desired new capacity. `newCapacity` must be
-  ///    greater than or equal to the current count.
+  /// - Parameter newCapacity: The desired new capacity. The new capacity
+  ///    is set to the maximum of `newCapacity` and the current count.
   ///
   /// - Complexity: O(`count`)
   @inlinable
-  public mutating func reallocate(capacity newCapacity: Int) {
-    precondition(newCapacity >= count, "RigidArray capacity overflow")
+  public mutating func setCapacity(_ newCapacity: Int) {
+    let newCapacity = Swift.max(newCapacity, count)
     guard newCapacity != capacity else { return }
     let newStorage: UnsafeMutableBufferPointer<Element> = .allocate(
       capacity: newCapacity)
     let i = unsafe newStorage.moveInitialize(fromContentsOf: self._items)
     assert(i == count)
-    unsafe _storage.deallocate()
-    unsafe _storage = newStorage
+
+    if _capacity != 0 {
+      unsafe _storage.deallocate()
+    }
+
+    unsafe _ptr = newStorage.baseAddress.unsafelyUnwrapped
+    _capacity = newStorage.count
   }
 
   /// Ensure that the array has capacity to store the specified number of
@@ -371,7 +393,7 @@ extension RigidArray where Element: ~Copyable {
   @inlinable
   public mutating func reserveCapacity(_ n: Int) {
     guard capacity < n else { return }
-    reallocate(capacity: n)
+    setCapacity(n)
   }
 }
 

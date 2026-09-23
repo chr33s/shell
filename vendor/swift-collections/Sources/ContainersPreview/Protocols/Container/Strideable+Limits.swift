@@ -11,38 +11,17 @@
 //
 //===----------------------------------------------------------------------===//
 
-extension Strideable {
-  @inlinable
-  package mutating func _advance(
-    by distance: inout Stride, limitedBy limit: Self
-  ) {
-    if distance >= 0 {
-      guard limit >= self else {
-        self = self.advanced(by: distance)
-        distance = 0
-        return
-      }
-      let d = Swift.min(distance, self.distance(to: limit))
-      self = self.advanced(by: d)
-      distance -= d
-    } else {
-      guard limit <= self else {
-        self = self.advanced(by: distance)
-        distance = 0
-        return
-      }
-      let d = Swift.max(distance, self.distance(to: limit))
-      self = self.advanced(by: d)
-      distance -= d
-    }
-  }
+#if !COLLECTIONS_SINGLE_MODULE
+import InternalCollectionsUtilities
+#endif
 
 #if UnstableContainersPreview
+extension Strideable {
   @inlinable
   public mutating func advance(
     by distance: inout Stride, limitedBy limit: Self
   ) {
     _advance(by: &distance, limitedBy: limit)
   }
-#endif
 }
+#endif

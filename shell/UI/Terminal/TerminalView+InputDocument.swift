@@ -20,6 +20,11 @@ extension Ghostty.TerminalView {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.inputDocumentRequeryPending = false
+            // A tab handoff resets both terminals' documents. By the time this
+            // deferred callback runs, only the new responder owns UIKit's
+            // input session; notifying the old delegate starts unnecessary
+            // keyboard work and can query the wrong document during the switch.
+            guard self.isFirstResponder, self.window != nil else { return }
             self.notifyInputDelegateOfExternalChange { }
         }
     }
@@ -55,7 +60,12 @@ extension Ghostty.TerminalView {
             clearBulkDictationFallback()
         }
         if generation != correctionContext.generation || documentGeneration != correctionContext.documentGeneration {
-            requestInputDocumentRequery()
+            // Resets before focus acquisition are read by UIKit when it
+            // installs the new responder. Only an existing input session
+            // needs a subsequent external-document-change notification.
+            if isFirstResponder {
+                requestInputDocumentRequery()
+            }
         }
         return true
     }

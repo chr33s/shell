@@ -13,10 +13,7 @@
 
 #if !COLLECTIONS_SINGLE_MODULE
 import InternalCollectionsUtilities
-import ContainersPreview
 #endif
-
-#if compiler(>=6.2)
 
 @available(SwiftStdlib 5.0, *)
 extension UniqueDeque where Element: ~Copyable {
@@ -37,7 +34,7 @@ extension UniqueDeque where Element: ~Copyable {
   public mutating func remove(at index: Int) -> Element {
     _storage.remove(at: index)
   }
-  
+
   /// Removes all elements from the deque, preserving its allocated capacity.
   ///
   /// - Complexity: O(`count`)
@@ -46,7 +43,7 @@ extension UniqueDeque where Element: ~Copyable {
   public mutating func removeAll() {
     _storage.removeAll()
   }
-  
+
   /// Removes and returns the first element of the deque.
   ///
   /// The deque must not be empty.
@@ -60,7 +57,7 @@ extension UniqueDeque where Element: ~Copyable {
   public mutating func removeFirst() -> Element {
     _storage.removeFirst()
   }
-  
+
   /// Removes and returns the last element of the deque.
   ///
   /// The deque must not be empty.
@@ -74,7 +71,7 @@ extension UniqueDeque where Element: ~Copyable {
   public mutating func removeLast() -> Element {
     _storage.removeLast()
   }
-  
+
   /// Removes and discards the specified number of elements from the start of
   /// the deque.
   ///
@@ -91,7 +88,7 @@ extension UniqueDeque where Element: ~Copyable {
   public mutating func removeFirst(_ k: Int) {
     _storage.removeFirst(k)
   }
-  
+
   /// Removes and discards the specified number of elements from the end of the
   /// deque.
   ///
@@ -108,7 +105,7 @@ extension UniqueDeque where Element: ~Copyable {
   public mutating func removeLast(_ k: Int) {
     _storage.removeLast(k)
   }
-  
+
   /// Removes the specified subrange of elements from the deque.
   ///
   /// - Parameter bounds: The subrange to remove. The bounds of the
@@ -145,8 +142,8 @@ extension UniqueDeque where Element: ~Copyable {
   @_alwaysEmitIntoClient
   @inline(__always)
   public mutating func popLast() -> Element? {
+    // FIXME: Remove this algorithm; it is already provided by
+    // RangeReplaceableContainer, albeit with stricter availability.
     _storage.popLast()
   }
 }
-
-#endif

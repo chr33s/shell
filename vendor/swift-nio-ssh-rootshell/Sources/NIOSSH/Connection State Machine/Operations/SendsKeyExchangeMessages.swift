@@ -18,6 +18,8 @@ protocol SendsKeyExchangeMessages {
     var keyExchangeStateMachine: SSHKeyExchangeStateMachine { get set }
 
     var serializer: SSHPacketSerializer { get set }
+
+    var connectionAttributes: SSHConnectionStateMachine.Attributes { get }
 }
 
 extension SendsKeyExchangeMessages {
@@ -40,5 +42,8 @@ extension SendsKeyExchangeMessages {
         let result = self.keyExchangeStateMachine.sendNewKeys()
         try self.serializer.serialize(message: .newKeys, to: &buffer)
         self.serializer.addEncryption(result)
+        if self.connectionAttributes.strictKeyExchange {
+            self.serializer.resetSequenceNumber()
+        }
     }
 }

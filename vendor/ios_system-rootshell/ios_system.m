@@ -609,7 +609,16 @@ static void cleanup_function(void* parameters) {
 
 // Avoir calling crash_handler several times:
 static __thread bool crash_handler_called = false;
+static __thread bool is_command_thread = false;
 void crash_handler(int sig) {
+    if (sig == SIGPIPE && !is_command_thread) return;
+    if (!is_command_thread) {
+        // The handler is process-wide; a fault on any other thread (main,
+        // renderer, NIO) must crash normally, not pthread_exit that thread.
+        // Returning re-runs the faulting instruction under the default action.
+        signal(sig, SIG_DFL);
+        return;
+    }
     if (thread_stderr == NULL) thread_stderr = stderr;
     if (!crash_handler_called) {
         crash_handler_called = true;
@@ -660,6 +669,7 @@ static void* run_function(void* parameters) {
         if (currentSession != nil) currentSession->activePager = TRUE;
     }
 
+    is_command_thread = true;
     signal(SIGSEGV, crash_handler);
     signal(SIGBUS, crash_handler);
     signal(SIGPIPE, crash_handler);

@@ -134,6 +134,9 @@ extension SSHMessage {
         case .debug(let m):
             return "DEBUG alwaysDisplay=\(m.alwaysDisplay) message=\"\(NIOSSHTrace.truncate(m.message))\""
 
+        case .unknown(let m):
+            return "UNKNOWN type=\(m.type) bytes=\(m.payload.readableBytes)"
+
         case .serviceRequest(let r):
             return "SERVICE_REQUEST service=\(r.service)"
 

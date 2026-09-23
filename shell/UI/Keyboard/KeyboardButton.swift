@@ -78,6 +78,12 @@ enum KeyboardKeyColors {
 
 // MARK: - KeyboardButton
 
+enum KeyboardToolbarInteractionMode {
+    case accessory
+    case spacedBottom
+    case screenEdge
+}
+
 class KeyboardButton: UIControl {
     // MARK: - Properties
 
@@ -90,13 +96,87 @@ class KeyboardButton: UIControl {
     private let autoRepeatInterval: TimeInterval = 0.1  // Repeat interval
     private var defersCurrentTouchUntilRelease = false
     private var sentKeyDuringCurrentTouch = false
+    private var currentTouch: UITouch?
+    private var touchStartInWindow: CGPoint = .zero
+    private var currentTouchMode: KeyboardToolbarInteractionMode = .accessory
 
     /// Whether this button should auto-repeat when held
     var shouldAutoRepeat: Bool = false
 
     /// In bottom-edge toolbar mode, wait for touch-up so a Home swipe can
     /// cancel the touch without first emitting a terminal key.
-    var defersKeyUntilTouchUp: Bool = false
+    var interactionMode: KeyboardToolbarInteractionMode = .accessory
+
+    /// Dual-symbol keys deliberately allow a downward drag to select a symbol.
+    var allowsDownwardTouchSelection: Bool { false }
+
+    var canDispatchTouchAction: Bool {
+        guard let window else { return false }
+        #if !os(visionOS) && !targetEnvironment(macCatalyst)
+        return window.windowScene?.activationState == .foregroundActive
+        #else
+        return true
+        #endif
+    }
+
+    /// Also used by controls with their own tap/hold behavior.
+    func beginTouchInteraction(_ touches: Set<UITouch>) -> Bool {
+        guard canDispatchTouchAction, let touch = touches.first else {
+            cancelTouchInteraction()
+            return false
+        }
+        currentTouchMode = interactionMode
+        if currentTouchMode == .spacedBottom && !bounds.contains(touch.location(in: self)) {
+            cancelTouchInteraction()
+            return false
+        }
+        currentTouch = touch
+        touchStartInWindow = touch.location(in: window)
+        return true
+    }
+
+    /// Cancellation is permanent for this touch, even if it returns to the key.
+    func validateTouchInteraction() -> Bool {
+        guard canDispatchTouchAction, let touch = currentTouch else {
+            cancelTouchInteraction()
+            return false
+        }
+        if currentTouchMode == .spacedBottom {
+            let location = touch.location(in: window)
+            let dx = location.x - touchStartInWindow.x
+            let dy = location.y - touchStartInWindow.y
+            let local = touch.location(in: self)
+            let valid: Bool
+            if allowsDownwardTouchSelection {
+                valid = abs(dx) <= 10 && dy >= -10
+                    && local.x >= bounds.minX && local.x <= bounds.maxX
+                    && local.y >= bounds.minY
+            } else {
+                valid = hypot(dx, dy) <= 10 && bounds.contains(local)
+            }
+            guard valid else {
+                cancelTouchInteraction()
+                return false
+            }
+        }
+        return true
+    }
+
+    func finishTouchTracking() {
+        currentTouch = nil
+    }
+
+    func cancelTouchInteraction() {
+        finishTouchTracking()
+        stopAutoRepeat()
+        resetDeferredTouchState()
+        isHighlighted = false
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window == nil { cancelTouchInteraction() }
+    }
 
     // Override isHighlighted to update appearance
     override var isHighlighted: Bool {
@@ -137,8 +217,9 @@ class KeyboardButton: UIControl {
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         super.touchesBegan(touches, with: event)
+        guard beginTouchInteraction(touches) else { return }
         SystemShiftReader.shared.noteTouchEvent(event)
-        defersCurrentTouchUntilRelease = defersKeyUntilTouchUp
+        defersCurrentTouchUntilRelease = currentTouchMode != .accessory
         sentKeyDuringCurrentTouch = false
 
         if !defersCurrentTouchUntilRelease {
@@ -149,7 +230,7 @@ class KeyboardButton: UIControl {
         if shouldAutoRepeat {
             autoRepeatTimer?.invalidate()
             autoRepeatTimer = Timer.scheduledTimer(withTimeInterval: autoRepeatDelay, repeats: false) { [weak self] _ in
-                guard let self else { return }
+                guard let self, self.validateTouchInteraction() else { return }
                 if self.defersCurrentTouchUntilRelease {
                     self.sendKey()
                     self.playHaptic()
@@ -164,20 +245,25 @@ class KeyboardButton: UIControl {
         }
     }
 
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+        super.touchesMoved(touches, with: event)
+        _ = validateTouchInteraction()
+    }
+
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
         super.touchesEnded(touches, with: event)
+        guard validateTouchInteraction() else { return }
+        defer { cancelTouchInteraction() }
         stopAutoRepeat()
         if defersCurrentTouchUntilRelease && !sentKeyDuringCurrentTouch {
             sendKey()
             playHaptic()
         }
-        resetDeferredTouchState()
     }
 
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
         super.touchesCancelled(touches, with: event)
-        stopAutoRepeat()
-        resetDeferredTouchState()
+        cancelTouchInteraction()
     }
 
     private func resetDeferredTouchState() {
@@ -188,10 +274,12 @@ class KeyboardButton: UIControl {
     // MARK: - Auto-Repeat
 
     private func startAutoRepeat() {
+        guard validateTouchInteraction() else { return }
         autoRepeatTimer?.invalidate()
         autoRepeatTimer = Timer.scheduledTimer(withTimeInterval: autoRepeatInterval, repeats: true) { [weak self] _ in
-            self?.sendKey()
-            self?.playHaptic()
+            guard let self, self.validateTouchInteraction() else { return }
+            self.sendKey()
+            self.playHaptic()
         }
     }
 

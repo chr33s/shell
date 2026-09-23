@@ -11,7 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#if compiler(>=6.2) && !$Embedded
+#if !$Embedded
 
 @available(SwiftStdlib 6.2, *)
 extension BigString {
@@ -96,7 +96,7 @@ extension BigString.UTF8View.Iterator: IteratorProtocol {
   }
 
   public mutating func next<R>(
-    maximumCount: Int,
+    maximumCount: Int, // FIXME: Should be `maxCount`
     with body: (UnsafeBufferPointer<UInt8>) -> (consumed: Int, result: R)
   ) -> R {
     guard _index < _base.endIndex else {
@@ -187,4 +187,4 @@ extension BigString.UTF8View {
   }
 }
 
-#endif // compiler(>=6.2) && !$Embedded
+#endif // !$Embedded

@@ -149,8 +149,108 @@ final class SSHKeyExchangeStateMachineTests: XCTestCase {
         let message = client.createKeyExchangeMessage()
         XCTAssertEqual(
             message.keyExchangeAlgorithms,
-            SSHConnectionRole.client(clientConfig).keyExchangeAlgorithmNames + ["ext-info-c"]
+            SSHConnectionRole.client(clientConfig).keyExchangeAlgorithmNames + ["ext-info-c", "kex-strict-c-v00@openssh.com"]
         )
+    }
+
+    func testClientDetectsStrictKeyExchangeOnInitialExchangeOnly() throws {
+        let allocator = ByteBufferAllocator()
+        let loop = EmbeddedEventLoop()
+        let clientConfig = SSHClientConfiguration(userAuthDelegate: ExplodingAuthDelegate(), serverAuthDelegate: AcceptAllHostKeysDelegate())
+        let serverConfig = SSHServerConfiguration(hostKeys: [.init(ed25519Key: .init())], userAuthDelegate: DenyAllServerAuthDelegate())
+        var sessionIdentifier = allocator.buffer(capacity: 32)
+        sessionIdentifier.writeRepeatingByte(0, count: 32)
+
+        for previousSessionIdentifier in [nil, sessionIdentifier] {
+            var client = SSHKeyExchangeStateMachine(
+                allocator: allocator,
+                loop: loop,
+                role: .client(clientConfig),
+                remoteVersion: "SSH-2.0-OpenSSH_8.5",
+                keyExchangeAlgorithms: SSHKeyExchangeStateMachine.bundledKeyExchangeImplementations,
+                transportProtectionSchemes: [AES256GCMOpenSSHTransportProtection.self],
+                previousSessionIdentifier: previousSessionIdentifier
+            )
+            let server = SSHKeyExchangeStateMachine(
+                allocator: allocator,
+                loop: loop,
+                role: .server(serverConfig),
+                remoteVersion: Constants.version,
+                keyExchangeAlgorithms: SSHKeyExchangeStateMachine.bundledKeyExchangeImplementations,
+                transportProtectionSchemes: [AES256GCMOpenSSHTransportProtection.self],
+                previousSessionIdentifier: nil
+            )
+
+            let serverMessage = server.createKeyExchangeMessage()
+            XCTAssertTrue(serverMessage.keyExchangeAlgorithms.contains("kex-strict-s-v00@openssh.com"))
+
+            client.send(keyExchange: client.createKeyExchangeMessage())
+            _ = try self.assertGeneratesECDHKeyExchangeInit(client.handle(keyExchange: serverMessage))
+            XCTAssertEqual(client.strictKeyExchangeNegotiated, previousSessionIdentifier == nil)
+        }
+    }
+
+    /// Strict KEX must be off unless we advertised it too: the RouterOS compact proposal omits our
+    /// marker, so acting on the server's alone would reset only our sequence numbers.
+    func testStrictKeyExchangeRequiresOurOwnMarker() throws {
+        let allocator = ByteBufferAllocator()
+        let loop = EmbeddedEventLoop()
+
+        var client = SSHKeyExchangeStateMachine(
+            allocator: allocator,
+            loop: loop,
+            role: .client(.init(userAuthDelegate: ExplodingAuthDelegate(), serverAuthDelegate: AcceptAllHostKeysDelegate())),
+            remoteVersion: "SSH-2.0-ROSSSH",
+            keyExchangeAlgorithms: SSHKeyExchangeStateMachine.bundledKeyExchangeImplementations,
+            transportProtectionSchemes: [AES256GCMOpenSSHTransportProtection.self],
+            previousSessionIdentifier: nil
+        )
+        let server = SSHKeyExchangeStateMachine(
+            allocator: allocator,
+            loop: loop,
+            role: .server(.init(hostKeys: [.init(ed25519Key: .init())], userAuthDelegate: DenyAllServerAuthDelegate())),
+            remoteVersion: Constants.version,
+            keyExchangeAlgorithms: SSHKeyExchangeStateMachine.bundledKeyExchangeImplementations,
+            transportProtectionSchemes: [AES256GCMOpenSSHTransportProtection.self],
+            previousSessionIdentifier: nil,
+            localVersion: "SSH-2.0-ROSSSH"
+        )
+
+        let clientMessage = client.createKeyExchangeMessage()
+        XCTAssertEqual(clientMessage.keyExchangeAlgorithms, ["curve25519-sha256", "curve25519-sha256@libssh.org"])
+
+        // The server does advertise strict KEX, and it must still not take effect.
+        let serverMessage = server.createKeyExchangeMessage()
+        XCTAssertTrue(serverMessage.keyExchangeAlgorithms.contains("kex-strict-s-v00@openssh.com"))
+
+        client.send(keyExchange: clientMessage)
+        _ = try self.assertGeneratesECDHKeyExchangeInit(client.handle(keyExchange: serverMessage))
+        XCTAssertFalse(client.strictKeyExchangeNegotiated)
+    }
+
+    func testServerDetectsStrictKeyExchangeOnInitialExchangeOnly() throws {
+        let allocator = ByteBufferAllocator()
+        let loop = EmbeddedEventLoop()
+        var sessionIdentifier = allocator.buffer(capacity: 32)
+        sessionIdentifier.writeRepeatingByte(0, count: 32)
+
+        for previousSessionIdentifier in [nil, sessionIdentifier] {
+            var server = SSHKeyExchangeStateMachine(
+                allocator: allocator,
+                loop: loop,
+                role: .server(.init(hostKeys: [.init(ed25519Key: .init())], userAuthDelegate: DenyAllServerAuthDelegate())),
+                remoteVersion: "SSH-2.0-OpenSSH_8.5",
+                keyExchangeAlgorithms: SSHKeyExchangeStateMachine.bundledKeyExchangeImplementations,
+                transportProtectionSchemes: [AES256GCMOpenSSHTransportProtection.self],
+                previousSessionIdentifier: previousSessionIdentifier
+            )
+            var clientMessage = server.createKeyExchangeMessage()
+            clientMessage.keyExchangeAlgorithms = SSHConnectionRole.server(.init(hostKeys: [.init(ed25519Key: .init())], userAuthDelegate: DenyAllServerAuthDelegate())).keyExchangeAlgorithmNames + ["kex-strict-c-v00@openssh.com"]
+
+            server.send(keyExchange: server.createKeyExchangeMessage())
+            try self.assertGeneratesNoMessage(server.handle(keyExchange: clientMessage))
+            XCTAssertEqual(server.strictKeyExchangeNegotiated, previousSessionIdentifier == nil)
+        }
     }
 
     func testClientRekeyProposalDoesNotRequestExtensionInfo() throws {
@@ -178,6 +278,7 @@ final class SSHKeyExchangeStateMachineTests: XCTestCase {
             SSHConnectionRole.client(clientConfig).keyExchangeAlgorithmNames
         )
         XCTAssertFalse(message.keyExchangeAlgorithms.contains("ext-info-c"))
+        XCTAssertFalse(message.keyExchangeAlgorithms.contains("kex-strict-c-v00@openssh.com"))
     }
 
     func testServerIgnoresExtensionInfoMarkerDuringRekey() throws {

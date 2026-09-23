@@ -114,8 +114,6 @@ nonisolated final class SSHPTYHandler: ChannelDuplexHandler, @unchecked Sendable
                 )
                 context.triggerUserOutboundEvent(languageEnv, promise: nil)
             }
-
-            print("🌍 Locale sent to remote: \(locale)")
         }
 
         // Identify the client to the remote host; dropped silently by servers
@@ -134,12 +132,10 @@ nonisolated final class SSHPTYHandler: ChannelDuplexHandler, @unchecked Sendable
             // Execute a specific command (used for tmux auto-start)
             let execRequest = SSHChannelRequestEvent.ExecRequest(command: command, wantReply: false)
             context.triggerUserOutboundEvent(execRequest, promise: nil)
-            print("✅ PTY session established with exec command")
         } else {
             // Start interactive shell
             let shellRequest = SSHChannelRequestEvent.ShellRequest(wantReply: false)
             context.triggerUserOutboundEvent(shellRequest, promise: nil)
-            print("✅ PTY session established with size \(terminalSize.rows)x\(terminalSize.cols)")
         }
 
         ptySetup = true
@@ -272,10 +268,7 @@ nonisolated final class SSHPTYHandler: ChannelDuplexHandler, @unchecked Sendable
 
     /// Sends a window change request to the SSH server
     func sendWindowChange(newSize: TerminalPTY.TerminalSize) {
-        guard let context = storedContext, ptySetup else {
-            print("⚠️ Cannot send window change: PTY not ready")
-            return
-        }
+        guard let context = storedContext, ptySetup else { return }
 
         terminalSize = newSize
 

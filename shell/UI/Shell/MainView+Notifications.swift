@@ -114,6 +114,25 @@ extension MainView {
         // re-registering so a second call doesn't double up handlers.
         observerBag.removeAll()
 
+        observerBag.observeOnMainActor(GhosttyCommandRouting.paneCommandNotification) { [self] notification in
+            guard self.shouldHandleNotification(notification),
+                  let command = notification.userInfo?[GhosttyCommandRouting.paneCommandKey] as? GhosttyCommandRouting.PaneCommand,
+                  self.terminals.indices.contains(self.selectedTabIndex),
+                  let terminal = self.terminals[self.selectedTabIndex].focusedPane as? Ghostty.TerminalView
+            else { return }
+
+            switch command {
+            case .clearScreen: terminal.menuClearScreen(nil)
+            case .scrollPageUp: terminal.menuScrollPageUp(nil)
+            case .scrollPageDown: terminal.menuScrollPageDown(nil)
+            case .scrollToTop: terminal.menuScrollToTop(nil)
+            case .scrollToBottom: terminal.menuScrollToBottom(nil)
+            case .toggleCompose: terminal.menuToggleCompose(nil)
+            case .toggleMouseCapture: terminal.menuToggleMouseCapture(nil)
+            case .cycleInputSource: terminal.menuCycleInputSource(nil)
+            }
+        }
+
         #if !targetEnvironment(macCatalyst)
         observerBag.observeOnMainActor(UIScene.didDisconnectNotification) { [self] notification in
             self.handleSceneDisconnectNotification(notification)

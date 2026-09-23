@@ -71,6 +71,9 @@ public final class NIOSSHHandler {
     ///     - role: The role of this channel in the connection, client or server.
     ///     - allocator: An allocator for `ByteBuffer`s
     ///     - inboundChildChannelInitializer: A callback that will be invoked whenever the remote peer attempts to construct a new SSH channel in a connection.
+    /// Child-channel messages held back while a rekey forbids channel traffic (RFC 4253 §7.1).
+    private var pendingChildWrites = CircularBuffer<(SSHMessage, EventLoopPromise<Void>?)>(initialCapacity: 8)
+
     public init(role: SSHConnectionRole, allocator: ByteBufferAllocator, inboundChildChannelInitializer: ((Channel, SSHChannelType) -> EventLoopFuture<Void>)?) {
         self.stateMachine = SSHConnectionStateMachine(role: role)
         self.pendingWrite = false
@@ -141,6 +144,7 @@ extension NIOSSHHandler: ChannelDuplexHandler {
 
         self.dropAllPendingGlobalRequests(ChannelError.eof)
         self.dropUnsatisfiedGlobalRequests(ChannelError.eof)
+        self.failPendingChildWrites(ChannelError.eof)
         while let next = self.pendingChannelInitializations.popFirst() {
             next.promise?.fail(ChannelError.eof)
         }
@@ -165,6 +169,7 @@ extension NIOSSHHandler: ChannelDuplexHandler {
     }
 
     public func channelInactive(context: ChannelHandlerContext) {
+        self.failPendingChildWrites(ChannelError.ioOnClosedChannel)
         self.multiplexer?.parentChannelInactive()
     }
 
@@ -195,6 +200,8 @@ extension NIOSSHHandler: ChannelDuplexHandler {
         NIOSSHDebug.shared.increment("niossh.readComplete.multiplexerUs", by: t1 - t0)
 
         self.expectingChannelReadComplete = false
+
+        self.sendPendingChildWritesIfPossible()
 
         if self.pendingWrite {
             self.pendingWrite = false
@@ -262,6 +269,7 @@ extension NIOSSHHandler: ChannelDuplexHandler {
         case .emitMessage(let message):
             self.multiplexer?.recordStateMachineResult(isChannel: false)
             try self.writeMessage(message, context: context)
+            self.sendPendingChildWritesIfPossible()
         case .noMessage:
             self.multiplexer?.recordStateMachineResult(isChannel: false)
         case .possibleFutureMessage(let future):
@@ -272,6 +280,7 @@ extension NIOSSHHandler: ChannelDuplexHandler {
                 case .success(.some(let message)):
                     do {
                         try self.writeMessage(message, context: context)
+                        self.sendPendingChildWritesIfPossible()
                         self.pendingWrite = false
                         context.flush()
                     } catch {
@@ -294,6 +303,9 @@ extension NIOSSHHandler: ChannelDuplexHandler {
         case .globalRequestResponse(let response):
             self.multiplexer?.recordStateMachineResult(isChannel: false)
             try self.handleGlobalRequestResponse(response)
+        case .unimplemented(let sequenceNumber):
+            self.multiplexer?.recordStateMachineResult(isChannel: false)
+            self.handleUnimplemented(sequenceNumber: sequenceNumber)
         case .disconnect:
             self.multiplexer?.recordStateMachineResult(isChannel: false)
             // Welp, we immediately have to close.
@@ -387,6 +399,32 @@ extension NIOSSHHandler {
         self.sendGlobalRequestsIfPossible()
     }
 
+    /// Drains writes queued during a rekey once channel traffic is legal again. Sets `pendingWrite`; the caller flushes.
+    private func sendPendingChildWritesIfPossible() {
+        guard let context = self.context else {
+            self.failPendingChildWrites(ChannelError.ioOnClosedChannel)
+            return
+        }
+
+        guard !self.stateMachine.isRekeying, !self.pendingChildWrites.isEmpty else {
+            return
+        }
+
+        while let (message, promise) = self.pendingChildWrites.popFirst() {
+            do {
+                try self.writeMessage(SSHMultiMessage(message), context: context, promise: promise)
+            } catch {
+                promise?.fail(error)
+            }
+        }
+    }
+
+    private func failPendingChildWrites(_ error: Error) {
+        while let next = self.pendingChildWrites.popFirst() {
+            next.1?.fail(error)
+        }
+    }
+
     private func dropAllPendingGlobalRequests(_ error: Error) {
         while let next = self.pendingGlobalRequests.popFirst() {
             next.1?.fail(error)
@@ -397,6 +435,16 @@ extension NIOSSHHandler {
         while let next = self.pendingGlobalRequestResponses.popFirst() {
             next?.fail(error)
         }
+    }
+
+    /// Some peers answer a global request with UNIMPLEMENTED instead of the
+    /// SSH_MSG_REQUEST_FAILURE RFC 4254 §4 asks for; settle the oldest promise anyway.
+    private func handleUnimplemented(sequenceNumber: UInt32) {
+        NIOSSHDebug.shared.event("peer sent UNIMPLEMENTED for seq=\(sequenceNumber)")
+        guard let next = self.pendingGlobalRequestResponses.popFirst() else {
+            return
+        }
+        next?.fail(NIOSSHError.remotePeerDoesNotSupportMessage(.init(sequenceNumber: sequenceNumber)))
     }
 
     private func handleGlobalRequestResponse(_ response: SSHConnectionStateMachine.StateMachineInboundProcessResult.GlobalRequestResponse) throws {
@@ -563,6 +611,14 @@ extension NIOSSHHandler: SSHMultiplexerDelegate {
         }
 
         NIOSSHDebug.shared.increment("niossh.childWrite")
+
+        // Queue while rekeying, and while a queue exists so ordering is preserved until it drains.
+        if self.stateMachine.isRekeying || !self.pendingChildWrites.isEmpty {
+            NIOSSHDebug.shared.increment("niossh.childWrite.queuedForRekey")
+            self.pendingChildWrites.append((message, promise))
+            return
+        }
+
         do {
             try self.writeMessage(SSHMultiMessage(message), context: context, promise: promise)
         } catch {

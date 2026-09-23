@@ -1,58 +1,58 @@
 {
   "BigInt": {
     "binaries": {},
-    "commit": "e07e00fa1fd435143a2dcf8b7eec9a7710b2fdfe",
+    "commit": "63feef7820abb1a8fb08587d7da56bb0b7db8751",
     "drop": [],
-    "ref": "v5.7.0",
+    "ref": "v6.0.1",
     "url": "https://github.com/attaswift/BigInt.git"
   },
   "Citadel-rootshell": {
     "binaries": {},
-    "commit": "705322ad551cff91d46e55e84ad90faf39d40deb",
+    "commit": "a53b1aeb35c6b9e2ef651d4208e0580fb4b0054f",
     "drop": [
       "colorizeswift"
     ],
-    "ref": "0.12.4",
+    "ref": "0.12.7",
     "url": "https://github.com/kitknox/Citadel-rootshell.git"
   },
   "ghosttykit-rootshell": {
     "binaries": {
       "GhosttyKitAppStore": {
-        "checksum": "caf71fe4361827cd500c408090900e157f8e439cac02d20a5003c40c8560b1f1",
-        "url": "https://github.com/kitknox/ghosttykit-rootshell/releases/download/v0.2.12/GhosttyKitAppStore.xcframework.zip"
+        "checksum": "ea6c4661c88a860615e4db47955b470a3c7b12ead645e1e24b34764999ff3a9b",
+        "url": "https://github.com/kitknox/ghosttykit-rootshell/releases/download/v0.2.14/GhosttyKitAppStore.xcframework.zip"
       }
     },
-    "commit": "6fdfffd231af7c23e85d95de5e26f9e78d299c00",
+    "commit": "1c1c0db44098c487db15aa0fdeb242aca2953a01",
     "drop": [],
-    "ref": "v0.2.12",
+    "ref": "v0.2.14",
     "url": "https://github.com/kitknox/ghosttykit-rootshell.git"
   },
   "ios_system-rootshell": {
     "binaries": {
       "awk": {
-        "checksum": "4e65e4f31a1a6b9270de0b7d2bb8514933c4693686f9659beb35db51043c324e",
-        "url": "https://github.com/kitknox/ios_system-rootshell/releases/download/v0.1.0/awk.xcframework.zip"
+        "checksum": "3c521da24fcfd4b42d7589394c8810ca25f960de2857e128ef7a9078a6aa12bf",
+        "url": "https://github.com/kitknox/ios_system-rootshell/releases/download/v0.1.1/awk.xcframework.zip"
       },
       "files": {
-        "checksum": "a55e031b73974e94b209d43343e0608a188baf887f91d45eb7a7f9d112197c90",
-        "url": "https://github.com/kitknox/ios_system-rootshell/releases/download/v0.1.0/files.xcframework.zip"
+        "checksum": "c75548c67c3e1349269011a933815385a25b38b5cb4ae31e5ca372a35045191c",
+        "url": "https://github.com/kitknox/ios_system-rootshell/releases/download/v0.1.1/files.xcframework.zip"
       },
       "ios_system": {
-        "checksum": "ce6a816ab9a901fe5df31ad6d819e19b773db32d25f612aa8318da11c6bc2cba",
-        "url": "https://github.com/kitknox/ios_system-rootshell/releases/download/v0.1.0/ios_system.xcframework.zip"
+        "checksum": "a2ba0979ae598ad6502b0646ebb4030c05494f900597db76a23f6693a4c85726",
+        "url": "https://github.com/kitknox/ios_system-rootshell/releases/download/v0.1.1/ios_system.xcframework.zip"
       },
       "shell": {
-        "checksum": "7d6c39a0c5ca8bedef3c2ba97ebf8be01b0c62f3960feaa16a1a9fcb5cba2aa6",
-        "url": "https://github.com/kitknox/ios_system-rootshell/releases/download/v0.1.0/shell.xcframework.zip"
+        "checksum": "8582d18805d1d6ab6f650ec41fda404073234904344020f5dfa48b2e73ab7bec",
+        "url": "https://github.com/kitknox/ios_system-rootshell/releases/download/v0.1.1/shell.xcframework.zip"
       },
       "text": {
-        "checksum": "8a3bb33c303ff3c51c3ddb23748bd989afc24d88353153dd7484e0a561ea3f11",
-        "url": "https://github.com/kitknox/ios_system-rootshell/releases/download/v0.1.0/text.xcframework.zip"
+        "checksum": "accf13b497593b228abf28c54a2f79d4c61ec6eb825a9dc13ce13c8e84c7ac65",
+        "url": "https://github.com/kitknox/ios_system-rootshell/releases/download/v0.1.1/text.xcframework.zip"
       }
     },
-    "commit": "8f84ebfc7ee44cb05402cabdd1a82b4214a173cd",
+    "commit": "d26afc264a78723afba6286695eadba5184dd7af",
     "drop": [],
-    "ref": "v0.1.0",
+    "ref": "v0.1.1",
     "url": "https://github.com/kitknox/ios_system-rootshell.git"
   },
   "swift-argument-parser": {
@@ -64,9 +64,9 @@
   },
   "swift-asn1": {
     "binaries": {},
-    "commit": "d9a5b37470adc940d22c3bcd5ca6953a516b727f",
+    "commit": "3b6410f7dee09eb33cdd26260c5fd47fda19b0e2",
     "drop": [],
-    "ref": "1.7.2",
+    "ref": "1.7.3",
     "url": "https://github.com/apple/swift-asn1.git"
   },
   "swift-atomics": {
@@ -78,39 +78,39 @@
   },
   "swift-collections": {
     "binaries": {},
-    "commit": "a0cb0954ecb21e4e31b0070e6ed5674e8556685a",
+    "commit": "a66de878e87ef5a3d5d390e0f6d9002aa5541a43",
     "drop": [],
-    "ref": "1.6.0",
+    "ref": "1.7.0",
     "url": "https://github.com/apple/swift-collections.git"
   },
   "swift-crypto": {
     "binaries": {},
-    "commit": "95ba0316a9b733e92bb6b071255ff46263bbe7dc",
+    "commit": "a9d1d5ab8951ada40cafff8c8e2b551dfde4f390",
     "drop": [],
-    "ref": "3.15.1",
+    "ref": "5.0.0",
     "url": "https://github.com/apple/swift-crypto.git"
   },
   "swift-log": {
     "binaries": {},
-    "commit": "3ffafb9722d5d918c614feb496c8789a3b59d222",
+    "commit": "9c6fb14227f55d8f711ce3847dc2f419fb0ecacb",
     "drop": [],
-    "ref": "1.15.0",
+    "ref": "1.15.1",
     "url": "https://github.com/apple/swift-log.git"
   },
   "swift-nio": {
     "binaries": {},
-    "commit": "a931f2c1de8dd49381ce3bf2e279d033f68d8865",
+    "commit": "21de5f08c1a166a6dd293d0e587ad977bf8dac5d",
     "drop": [],
-    "ref": "2.102.0",
+    "ref": "2.103.0",
     "url": "https://github.com/apple/swift-nio.git"
   },
   "swift-nio-ssh-rootshell": {
     "binaries": {},
-    "commit": "1f25be7463319bcc539ec27efce565a3530a61ef",
+    "commit": "622d9983bc81d4e785895ca2cb210bb812b9b163",
     "drop": [
       "swift-docc-plugin"
     ],
-    "ref": "0.1.2",
+    "ref": "0.1.4",
     "url": "https://github.com/kitknox/swift-nio-ssh-rootshell.git"
   },
   "swift-nio-transport-services": {

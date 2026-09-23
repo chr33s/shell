@@ -11,12 +11,19 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 //===----------------------------------------------------------------------===//
-#if CRYPTO_IN_SWIFTPM && !CRYPTO_IN_SWIFTPM_FORCE_BUILD_API
+#if canImport(CryptoKit)
 @_exported import CryptoKit
 #else
+#if hasFeature(SourceWarningControl)
+@diagnose(ImplementationOnlyDeprecated, as: ignored) @_implementationOnly import CCryptoBoringSSL
+#else
 @_implementationOnly import CCryptoBoringSSL
-@_implementationOnly import CCryptoBoringSSLShims
+#endif
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
 import Foundation
+#endif
 
 @available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
 extension Curve25519.KeyAgreement {
@@ -25,7 +32,7 @@ extension Curve25519.KeyAgreement {
 
     @usableFromInline
     @available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
-    struct OpenSSLCurve25519PublicKeyImpl {
+    struct OpenSSLCurve25519PublicKeyImpl: Sendable {
         @usableFromInline
         var keyBytes: [UInt8]
 
@@ -53,7 +60,7 @@ extension Curve25519.KeyAgreement {
 
     @usableFromInline
     @available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
-    struct OpenSSLCurve25519PrivateKeyImpl {
+    struct OpenSSLCurve25519PrivateKeyImpl: Sendable {
         var key: SecureBytes
 
         @usableFromInline
@@ -68,7 +75,7 @@ extension Curve25519.KeyAgreement {
                 publicKey.withUnsafeMutableBytes { publicKeyBytes in
                     precondition(publicKeyBytes.count >= Curve25519.KeyAgreement.keySizeBytes)
                     precondition(privateKeyBytes.count >= Curve25519.KeyAgreement.keySizeBytes)
-                    CCryptoBoringSSLShims_X25519_keypair(
+                    CCryptoBoringSSL_X25519_keypair(
                         publicKeyBytes.baseAddress,
                         privateKeyBytes.baseAddress
                     )
@@ -96,7 +103,7 @@ extension Curve25519.KeyAgreement {
                     publicKeyBytes,
                     publicKeySize in
                     precondition(publicKeyBytes.count >= Curve25519.KeyAgreement.keySizeBytes)
-                    CCryptoBoringSSLShims_X25519_public_from_private(
+                    CCryptoBoringSSL_X25519_public_from_private(
                         publicKeyBytes.baseAddress,
                         privatePointer.baseAddress
                     )
@@ -131,7 +138,7 @@ extension Curve25519.KeyAgreement {
                     // politely describe as a "lack of consensus" as to whether crypto libraries should reject this secret. CryptoKit on Apple
                     // platforms currently does not, so for the sake of conformance with our peer implementation I will also refuse to check it.
                     // We may elect to revisit this decision if the security best-practice thinking changes.
-                    CCryptoBoringSSLShims_X25519(
+                    CCryptoBoringSSL_X25519(
                         secretPointer.baseAddress,
                         privateKeyPointer.baseAddress,
                         publicKeyShare.keyBytes
@@ -158,4 +165,4 @@ extension Curve25519.KeyAgreement {
         }
     }
 }
-#endif  // CRYPTO_IN_SWIFTPM && !CRYPTO_IN_SWIFTPM_FORCE_BUILD_API
+#endif  // canImport(CryptoKit)

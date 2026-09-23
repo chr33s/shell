@@ -11,20 +11,19 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 //===----------------------------------------------------------------------===//
-import Foundation
-import XCTest
 
-#if CRYPTO_IN_SWIFTPM && !CRYPTO_IN_SWIFTPM_FORCE_BUILD_API
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
+import Foundation
+#endif
+import XCTest
+#if canImport(CryptoKit)
 // Skip tests that require @testable imports of CryptoKit.
 #else
-#if !CRYPTO_IN_SWIFTPM_FORCE_BUILD_API
-@testable import CryptoKit
-#else
 @testable import Crypto
-#endif
 
-// Curve448 is not supported on our platforms
-var unsupportedKEMs: [UInt16] = [0x0021]
+let unsupportedKEMs: [UInt16] = [0x0021]
 
 struct HPKETestEncryption: Codable {
     let aad: String
@@ -64,11 +63,7 @@ struct HPKETestVector: Codable {
 class HPKETestVectors: XCTestCase {
     
     func testVectors() throws {
-        #if !CRYPTO_IN_SWIFTPM_FORCE_BUILD_API
-        let bundle = Bundle(for: type(of: self))
-        #else
         let bundle = Bundle.module
-        #endif
         let fileURL = bundle.url(forResource: "hpke-test-vectors", withExtension: "json")!
         let data = try orFail { try Data(contentsOf: fileURL) }
         let decoder = JSONDecoder()
@@ -97,6 +92,9 @@ class HPKETestVectors: XCTestCase {
             XCTAssertNoThrow(try testWithKEM(tv, ciphersuite: ciphersuite, skR: P521.KeyAgreement.PrivateKey(rawRepresentation: skRBytes)))
         case .Curve25519_HKDF_SHA256:
             XCTAssertNoThrow(try testWithKEM(tv, ciphersuite: ciphersuite, skR: Curve25519.KeyAgreement.PrivateKey(rawRepresentation: skRBytes)))
+        case .XWingMLKEM768X25519:
+            // There are no test vectors for this implementation
+            break
         }
     }
     
@@ -193,4 +191,4 @@ private func aeadFromValue(value: UInt16) -> HPKE.AEAD? {
     return aeadValues.first
 }
 
-#endif // CRYPTO_IN_SWIFTPM
+#endif // canImport(CryptoKit)

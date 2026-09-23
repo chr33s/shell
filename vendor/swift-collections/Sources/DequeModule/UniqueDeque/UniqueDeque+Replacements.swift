@@ -13,10 +13,8 @@
 
 #if !COLLECTIONS_SINGLE_MODULE
 import InternalCollectionsUtilities
-import ContainersPreview
+import SpanPreview
 #endif
-
-#if compiler(>=6.2)
 
 @available(SwiftStdlib 5.0, *)
 extension UniqueDeque where Element: ~Copyable {
@@ -72,23 +70,24 @@ extension UniqueDeque where Element: ~Copyable {
   ///   - initializer: A callback that gets called at most twice to directly
   ///      populate newly reserved storage within the deque. The function
   ///      is always called with an empty output span.
-  ///
+  /// - Returns: A valid index range addressing the newly inserted items.
   /// - Complexity: O(`self.count` + `newCount`)
-  @inlinable
-  public mutating func replace<E: Error>(
-    removing subrange: Range<Int>,
+  @_alwaysEmitIntoClient
+  @discardableResult
+  public mutating func replaceSubrange<E: Error>(
+    _ subrange: Range<Int>,
     addingCount newItemCount: Int,
     initializingWith initializer: (inout OutputSpan<Element>) throws(E) -> Void
-  ) throws(E) -> Void {
+  ) throws(E) -> Range<Int> {
     _storage._checkValidBounds(subrange)
     precondition(newItemCount >= 0, "Cannot add a negative number of items")
     _ensureFreeCapacity(newItemCount - subrange.count)
-    try _storage._handle.uncheckedReplace(
-      removing: subrange,
+    return try _storage._handle.uncheckedReplaceSubrange(
+      subrange,
       addingCount: newItemCount,
       initializingWith: initializer)
   }
-  
+
 #if UnstableContainersPreview
   /// Replaces the specified range of elements by a given count of new items,
   /// using callbacks to consume old items, and to then insert new ones.
@@ -138,21 +137,22 @@ extension UniqueDeque where Element: ~Copyable {
   ///   - initializer: A callback that gets called at most twice to directly
   ///      populate newly reserved storage within the deque. The function
   ///      is always called with an empty output span.
-  ///
+  /// - Returns: A valid index range addressing the newly inserted items.
   /// - Complexity: O(`self.count` + `newItemCount`) in addition to the complexity
   ///    of the callback invocations.
-  @inlinable
-  public mutating func replace<E: Error>(
-    removing subrange: Range<Int>,
+  @_alwaysEmitIntoClient
+  @discardableResult
+  public mutating func replaceSubrange<E: Error>(
+    _ subrange: Range<Int>,
     consumingWith consumer: (inout InputSpan<Element>) -> Void,
     addingCount newItemCount: Int,
     initializingWith initializer: (inout OutputSpan<Element>) throws(E) -> Void
-  ) throws(E) -> Void {
+  ) throws(E) -> Range<Int> {
     _storage._checkValidBounds(subrange)
     precondition(newItemCount >= 0, "Cannot add a negative number of items")
     _ensureFreeCapacity(newItemCount - subrange.count)
-    try _storage._handle.uncheckedReplace(
-      removing: subrange,
+    return try _storage._handle.uncheckedReplaceSubrange(
+      subrange,
       consumingWith: consumer,
       addingCount: newItemCount,
       initializingWith: initializer)
@@ -189,15 +189,18 @@ extension UniqueDeque where Element: ~Copyable {
   ///     the range must be valid indices in the deque.
   ///   - items: A fully initialized buffer whose contents to move into
   ///     the deque.
-  ///
+  /// - Returns: A valid index range addressing the newly inserted items.
   /// - Complexity: O(`self.count` + `items.count`)
   @_alwaysEmitIntoClient
-  public mutating func replace(
-    removing subrange: Range<Int>,
+  @discardableResult
+  public mutating func replaceSubrange(
+    _ subrange: Range<Int>,
     moving items: UnsafeMutableBufferPointer<Element>,
-  ) {
+  ) -> Range<Int> {
     var remainder = items
-    replace(removing: subrange, addingCount: remainder.count) { target in
+    let range = replaceSubrange(
+      subrange, addingCount: remainder.count
+    ) { target in
       target.withUnsafeMutableBufferPointer { buffer, count in
         buffer.moveInitializeAll(
           fromContentsOf: remainder._trim(first: buffer.count))
@@ -205,8 +208,9 @@ extension UniqueDeque where Element: ~Copyable {
       }
     }
     assert(remainder.isEmpty)
+    return range
   }
-  
+
 #if UnstableContainersPreview
   /// Replaces the specified range of elements by moving the contents of an
   /// input span into their place. On return, the span is left empty.
@@ -233,17 +237,18 @@ extension UniqueDeque where Element: ~Copyable {
   ///   - subrange: The subrange of the deque to replace. The bounds of
   ///     the range must be valid indices in the deque.
   ///   - items: An input span whose contents are to be moved into the deque.
-  ///
+  /// - Returns: A valid index range addressing the newly inserted items.
   /// - Complexity: O(`self.count` + `items.count`)
   @_alwaysEmitIntoClient
-  public mutating func replace(
-    removing subrange: Range<Int>,
+  @discardableResult
+  public mutating func replaceSubrange(
+    _ subrange: Range<Int>,
     moving items: inout InputSpan<Element>
-  ) {
+  ) -> Range<Int> {
     items.withUnsafeMutableBufferPointer { buffer, count in
       let source = buffer._extracting(last: count)
-      unsafe self.replace(removing: subrange, moving: source)
       count = 0
+      return unsafe self.replaceSubrange(subrange, moving: source)
     }
   }
 #endif
@@ -273,77 +278,20 @@ extension UniqueDeque where Element: ~Copyable {
   ///   - subrange: The subrange of the array to replace. The bounds of
   ///     the range must be valid indices in the deque.
   ///   - items: An output span whose contents are to be moved into the deque.
-  ///
+  /// - Returns: A valid index range addressing the newly inserted items.
   /// - Complexity: O(`self.count` + `items.count`)
   @_alwaysEmitIntoClient
-  public mutating func replace(
-    removing subrange: Range<Int>,
+  @discardableResult
+  public mutating func replaceSubrange(
+    _ subrange: Range<Int>,
     moving items: inout OutputSpan<Element>
-  ) {
+  ) -> Range<Int> {
     items.withUnsafeMutableBufferPointer { buffer, count in
       let source = buffer._extracting(first: count)
-      unsafe self.replace(removing: subrange, moving: source)
       count = 0
+      return unsafe self.replaceSubrange(subrange, moving: source)
     }
   }
-
-#if compiler(>=6.4) && UnstableContainersPreview
-  /// Replaces the specified range of elements by at most `newItemCount` items
-  /// generated by a producer.
-  ///
-  /// This method has the effect of removing the specified range of elements
-  /// from the deque and inserting the new elements starting at the same
-  /// location. The number of new elements need not match the number of elements
-  /// being removed.
-  ///
-  /// If the deque doesn't have sufficient capacity to accommodate the new
-  /// elements, then this method reallocates the deque's storage to grow it,
-  /// using a geometric growth rate.
-  ///
-  /// If you pass a zero-length range as the `subrange` parameter, this method
-  /// inserts the items generated by `producer` at `subrange.lowerBound`. This
-  /// case is more directly expressed by calling `insert(moving:at:)`.
-  ///
-  /// Likewise, if the given producer is empty, then this method removes the
-  /// elements in the given subrange without replacement. This case is more
-  /// directly expressed by calling `removeSubrange`.
-  ///
-  /// This operation inserts as many items as the producer can generate before
-  /// either reaching `newItemCount`, or the producer hitting its end, or
-  /// throwing an error. If the producer has more than `newItemCount` items left in
-  /// its underlying sequence, then extra items remain available after this
-  /// method returns.
-  ///
-  /// If the operation inserts fewer than `newItemCount` items, then it results in
-  /// a gap in ring buffer storage that needs to be closed by moving some
-  /// items to their correct positions given the adjusted count. This adds some
-  /// overhead compared to adding exactly as many items as promised.
-  ///
-  /// - Parameters:
-  ///   - subrange: The subrange of the deque to replace. The bounds of
-  ///     the range must be valid indices in the deque.
-  ///   - newItemCount: The maximum number of items to insert into the deque.
-  ///   - producer: A producer that generates the items to append.
-  ///
-  /// - Complexity: O(`self.count` + `newItemCount`)
-  @_alwaysEmitIntoClient
-  public mutating func replace<
-    E: Error,
-    P: Producer<Element, E> & ~Copyable & ~Escapable
-  >(
-    removing subrange: Range<Int>,
-    addingCount newItemCount: Int,
-    from producer: inout P
-  ) throws(E)
-  where P.Element: ~Copyable
-  {
-    try replace(removing: subrange, addingCount: newItemCount) { target throws(E) in
-      while !target.isFull, try producer.generate(into: &target) {
-        // Do nothing
-      }
-    }
-  }
-#endif
 }
 
 @available(SwiftStdlib 5.0, *)
@@ -373,21 +321,23 @@ extension UniqueDeque /* where Element: Copyable */ {
   ///   - subrange: The subrange of the deque to replace. The bounds of
   ///     the range must be valid indices in the deque.
   ///   - items: The new elements to copy into the collection.
-  ///
+  /// - Returns: A valid index range addressing the newly inserted items.
   /// - Complexity: O(`self.count` + `items.count`)
-  @inlinable
-  public mutating func replace(
-    removing subrange: Range<Int>,
+  @_alwaysEmitIntoClient
+  @discardableResult
+  public mutating func replaceSubrange(
+    _ subrange: Range<Int>,
     copying items: UnsafeBufferPointer<Element>
-  ) {
+  ) -> Range<Int> {
     var remainder = items
-    replace(removing: subrange, addingCount: remainder.count) { target in
+    let range = replaceSubrange(subrange, addingCount: remainder.count) { target in
       target.withUnsafeMutableBufferPointer { dst, dstCount in
         dst.initializeAll(fromContentsOf: remainder._trim(first: dst.count))
         dstCount += dst.count
       }
     }
     assert(remainder.isEmpty)
+    return range
   }
 
   /// Replaces the specified subrange of elements by copying the elements of
@@ -415,16 +365,15 @@ extension UniqueDeque /* where Element: Copyable */ {
   ///   - subrange: The subrange of the deque to replace. The bounds of
   ///     the range must be valid indices in the deque.
   ///   - items: The new elements to copy into the collection.
-  ///
+  /// - Returns: A valid index range addressing the newly inserted items.
   /// - Complexity: O(`self.count` + `items.count`)
-  @inlinable
-  public mutating func replace(
-    removing subrange: Range<Int>,
+  @_alwaysEmitIntoClient
+  @discardableResult
+  public mutating func replaceSubrange(
+    _ subrange: Range<Int>,
     copying items: UnsafeMutableBufferPointer<Element>
-  ) {
-    unsafe self.replace(
-      removing: subrange,
-      copying: UnsafeBufferPointer(items))
+  ) -> Range<Int> {
+    unsafe self.replaceSubrange(subrange, copying: UnsafeBufferPointer(items))
   }
 
   /// Replaces the specified subrange of elements by copying the elements of
@@ -452,55 +401,35 @@ extension UniqueDeque /* where Element: Copyable */ {
   ///   - subrange: The subrange of the deque to replace. The bounds of
   ///     the range must be valid indices in the deque.
   ///   - items: The new elements to copy into the collection.
-  ///
+  /// - Returns: A valid index range addressing the newly inserted items.
   /// - Complexity: O(`self.count` + `items.count`)
-  @inlinable
-  public mutating func replace(
-    removing subrange: Range<Int>,
+  @_alwaysEmitIntoClient
+  @discardableResult
+  public mutating func replaceSubrange(
+    _ subrange: Range<Int>,
     copying items: Span<Element>
-  ) {
-    unsafe items.withUnsafeBufferPointer { buffer in
-      unsafe self.replace(removing: subrange, copying: buffer)
+  ) -> Range<Int> {
+    items.withUnsafeBufferPointer { buffer in
+      unsafe self.replaceSubrange(subrange, copying: buffer)
     }
   }
-  
-#if compiler(>=6.4) && UnstableContainersPreview
-  @inlinable
-  internal mutating func _replace<
-    C: Container<Element> & ~Copyable & ~Escapable
-  >(
-    removing subrange: Range<Int>,
-    copyingContainer items: borrowing C,
-    newCount: Int
-  ) {
 
-    let expectedCount = self.count - subrange.count + newCount
-    var it = items.makeBorrowingIterator_()
-    self.replace(removing: subrange, addingCount: newCount) { target in
-      it._copyContents_(into: &target)
-    }
-    precondition(
-      it.nextSpan_().isEmpty && count == expectedCount,
-      "Broken Container: count doesn't match contents")
-  }
-#endif
-
-  @inlinable
-  internal mutating func _replace(
-    removing subrange: Range<Int>,
+  @_alwaysEmitIntoClient
+  internal mutating func _replaceSubrange(
+    _ subrange: Range<Int>,
     copyingCollection items: __owned some Collection<Element>,
     newCount: Int
-  ) {
-    let done: Void? = items.withContiguousStorageIfAvailable { src in
+  ) -> Range<Int> {
+    let done: Range<Int>? = items.withContiguousStorageIfAvailable { src in
       precondition(
         src.count == newCount,
         "Broken Collection: count doesn't match contents")
-      self.replace(removing: subrange, copying: src)
+      return self.replaceSubrange(subrange, copying: src)
     }
-    if done != nil { return }
+    if let done { return done }
 
     var i = items.startIndex
-    self.replace(removing: subrange, addingCount: newCount) { target in
+    let range = self.replaceSubrange(subrange, addingCount: newCount) { target in
       while !target.isFull {
         target.append(items[i])
         items.formIndex(after: &i)
@@ -509,48 +438,8 @@ extension UniqueDeque /* where Element: Copyable */ {
     precondition(
       i == items.endIndex,
       "Broken Collection: count doesn't match contents")
+    return range
   }
-
-#if compiler(>=6.4) && UnstableContainersPreview
-  /// Replaces the specified subrange of elements by copying the elements of
-  /// the given container.
-  ///
-  /// This method has the effect of removing the specified range of elements
-  /// from the deque and inserting the new elements starting at the same
-  /// location. The number of new elements need not match the number of elements
-  /// being removed.
-  ///
-  /// If the deque doesn't have sufficient capacity to accommodate the new
-  /// elements, then this method reallocates the deque's storage to grow it,
-  /// using a geometric growth rate.
-  ///
-  /// If you pass a zero-length range as the `subrange` parameter, this method
-  /// inserts the elements of `items` at `subrange.lowerBound`. This case
-  /// is more directly expressed by calling `insert(copying:at:)`.
-  ///
-  /// Likewise, if you pass a zero-length container as the `items`
-  /// parameter, this method removes the elements in the given subrange
-  /// without replacement. This case is more directly expressed by calling
-  /// `removeSubrange`.
-  ///
-  /// - Parameters:
-  ///   - subrange: The subrange of the deque to replace. The bounds of
-  ///     the range must be valid indices in the array.
-  ///   - items: The new elements to copy into the collection.
-  ///
-  /// - Complexity: O(`self.count` + `items.count`)
-  @inlinable
-  @inline(__always)
-  public mutating func replace<
-    C: Container<Element> & ~Copyable & ~Escapable
-  >(
-    removing subrange: Range<Int>,
-    copying items: borrowing C
-  ) {
-    _replace(
-      removing: subrange, copyingContainer: items, newCount: items.count)
-  }
-#endif
 
   /// Replaces the specified subrange of elements by copying the elements of
   /// the given collection.
@@ -577,59 +466,15 @@ extension UniqueDeque /* where Element: Copyable */ {
   ///   - subrange: The subrange of the deque to replace. The bounds of
   ///     the range must be valid indices in the deque.
   ///   - items: The new elements to copy into the collection.
-  ///
+  /// - Returns: A valid index range addressing the newly inserted items.
   /// - Complexity: O(`self.count` + `items.count`)
-  @inlinable
+  @_alwaysEmitIntoClient
   @inline(__always)
-  public mutating func replace(
-    removing subrange: Range<Int>,
+  @discardableResult
+  public mutating func replaceSubrange(
+    _ subrange: Range<Int>,
     copying items: __owned some Collection<Element>
-  ) {
-    _replace(
-      removing: subrange, copyingCollection: items, newCount: items.count)
+  ) -> Range<Int> {
+    _replaceSubrange(subrange, copyingCollection: items, newCount: items.count)
   }
-  
-#if compiler(>=6.4) && UnstableContainersPreview
-  /// Replaces the specified subrange of elements by copying the elements of
-  /// the given container.
-  ///
-  /// This method has the effect of removing the specified range of elements
-  /// from the deque and inserting the new elements starting at the same
-  /// location. The number of new elements need not match the number of elements
-  /// being removed.
-  ///
-  /// If the deque doesn't have sufficient capacity to accommodate the new
-  /// elements, then this method reallocates the deque's storage to grow it,
-  /// using a geometric growth rate.
-  ///
-  /// If you pass a zero-length range as the `subrange` parameter, this method
-  /// inserts the elements of `items` at `subrange.lowerBound`. This case
-  /// is more directly expressed by calling `insert(copying:at:)`.
-  ///
-  /// Likewise, if you pass a zero-length container as the `items`
-  /// parameter, this method removes the elements in the given subrange
-  /// without replacement. This case is more directly expressed by calling
-  /// `removeSubrange`.
-  ///
-  /// - Parameters:
-  ///   - subrange: The subrange of the deque to replace. The bounds of
-  ///     the range must be valid indices in the array.
-  ///   - items: The new elements to copy into the collection.
-  ///
-  /// - Complexity: O(*n* + *m*), where *n* is count of this deque and
-  ///   *m* is the count of `items`.
-  @inlinable
-  @inline(__always)
-  public mutating func replace<
-    C: Container<Element> & Collection<Element>
-  >(
-    removing subrange: Range<Int>,
-    copying items: C
-  ) {
-    _replace(
-      removing: subrange, copyingContainer: items, newCount: items.count)
-  }
-#endif
 }
-
-#endif

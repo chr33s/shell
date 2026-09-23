@@ -13,13 +13,30 @@
 
 #if !COLLECTIONS_SINGLE_MODULE
 import InternalCollectionsUtilities
-import ContainersPreview
 #endif
-
-#if compiler(>=6.2)
 
 @available(SwiftStdlib 5.0, *)
 extension RigidDeque where Element: ~Copyable {
+  /// Removes and returns the element at the specified position.
+  ///
+  /// Existing elements in the deque's storage are moved as needed to close the
+  /// gap left by the removed item. (The direction of the move depends on the
+  /// location of the removal, minimizing the cost.)
+  ///
+  /// - Parameter index: The position of the element to remove. `index` must be
+  ///   a valid index of the deque that is not equal to the end index.
+  ///   On return, `index` is updated to address the position following the
+  ///   removed element.
+  /// - Returns: The removed element.
+  ///
+  /// - Complexity: O(`count`)
+  @discardableResult
+  @_alwaysEmitIntoClient
+  @inline(__always)
+  public mutating func remove(at index: inout Int) -> Element {
+    remove(at: index)
+  }
+
   /// Removes and returns the element at the specified position.
   ///
   /// Existing elements in the deque's storage are moved as needed to close the
@@ -37,7 +54,7 @@ extension RigidDeque where Element: ~Copyable {
     _checkItemIndex(index)
     return _handle.uncheckedRemove(at: index)
   }
-  
+
   /// Removes all elements from the deque, preserving its allocated capacity.
   ///
   /// - Complexity: O(`count`)
@@ -45,7 +62,7 @@ extension RigidDeque where Element: ~Copyable {
   public mutating func removeAll() {
     _handle.uncheckedRemoveAll()
   }
-  
+
   /// Removes and returns the first element of the deque.
   ///
   /// The deque must not be empty.
@@ -59,7 +76,13 @@ extension RigidDeque where Element: ~Copyable {
     precondition(!isEmpty, "Cannot remove first element of an empty RigidDeque")
     return _handle.uncheckedRemoveFirst()
   }
-  
+
+  @_alwaysEmitIntoClient
+  public mutating func _customRemoveLast() -> Element? {
+    precondition(!isEmpty, "Cannot remove last element of an empty RigidDeque")
+    return _handle.uncheckedRemoveLast()
+  }
+
   /// Removes and returns the last element of the deque.
   ///
   /// The deque must not be empty.
@@ -73,7 +96,7 @@ extension RigidDeque where Element: ~Copyable {
     precondition(!isEmpty, "Cannot remove last element of an empty RigidDeque")
     return _handle.uncheckedRemoveLast()
   }
-  
+
   /// Removes and discards the specified number of elements from the start of
   /// the deque.
   ///
@@ -91,7 +114,15 @@ extension RigidDeque where Element: ~Copyable {
     precondition(k <= count, "Cannot remove more elements than there are in the container")
     _handle.uncheckedRemoveFirst(k)
   }
-  
+
+  @_alwaysEmitIntoClient
+  public mutating func _customRemoveLast(_ n: Int) -> Bool {
+    precondition(n >= 0, "Cannot remove a negative number of elements")
+    precondition(n <= count, "Cannot remove more elements than there are in the container")
+    _handle.uncheckedRemoveLast(n)
+    return true
+  }
+
   /// Removes and discards the specified number of elements from the end of the
   /// deque.
   ///
@@ -109,19 +140,21 @@ extension RigidDeque where Element: ~Copyable {
     precondition(n <= count, "Cannot remove more elements than there are in the container")
     _handle.uncheckedRemoveLast(n)
   }
-  
+
   /// Removes the specified subrange of elements from the deque.
   ///
   /// - Parameter bounds: The subrange to remove. The bounds of the
   ///   range must be valid indices of the deque.
-  ///
+  /// - Returns: A valid index addressing the position following the removed
+  ///    subrange.
   /// - Complexity: O(`count`)
   @_alwaysEmitIntoClient
-  public mutating func removeSubrange(_ bounds: Range<Int>) {
+  @discardableResult
+  public mutating func removeSubrange(_ bounds: Range<Int>) -> Int {
     precondition(
       bounds.lowerBound >= 0 && bounds.upperBound <= count,
       "Subrange out of bounds")
-    _handle.uncheckedRemove(offsets: bounds)
+    return _handle.uncheckedRemove(offsets: bounds)
   }
 }
 
@@ -147,9 +180,9 @@ extension RigidDeque where Element: ~Copyable {
   /// - Complexity: O(1)
   @_alwaysEmitIntoClient
   public mutating func popLast() -> Element? {
+    // FIXME: Remove this algorithm; it is already provided by
+    // RangeReplaceableContainer, albeit with stricter availability.
     guard !isEmpty else { return nil }
     return _handle.uncheckedRemoveLast()
   }
 }
-
-#endif

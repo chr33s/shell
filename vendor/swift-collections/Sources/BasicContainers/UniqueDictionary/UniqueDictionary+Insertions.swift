@@ -11,10 +11,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#if !COLLECTIONS_SINGLE_MODULE
-import ContainersPreview
-#endif
-
 #if compiler(>=6.4) && UnstableHashedContainers
 
 @available(SwiftStdlib 5.0, *)
@@ -52,8 +48,8 @@ extension UniqueDictionary where Key: ~Copyable, Value: ~Copyable {
     _storage._insertNew(key, hashValue: hashValue, value)
     return nil
   }
-  
-#if UnstableContainersPreview
+
+  @available(SwiftStdlib 6.4, *)
   @inlinable
   @discardableResult
   @_lifetime(&self)
@@ -75,7 +71,6 @@ extension UniqueDictionary where Key: ~Copyable, Value: ~Copyable {
     }
     return _storage._borrowValue(at: bucket)
   }
-#endif
   
   @inlinable
   @discardableResult

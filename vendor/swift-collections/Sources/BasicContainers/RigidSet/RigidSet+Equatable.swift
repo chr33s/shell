@@ -13,14 +13,12 @@
 
 #if !COLLECTIONS_SINGLE_MODULE
 import InternalCollectionsUtilities
-import ContainersPreview
 #endif
-
 
 #if compiler(>=6.4) && UnstableHashedContainers
 
 @available(SwiftStdlib 5.0, *)
-extension RigidSet {
+extension RigidSet where Element: ~Copyable {
   @inlinable
   public func isTriviallyIdentical(to other: borrowing Self) -> Bool {
     self._members == other._members
@@ -28,21 +26,20 @@ extension RigidSet {
   }
 }
 
-#if UnstableContainersPreview
 @available(SwiftStdlib 6.4, *)
-extension RigidSet: Equatable {}
+extension RigidSet: Equatable where Element: ~Copyable {}
 
 @available(SwiftStdlib 5.0, *)
-extension RigidSet {
+extension RigidSet where Element: ~Copyable {
   @inlinable
   public static func ==(left: borrowing Self, right: borrowing Self) -> Bool {
     if left.isTriviallyIdentical(to: right) { return true }
     
     guard left.count == right.count else { return false }
-    
-    var lit = left.makeBorrowingIterator_()
+
+    var lit = left.makeBorrowingIterator()
     while true {
-      let l = lit.nextSpan_()
+      let l = lit.nextSpan(maxCount: .max)
       if l.isEmpty { break }
       var i = 0
       while i < l.count {
@@ -53,6 +50,4 @@ extension RigidSet {
     return true
   }
 }
-#endif
-
 #endif

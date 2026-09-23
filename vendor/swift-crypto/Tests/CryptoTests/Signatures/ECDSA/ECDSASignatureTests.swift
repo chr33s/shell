@@ -11,17 +11,18 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 //===----------------------------------------------------------------------===//
+
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
 import Foundation
+#endif
 import XCTest
 
-#if CRYPTO_IN_SWIFTPM && !CRYPTO_IN_SWIFTPM_FORCE_BUILD_API
+#if canImport(CryptoKit)
 // Skip tests that require @testable imports of CryptoKit.
 #else
-#if !CRYPTO_IN_SWIFTPM_FORCE_BUILD_API
-@testable import CryptoKit
-#else
 @testable import Crypto
-#endif
 
 struct ECDSATestGroup: Codable {
     let tests: [SignatureTestVector]
@@ -144,7 +145,7 @@ class SignatureTests: XCTestCase {
         }
     }
     
-    func testGroup<C: NISTSigning, HF: HashFunction>(group: ECDSATestGroup, curve: C.Type, hashFunction: HF.Type, deserializeSignature: (Data) throws -> C.ECDSASignature, file: StaticString = #file, line: UInt = #line) throws where C.ECDSASignature == C.PublicKey.Signature {
+    func testGroup<C: NISTSigning, HF: HashFunction>(group: ECDSATestGroup, curve: C.Type, hashFunction: HF.Type, deserializeSignature: (Data) throws -> C.ECDSASignature, file: StaticString = #filePath, line: UInt = #line) throws where C.ECDSASignature == C.PublicKey.Signature {
         let keyBytes = try orFail(file: file, line: line) { try Array(hexString: group.publicKey.uncompressed) }
         let key = try orFail(file: file, line: line) { try C.PublicKey(x963Representation: keyBytes) }
 
@@ -226,26 +227,12 @@ class SignatureTests: XCTestCase {
     }
 
     func testProperSignatureSizes() throws {
-        XCTAssertThrowsError(try P256.Signing.ECDSASignature(rawRepresentation: Array("hello".utf8))) { error in
-            guard case .some(.incorrectParameterSize) = error as? CryptoKitError else {
-                XCTFail("Incorrect error: \(error)")
-                return
-            }
-        }
-
-        XCTAssertThrowsError(try P384.Signing.ECDSASignature(rawRepresentation: Array("hello".utf8))) { error in
-            guard case .some(.incorrectParameterSize) = error as? CryptoKitError else {
-                XCTFail("Incorrect error: \(error)")
-                return
-            }
-        }
-
-        XCTAssertThrowsError(try P521.Signing.ECDSASignature(rawRepresentation: Array("hello".utf8))) { error in
-            guard case .some(.incorrectParameterSize) = error as? CryptoKitError else {
-                XCTFail("Incorrect error: \(error)")
-                return
-            }
-        }
+        XCTAssertThrowsError(try P256.Signing.ECDSASignature(rawRepresentation: Array("hello".utf8)),
+                             error: CryptoKitError.incorrectParameterSize)
+        XCTAssertThrowsError(try P384.Signing.ECDSASignature(rawRepresentation: Array("hello".utf8)),
+                             error: CryptoKitError.incorrectParameterSize)
+        XCTAssertThrowsError(try P521.Signing.ECDSASignature(rawRepresentation: Array("hello".utf8)),
+                             error: CryptoKitError.incorrectParameterSize)
     }
 
     func testP256SigningDiscontiguousData() throws {
@@ -400,4 +387,4 @@ class SignatureTests: XCTestCase {
     }
     
 }
-#endif // CRYPTO_IN_SWIFTPM
+#endif // canImport(CryptoKit)

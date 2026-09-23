@@ -11,40 +11,46 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 //===----------------------------------------------------------------------===//
-#if CRYPTO_IN_SWIFTPM && !CRYPTO_IN_SWIFTPM_FORCE_BUILD_API
+
+#if canImport(CryptoKit)
 @_exported import CryptoKit
 #else
-import Foundation
 
+#if canImport(FoundationEssentials)
+public import FoundationEssentials
+#else
+public import Foundation
+#endif
+
+#if hasFeature(Embedded)
 /// A type that represents the output of a hash.
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
-public protocol Digest: Hashable, ContiguousBytes, CustomStringConvertible, Sequence where Element == UInt8 {
+@preconcurrency
+public protocol Digest: Hashable, Sendable, ContiguousBytes, Sequence where Element == UInt8 {
     /// The number of bytes in the digest.
     static var byteCount: Int { get }
 }
+#else
+/// A type that represents the output of a hash.
+@preconcurrency
+public protocol Digest: Hashable, Sendable, ContiguousBytes, CustomStringConvertible, Sequence where Element == UInt8 {
+    /// The number of bytes in the digest.
+    static var byteCount: Int { get }
+}
+#endif // hasFeature(Embedded)
 
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
 protocol DigestPrivate: Digest {
-    init?(bufferPointer: UnsafeRawBufferPointer)
+    init?(initializingWith body: (inout OutputRawSpan) -> ())
 }
 
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
 extension DigestPrivate {
     @inlinable
-    init?(bytes: [UInt8]) {
-        let some = bytes.withUnsafeBytes { bufferPointer in
-            return Self(bufferPointer: bufferPointer)
-        }
-        
-        if some != nil {
-            self = some!
-        } else {
-            return nil
+    init?(copying bytes: RawSpan) {
+        self.init() {
+            $0.append(contentsOf: bytes)
         }
     }
 }
 
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
 extension Digest {
     public func makeIterator() -> Array<UInt8>.Iterator {
         self.withUnsafeBytes({ (buffPtr) in
@@ -54,7 +60,6 @@ extension Digest {
 }
 
 // We want to implement constant-time comparison for digests.
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
 extension Digest {
     /// Determines whether two digests are equal.
     ///
@@ -84,9 +89,14 @@ extension Digest {
             return safeCompare(lhs, rhs.regions.first!)
         }
     }
+}
 
+#if !hasFeature(Embedded)
+extension Digest {
     public var description: String {
         return "\(Self.self): \(Array(self).hexString)"
     }
 }
-#endif // Linux or !SwiftPM
+#endif
+
+#endif // canImport(CryptoKit)

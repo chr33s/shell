@@ -11,15 +11,19 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 //===----------------------------------------------------------------------===//
-#if CRYPTO_IN_SWIFTPM && !CRYPTO_IN_SWIFTPM_FORCE_BUILD_API
+
+#if canImport(CryptoKit)
 @_exported import CryptoKit
 #else
-import Foundation
 
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
+import Foundation
+#endif
+
 extension HPKE {
-    @available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
-    internal struct KeySchedule {
+    internal struct KeySchedule: Sendable {
         fileprivate static let pksIDHashLabel = Data("psk_id_hash".utf8)
         fileprivate static let infoHashLabel = Data("info_hash".utf8)
         fileprivate static let secretLabel = Data("secret".utf8)
@@ -103,8 +107,19 @@ extension HPKE {
             self.ciphersuite = ciphersuite
         }
         
+        var maxSequenceNumber: UInt64 {
+            get {
+                let nonceBitCount = UInt64(self.ciphersuite.aead.nonceByteCount * 8)
+                if (nonceBitCount >= 64) {
+                    return UInt64.max
+                }
+                
+                return ((UInt64(1) << nonceBitCount) - 1)
+            }
+        }
+        
         mutating func incrementSequenceNumber() throws {
-            if self.sequenceNumber >= ((1 << (self.ciphersuite.aead.nonceByteCount)) - 1) {
+            if self.sequenceNumber >= maxSequenceNumber {
                 throw HPKE.Errors.outOfRangeSequenceNumber
             }
             sequenceNumber += 1
@@ -143,4 +158,4 @@ extension HPKE {
     }
 }
 
-#endif // Linux or !SwiftPM
+#endif // canImport(CryptoKit)

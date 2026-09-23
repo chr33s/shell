@@ -1,4 +1,4 @@
-// swift-tools-version:5.9
+// swift-tools-version:6.0
 // vendored by scripts/vendor.py — regenerated on every sync, do not edit by hand
 //
 //  Package.swift
@@ -25,10 +25,8 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "BigInt", path: "Sources",
-            swiftSettings: [.enableExperimentalFeature("StrictConcurrency")]),
+            name: "BigInt", path: "Sources"),
         .testTarget(
-            name: "BigIntTests", dependencies: ["BigInt"], path: "Tests",
-            swiftSettings: [.enableExperimentalFeature("StrictConcurrency")]),
+            name: "BigIntTests", dependencies: ["BigInt"], path: "Tests"),
     ]
 )

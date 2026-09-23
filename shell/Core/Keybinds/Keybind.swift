@@ -21,6 +21,11 @@ struct Keybind: Codable, Identifiable, Hashable, Sendable {
     /// Optional parameter for the action (e.g., "1" for "increase_font_size:1")
     let actionParameter: String?
 
+    /// For an unbind targeting a parameterized action, the displaced binding's
+    /// parameter. Together with `sequence`, this identifies only that binding.
+    /// Optional so saved overrides from before parameterized unbinds still decode.
+    let unboundActionParameter: String?
+
     /// Whether this is a user override (vs default)
     let isUserOverride: Bool
 
@@ -34,6 +39,7 @@ struct Keybind: Codable, Identifiable, Hashable, Sendable {
         sequence: KeySequence,
         action: KeybindAction,
         actionParameter: String? = nil,
+        unboundActionParameter: String? = nil,
         isUserOverride: Bool = false,
         source: KeybindSource = .default
     ) {
@@ -41,6 +47,7 @@ struct Keybind: Codable, Identifiable, Hashable, Sendable {
         self.sequence = sequence
         self.action = action
         self.actionParameter = actionParameter
+        self.unboundActionParameter = unboundActionParameter
         self.isUserOverride = isUserOverride
         self.source = source
     }
@@ -58,6 +65,7 @@ struct Keybind: Codable, Identifiable, Hashable, Sendable {
         self.sequence = KeySequence(key: key, modifiers: modifiers)
         self.action = action
         self.actionParameter = actionParameter
+        self.unboundActionParameter = nil
         self.isUserOverride = isUserOverride
         self.source = source
     }
@@ -74,6 +82,7 @@ struct Keybind: Codable, Identifiable, Hashable, Sendable {
         self.sequence = KeySequence(trigger: trigger)
         self.action = action
         self.actionParameter = actionParameter
+        self.unboundActionParameter = nil
         self.isUserOverride = isUserOverride
         self.source = source
     }
@@ -124,6 +133,7 @@ struct Keybind: Codable, Identifiable, Hashable, Sendable {
         self.sequence = sequence
         self.action = action
         self.actionParameter = parameter
+        self.unboundActionParameter = nil
         self.isUserOverride = (source == .userOverride)
         self.source = source
     }
@@ -134,6 +144,16 @@ struct Keybind: Codable, Identifiable, Hashable, Sendable {
             return "keybind = \(sequence.ghosttyFormat)=\(action.rawValue):\(param)"
         }
         return "keybind = \(sequence.ghosttyFormat)=\(action.rawValue)"
+    }
+
+    /// Ordinary unbinds suppress an entire action. Parameterized unbinds
+    /// suppress only the recorded sequence and parameter, preserving siblings.
+    func unbinds(_ binding: Keybind) -> Bool {
+        guard action == .unbind, actionParameter == binding.action.rawValue else {
+            return false
+        }
+        return !binding.action.isParameterized
+            || (unboundActionParameter == binding.actionParameter && sequence == binding.sequence)
     }
 
     // MARK: - Escape Sequence Decoding

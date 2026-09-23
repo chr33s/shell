@@ -84,6 +84,28 @@ extension Benchmark {
     }
 
     self.add(
+      title: "BitSet count",
+      input: Int.self
+    ) { input in
+      guard input > 0 else { return nil }
+      var set = BitSet(reservingCapacity: input)
+      var expected = 0
+      for i in 0 ..< input where i.isMultiple(of: 3) {
+        set.insert(i)
+        expected += 1
+      }
+      // Make sure the set actually fills its storage capacity.
+      if set.insert(input - 1).inserted {
+        expected += 1
+      }
+      return { timer in
+        let c = set.count
+        precondition(c == expected)
+        blackHole(c)
+      }
+    }
+
+    self.add(
       title: "BitSet distance(from:to:)",
       input: Int.self
     ) { input in
@@ -381,6 +403,74 @@ extension Benchmark {
           a.subtract(b)
         }
         blackHole(a)
+      }
+    }
+
+    self.add(
+      title: "BitSet formUnion with Range",
+      input: Int.self
+    ) { input in
+      guard input > 0 else { return nil }
+      return { timer in
+        var a = BitSet(reservingCapacity: input)
+        a.insert(input - 1)
+        timer.measure {
+          a.formUnion(0 ..< input)
+        }
+        blackHole(a)
+      }
+    }
+
+    self.add(
+      title: "BitSet init from Range",
+      input: Int.self
+    ) { input in
+      guard input > 0 else { return nil }
+      return { timer in
+        timer.measure {
+          blackHole(BitSet(0 ..< input))
+        }
+      }
+    }
+
+    self.add(
+      title: "BitSet union with Range",
+      input: Int.self
+    ) { input in
+      guard input > 0 else { return nil }
+      var a = BitSet(reservingCapacity: input)
+      a.insert(input - 1)
+      return { timer in
+        timer.measure {
+          blackHole(a.union(0 ..< input))
+        }
+      }
+    }
+
+    self.add(
+      title: "BitSet.Counted formUnion with Range",
+      input: Int.self
+    ) { input in
+      guard input > 0 else { return nil }
+      return { timer in
+        var a = BitSet.Counted(reservingCapacity: input)
+        a.insert(input - 1)
+        timer.measure {
+          a.formUnion(0 ..< input)
+        }
+        blackHole(a)
+      }
+    }
+
+    self.add(
+      title: "BitSet.Counted init from Range",
+      input: Int.self
+    ) { input in
+      guard input > 0 else { return nil }
+      return { timer in
+        timer.measure {
+          blackHole(BitSet.Counted(0 ..< input))
+        }
       }
     }
   }

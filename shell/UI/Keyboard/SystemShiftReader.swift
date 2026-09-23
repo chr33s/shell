@@ -117,6 +117,35 @@ final class SystemShiftReader {
 
     // MARK: - Public API
 
+    /// Includes auxiliary keyboard windows omitted by `scene.windows`.
+    /// The launch-time visibility observer records them without retaining them;
+    /// emoji search uses this inventory to yield hardware keys to UIKit.
+    func keyboardWindows(for hostWindow: UIWindow, near hint: UIView? = nil) -> [UIWindow] {
+        guard let scene = hostWindow.windowScene else { return [] }
+        let hintWindow = hint?.window
+        var windows = trackedKeyboardWindows.allObjects
+        if let hintWindow, !windows.contains(where: { $0 === hintWindow }) {
+            windows.append(hintWindow)
+        }
+        return windows.filter { candidate in
+            guard !candidate.isHidden, candidate.alpha > 0 else { return false }
+            // The terminal's own accessory can be hosted in a keyboard scene.
+            // Its direct view/window relationship establishes ownership even
+            // when UIKit does not associate that window with the app scene.
+            if candidate.windowScene === scene || candidate === hintWindow { return true }
+
+            // On iPad, hardware emoji search lives in UIRemoteKeyboardWindow
+            // in a separate system scene, even when there is no accessory.
+            // Its scene/screen identity does not match the app's. The caller
+            // must be the first responder and verify a visible emoji search
+            // field; only a key, foreground host may consult this system window.
+            // Ordinary windows from other app scenes remain excluded.
+            return hostWindow.isKeyWindow
+                && scene.activationState == .foregroundActive
+                && NSStringFromClass(type(of: candidate)) == "UIRemoteKeyboardWindow"
+        }
+    }
+
     /// Record the UIEvent of a toolbar button touch-down. Called from every
     /// toolbar touch entry point so flags are fresh at dispatch time.
     func noteTouchEvent(_ event: UIEvent?) {

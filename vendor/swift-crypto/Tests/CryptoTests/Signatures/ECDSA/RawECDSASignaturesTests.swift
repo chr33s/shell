@@ -11,21 +11,18 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 //===----------------------------------------------------------------------===//
+
 import XCTest
 
-#if CRYPTO_IN_SWIFTPM && !CRYPTO_IN_SWIFTPM_FORCE_BUILD_API
+#if canImport(CryptoKit)
 // Skip tests that require @testable imports of CryptoKit.
 #else
-#if !CRYPTO_IN_SWIFTPM_FORCE_BUILD_API
-@testable import CryptoKit
-#else
 @testable import Crypto
-#endif
 
 typealias TestVector = (publicKey: Data, privateKey: Data, rs: rAndS)
 typealias rAndS = (r: Data, s: Data)
 
-func testVectorForCurve<S: NISTSigning>(curve: S.Type, file: StaticString = #file, line: UInt = #line) throws -> TestVector {
+func testVectorForCurve<S: NISTSigning>(curve: S.Type, file: StaticString = #filePath, line: UInt = #line) throws -> TestVector {
     switch S.self {
     case is P256.Signing.Type:
         do {
@@ -56,7 +53,7 @@ func testVectorForCurve<S: NISTSigning>(curve: S.Type, file: StaticString = #fil
 }
 
 class RawECDSASignaturesTests: XCTestCase {
-    func testForCurve<S: NISTSigning>(curve: S.Type, file: StaticString = #file, line: UInt = #line) throws {
+    func testForCurve<S: NISTSigning>(curve: S.Type, file: StaticString = #filePath, line: UInt = #line) throws {
         let msg = try unwrap("abc".data(using: .utf8), file: file, line: line)
         // We check that the test message is correctly encoded.
         XCTAssertEqual(msg, try Data(hexString: "616263"), file: file, line: line)
@@ -86,4 +83,4 @@ class RawECDSASignaturesTests: XCTestCase {
         try orFail { try testForCurve(curve: P521.Signing.self) }
     }
 }
-#endif // CRYPTO_IN_SWIFTPM
+#endif // canImport(CryptoKit)

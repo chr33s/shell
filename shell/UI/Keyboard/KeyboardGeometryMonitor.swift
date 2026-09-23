@@ -33,25 +33,22 @@ final class KeyboardGeometryMonitor {
     private(set) var isKeyboardDocked: Bool = false
 
     /// Increments on keyboard state changes to force SwiftUI re-render.
-    private(set) var keyboardStateVersion: Int = 0 {
-        didSet {
-            // `@Observable` doesn't expose a Combine publisher per property,
-            // so bridge to a PassthroughSubject for the Combine consumer in
-            // `TerminalView` that wants debounced keyboard-state notifications.
-            keyboardStateDidChange.send()
-        }
-    }
+    private(set) var keyboardStateVersion: Int = 0
 
     /// Increments when a surface's cell size changes, so SwiftUI re-evaluates
     /// layout that depends on grid metrics (the terminal's top grid-alignment
-    /// padding). Deliberately separate from `keyboardStateVersion`: that one
-    /// also feeds `keyboardStateDidChange`, which reloads input views in every
-    /// accessory controller — churn a pinch-zoom's stream of cell-size changes
-    /// must not drive.
+    /// padding). Deliberately separate from `keyboardStateVersion`: grid
+    /// changes do not change keyboard geometry.
     private(set) var gridMetricsVersion: Int = 0
 
-    /// Emits when `keyboardStateVersion` increments.
+    /// Keyboard and toolbar geometry changes, including responder handoffs.
     @ObservationIgnored let keyboardStateDidChange = PassthroughSubject<Void, Never>()
+
+    /// Actual keyboard environment changes that may require new input views.
+    /// Toolbar layout/focus notifications only invalidate SwiftUI geometry;
+    /// feeding those back into reloadInputViews rebuilds UIKit's input set
+    /// again after every first-responder handoff.
+    @ObservationIgnored let keyboardEnvironmentDidChange = PassthroughSubject<Void, Never>()
 
     @ObservationIgnored private var hardwareKeyboardTask: Task<Void, Never>?
     @ObservationIgnored private var softwareKeyboardVisibilityTask: Task<Void, Never>?
@@ -67,7 +64,7 @@ final class KeyboardGeometryMonitor {
         hardwareKeyboardTask = Task { @MainActor [weak self] in
             for await isHardware in KeyboardTracker.shared.hardwareKeyboardStateDidChangeStream() {
                 guard let self else { continue }
-                self.keyboardStateVersion += 1
+                self.notifyKeyboardEnvironmentChanged()
                 if isHardware {
                     if self.keyboardHeight != 0 { self.keyboardHeight = 0 }
                 } else {
@@ -79,7 +76,7 @@ final class KeyboardGeometryMonitor {
         softwareKeyboardVisibilityTask = Task { @MainActor [weak self] in
             for await _ in KeyboardTracker.shared.softwareKeyboardVisibilityDidChangeStream() {
                 guard let self else { continue }
-                self.keyboardStateVersion += 1
+                self.notifyKeyboardEnvironmentChanged()
             }
         }
         #endif
@@ -89,6 +86,13 @@ final class KeyboardGeometryMonitor {
 
     func notifyKeyboardToolbarLayoutChanged() {
         keyboardStateVersion += 1
+        keyboardStateDidChange.send()
+    }
+
+    private func notifyKeyboardEnvironmentChanged() {
+        keyboardStateVersion += 1
+        keyboardStateDidChange.send()
+        keyboardEnvironmentDidChange.send()
     }
 
     func notifyGridMetricsChanged() {
@@ -106,7 +110,7 @@ final class KeyboardGeometryMonitor {
             changed = true
         }
         if changed {
-            keyboardStateVersion += 1
+            notifyKeyboardEnvironmentChanged()
         }
     }
 
@@ -173,7 +177,7 @@ final class KeyboardGeometryMonitor {
         let newDockedState = isKeyboardFrameDocked(keyboardFrame)
         if newDockedState != isKeyboardDocked {
             isKeyboardDocked = newDockedState
-            keyboardStateVersion += 1
+            notifyKeyboardEnvironmentChanged()
         }
         #endif
 

@@ -11,13 +11,11 @@
 //
 //===----------------------------------------------------------------------===//
 
-
 #if !COLLECTIONS_SINGLE_MODULE
 import InternalCollectionsUtilities
-import ContainersPreview
 #endif
 
-#if compiler(>=6.2) && UnstableContainersPreview
+#if UnstableContainersPreview
 
 #if false // TODO
 extension UniqueArray /*where Element: Copyable*/ {

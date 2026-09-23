@@ -98,11 +98,7 @@ struct PasswordPromptSheet: View {
         host: "example.com",
         port: 22,
         username: "admin",
-        onSubmit: { password, shouldSave in
-            print("Password: \(password), Save: \(shouldSave)")
-        },
-        onCancel: {
-            print("Cancelled")
-        }
+        onSubmit: { _, _ in },
+        onCancel: {}
     )
 }

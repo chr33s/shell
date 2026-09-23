@@ -11,56 +11,51 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 //===----------------------------------------------------------------------===//
-import Foundation
 
-#if CRYPTO_IN_SWIFTPM && !CRYPTO_IN_SWIFTPM_FORCE_BUILD_API
-@_exported import CryptoKit
+#if canImport(FoundationEssentials)
+import FoundationEssentials
 #else
-#if !CRYPTO_IN_SWIFTPM_FORCE_BUILD_API
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
-typealias SupportedCurveDetailsImpl = CorecryptoSupportedNISTCurve
-#else
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
-typealias SupportedCurveDetailsImpl = OpenSSLSupportedNISTCurve
+import Foundation
 #endif
 
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
+#if canImport(CryptoKit)
+@_exported import CryptoKit
+#else
+typealias SupportedCurveDetailsImpl = OpenSSLSupportedNISTCurve
+
 protocol ECPublicKey {
-    init <Bytes: ContiguousBytes>(rawRepresentation: Bytes) throws
+    init <Bytes: ContiguousBytes>(rawRepresentation: Bytes) throws(CryptoKitMetaError)
     var rawRepresentation: Data { get }
 }
 
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
 protocol ECPrivateKey {
     associatedtype PK
     var publicKey: PK { get }
 }
 
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
 protocol NISTECPublicKey: ECPublicKey {
-    init<Bytes: ContiguousBytes>(compactRepresentation: Bytes) throws
-    init<Bytes: ContiguousBytes>(compressedRepresentation: Bytes) throws
-    init<Bytes: ContiguousBytes>(x963Representation: Bytes) throws
+    init<Bytes: ContiguousBytes>(compactRepresentation: Bytes) throws(CryptoKitMetaError)
+    init<Bytes: ContiguousBytes>(compressedRepresentation: Bytes) throws(CryptoKitMetaError)
+    init<Bytes: ContiguousBytes>(x963Representation: Bytes) throws(CryptoKitMetaError)
     
     var compactRepresentation: Data? { get }
     var x963Representation: Data { get }
 }
 
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
 protocol NISTECPrivateKey: ECPrivateKey where PK: NISTECPublicKey {
-    init <Bytes: ContiguousBytes>(rawRepresentation: Bytes) throws
+    init <Bytes: ContiguousBytes>(rawRepresentation: Bytes) throws(CryptoKitMetaError)
     var rawRepresentation: Data { get }
 }
 
 /// An elliptic curve that enables NIST P-256 signatures and key agreement.
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
-public enum P256 { }
+@nonexhaustive
+public enum P256: Sendable { }
 
 /// An elliptic curve that enables NIST P-384 signatures and key agreement.
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
-public enum P384 { }
+@nonexhaustive
+public enum P384: Sendable { }
 
 /// An elliptic curve that enables NIST P-521 signatures and key agreement.
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
-public enum P521 { }
-#endif // Linux or !SwiftPM
+@nonexhaustive
+public enum P521: Sendable { }
+#endif // canImport(CryptoKit)

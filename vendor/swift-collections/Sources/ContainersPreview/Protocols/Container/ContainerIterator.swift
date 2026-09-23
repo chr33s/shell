@@ -13,53 +13,81 @@
 
 #if compiler(>=6.4) && UnstableContainersPreview
 
-@available(SwiftStdlib 5.0, *)
+@available(SwiftStdlib 6.4, *)
 extension Container
 where
   Self: ~Copyable /*FIXME: & ~Escapable*/,
   Element: ~Copyable,
-  BorrowingIterator_ == ContainerIterator<Self>
+  BorrowingIterator == ContainerIterator<Self>
 {
+  @_alwaysEmitIntoClient
   @_lifetime(borrow self)
-  public func makeBorrowingIterator_() -> BorrowingIterator_ {
-    ContainerIterator(_borrowing: self, from: self.startIndex)
+  public func makeBorrowingIterator() -> BorrowingIterator {
+    ContainerIterator(
+      _borrowing: self,
+      from: self.startIndex,
+      to: self.endIndex)
+  }
+
+  @_alwaysEmitIntoClient
+  @_lifetime(borrow self)
+  public func makeBorrowingIterator(from start: Index, to end: Index) -> BorrowingIterator {
+    ContainerIterator(_borrowing: self, from: start, to: end)
+  }
+
+  @_alwaysEmitIntoClient
+  public func currentIndex(of iterator: inout BorrowingIterator) -> Index {
+    // FIXME: This should validate that the iterator belongs to this container.
+    iterator._position
   }
 }
 
-@available(SwiftStdlib 5.0, *)
+@available(SwiftStdlib 6.4, *)
 public struct ContainerIterator<
   Base: Container & ~Copyable /*FIXME: & ~Escapable*/
 >: ~Copyable, ~Escapable
 where Base.Element: ~Copyable
 {
   public typealias Element = Base.Element
-  
-  let _base: Ref<Base> // FIXME: This doesn't support nonescapable Bases
-  var _position: Base.Index
 
+  @_alwaysEmitIntoClient
+  package let _base: Ref<Base> // FIXME: This doesn't support nonescapable Bases
+
+  @_alwaysEmitIntoClient
+  package let _end: Base.Index
+
+  @_alwaysEmitIntoClient
+  package var _position: Base.Index
+
+  @_alwaysEmitIntoClient
   @_lifetime(borrow base)
-  init(_borrowing base: borrowing @_addressable Base, from position: Base.Index) {
+  package init(_borrowing base: borrowing Base, from start: Base.Index, to end: Base.Index) {
     self._base = Ref(base)
-    self._position = position
+    self._end = end
+    self._position = start
   }
 }
 
-@available(SwiftStdlib 5.0, *)
-extension ContainerIterator: BorrowingIteratorProtocol_
+@available(SwiftStdlib 6.4, *)
+extension ContainerIterator: BorrowingIteratorProtocol
 where
   Base: ~Copyable /*FIXME: & ~Escapable*/,
   Base.Element: ~Copyable
 {
-  public typealias Element_ = Base.Element
-
+  @_alwaysEmitIntoClient
   @_unsafeNonescapableResult // FIXME: we cannot convert from a borrow to an inout dependence?!
   @_lifetime(&self)
-  public mutating func nextSpan_(maximumCount: Int) -> Span<Base.Element> {
-    _base.value.nextSpan(after: &self._position, maximumCount: maximumCount)
+  public mutating func nextSpan(maxCount: Int) -> Span<Base.Element> {
+    _base.value
+      .nextSpan(
+        after: &self._position,
+        maxCount: maxCount,
+        limitedBy: self._end)
   }
 
+  @_alwaysEmitIntoClient
   @_lifetime(self: copy self)
-  public mutating func skip_(by maximumOffset: Int) -> Int {
+  public mutating func skip(by maximumOffset: Int) -> Int {
     // FIXME: If we aren't modeling bidirectional iterators, then this should
     // trap on negative maximumOffsets
     var n = maximumOffset

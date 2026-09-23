@@ -11,16 +11,31 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 //===----------------------------------------------------------------------===//
-#if CRYPTO_IN_SWIFTPM && !CRYPTO_IN_SWIFTPM_FORCE_BUILD_API
+
+#if canImport(CryptoKit)
 @_exported import CryptoKit
 #else
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
 import Foundation
+#endif
 
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
 extension HPKE {
 	/// The key encapsulation mechanisms to use in HPKE.
-    @available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
-    public enum KEM: CaseIterable, Hashable {
+    ///
+    /// The module-lattice key encapsulation mechanism (ML-KEM) is designed to offer increased security in situations
+    /// where an adversary uses a quantum computer.
+    @nonexhaustive
+    public enum KEM: CaseIterable, Hashable, Sendable {
+        public static var allCases: [HPKE.KEM] {
+            var cases = [KEM.P256_HKDF_SHA256, KEM.P384_HKDF_SHA384, KEM.P521_HKDF_SHA512, KEM.Curve25519_HKDF_SHA256]
+            if #available(iOS 19.0, macOS 16.0, watchOS 12.0, tvOS 19.0, macCatalyst 19.0, *) {
+                cases.append(KEM.XWingMLKEM768X25519)
+            }
+            return cases
+        }
+
 		/// A key encapsulation mechanism using NIST P-256 elliptic curve key agreement
 		/// and SHA-2 hashing with a 256-bit digest.
         case P256_HKDF_SHA256
@@ -33,22 +48,28 @@ extension HPKE {
 		/// A key encapsulation mechanism using X25519 elliptic curve key agreement
 		/// and SHA-2 hashing with a 256-bit digest.
         case Curve25519_HKDF_SHA256
-        
+        /// A key encapsulation mechanism using the X-Wing (ML-KEM-768 with X25519) key encapsulation mechanism
+        /// and SHA-2 hashing with a 256-bit digest.
+        case XWingMLKEM768X25519
+
+        /// Return the KEM algorithm identifier as defined in section 7.1 of [RFC 9180](https://www.ietf.org/rfc/rfc9180.pdf).
         internal var value: UInt16 {
             switch self {
-            case .P256_HKDF_SHA256:         return 0x0010
-            case .P384_HKDF_SHA384:         return 0x0011
-            case .P521_HKDF_SHA512:         return 0x0012
-            case .Curve25519_HKDF_SHA256:   return 0x0020
+            case .P256_HKDF_SHA256:          return 0x0010
+            case .P384_HKDF_SHA384:          return 0x0011
+            case .P521_HKDF_SHA512:          return 0x0012
+            case .Curve25519_HKDF_SHA256:    return 0x0020
+            case .XWingMLKEM768X25519: return 0x647a // https://datatracker.ietf.org/doc/html/draft-connolly-cfrg-xwing-kem-06#name-iana-considerations
             }
         }
         
         internal var kdf: HPKE.KDF {
             switch self {
-            case .P256_HKDF_SHA256:         return .HKDF_SHA256
-            case .P384_HKDF_SHA384:         return .HKDF_SHA384
-            case .P521_HKDF_SHA512:         return .HKDF_SHA512
-            case .Curve25519_HKDF_SHA256:   return .HKDF_SHA256
+            case .P256_HKDF_SHA256:          return .HKDF_SHA256
+            case .P384_HKDF_SHA384:          return .HKDF_SHA384
+            case .P521_HKDF_SHA512:          return .HKDF_SHA512
+            case .Curve25519_HKDF_SHA256:    return .HKDF_SHA256
+            case .XWingMLKEM768X25519:       return .HKDF_SHA256
             }
         }
         
@@ -58,13 +79,25 @@ extension HPKE {
         
         internal var nSecret: UInt16 {
             switch self {
-            case .P256_HKDF_SHA256:         return 32
-            case .P384_HKDF_SHA384:         return 48
-            case .P521_HKDF_SHA512:         return 64
-            case .Curve25519_HKDF_SHA256:   return 32
+            case .P256_HKDF_SHA256:          return 32
+            case .P384_HKDF_SHA384:          return 48
+            case .P521_HKDF_SHA512:          return 64
+            case .Curve25519_HKDF_SHA256:    return 32
+            case .XWingMLKEM768X25519:       return 32
+            }
+        }
+        
+        /// Return the size of the encapsulation in bytes
+        internal var nEnc: UInt16 {
+            switch self {
+            case .P256_HKDF_SHA256:          return 65
+            case .P384_HKDF_SHA384:          return 97
+            case .P521_HKDF_SHA512:          return 133
+            case .Curve25519_HKDF_SHA256:    return 32
+            case .XWingMLKEM768X25519:       return 1120
             }
         }
     }
 }
 
-#endif // Linux or !SwiftPM
+#endif // canImport(CryptoKit)

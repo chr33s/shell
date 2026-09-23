@@ -46,20 +46,23 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         // keyboard appearance so toolbar keys can read the system Shift state.
         SystemShiftReader.shared.activate()
 
-        // Configure audio session to not interrupt other apps' audio.
-        // Use .playback category with .mixWithOthers option - this is the pattern used by
-        // Twitter/X for video previews and is more reliable than .ambient for video playback.
-        // This must be configured BEFORE any AVPlayer is created.
+        // Configure the audio session policy so the app never interrupts other
+        // apps' audio. Setting the category round-trips to the audio server, so
+        // it runs off the main thread alongside UI startup instead of blocking
+        // launch. The session is not activated here: nothing plays at launch,
+        // and players activate the session themselves when they start.
         // (No UserDefaults dependency — safe to run before unlock.)
-        do {
-            try AVAudioSession.sharedInstance().setCategory(
-                .playback,
-                mode: .default,
-                options: [.mixWithOthers]
-            )
-            try AVAudioSession.sharedInstance().setActive(true)
-        } catch {
-            Self.logger.warning("Failed to configure audio session: \(error.localizedDescription)")
+        let logger = Self.logger
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                try AVAudioSession.sharedInstance().setCategory(
+                    .playback,
+                    mode: .default,
+                    options: [.mixWithOthers]
+                )
+            } catch {
+                logger.warning("Failed to configure audio session: \(error.localizedDescription)")
+            }
         }
 
         SettingsRegistry.shared.assertInvariants()

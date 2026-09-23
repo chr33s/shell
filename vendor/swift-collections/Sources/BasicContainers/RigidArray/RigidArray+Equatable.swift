@@ -11,8 +11,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#if compiler(>=6.2)
-
 #if !COLLECTIONS_SINGLE_MODULE
 import InternalCollectionsUtilities
 #endif
@@ -25,9 +23,13 @@ extension RigidArray where Element: ~Copyable {
   }
 }
 
-#if compiler(>=6.4) && UnstableContainersPreview
-@available(SwiftStdlib 5.0, *)
+#if compiler(>=6.4)
+@available(SwiftStdlib 6.4, *)
 extension RigidArray: Equatable where Element: Equatable & ~Copyable {
+}
+
+@available(SwiftStdlib 5.0, *)
+extension RigidArray where Element: Equatable & ~Copyable {
   @inlinable
   public static func ==(
     left: borrowing Self,
@@ -47,6 +49,4 @@ extension RigidArray /*: Equatable */ where Element: Equatable /* & ~Copyable */
     left.span._elementsEqual(to: right.span)
   }
 }
-#endif
-
 #endif

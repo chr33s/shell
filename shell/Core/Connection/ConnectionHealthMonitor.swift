@@ -362,9 +362,11 @@ final class ConnectionHealthMonitor {
         // Citadel surfaces this as an untyped error today, so the string is
         // the only discriminator available. It is confined to this one
         // question — "was this a protocol-level refusal?" — and never used to
-        // decide recovery policy.
+        // decide recovery policy. RouterOS answers SSH_MSG_UNIMPLEMENTED
+        // instead of refusing; that reply proves the round trip just the same.
         let description = String(describing: error)
         return description.contains("globalRequestRefused") || description.contains("RequestRefused")
+            || description.contains("remotePeerDoesNotSupportMessage")
     }
 
     private static func calculateRTT(from startTime: DispatchTime) -> Double {

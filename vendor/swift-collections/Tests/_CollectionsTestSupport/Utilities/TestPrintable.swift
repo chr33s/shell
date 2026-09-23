@@ -15,9 +15,9 @@
 import Collections
 #else
 import ContainersPreview
+import SpanPreview
 #endif
 
-#if compiler(>=6.2)
 /// A silly variant of `CustomDebugStringConvertible` that supports noncopyable
 /// and nonescapable conforming types.
 ///
@@ -32,6 +32,24 @@ import ContainersPreview
 public protocol TestPrintable: ~Copyable, ~Escapable {
   var testDescription: String { get }
 }
+
+extension TestPrintable where Self: CustomStringConvertible {
+  @inlinable
+  public var testDescription: String { description }
+}
+extension TestPrintable where Self: CustomDebugStringConvertible {
+  @inlinable
+  public var testDescription: String { debugDescription }
+}
+extension TestPrintable where Self: CustomStringConvertible & CustomDebugStringConvertible {
+  @inlinable
+  public var testDescription: String { description }
+}
+
+extension Int: TestPrintable {}
+extension UInt: TestPrintable {}
+extension String: TestPrintable {}
+extension Bool: TestPrintable {}
 
 extension _Pointer {
   internal var _description: String {
@@ -91,7 +109,6 @@ extension MutableSpan: TestPrintable where Element: ~Copyable  {
     }
   }
 }
-#if compiler(>=6.2)
 @available(SwiftStdlib 5.0, *)
 extension OutputSpan: TestPrintable where Element: ~Copyable  {
   public var testDescription: String {
@@ -106,7 +123,6 @@ extension OutputSpan: TestPrintable where Element: ~Copyable  {
     }
   }
 }
-#endif
 
 #if UnstableContainersPreview
 @available(SwiftStdlib 5.0, *)
@@ -123,5 +139,4 @@ extension InputSpan: TestPrintable where Element: ~Copyable  {
     }
   }
 }
-#endif
 #endif

@@ -244,6 +244,11 @@ final class KeybindManager: ObservableObject {
     func setOverride(sequence: KeySequence, action: KeybindAction) {
         Self.logger.info("Setting override: \(sequence.ghosttyFormat) -> \(action.rawValue)")
 
+        // Snapshot who we are about to displace, before userOverrides change.
+        let victims = action == .unbind
+            ? []
+            : conflicts(for: sequence, excluding: action)
+
         if action == .unbind {
             // Unbind is special: multiple actions can be unbound simultaneously.
             // Only remove duplicate unbinds for the same sequence. Keep non-unbind
@@ -259,7 +264,27 @@ final class KeybindManager: ObservableObject {
             }
         }
 
-        // Add new override
+        if action != .unbind {
+            // Unbind the previous owners so they stay empty instead of
+            // falling back to a free default. Applied before the new
+            // binding so the new chord is not stripped.
+            for victim in victims {
+                let unbind = Keybind(
+                    sequence: victim.sequence,
+                    action: .unbind,
+                    actionParameter: victim.action.rawValue,
+                    unboundActionParameter: victim.action.isParameterized ? victim.actionParameter : nil,
+                    isUserOverride: true,
+                    source: .userOverride
+                )
+                userOverrides.removeAll {
+                    unbind.unbinds($0) || $0.unbinds(victim)
+                }
+                userOverrides.append(unbind)
+            }
+        }
+
+        // New binding last so it wins over any victim unbind for this sequence.
         let override = Keybind(
             sequence: sequence,
             action: action,
@@ -615,6 +640,16 @@ final class KeybindManager: ObservableObject {
 
         // Apply user overrides (highest priority)
         for override in userOverrides {
+            if override.action == .unbind {
+                // Unbind targets the action in `actionParameter`, not every
+                // binding using its sequence: clearing the sequence would also
+                // strip a newer override that just took that chord.
+                // Parameterized owners also match their parameter and
+                // sequence so sibling bindings remain available.
+                bindings.removeAll { override.unbinds($0) }
+                continue
+            }
+
             // Remove any existing binding for this action (skip parameterized)
             if !override.action.isParameterized {
                 bindings.removeAll { $0.action == override.action }
@@ -622,9 +657,7 @@ final class KeybindManager: ObservableObject {
             // Remove any existing binding for this sequence (handle conflicts)
             bindings.removeAll { $0.sequence == override.sequence }
 
-            if override.action != .unbind {
-                bindings.append(override)
-            }
+            bindings.append(override)
         }
 
         // Sort by category and name for consistent ordering

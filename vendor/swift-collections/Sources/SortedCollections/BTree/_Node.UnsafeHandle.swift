@@ -73,7 +73,7 @@ extension _Node {
       #endif
     }
     
-    // MARK: Mutablility Checks
+    // MARK: Mutability Checks
     #if COLLECTIONS_INTERNAL_CHECKS
     @usableFromInline
     internal let _isMutable: Bool
@@ -395,7 +395,7 @@ extension _Node.UnsafeHandle {
   /// This moves initialized elements to an sequence of initialized element slots in the target handle.
   ///
   /// - Parameters:
-  ///   - newHandle: The destination handle to write to which could be the same
+  ///   - target: The destination handle to write to which could be the same
   ///       as the source to move within a handle.
   ///   - sourceSlot: The offset of the source handle to move from.
   ///   - destinationSlot: The offset of the destination handle to write to.
@@ -437,10 +437,10 @@ extension _Node.UnsafeHandle {
   /// This moves initialized children to an sequence of initialized element slots in the target handle.
   ///
   /// - Parameters:
-  ///   - newHandle: The destination handle to write to which could be the same
+  ///   - target: The destination handle to write to which could be the same
   ///       as the source to move within a handle.
   ///   - sourceSlot: The offset of the source handle to move from.
-  ///   - destinationSlot: The offset of the destintion handle to write to.
+  ///   - destinationSlot: The offset of the destination handle to write to.
   ///   - count: The amount of values to move
   /// - Warning: This does not adjust the buffer counts.
   /// - Warning: This will trap if either the source and destination handles are leaves.
@@ -664,7 +664,7 @@ extension _Node.UnsafeHandle {
   /// Swaps the child at a given slot, returning the old one
   /// - Parameters:
   ///   - slot: The initialized slot at which to swap the child
-  ///   - newElement: The new child to insert
+  ///   - newChild: The new child to insert
   /// - Returns: The old child from the slot.
   @inlinable
   @inline(__always)

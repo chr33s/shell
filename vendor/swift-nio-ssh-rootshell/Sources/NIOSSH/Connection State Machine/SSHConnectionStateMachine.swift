@@ -85,6 +85,11 @@ struct SSHConnectionStateMachine {
         var negotiatedCipherAlgorithm: String? = nil
         var negotiatedMacAlgorithm: String? = nil
         var peerRequestedExtensionInfo = false
+        /// Both sides advertised kex-strict-*-v00@openssh.com on the initial KEX; sequence numbers
+        /// reset at every NEWKEYS and nothing but KEX traffic is tolerated during the initial KEX.
+        var strictKeyExchange = false
+        /// UNIMPLEMENTED replies owed to the peer but withheld until our own NEWKEYS has been sent.
+        var deferredUnimplemented: [UInt32] = []
     }
     
     /// The state of this state machine.
@@ -198,6 +203,10 @@ struct SSHConnectionStateMachine {
 
             switch message {
             case .version(let version):
+                // OpenSSH refuses text before a client's version line; only servers may send pre-lines.
+                if self.role.isServer, state.parser.sawVersionPreLines {
+                    throw NIOSSHError.protocolViolation(protocolName: "version exchange", violation: "lines before version string")
+                }
                 try state.receiveVersionMessage(version, role: self.role)
                 let newState = KeyExchangeState(sentVersionState: state, allocator: allocator, loop: loop, remoteVersion: version)
                 let message = newState.keyExchangeStateMachine.createKeyExchangeMessage()
@@ -209,7 +218,8 @@ struct SSHConnectionStateMachine {
                 return .disconnect
 
             case .unimplemented(let unimplemented):
-                throw NIOSSHError.remotePeerDoesNotSupportMessage(unimplemented)
+                self.state = .sentVersion(state)
+                return .unimplemented(sequenceNumber: unimplemented.sequenceNumber)
 
             default:
                 throw NIOSSHError.protocolViolation(protocolName: "transport", violation: "Did not receive version message")
@@ -242,11 +252,18 @@ struct SSHConnectionStateMachine {
                 self.state = .receivedDisconnect(state.role)
                 return .disconnect
             case .ignore, .debug:
+                try Self.rejectIfStrictInitialKeyExchange(state.connectionAttributes, message)
                 // Ignore these
                 self.state = .keyExchange(state)
                 return .noMessage
             case .unimplemented(let unimplemented):
-                throw NIOSSHError.remotePeerDoesNotSupportMessage(unimplemented)
+                try Self.rejectIfStrictInitialKeyExchange(state.connectionAttributes, message)
+                self.state = .keyExchange(state)
+                return .unimplemented(sequenceNumber: unimplemented.sequenceNumber)
+            case .unknown(let unknown):
+                try Self.rejectIfStrictInitialKeyExchange(state.connectionAttributes, message)
+                self.state = .keyExchange(state)
+                return Self.handleUnknownMessage(unknown, parser: state.parser, canReplyToPing: false)
 
             default:
                 // TODO: enforce RFC 4253:
@@ -296,11 +313,18 @@ struct SSHConnectionStateMachine {
                 self.state = .receivedDisconnect(state.role)
                 return .disconnect
             case .ignore, .debug:
+                try Self.rejectIfStrictInitialKeyExchange(state.connectionAttributes, message)
                 // Ignore these
                 self.state = .sentNewKeys(state)
                 return .noMessage
             case .unimplemented(let unimplemented):
-                throw NIOSSHError.remotePeerDoesNotSupportMessage(unimplemented)
+                try Self.rejectIfStrictInitialKeyExchange(state.connectionAttributes, message)
+                self.state = .sentNewKeys(state)
+                return .unimplemented(sequenceNumber: unimplemented.sequenceNumber)
+            case .unknown(let unknown):
+                try Self.rejectIfStrictInitialKeyExchange(state.connectionAttributes, message)
+                self.state = .sentNewKeys(state)
+                return Self.handleUnknownMessage(unknown, parser: state.parser, canReplyToPing: false)
 
             default:
                 // TODO: enforce RFC 4253:
@@ -355,7 +379,12 @@ struct SSHConnectionStateMachine {
                 throw NIOSSHError.protocolViolation(protocolName: "user auth", violation: "Unexpected user auth message: \(message)")
 
             case .unimplemented(let unimplemented):
-                throw NIOSSHError.remotePeerDoesNotSupportMessage(unimplemented)
+                self.state = .receivedNewKeys(state)
+                return .unimplemented(sequenceNumber: unimplemented.sequenceNumber)
+            case .unknown(let unknown):
+                self.state = .receivedNewKeys(state)
+                // Our NEWKEYS is still unsent, so the reply waits until it has been.
+                return Self.handleUnknownMessage(unknown, parser: state.parser, canReplyToPing: false, deferUntilNewKeysSent: state.connectionAttributes)
 
             default:
                 throw NIOSSHError.protocolViolation(protocolName: "user auth", violation: "Unexpected inbound message: \(message)")
@@ -430,7 +459,11 @@ struct SSHConnectionStateMachine {
                 return .noMessage
 
             case .unimplemented(let unimplemented):
-                throw NIOSSHError.remotePeerDoesNotSupportMessage(unimplemented)
+                self.state = .userAuthentication(state)
+                return .unimplemented(sequenceNumber: unimplemented.sequenceNumber)
+            case .unknown(let unknown):
+                self.state = .userAuthentication(state)
+                return Self.handleUnknownMessage(unknown, parser: state.parser, canReplyToPing: false)
 
             default:
                 throw NIOSSHError.protocolViolation(protocolName: "user auth", violation: "Unexpected inbound message: \(message)")
@@ -492,7 +525,11 @@ struct SSHConnectionStateMachine {
                 self.state = .active(state)
                 return .noMessage
             case .unimplemented(let unimplemented):
-                throw NIOSSHError.remotePeerDoesNotSupportMessage(unimplemented)
+                self.state = .active(state)
+                return .unimplemented(sequenceNumber: unimplemented.sequenceNumber)
+            case .unknown(let unknown):
+                self.state = .active(state)
+                return Self.handleUnknownMessage(unknown, parser: state.parser, canReplyToPing: true)
 
             default:
                 throw NIOSSHError.protocolViolation(protocolName: "connection", violation: "Unexpected inbound message: \(message)")
@@ -527,7 +564,11 @@ struct SSHConnectionStateMachine {
                 self.state = .receivedKexInitWhenActive(state)
                 return .noMessage
             case .unimplemented(let unimplemented):
-                throw NIOSSHError.remotePeerDoesNotSupportMessage(unimplemented)
+                self.state = .receivedKexInitWhenActive(state)
+                return .unimplemented(sequenceNumber: unimplemented.sequenceNumber)
+            case .unknown(let unknown):
+                self.state = .receivedKexInitWhenActive(state)
+                return Self.handleUnknownMessage(unknown, parser: state.parser, canReplyToPing: false)
             default:
                 // TODO: enforce RFC 4253:
                 //
@@ -604,7 +645,11 @@ struct SSHConnectionStateMachine {
                 self.state = .sentKexInitWhenActive(state)
                 return .noMessage
             case .unimplemented(let unimplemented):
-                throw NIOSSHError.remotePeerDoesNotSupportMessage(unimplemented)
+                self.state = .sentKexInitWhenActive(state)
+                return .unimplemented(sequenceNumber: unimplemented.sequenceNumber)
+            case .unknown(let unknown):
+                self.state = .sentKexInitWhenActive(state)
+                return Self.handleUnknownMessage(unknown, parser: state.parser, canReplyToPing: false)
 
             default:
                 throw NIOSSHError.protocolViolation(protocolName: "connection", violation: "Unexpected inbound message: \(message)")
@@ -647,7 +692,11 @@ struct SSHConnectionStateMachine {
                 self.state = .rekeying(state)
                 return .noMessage
             case .unimplemented(let unimplemented):
-                throw NIOSSHError.remotePeerDoesNotSupportMessage(unimplemented)
+                self.state = .rekeying(state)
+                return .unimplemented(sequenceNumber: unimplemented.sequenceNumber)
+            case .unknown(let unknown):
+                self.state = .rekeying(state)
+                return Self.handleUnknownMessage(unknown, parser: state.parser, canReplyToPing: false)
             default:
                 // TODO: enforce RFC 4253:
                 //
@@ -721,7 +770,11 @@ struct SSHConnectionStateMachine {
                 self.state = .rekeyingReceivedNewKeysState(state)
                 return .noMessage
             case .unimplemented(let unimplemented):
-                throw NIOSSHError.remotePeerDoesNotSupportMessage(unimplemented)
+                self.state = .rekeyingReceivedNewKeysState(state)
+                return .unimplemented(sequenceNumber: unimplemented.sequenceNumber)
+            case .unknown(let unknown):
+                self.state = .rekeyingReceivedNewKeysState(state)
+                return Self.handleUnknownMessage(unknown, parser: state.parser, canReplyToPing: false)
 
             default:
                 throw NIOSSHError.protocolViolation(protocolName: "connection", violation: "Unexpected inbound message: \(message)")
@@ -765,7 +818,11 @@ struct SSHConnectionStateMachine {
                 self.state = .rekeyingSentNewKeysState(state)
                 return .noMessage
             case .unimplemented(let unimplemented):
-                throw NIOSSHError.remotePeerDoesNotSupportMessage(unimplemented)
+                self.state = .rekeyingSentNewKeysState(state)
+                return .unimplemented(sequenceNumber: unimplemented.sequenceNumber)
+            case .unknown(let unknown):
+                self.state = .rekeyingSentNewKeysState(state)
+                return Self.handleUnknownMessage(unknown, parser: state.parser, canReplyToPing: false)
 
             default:
                 // TODO: enforce RFC 4253:
@@ -809,7 +866,7 @@ struct SSHConnectionStateMachine {
             case .disconnect:
                 try state.serializer.serialize(message: message, to: &buffer)
                 self.state = .sentDisconnect(state.role)
-            case .ignore, .debug, .unimplemented:
+            case .ignore, .debug, .unimplemented, .unknown:
                 try state.serializer.serialize(message: message, to: &buffer)
                 self.state = .idle(state)
             default:
@@ -859,7 +916,7 @@ struct SSHConnectionStateMachine {
                 try kex.serializer.serialize(message: message, to: &buffer)
                 self.state = .sentDisconnect(kex.role)
 
-            case .ignore, .debug, .unimplemented:
+            case .ignore, .debug, .unimplemented, .unknown:
                 try kex.serializer.serialize(message: message, to: &buffer)
                 self.state = .keyExchange(kex)
 
@@ -893,6 +950,7 @@ struct SSHConnectionStateMachine {
                         to: &buffer
                     )
                 }
+                try Self.flushDeferredUnimplemented(self.attributes, serializer: &newState.serializer, into: &buffer)
                 let possibleMessage = newState.userAuthStateMachine.beginAuthentication()
                 self.state = .userAuthentication(newState)
 
@@ -905,7 +963,7 @@ struct SSHConnectionStateMachine {
                 try kex.serializer.serialize(message: message, to: &buffer)
                 self.state = .sentDisconnect(kex.role)
 
-            case .ignore, .debug, .unimplemented:
+            case .ignore, .debug, .unimplemented, .unknown:
                 try kex.serializer.serialize(message: message, to: &buffer)
                 self.state = .receivedNewKeys(kex)
 
@@ -928,7 +986,7 @@ struct SSHConnectionStateMachine {
                 try state.serializer.serialize(message: message, to: &buffer)
                 self.state = .sentDisconnect(state.role)
 
-            case .ignore, .debug, .unimplemented:
+            case .ignore, .debug, .unimplemented, .unknown:
                 try state.serializer.serialize(message: message, to: &buffer)
                 self.state = .sentNewKeys(state)
 
@@ -991,7 +1049,7 @@ struct SSHConnectionStateMachine {
                 try state.serializer.serialize(message: message, to: &buffer)
                 self.state = .sentDisconnect(state.role)
 
-            case .ignore, .debug, .unimplemented:
+            case .ignore, .debug, .unimplemented, .unknown:
                 try state.serializer.serialize(message: message, to: &buffer)
                 self.state = .userAuthentication(state)
 
@@ -1033,7 +1091,7 @@ struct SSHConnectionStateMachine {
                 try state.serializer.serialize(message: message, to: &buffer)
                 self.state = .sentDisconnect(state.role)
                 return
-            case .ignore, .debug, .unimplemented:
+            case .ignore, .debug, .unimplemented, .unknown:
                 try state.serializer.serialize(message: message, to: &buffer)
             default:
                 throw NIOSSHError.protocolViolation(protocolName: "connection", violation: "Sent unexpected message type: \(message)")
@@ -1052,7 +1110,7 @@ struct SSHConnectionStateMachine {
                 try state.serializer.serialize(message: message, to: &buffer)
                 self.state = .sentDisconnect(state.role)
 
-            case .ignore, .debug, .unimplemented:
+            case .ignore, .debug, .unimplemented, .unknown:
                 try state.serializer.serialize(message: message, to: &buffer)
                 self.state = .receivedKexInitWhenActive(state)
 
@@ -1067,7 +1125,7 @@ struct SSHConnectionStateMachine {
                 try state.serializer.serialize(message: message, to: &buffer)
                 self.state = .sentDisconnect(state.role)
 
-            case .ignore, .debug, .unimplemented:
+            case .ignore, .debug, .unimplemented, .unknown:
                 try state.serializer.serialize(message: message, to: &buffer)
                 self.state = .sentKexInitWhenActive(state)
 
@@ -1096,7 +1154,7 @@ struct SSHConnectionStateMachine {
                 try state.serializer.serialize(message: message, to: &buffer)
                 self.state = .sentDisconnect(state.role)
 
-            case .ignore, .debug, .unimplemented:
+            case .ignore, .debug, .unimplemented, .unknown:
                 try state.serializer.serialize(message: message, to: &buffer)
                 self.state = .rekeying(state)
 
@@ -1125,7 +1183,7 @@ struct SSHConnectionStateMachine {
                 try state.serializer.serialize(message: message, to: &buffer)
                 self.state = .sentDisconnect(state.role)
 
-            case .ignore, .debug, .unimplemented:
+            case .ignore, .debug, .unimplemented, .unknown:
                 try state.serializer.serialize(message: message, to: &buffer)
                 self.state = .rekeyingReceivedNewKeysState(state)
 
@@ -1168,7 +1226,7 @@ struct SSHConnectionStateMachine {
                 try state.serializer.serialize(message: message, to: &buffer)
                 self.state = .sentDisconnect(state.role)
                 return
-            case .ignore, .debug, .unimplemented:
+            case .ignore, .debug, .unimplemented, .unknown:
                 try state.serializer.serialize(message: message, to: &buffer)
                 self.state = .rekeyingSentNewKeysState(state)
             default:
@@ -1197,6 +1255,10 @@ extension SSHConnectionStateMachine {
         case forwardToMultiplexer(SSHMessage)
         case globalRequestResponse(GlobalRequestResponse)
         case globalRequest(SSHMessage.GlobalRequestMessage)
+        /// The peer answered one of our messages with SSH_MSG_UNIMPLEMENTED. Informational
+        /// per RFC 4253 §11.4, so states write back rather than throw: a throw would leave
+        /// the packet buffered to re-throw on every later read.
+        case unimplemented(sequenceNumber: UInt32)
         case disconnect
         case noMessage
         case event(Any)
@@ -1229,9 +1291,68 @@ extension SSHConnectionStateMachine {
     }
 }
 
+// MARK: Unknown messages
+
+extension SSHConnectionStateMachine {
+    /// Strict KEX: until the peer's first NEWKEYS arrives, only KEX traffic is legal (OpenSSH kex_protocol_error).
+    private static func rejectIfStrictInitialKeyExchange(_ attributes: Attributes, _ message: SSHMessage) throws {
+        if attributes.strictKeyExchange {
+            throw NIOSSHError.protocolViolation(protocolName: "key exchange", violation: "strict KEX violation: unexpected message \(message.traceSummary)")
+        }
+    }
+
+    /// RFC 4253 §11.4: an unknown type gets SSH_MSG_UNIMPLEMENTED carrying the offending packet's
+    /// sequence number. OpenSSH PING (PROTOCOL §1.8) is answered with PONG only once active.
+    /// `deferUntilNewKeysSent` holds the reply back when our own NEWKEYS is still unsent: the peer is
+    /// then still inside its initial KEX and a strict peer would kill the session over a non-KEX packet.
+    private static func handleUnknownMessage(_ message: SSHMessage.UnknownMessage, parser: SSHPacketParser, canReplyToPing: Bool, deferUntilNewKeysSent: Attributes? = nil) -> StateMachineInboundProcessResult {
+        switch message.type {
+        case SSHMessage.UnknownMessage.pingType:
+            guard canReplyToPing else {
+                return .noMessage
+            }
+            return .emitMessage(SSHMultiMessage(.unknown(.init(type: SSHMessage.UnknownMessage.pongType, payload: message.payload))))
+        case SSHMessage.UnknownMessage.pongType:
+            return .noMessage
+        default:
+            let sequenceNumber = parser.lastPacketSequenceNumber
+            if let attributes = deferUntilNewKeysSent {
+                attributes.deferredUnimplemented.append(sequenceNumber)
+                return .noMessage
+            }
+            return .emitMessage(SSHMultiMessage(.unimplemented(.init(sequenceNumber: sequenceNumber))))
+        }
+    }
+
+    /// Emits the replies withheld by `handleUnknownMessage`, once our NEWKEYS has gone into `buffer`.
+    private static func flushDeferredUnimplemented(_ attributes: Attributes, serializer: inout SSHPacketSerializer, into buffer: inout ByteBuffer) throws {
+        for sequenceNumber in attributes.deferredUnimplemented {
+            try serializer.serialize(message: .unimplemented(.init(sequenceNumber: sequenceNumber)), to: &buffer)
+        }
+        attributes.deferredUnimplemented.removeAll()
+    }
+}
+
 // MARK: Helper properties
 
 extension SSHConnectionStateMachine {
+    /// Testing only.
+    internal var _testOnly_strictKeyExchange: Bool {
+        self.attributes.strictKeyExchange
+    }
+
+    /// States in which RFC 4253 §7.1 forbids sending channel traffic; the handler queues it until
+    /// the rekey completes. `rekeyingSentNewKeysState` already accepts channel messages outbound.
+    var isRekeying: Bool {
+        switch self.state {
+        case .receivedKexInitWhenActive, .sentKexInitWhenActive, .rekeying, .rekeyingReceivedNewKeysState:
+            return true
+        case .idle, .sentVersion, .keyExchange, .receivedNewKeys, .sentNewKeys, .userAuthentication, .active,
+             .rekeyingSentNewKeysState, .receivedDisconnect, .sentDisconnect:
+            return false
+        }
+    }
+
     var isActive: Bool {
         switch self.state {
         case .active:

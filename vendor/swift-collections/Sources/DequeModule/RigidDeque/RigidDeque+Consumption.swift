@@ -13,10 +13,8 @@
 
 #if !COLLECTIONS_SINGLE_MODULE
 import InternalCollectionsUtilities
-import ContainersPreview
+import SpanPreview
 #endif
-
-#if compiler(>=6.2)
 
 @available(SwiftStdlib 5.0, *)
 extension RigidDeque where Element: ~Copyable {
@@ -35,27 +33,30 @@ extension RigidDeque where Element: ~Copyable {
   /// - Parameter subrange: The subrange of items to consume from this deque.
   /// - Parameter consumer: A function taking an input span of removed items,
   ///    allowing them to be consumed straight out of the deque's storage.
-  ///
+  /// - Returns: A valid index addressing the position following the consumed
+  ///    range.
   /// - Complexity: O(`self.count`)
   @_alwaysEmitIntoClient
-  @inline(__always)
-  public mutating func consume(
+  @discardableResult
+  public mutating func consumeSubrange(
     _ subrange: Range<Index>,
     consumingWith consumer: (inout InputSpan<Element>) -> Void
-  ) {
+  ) -> Index {
     _checkValidBounds(subrange)
     let segments = self._handle.mutableSegments(forOffsets: subrange)
-    
-    var span = InputSpan(buffer: segments.first, initializedCount: segments.first.count)
+
+    var span = InputSpan(
+      buffer: segments.first, initializedCount: segments.first.count)
     consumer(&span)
     _ = consume span
-    
+
     if let second = segments.second {
       var span = InputSpan(buffer: second, initializedCount: second.count)
       consumer(&span)
       _ = consume span
     }
     _handle.closeGap(offsets: subrange)
+    return subrange.lowerBound
   }
 
   /// Remove the specified subrange of items from this deque,
@@ -72,17 +73,19 @@ extension RigidDeque where Element: ~Copyable {
   /// - Parameter subrange: The subrange of items to consume from this deque.
   /// - Parameter consumer: A function taking an input span of the removed items,
   ///    allowing them to be consumed straight out of the deque's storage.
-  ///
+  /// - Returns: A valid index addressing the position following the consumed
+  ///    range.
   /// - Complexity: O(`self.count`)
   @_alwaysEmitIntoClient
   @inline(__always)
-  public mutating func consume<R: RangeExpression<Index>>(
+  @discardableResult
+  public mutating func consumeSubrange<R: RangeExpression<Index>>(
     _ subrange: R,
     consumingWith consumer: (inout InputSpan<Element>) -> Void
-  ) {
-    consume(subrange.relative(to: indices), consumingWith: consumer)
+  ) -> Index {
+    consumeSubrange(subrange.relative(to: indices), consumingWith: consumer)
   }
-  
+
   /// Remove all items currently in this deque, passing a series of input
   /// spans to a given callback function to consume them in place.
   ///
@@ -101,9 +104,9 @@ extension RigidDeque where Element: ~Copyable {
   public mutating func consumeAll(
     consumingWith consumer: (inout InputSpan<Element>) -> Void
   ) {
-    consume(indices, consumingWith: consumer)
+    consumeSubrange(indices, consumingWith: consumer)
   }
-  
+
   /// Remove the specified number of items from the end of this deque,
   /// passing an input span to a given callback function to consume them in
   /// place.
@@ -130,7 +133,7 @@ extension RigidDeque where Element: ~Copyable {
     precondition(
       n >= 0 && n <= self.count,
       "Count of elements to consume is out of bounds")
-    consume(self.count &- n ..< self.count, consumingWith: consumer)
+    consumeSubrange(self.count &- n ..< self.count, consumingWith: consumer)
   }
 
   /// Remove the specified number of items from the front of this deque,
@@ -159,38 +162,52 @@ extension RigidDeque where Element: ~Copyable {
     precondition(
       n >= 0 && n <= self.count,
       "Count of elements to consume is out of bounds")
-    consume(0 ..< n, consumingWith: consumer)
+    consumeSubrange(0 ..< n, consumingWith: consumer)
   }
 #endif
 }
 
-#if compiler(>=6.3) && UnstableContainersPreview
+#if compiler(>=6.4) && UnstableContainersPreview
 @available(SwiftStdlib 5.0, *)
 extension RigidDeque where Element: ~Copyable {
+  @available(SwiftStdlib 5.0, *)
   @_alwaysEmitIntoClient
   @inline(__always)
   @_lifetime(&self)
-  public mutating func consume(_ subrange: Range<Index>) -> SubrangeConsumer {
+  public mutating func consumeSubrange(
+    _ subrange: Range<Index>
+  ) -> SubrangeConsumer {
     SubrangeConsumer(_base: &self, offsetRange: subrange)
   }
 }
 
 @available(SwiftStdlib 5.0, *)
 extension RigidDeque where Element: ~Copyable {
+  // FIXME: This works around a Swift 6.5 name resolution issue; see usages below.
+  @usableFromInline internal typealias _Element = Element
+
+  @available(SwiftStdlib 5.0, *)
   @frozen
   public struct SubrangeConsumer: ~Copyable, ~Escapable {
+    // FIXME: We have to use our own MutableRef because the standard one
+    // provides no access to the underlying pointer. See deinit why we need it.
     @usableFromInline
-    internal var _base: MutableRef<RigidDeque>
-      
-    @usableFromInline
-    internal var _offsetRange: Range<Int>
-    
-    @usableFromInline
-    internal var _buffer1: UnsafeMutableBufferPointer<Element>
+    internal var _base: _MutableRef<RigidDeque>
 
     @usableFromInline
-    internal var _buffer2: UnsafeMutableBufferPointer<Element>
-    
+    internal var _offsetRange: Range<Int>
+
+    // FIXME: This ought to be using `Element` directly, but when the package is
+    // built using the Xcode project, some Swift 6.5 nightlies appear to
+    // resolve it to a less available `Element` definition, causing a build
+    // failure. The availability indicates it may be `Iterable.Element` via
+    // the `Container` conformance; this is super confusing though.
+    @usableFromInline
+    internal var _buffer1: UnsafeMutableBufferPointer<_Element>
+
+    @usableFromInline
+    internal var _buffer2: UnsafeMutableBufferPointer<_Element>
+
     @_alwaysEmitIntoClient
     @inline(__always)
     @_lifetime(&_base)
@@ -199,7 +216,7 @@ extension RigidDeque where Element: ~Copyable {
       let segments = _base._handle.mutableSegments(forOffsets: offsetRange)
       self._buffer1 = segments.first
       self._buffer2 = segments.second ?? .init(start: nil, count: 0)
-      self._base = MutableRef(&_base)
+      self._base = _MutableRef(&_base)
       self._offsetRange = offsetRange
     }
 
@@ -217,30 +234,34 @@ extension RigidDeque where Element: ~Copyable {
   }
 }
 
-#if compiler(>=6.4)
-@available(SwiftStdlib 5.0, *)
-extension RigidDeque.SubrangeConsumer: Drain where Element: ~Copyable {
-}
-#endif
-
 @available(SwiftStdlib 5.0, *)
 extension RigidDeque.SubrangeConsumer where Element: ~Copyable {
+  public typealias Index = Int
+
+  @inlinable
+  public var count: Int {
+    _buffer1.count + _buffer2.count
+  }
+
   @inlinable
   @_lifetime(&self)
   @_lifetime(self: copy self)
-  public mutating func drainNext(maximumCount: Int) -> InputSpan<Element> {
+  public mutating func drainNext(maxCount: Int) -> InputSpan<Element> {
     if _buffer1.isEmpty {
       if _buffer2.isEmpty {
         return .init()
       }
       swap(&_buffer1, &_buffer2)
     }
-    let buffer = _buffer1._trim(first: maximumCount)
+    let buffer = _buffer1._trim(first: maxCount)
     return _overrideLifetime(
       InputSpan(buffer: buffer, initializedCount: buffer.count),
       mutating: &self)
   }
-}
-#endif
 
+  @inlinable
+  public consuming func finalize() -> Int {
+    _offsetRange.lowerBound
+  }
+}
 #endif

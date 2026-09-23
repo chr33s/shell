@@ -24,6 +24,11 @@ struct SSHPacketSerializer {
     private var state: State = .initialized
     private var sequenceNumber: UInt32 = 0
 
+    /// Strict KEX (kex-strict-*-v00@openssh.com) restarts outbound numbering at 0 after each NEWKEYS.
+    mutating func resetSequenceNumber() {
+        self.sequenceNumber = 0
+    }
+
     /// Encryption schemes can be added to a packet serializer whenever encryption is negotiated.
     mutating func addEncryption(_ protection: NIOSSHTransportProtection) {
         switch self.state {

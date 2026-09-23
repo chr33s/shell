@@ -18,7 +18,6 @@ import NIOCore
 
 enum SSHMessage: Equatable {
     enum ParsingError: Error {
-        case unknownType(UInt8)
         case incorrectFormat
     }
 
@@ -27,6 +26,7 @@ enum SSHMessage: Equatable {
     case ignore(IgnoreMessage)
     case unimplemented(UnimplementedMessage)
     case debug(DebugMessage)
+    case unknown(UnknownMessage)
     case serviceRequest(ServiceRequestMessage)
     case serviceAccept(ServiceAcceptMessage)
     case extensionInfo(ExtensionInfoMessage)
@@ -78,6 +78,17 @@ extension SSHMessage {
         static let id: UInt8 = 3
 
         var sequenceNumber: UInt32
+    }
+
+    /// A message type we do not understand. RFC 4253 §11.4 requires SSH_MSG_UNIMPLEMENTED in reply,
+    /// so the packet is consumed whole instead of failing the parse. Also carries OpenSSH's
+    /// transport-level PING/PONG (PROTOCOL §1.8).
+    struct UnknownMessage: Equatable {
+        static let pingType: UInt8 = 192
+        static let pongType: UInt8 = 193
+
+        var type: UInt8
+        var payload: ByteBuffer
     }
 
     struct DebugMessage: Equatable {
@@ -650,7 +661,7 @@ extension ByteBuffer {
                 }
                 return .channelFailure(message)
             default:
-                throw SSHMessage.ParsingError.unknownType(type)
+                return .unknown(.init(type: type, payload: self.readSlice(length: self.readableBytes)!))
             }
         }
     }
@@ -1388,6 +1399,9 @@ extension ByteBuffer {
         case .debug(let message):
             writtenBytes += self.writeInteger(SSHMessage.DebugMessage.id)
             writtenBytes += self.writeDebugMessage(message)
+        case .unknown(let message):
+            writtenBytes += self.writeInteger(message.type)
+            writtenBytes += self.writeImmutableBuffer(message.payload)
         case .disconnect(let message):
             writtenBytes += self.writeInteger(SSHMessage.DisconnectMessage.id)
             writtenBytes += self.writeDisconnectMessage(message)

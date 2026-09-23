@@ -11,6 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+#if false
+
 import XCTest
 #if COLLECTIONS_SINGLE_MODULE
 import Collections
@@ -19,7 +21,6 @@ import _CollectionsTestSupport
 import ContainersPreview
 #endif
 
-#if compiler(>=6.2)
 final class UniqueBoxTests: CollectionTestCase {
   struct NoncopyablePayload: ~Copyable {
     var value: Int

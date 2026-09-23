@@ -13,430 +13,876 @@
 
 #if !COLLECTIONS_SINGLE_MODULE
 import InternalCollectionsUtilities
+import SpanPreview
 #endif
 
 #if compiler(>=6.4) && UnstableContainersPreview
 
 //MARK: - Protocol Definition
 
-@available(SwiftStdlib 5.0, *)
+@available(SwiftStdlib 6.4, *)
 public protocol RangeReplaceableContainer<Element>
-: Container, ~Copyable, ~Escapable
-where
-  Element: ~Copyable,
-  Index: Comparable // For `Range<Index>`
+: DrainableContainer, ~Copyable, ~Escapable
+where Element: ~Copyable
 {
-  // Core requirements
+  // MARK: Core requirements
 
   var freeCapacity: Int { get }
 
-  mutating func replace<E: Error>(
-    removing subrange: Range<Index>,
+  /// - Returns: A valid index range addressing the newly inserted items.
+  @discardableResult
+  mutating func replaceSubrange<E: Error>(
+    _ subrange: Range<Index>,
     consumingWith consumer: (inout InputSpan<Element>) -> Void,
     addingCount newItemCount: Int,
     initializingWith initializer: (inout OutputSpan<Element>) throws(E) -> Void
-  ) throws(E)
+  ) throws(E) -> Range<Index>
 
-  associatedtype SubrangeConsumer: Drain<Element> & ~Copyable & ~Escapable
+  // MARK: Requirements with default implementations
 
-  @_lifetime(&self)
-  mutating func consume(_ subrange: Range<Index>) -> SubrangeConsumer
-
-  // Requirements with default implementations
-
-  mutating func remove(at index: Index) -> Element
-  mutating func removeSubrange(_ bounds: Range<Index>)
-  mutating func removeAll()
-
+  /// - Returns: A valid index range addressing the newly inserted items.
+  @discardableResult
   mutating func insert<E: Error>(
     addingCount newItemCount: Int,
     at index: Index,
     initializingWith initializer: (inout OutputSpan<Element>) throws(E) -> Void
-  ) throws(E)
+  ) throws(E) -> Range<Index>
 
-  mutating func insert(_ item: consuming Element, at index: Index)
+  /// - Returns: A valid index addressing the newly inserted item.
+  @discardableResult
+  mutating func insert(_ item: consuming Element, at index: Index) -> Index
 
+  /// - Returns: A valid index range addressing the newly inserted items.
+  @discardableResult
   mutating func append<E: Error>(
     addingCount newItemCount: Int,
     initializingWith initializer: (inout OutputSpan<Element>) throws(E) -> Void
-  ) throws(E)
+  ) throws(E) -> Range<Index>
 
-  mutating func append(_ item: consuming Element)
+  /// - Returns: A valid index addressing the newly inserted item.
+  @discardableResult
+  mutating func append(_ item: consuming Element) -> Index
 }
 
 //MARK: - Default Implementations
 
-@available(SwiftStdlib 5.0, *)
+@available(SwiftStdlib 6.4, *)
 extension RangeReplaceableContainer
 where Self: ~Copyable & ~Escapable, Element: ~Copyable
 {
-  @inlinable
-  public mutating func remove(at index: Index) -> Element {
-    let range = Range(uncheckedBounds: (index, self.index(after: index)))
-    var result: Element?
-    self.consume(range) {
-      result = $0.removeFirst()
-    }
-    guard let result else {
-      preconditionFailure("Invalid RangeReplaceableContainer")
-    }
-    return result
-  }
-
-  @inlinable
-  public mutating func removeSubrange(_ bounds: Range<Index>) {
-    replace(
-      removing: bounds,
-      consumingWith: { _ in },
-      addingCount: 0,
-      initializingWith: { _ in })
-  }
-
-  @inlinable
-  public mutating func removeAll() {
-    removeSubrange(startIndex ..< endIndex)
-  }
-
-  @inlinable
+  @_alwaysEmitIntoClient
+  @discardableResult
   public mutating func insert<E: Error>(
     addingCount newItemCount: Int,
     at index: Index,
     initializingWith initializer: (inout OutputSpan<Element>) throws(E) -> Void
-  ) throws(E) {
-    try self.replace(
-      removing: index ..< index,
+  ) throws(E) -> Range<Index> {
+    try self.replaceSubrange(
+      index ..< index,
       consumingWith: { _ in },
       addingCount: newItemCount,
       initializingWith: initializer)
   }
 
-  @inlinable
+  @_alwaysEmitIntoClient
+  @discardableResult
   public mutating func insert(
     _ item: consuming Element, at index: Index
-  ) {
+  ) -> Index {
     var item: Optional = item
-    insert(addingCount: 1, at: index) { target in
+    let range = insert(addingCount: 1, at: index) { target in
       target.append(item.take()!)
     }
+    precondition(!range.isEmpty)
+    return range.lowerBound
   }
 
-  @inlinable
+  @_alwaysEmitIntoClient
+  @discardableResult
   public mutating func append<E: Error>(
     addingCount newItemCount: Int,
     initializingWith initializer: (inout OutputSpan<Element>) throws(E) -> Void
-  ) throws(E) {
+  ) throws(E) -> Range<Index> {
     try self.insert(
       addingCount: newItemCount,
       at: endIndex,
       initializingWith: initializer)
   }
 
-  @inlinable
-  public mutating func append(_ item: consuming Element) {
+  @_alwaysEmitIntoClient
+  @discardableResult
+  public mutating func append(_ item: consuming Element) -> Index {
     insert(item, at: endIndex)
   }
 }
 
 //MARK: - Standard Extensions
 
-@available(SwiftStdlib 5.0, *)
+@available(SwiftStdlib 6.4, *)
 extension RangeReplaceableContainer
 where Self: ~Copyable & ~Escapable, Element: ~Copyable
 {
-  @inlinable
-  public mutating func replace<
+  /// Replaces the specified range of elements by at most `newItemCount` items
+  /// generated by a producer.
+  ///
+  /// This method has the effect of removing the specified range of elements
+  /// from the container and inserting the new elements starting at the same
+  /// location. The number of new elements need not match the number of elements
+  /// being removed.
+  ///
+  /// If the container cannot accommodate the specified number of new elements,
+  /// then this method triggers a runtime error.
+  ///
+  /// If you pass a zero-length range as the `subrange` parameter, this method
+  /// inserts the items generated by `producer` at `subrange.lowerBound`. This
+  /// case is more directly expressed by calling `insert(moving:at:)`.
+  ///
+  /// Likewise, if the given producer is empty, then this method removes the
+  /// elements in the given subrange without replacement. This case is more
+  /// directly expressed by calling `removeSubrange`.
+  ///
+  /// This operation inserts as many items as the producer can generate before
+  /// either reaching `newItemCount`, or the producer hitting its end, or
+  /// throwing an error. If the producer has more than `newItemCount` items left in
+  /// its underlying sequence, then extra items remain available after this
+  /// method returns.
+  ///
+  /// If the operation ends up inserting fewer than `newItemCount` items, then
+  /// it may have to relocate elements to restore invariants after the partial
+  /// insertion. This will come with some performance overhead when compared to
+  /// adding exactly as many items as promised.
+  ///
+  /// - Parameters:
+  ///   - subrange: The subrange of the container to replace. The bounds of
+  ///     the range must be valid indices in the container.
+  ///   - newItemCount: The maximum number of items to insert into the container.
+  ///   - producer: A producer that generates the items to insert.
+  /// - Returns: A valid index range addressing the newly inserted items.
+  /// - Complexity: O(`self.count` + `newItemCount`)
+  @_alwaysEmitIntoClient
+  @discardableResult
+  public mutating func replaceSubrange<
     E: Error,
     P: Producer<Element, E> & ~Copyable & ~Escapable
   >(
-    removing subrange: some RangeExpression2<Index>,
-    addingCount: Int,
+    _ subrange: some RangeExpression2<Index>,
+    addingCount newItemCount: Int,
     from producer: inout P
-  ) throws(P.Failure)
+  ) throws(P.Failure) -> Range<Index>
   where P.Element: ~Copyable
   {
-    try replace(
-      removing: subrange.relative(to: self),
+    try replaceSubrange(
+      subrange.relative(to: self),
       consumingWith: { _ in },
-      addingCount: count,
+      addingCount: newItemCount,
       initializingWith: { target throws(E) in
-        while !target.isFull, try producer.generate(into: &target) {
-        }
+        try producer.generate(into: &target)
       })
   }
 
-  @inlinable
-  public mutating func replace<E: Error>(
-    removing subrange: some RangeExpression2<Index>,
+  @_alwaysEmitIntoClient
+  @discardableResult
+  public mutating func replaceSubrange<
+    E: Error,
+    P: CountedProducer<Element, E> & ~Copyable & ~Escapable
+  >(
+    _ subrange: some RangeExpression2<Index>,
+    addingFrom producer: consuming P
+  ) throws(P.Failure) -> Range<Index>
+  where P.Element: ~Copyable
+  {
+    let range = try replaceSubrange(subrange, addingCount: producer.count, from: &producer)
+    try producer._expectEnd("Invalid Container")
+    return range
+  }
+
+  @_alwaysEmitIntoClient
+  @discardableResult
+  public mutating func replaceSubrange<E: Error>(
+    _ subrange: some RangeExpression2<Index>,
     consumingWith consumer: (inout InputSpan<Element>) -> Void,
     addingCount newItemCount: Int,
     initializingWith initializer: (inout OutputSpan<Element>) throws(E) -> Void
-  ) throws(E) {
-    try replace(
-      removing: subrange.relative(to: self),
+  ) throws(E) -> Range<Index> {
+    try replaceSubrange(
+      subrange.relative(to: self),
       consumingWith: consumer,
       addingCount: newItemCount,
       initializingWith: initializer)
   }
 
-  @inlinable
-  public mutating func replace<E: Error>(
-    removing subrange: some RangeExpression2<Index>,
+  // This unavailable default implementation of the protocol requirement
+  // prevents incomplete RangeReplaceableContainer implementations from
+  // satisfying the protocol through the use of the generic algorithm above.
+  @available(*, unavailable)
+  @_alwaysEmitIntoClient
+  @discardableResult
+  public mutating func replaceSubrange<E: Error>(
+    _ subrange: Range<Index>,
+    consumingWith consumer: (inout InputSpan<Element>) -> Void,
     addingCount newItemCount: Int,
     initializingWith initializer: (inout OutputSpan<Element>) throws(E) -> Void
-  ) throws(E) {
-    try replace(
-      removing: subrange.relative(to: self),
+  ) throws(E) -> Range<Index> {
+    fatalError()
+  }
+
+  @_alwaysEmitIntoClient
+  @discardableResult
+  public mutating func replaceSubrange<E: Error>(
+    _ subrange: some RangeExpression2<Index>,
+    addingCount newItemCount: Int,
+    initializingWith initializer: (inout OutputSpan<Element>) throws(E) -> Void
+  ) throws(E) -> Range<Index> {
+    try replaceSubrange(
+      subrange.relative(to: self),
       consumingWith: { _ in },
       addingCount: newItemCount,
       initializingWith: initializer)
   }
 
-  @inlinable
-  public mutating func replace<
+  @_alwaysEmitIntoClient
+  @discardableResult
+  public mutating func replaceSubrange<
     C: RangeReplaceableContainer<Element> & ~Copyable & ~Escapable
   >(
-    removing targetSubrange: some RangeExpression2<Index>,
+    _ targetSubrange: some RangeExpression2<Index>,
+    moving source: inout C
+  ) -> Range<Index>
+  where C.Element: ~Copyable {
+    replaceSubrange(targetSubrange, addingFrom: source.consumeAll())
+  }
+
+  @_alwaysEmitIntoClient
+  @discardableResult
+  public mutating func replaceSubrange<
+    C: DrainableContainer<Element> & ~Copyable & ~Escapable
+  >(
+    _ targetSubrange: some RangeExpression2<Index>,
     moving sourceSubrange: some RangeExpression2<C.Index>,
     from source: inout C
-  ) {
+  ) -> Range<Index>
+  where C.Element: ~Copyable {
     let sourceSubrange = sourceSubrange.relative(to: source)
     let c = source.distance(from: sourceSubrange.lowerBound, to: sourceSubrange.upperBound)
-    var producer = source.consume(sourceSubrange)
+    var producer = source.consumeSubrange(sourceSubrange)
     let targetSubrange = targetSubrange.relative(to: self)
-    self.replace(removing: targetSubrange, addingCount: c, from: &producer)
-    if !producer._isAtEnd() {
-      preconditionFailure("Invalid Container")
-    }
+    let range = self.replaceSubrange(targetSubrange, addingCount: c, from: &producer)
+    producer._expectEnd("Invalid Container")
+    return range
+  }
+
+  /// Replaces the specified range of elements by moving the elements of a
+  /// given array into their place, consuming it in the process.
+  ///
+  /// This method has the effect of removing the specified range of elements
+  /// from the array and inserting the new elements starting at the same
+  /// location. The number of new elements need not match the number of elements
+  /// being removed.
+  ///
+  /// If the capacity of the array isn't sufficient to accommodate the new
+  /// elements, then this method triggers a runtime error.
+  ///
+  /// If you pass a zero-length range as the `subrange` parameter, this method
+  /// inserts the elements of `newElements` at `subrange.lowerBound`. This case
+  /// is more directly expressed by calling `insert(consuming:at:)`.
+  ///
+  /// Likewise, if you pass a zero-length buffer as the `newElements`
+  /// parameter, this method removes the elements in the given subrange
+  /// without replacement. This case is more directly expressed by calling
+  /// `removeSubrange`.
+  ///
+  /// - Parameters:
+  ///   - subrange: The subrange of the array to replace. The bounds of
+  ///     the range must be valid indices in the array.
+  ///   - newElements: An array whose contents to move into `self`.
+  ///
+  /// - Complexity: O(`self.count` + `newElements.count`)
+  @_alwaysEmitIntoClient
+  @discardableResult
+  public mutating func replaceSubrange<
+    C: DrainableContainer<Element> & ~Copyable & ~Escapable
+  >(
+    _ targetSubrange: some RangeExpression2<Index>,
+    consuming source: consuming C
+  ) -> Range<Index>
+  where C.Element: ~Copyable {
+    replaceSubrange(targetSubrange, addingFrom: source.consumeAll())
   }
 }
 
-@available(SwiftStdlib 5.0, *)
-extension RangeReplaceableContainer
-where Self: ~Copyable & ~Escapable, Element: ~Copyable {
-  @inlinable
-  public mutating func consume(
-    _ subrange: Range<Index>,
-    consumingWith consumer: (inout InputSpan<Element>) -> Void
-  ) {
-    self.replace(
-      removing: subrange,
-      consumingWith: consumer,
-      addingCount: 0,
-      initializingWith: {
-        precondition($0.isFull, "Invalid RangeReplaceableContainer")
-      })
-  }
-
-  @inlinable
-  @_lifetime(&self)
-  public mutating func consumeAll() -> SubrangeConsumer {
-    consume(startIndex ..< endIndex)
-  }
-
-  @inlinable
-  @_lifetime(&self)
-  public mutating func consume(
-    _ subrange: some RangeExpression2<Index>
-  ) -> SubrangeConsumer {
-    consume(subrange.relative(to: self))
-  }
-
-  @inlinable
-  @_lifetime(&self)
-  public mutating func consume(
-    _ subrange: UnboundedRange
-  ) -> SubrangeConsumer {
-    consume(startIndex ..< endIndex)
-  }
-
-  @inlinable
-  @_lifetime(&self)
-  public mutating func consumeFirst(_ n: Int) -> SubrangeConsumer {
-    precondition(n >= 0, "Count of elements to consume is out of bounds")
-    let start = self.startIndex
-    var i = start
-    var n = n
-    self.formIndex(&i, offsetBy: &n, limitedBy: self.endIndex)
-    precondition(n == 0, "Count of elements to consume is out of bounds")
-    return consume(start ..< i)
-  }
-}
-
-@available(SwiftStdlib 5.0, *)
-extension RangeReplaceableContainer
-where
-  Self: BidirectionalContainer,
-  Self: ~Copyable & ~Escapable,
-  Element: ~Copyable
-{
-  @inlinable
-  @_lifetime(&self)
-  public mutating func consumeLast(_ n: Int) -> SubrangeConsumer {
-    precondition(n >= 0, "Count of elements to consume is out of bounds")
-    let end = self.endIndex
-    var i = end
-    var distance = -n
-    self.formIndex(&i, offsetBy: &distance, limitedBy: self.startIndex)
-    precondition(distance == 0, "Count of elements to consume is out of bounds")
-    return consume(i ..< end)
-  }
-}
-
-@available(SwiftStdlib 5.0, *)
+@available(SwiftStdlib 6.4, *)
 extension RangeReplaceableContainer
 where Self: ~Copyable & ~Escapable, Element: ~Copyable
 {
-  @inlinable
-  public mutating func removeSubrange(
-    _ bounds: some RangeExpression2<Index>
-  ) {
-    removeSubrange(bounds.relative(to: self))
-  }
-
-  @inlinable
-  public mutating func removeSubrange(
-    _ bounds: UnboundedRange
-  ) {
-    removeAll()
-  }
-}
-
-@available(SwiftStdlib 5.0, *)
-extension RangeReplaceableContainer
-where Self: ~Copyable & ~Escapable, Element: ~Copyable
-{
-  @inlinable
+  /// Inserts at most `newItemCount` items generated by a producer into this
+  /// container, starting at the given index.
+  ///
+  /// The target container must be able to accommodate the specified number
+  /// of new items.
+  ///
+  /// This operation inserts as many items as the producer can generate before
+  /// either reaching `newItemCount`, or the producer hitting its end, or
+  /// throwing an error. If the producer has more than `newItemCount` items
+  /// left in it, then extra items remain available after this method returns.
+  ///
+  /// If the operation ends up inserting fewer than `newItemCount` items, then
+  /// it may leave a gap that needs to be closed (e.g., by compacting storage)
+  /// to restore invariants before the function returns. This may add some
+  /// overhead compared to adding exactly as many items as promised.
+  ///
+  /// - Parameters:
+  ///    - newItemCount: The maximum number of items to insert into the container.
+  ///    - index: The position at which to insert the new items.
+  ///       `index` must be a valid index in the container.
+  ///    - producer: A producer that generates the items to append.
+  /// - Returns: A valid index range addressing the newly inserted items.
+  @_alwaysEmitIntoClient
+  @discardableResult
   public mutating func insert<
     E: Error,
     P: Producer<Element, E> & ~Copyable & ~Escapable
   >(
     addingCount newItemCount: Int,
-    at index: Index,
-    from producer: inout P
-  ) throws(E)
+    from producer: inout P,
+    at index: Index
+  ) throws(E) -> Range<Index>
   where P.Element: ~Copyable
   {
     try self.insert(addingCount: newItemCount, at: index) { target throws(E) in
-      while !target.isFull, try producer.generate(into: &target) {
-      }
+      try producer.generate(into: &target)
     }
   }
 
-  @inlinable
+  /// Inserts all items generated by a producer into this container,
+  /// starting at the given index.
+  ///
+  /// The target container must be able to accommodate every item that the
+  /// producer generates.
+  ///
+  /// This operation inserts as many items as the producer can generate before
+  /// hitting its end, or throwing an error.
+  ///
+  /// If the producer throws an error, then the operation preserves all items
+  /// that it previously managed to insert before rethrowing the error.
+  /// If this happens, then the failed insertions may leave a gap that needs to
+  /// be carefully closed (e.g., by compacting storage) to restore invariants
+  /// before the function returns. This may add some overhead compared to adding
+  /// exactly as many items as promised.
+  ///
+  /// - Parameters:
+  ///    - index: The position at which to insert the new items.
+  ///       `index` must be a valid index in the container.
+  ///    - producer: A producer that generates the items to append.
+  /// - Returns: A valid index range addressing the newly inserted items.
+  @_alwaysEmitIntoClient
+  @discardableResult
+  public mutating func insert<
+    E: Error,
+    P: CountedProducer<Element, E> & ~Copyable & ~Escapable
+  >(
+    from producer: consuming P,
+    at index: Index
+  ) throws(E) -> Range<Index>
+  where P.Element: ~Copyable
+  {
+    let c = producer.count
+    let range = try self.insert(addingCount: c, at: index) { target throws(E) in
+      try producer.generate(into: &target)
+    }
+    try producer._expectEnd("Invalid Container")
+    return range
+  }
+
+  @_alwaysEmitIntoClient
+  @discardableResult
   public mutating func insert<
     C: RangeReplaceableContainer<Element> & ~Copyable & ~Escapable
   >(
-    at index: Index,
+    moving source: inout C,
+    at index: Index
+  ) -> Range<Index>
+  where C.Element: ~Copyable {
+    self.insert(from: source.consumeAll(), at: index)
+  }
+
+  @_alwaysEmitIntoClient
+  @discardableResult
+  public mutating func insert<
+    C: RangeReplaceableContainer<Element> & ~Copyable & ~Escapable
+  >(
     moving sourceSubrange: some RangeExpression2<C.Index>,
-    from source: inout C
-  ) {
+    from source: inout C,
+    at index: Index
+  ) -> Range<Index>
+  where C.Element: ~Copyable {
     let sourceSubrange = sourceSubrange.relative(to: source)
     let c = source.distance(from: sourceSubrange.lowerBound, to: sourceSubrange.upperBound)
-    var producer = source.consume(sourceSubrange)
-    self.insert(addingCount: c, at: index, from: &producer)
-    if !producer._isAtEnd() {
-      preconditionFailure("Invalid Container")
-    }
+    var producer = source.consumeSubrange(sourceSubrange)
+    let range = self.insert(addingCount: c, from: &producer, at: index)
+    producer._expectEnd("Invalid Container")
+    return range
+  }
+
+  @_alwaysEmitIntoClient
+  @discardableResult
+  public mutating func insert<
+    C: RangeReplaceableContainer<Element> & ~Copyable & ~Escapable
+  >(
+    consuming source: consuming C,
+    at index: Index
+  ) -> Range<Index>
+  where C.Element: ~Copyable {
+    self.insert(from: source.consumeAll(), at: index)
   }
 }
 
-@available(SwiftStdlib 5.0, *)
+@available(SwiftStdlib 6.4, *)
 extension RangeReplaceableContainer
 where Self: ~Copyable & ~Escapable, Element: ~Copyable {
-  @inlinable
+  /// Appends at most `newItemCount` items generated by a producer to the end of
+  /// this container.
+  ///
+  /// The container must be able to accommodate the specified number of new
+  /// items.
+  ///
+  /// This operation appends as many items as the producer can generate before
+  /// either reaching its end, throwing an error, or filling the specified
+  /// capacity. This operation only consumes the first `newItemCount` items in the
+  /// producer; if the producer has more, then they remain available after this
+  /// method returns.
+  ///
+  /// - Parameters:
+  ///    - newItemCount: The number of items to append to the container.
+  ///    - producer: A producer that generates the items to append.
+  /// - Returns: A valid index range addressing the newly inserted items.
+  @_alwaysEmitIntoClient
+  @discardableResult
   public mutating func append<
     E: Error,
     P: Producer<Element, E> & ~Copyable & ~Escapable
   >(
     addingCount newItemCount: Int,
     from producer: inout P
-  ) throws(E)
+  ) throws(E) -> Range<Index>
   where P.Element: ~Copyable
   {
-    try insert(addingCount: newItemCount, at: endIndex, from: &producer)
+    try insert(addingCount: newItemCount, from: &producer, at: endIndex)
   }
 
-  @inlinable
+  /// Appends all items generated by the given producer to the end of
+  /// this container.
+  ///
+  /// The container must be able to accommodate all items.
+  ///
+  /// This operation appends all items the producer generates before reaching
+  /// its end or throwing an error. If the producer throws an error, the
+  /// operation preserves all previously appended items before rethrowing the
+  /// error.
+  ///
+  /// - Parameters:
+  ///    - producer: A producer that generates the items to append.
+  /// - Returns: A valid index range addressing the newly inserted items.
+  @_alwaysEmitIntoClient
+  @discardableResult
   public mutating func append<
-    C: RangeReplaceableContainer<Element> & ~Copyable & ~Escapable
+    E: Error,
+    P: CountedProducer<Element, E> & ~Copyable & ~Escapable
+  >(
+    from producer: consuming P
+  ) throws(E) -> Range<Index>
+  where P.Element: ~Copyable
+  {
+    let range = try append(addingCount: producer.count, from: &producer)
+    try producer._expectEnd("Invalid CountedProducer")
+    return range
+  }
+
+  /// Moves the elements of a given container into the end of this one, leaving
+  /// the source container empty.
+  ///
+  /// The target container must be able to accommodate all items in the source
+  /// container.
+  ///
+  /// - Parameters:
+  ///    - items: A container whose contents to move into this container.
+  /// - Returns: A valid index range addressing the newly inserted items.
+  @_alwaysEmitIntoClient
+  @discardableResult
+  public mutating func append<
+    C: DrainableContainer<Element> & ~Copyable & ~Escapable
+  >(
+    moving items: inout C
+  ) -> Range<Index>
+  where C.Element: ~Copyable {
+    self.append(from: items.consumeAll())
+  }
+
+  @_alwaysEmitIntoClient
+  @discardableResult
+  public mutating func append<
+    C: DrainableContainer<Element> & ~Copyable & ~Escapable
   >(
     moving sourceSubrange: some RangeExpression2<C.Index>,
     from source: inout C
-  ) {
+  ) -> Range<Index>
+  where C.Element: ~Copyable {
     let sourceSubrange = sourceSubrange.relative(to: source)
     let c = source.distance(from: sourceSubrange.lowerBound, to: sourceSubrange.upperBound)
-    var producer = source.consume(sourceSubrange)
-    self.append(addingCount: c, from: &producer)
-    if !producer._isAtEnd() {
-      preconditionFailure("Invalid Container")
-    }
+    var producer = source.consumeSubrange(sourceSubrange)
+    let range = self.append(addingCount: c, from: &producer)
+    producer._expectEnd("Invalid Container")
+    return range
+  }
+
+  /// Appends the elements of a given container to the end of this one by
+  /// consuming the source container.
+  ///
+  /// The target container must be able to accommodate all items in the source
+  /// container.
+  ///
+  /// - Parameters:
+  ///    - items: A container whose contents to move into this container.
+  /// - Returns: A valid index range addressing the newly inserted items.
+  @_alwaysEmitIntoClient
+  @discardableResult
+  public mutating func append<
+    C: DrainableContainer<Element> & ~Copyable & ~Escapable
+  >(
+    consuming items: consuming C
+  ) -> Range<Index>
+  where C.Element: ~Copyable {
+    self.append(from: items.consumeAll())
   }
 }
 
 //MARK: - Standard Extensions Requiring Copyability
 
-@available(SwiftStdlib 5.0, *)
+@available(SwiftStdlib 6.4, *)
 extension RangeReplaceableContainer
 where
   Self: ~Copyable & ~Escapable,
   Element: Copyable
 {
-  @inlinable
-  public mutating func replace<C: Container<Element> & ~Copyable & ~Escapable>(
-    removing subrange: Range<Index>,
+  @_alwaysEmitIntoClient
+  @discardableResult
+  public mutating func _replaceContainerSubrange<
+    C: Container<Element> & ~Copyable & ~Escapable
+  >(
+    _ subrange: Range<Index>,
     copying items: borrowing C
-  ) {
+  ) -> Range<Index> {
     var c = items.count
     var i = items.startIndex
-    self.replace(removing: subrange, addingCount: c) { target in
-      let source = items.nextSpan(after: &i, maximumCount: target.freeCapacity)
+    let range = self.replaceSubrange(subrange, addingCount: c) { target in
+      let source = items.nextSpan(after: &i, maxCount: target.freeCapacity)
       target._append(copying: source)
       c -= source.count
     }
     precondition(c == 0, "Invalid RangeReplaceableContainer")
+    return range
   }
 
-  @inlinable
+  /// Replaces the specified subrange of elements by copying the elements of
+  /// the given source container.
+  ///
+  /// This method has the effect of removing the specified range of elements
+  /// from the target container and inserting the new elements starting at the
+  /// same location. The number of new elements need not match the number of
+  /// elements being removed.
+  ///
+  /// If the target container cannot accommodate the newly inserted items, then
+  /// this operation results in a runtime error.
+  ///
+  /// If you pass a zero-length range as the `subrange` parameter, this method
+  /// inserts the elements of `items` at `subrange.lowerBound`. Calling
+  /// the `insert(copying:at:)` method instead is preferred in this case.
+  ///
+  /// Likewise, if you pass a zero-length container as the `items`
+  /// parameter, this method removes the elements in the given subrange
+  /// without replacement. Calling the `removeSubrange(_:)` method instead is
+  /// preferred in this case.
+  ///
+  /// - Parameters:
+  ///   - subrange: The subrange of the container to replace. The bounds of
+  ///     the range must be valid indices in the container.
+  ///   - items: The new elements to copy into the container.
+  /// - Returns: A valid index range addressing the newly inserted items.
+  @_alwaysEmitIntoClient
+  @discardableResult
+  public mutating func replaceSubrange<
+    C: Container<Element> & ~Copyable & ~Escapable
+  >(
+    _ subrange: Range<Index>,
+    copying items: borrowing C
+  ) -> Range<Index> {
+    _replaceContainerSubrange(subrange, copying: items)
+  }
+
+  /// Replaces the specified subrange of elements by copying the elements of
+  /// the given source collection.
+  ///
+  /// This method has the effect of removing the specified range of elements
+  /// from the target container and inserting the new elements starting at the
+  /// same location. The number of new elements need not match the number of
+  /// elements being removed.
+  ///
+  /// If the target container cannot accommodate the newly inserted items, then
+  /// this operation results in a runtime error.
+  ///
+  /// If you pass a zero-length range as the `subrange` parameter, this method
+  /// inserts the elements of `items` at `subrange.lowerBound`. Calling
+  /// the `insert(copying:at:)` method instead is preferred in this case.
+  ///
+  /// Likewise, if you pass a zero-length container as the `items`
+  /// parameter, this method removes the elements in the given subrange
+  /// without replacement. Calling the `removeSubrange(_:)` method instead is
+  /// preferred in this case.
+  ///
+  /// - Parameters:
+  ///   - subrange: The subrange of the container to replace. The bounds of
+  ///     the range must be valid indices in the container.
+  ///   - items: The new elements to copy into the container.
+  /// - Returns: A valid index range addressing the newly inserted items.
+  @_alwaysEmitIntoClient
+  @discardableResult
+  public mutating func replaceSubrange<C: Collection<Element>>(
+    _ subrange: Range<Index>,
+    copying items: C
+  ) -> Range<Index> {
+    var c = items.count
+
+    let res: Range<Index>? = items.withContiguousStorageIfAvailable { buffer in
+      precondition(buffer.count == c, "Broken Collection: mismatching count")
+      var buffer = buffer
+      let res = self.replaceSubrange(subrange, addingCount: c) { target in
+        target._append(copying: buffer._trim(first: target.freeCapacity))
+      }
+      precondition(buffer.count == 0, "Invalid RangeReplaceableContainer")
+      return res
+    }
+    if let res { return res }
+
+    var it = items.makeIterator()
+    let range = self.replaceSubrange(subrange, addingCount: c) { target in
+      while !target.isFull {
+        guard let item = it.next() else {
+          preconditionFailure("Broken Collection: mismatching count")
+        }
+        target.append(item)
+        c -= 1
+      }
+    }
+    precondition(it.next() == nil, "Broken Collection")
+    precondition(c == 0, "Invalid RangeReplaceableContainer")
+    return range
+  }
+
+  @_alwaysEmitIntoClient
+  @discardableResult
+  public mutating func replaceSubrange<
+    C: Container<Element> & Collection<Element>
+  >(
+    _ subrange: Range<Index>,
+    copying items: borrowing C
+  ) -> Range<Index> {
+    _replaceContainerSubrange(subrange, copying: items)
+  }
+
+  @_alwaysEmitIntoClient
+  package mutating func _insertContainer<
+    C: Container<Element> & ~Copyable & ~Escapable
+  >(
+    addingCount newCount: Int,
+    copying items: borrowing C,
+    at index: Index
+  ) -> Range<Index> {
+    var it = items.makeBorrowingIterator()
+    let range = insert(addingCount: newCount, at: index) { target in
+      while !target.isFull {
+        let source = it.nextSpan(maxCount: target.freeCapacity)
+        precondition(!source.isEmpty, "Broken container: mismatching count")
+        target._append(copying: source)
+      }
+    }
+    precondition(it.nextSpan().isEmpty, "Broken container: mismatching count")
+    return range
+  }
+
+  @_alwaysEmitIntoClient
+  package mutating func _insertCollection(
+    addingCount newCount: Int,
+    copying items: some Collection<Element>,
+    at index: Index
+  ) -> Range<Index> {
+    let res: Range<Index>? = items.withContiguousStorageIfAvailable { buffer in
+      precondition(buffer.count == newCount, "Broken Collection: mismatching count")
+      return self.insert(addingCount: buffer.count, at: index) { target in
+        target._append(copying: buffer)
+      }
+    }
+    if let res { return res }
+    var it = items.makeIterator()
+    let range = self.insert(addingCount: newCount, at: index) { target in
+      while !target.isFull {
+        guard let item = it.next() else { preconditionFailure() }
+        target.append(item)
+      }
+    }
+    precondition(it.next() == nil, "Broken Collection")
+    return range
+  }
+
+  /// Copies the elements of a source container into this container, starting
+  /// at the specified target position.
+  ///
+  /// The new elements are inserted before the element currently at the
+  /// specified index in `self`. If you pass the target's `endIndex` as
+  /// the `index` parameter, then the new elements are appended to the end.
+  ///
+  /// The target container must be able to accommodate all items in the source
+  /// container.
+  ///
+  /// - Parameters:
+  ///    - items: The new elements to insert into the container.
+  ///    - index: The position at which to insert the new elements. It must be
+  ///        a valid index of `self`.
+  /// - Returns: A valid index range addressing the newly inserted items.
+  @_alwaysEmitIntoClient
+  @inline(__always)
+  @discardableResult
   public mutating func insert<
     C: Container<Element> & ~Copyable & ~Escapable
   >(
     copying items: borrowing C,
     at index: Index
-  ) {
-    var c = items.count
-    var i = items.startIndex
-    insert(addingCount: c, at: index) { target in
-      let source = items.nextSpan(after: &i, maximumCount: target.freeCapacity)
-      c -= source.count
-      target._append(copying: source)
-    }
-    precondition(c == 0, "Invalid RangeReplaceableContainer")
+  ) -> Range<Index> {
+    _insertContainer(
+      addingCount: items.count, copying: items, at: index)
   }
 
-  @inlinable
+  /// Copies the elements of a collection into this container at the specified
+  /// position.
+  ///
+  /// The new elements are inserted before the element currently at the
+  /// specified index. If you pass the container's `endIndex` as the `index`
+  /// parameter, then the new elements are appended to the end.
+  ///
+  /// The target container must be able to accommodate all items in the source
+  /// container.
+  ///
+  /// - Parameters:
+  ///    - items: The new elements to insert into the container.
+  ///    - index: The position at which to insert the new elements. It must be
+  ///        a valid index of `self`.
+  /// - Returns: A valid index range addressing the newly inserted items.
+  @_alwaysEmitIntoClient
+  @inline(__always)
+  @discardableResult
+  public mutating func insert(
+    copying items: some Collection<Element>, at index: Index
+  ) -> Range<Index> {
+    _insertCollection(addingCount: items.count, copying: items, at: index)
+  }
+
+  /// Copies the elements of a source container into this container, starting
+  /// at the specified target position.
+  ///
+  /// The new elements are inserted before the element currently at the
+  /// specified index in `self`. If you pass the target's `endIndex` as
+  /// the `index` parameter, then the new elements are appended to the end.
+  ///
+  /// The target container must be able to accommodate all items in the source
+  /// container.
+  ///
+  /// - Parameters:
+  ///    - items: The new elements to insert into the container.
+  ///    - index: The position at which to insert the new elements. It must be
+  ///        a valid index of `self`.
+  /// - Returns: A valid index range addressing the newly inserted items.
+  @_alwaysEmitIntoClient
+  @inline(__always)
+  @discardableResult
+  public mutating func insert<
+    C: Container<Element> & Collection<Element>
+  >(
+    copying items: borrowing C, at index: Index
+  ) -> Range<Index> {
+    _insertContainer(
+      addingCount: items.count, copying: items, at: index)
+  }
+
+  @_alwaysEmitIntoClient
+  @discardableResult
   public mutating func append(
     copying items: Span<Element>
-  ) {
-    guard !items.isEmpty else { return }
+  ) -> Range<Index> {
+    guard !items.isEmpty else { return endIndex ..< endIndex }
     var items = items
-    append(addingCount: items.count) { target in
+    let range = append(addingCount: items.count) { target in
       target._append(copying: items._trim(first: target.freeCapacity))
     }
     precondition(items.isEmpty, "Invalid RangeReplaceableContainer")
+    return range
   }
 
-  @inlinable
-  public mutating func append<
-    S: BorrowingSequence_<Element> & ~Copyable & ~Escapable
+  @_alwaysEmitIntoClient
+  package mutating func _appendIterable<
+    S: Iterable & ~Copyable & ~Escapable
   >(
     copying items: borrowing S
-  ) {
-    var it = items.makeBorrowingIterator_()
+  ) throws(S.Failure)
+  where S.Element == Element {
+    var it = items.makeBorrowingIterator()
     while true {
-      let span = it.nextSpan_()
+      let span = try it.nextSpan()
       guard !span.isEmpty else { break }
       self.append(copying: span)
     }
+  }
+
+  @_alwaysEmitIntoClient
+  public mutating func append<
+    S: Iterable & ~Copyable & ~Escapable
+  >(
+    copying items: borrowing S
+  ) throws(S.Failure)
+  where S.Element == Element {
+    try _appendIterable(copying: items)
+  }
+
+  /// Copies the elements of a sequence to the end of this container.
+  ///
+  /// The container must be able to accommodate all items in the sequence.
+  ///
+  /// - Parameters:
+  ///    - newElements: The new elements to copy into the container.
+  @_alwaysEmitIntoClient
+  public mutating func append(copying newElements: some Sequence<Element>) {
+    let done: Void? = newElements.withContiguousStorageIfAvailable { buffer in
+      unsafe self.append(copying: buffer)
+      return
+    }
+    if done != nil { return }
+
+    for item in newElements {
+      self.append(item)
+    }
+  }
+
+  /// Copies the elements of an iterable to the end of this container.
+  ///
+  /// The container must be able to accommodate all items in the iterable.
+  ///
+  /// - Parameters:
+  ///    - newElements: The new elements to copy into the container.
+  @_alwaysEmitIntoClient
+  public mutating func append<
+    Source: Iterable & Sequence<Element>
+  >(
+    copying newElements: Source
+  ) throws(Source.Failure)
+  where Source.Element == Element {
+    try self._appendIterable(copying: newElements)
   }
 }
 

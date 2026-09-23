@@ -296,14 +296,9 @@ extension Deque._UnsafeHandle {
     assert(minimumCapacity >= count)
     let object = _DequeBuffer<Element>.create(
       minimumCapacity: minimumCapacity,
-      makingHeaderWith: {
-        #if os(OpenBSD)
-        let capacity = minimumCapacity
-        #else
-        let capacity = $0.capacity
-        #endif
+      makingHeaderWith: { _ in
         return _DequeBufferHeader(
-          capacity: capacity,
+          capacity: minimumCapacity,
           count: count,
           startSlot: .zero)
       })
@@ -330,14 +325,9 @@ extension Deque._UnsafeHandle {
     assert(minimumCapacity >= count)
     let object = _DequeBuffer<Element>.create(
       minimumCapacity: minimumCapacity,
-      makingHeaderWith: {
-        #if os(OpenBSD)
-        let capacity = minimumCapacity
-        #else
-        let capacity = $0.capacity
-        #endif
+      makingHeaderWith: { _ in
         return _DequeBufferHeader(
-          capacity: capacity,
+          capacity: minimumCapacity,
           count: count,
           startSlot: .zero)
       })
@@ -359,7 +349,7 @@ extension Deque._UnsafeHandle {
   @inlinable
   internal func withUnsafeSegment<R>(
     startingAt start: Int,
-    maximumCount: Int?,
+    maxCount: Int?,
     _ body: (UnsafeBufferPointer<Element>) throws -> R
   ) rethrows -> (end: Int, result: R) {
     assert(start <= count)
@@ -370,7 +360,7 @@ extension Deque._UnsafeHandle {
 
     let segmentStart = self.slot(forOffset: start)
     let segmentEnd = segmentStart < endSlot ? endSlot : limSlot
-    let count = Swift.min(maximumCount ?? Int.max, segmentEnd.position - segmentStart.position)
+    let count = Swift.min(maxCount ?? Int.max, segmentEnd.position - segmentStart.position)
     let result = try body(UnsafeBufferPointer(start: ptr(at: segmentStart), count: count))
     return (start + count, result)
   }

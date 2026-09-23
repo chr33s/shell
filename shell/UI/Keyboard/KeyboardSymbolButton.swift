@@ -217,9 +217,15 @@ class KeyboardSymbolButton: KeyboardButton {
 
     // MARK: - Touch Handling for Dual-Text Swipe
 
+    override var allowsDownwardTouchSelection: Bool {
+        if case .dualText = displayType { return true }
+        return false
+    }
+
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         // For dual-text, track starting position for swipe
         if case .dualText = displayType, let touch = touches.first {
+            guard beginTouchInteraction(touches) else { return }
             SystemShiftReader.shared.noteTouchEvent(event)
             touchFirstLocation = touch.location(in: self)
             isHighlighted = true
@@ -236,6 +242,7 @@ class KeyboardSymbolButton: KeyboardButton {
             return
         }
 
+        guard validateTouchInteraction() else { return }
         let loc = touch.location(in: self)
         let completeDY = bounds.height - 10  // Full swipe distance
 
@@ -262,6 +269,8 @@ class KeyboardSymbolButton: KeyboardButton {
             return
         }
 
+        guard validateTouchInteraction() else { return }
+        defer { finishTouchTracking() }
         isHighlighted = false
 
         // Determine which key to trigger based on final progress
@@ -280,16 +289,11 @@ class KeyboardSymbolButton: KeyboardButton {
         resetSwipeProgress(animated: true)
     }
 
-    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard case .dualText = displayType else {
-            super.touchesCancelled(touches, with: event)
-            return
+    override func cancelTouchInteraction() {
+        super.cancelTouchInteraction()
+        if case .dualText = displayType {
+            resetSwipeProgress(animated: true)
         }
-
-        isHighlighted = false
-
-        // Reset progress with animation
-        resetSwipeProgress(animated: true)
     }
 
     private func resetSwipeProgress(animated: Bool) {

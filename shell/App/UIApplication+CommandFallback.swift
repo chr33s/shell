@@ -10,6 +10,17 @@ import UIKit
 
 extension UIApplication {
 
+    /// Menu tracking on iPadOS 27 can leave the nil-target responder walk
+    /// without a handler, even for selectors implemented by UIApplication.
+    /// Keep first responders (including HUDs) first, then target the app
+    /// explicitly. Never retry an action that the responder chain consumed.
+    @discardableResult
+    func sendMenuAction(_ action: Selector, from sender: Any? = nil) -> Bool {
+        if sendAction(action, to: nil, from: sender, for: nil) { return true }
+        guard responds(to: action) else { return false }
+        return sendAction(action, to: self, from: sender, for: nil)
+    }
+
     @MainActor
     private func ghostty_postNotification(_ name: Notification.Name, userInfo: [String: Any] = [:]) {
         var info = userInfo
@@ -43,6 +54,49 @@ extension UIApplication {
         return scenes.first { scene in
             scene.activationState == .foregroundActive || scene.activationState == .foregroundInactive
         }?.session.persistentIdentifier
+    }
+
+    @objc func menuToggleFullScreen(_ sender: Any?) {
+        ghostty_postNotification(.toggleFullScreen)
+    }
+
+    // These actions need the selected pane even when it isn't first responder.
+    // MainView resolves it inside the scene targeted by ghostty_postNotification.
+    private func ghostty_postPaneCommand(_ command: GhosttyCommandRouting.PaneCommand) {
+        ghostty_postNotification(GhosttyCommandRouting.paneCommandNotification,
+                                 userInfo: [GhosttyCommandRouting.paneCommandKey: command])
+    }
+
+    @objc func menuClearScreen(_ sender: Any?) {
+        ghostty_postPaneCommand(.clearScreen)
+    }
+
+    @objc func menuScrollPageUp(_ sender: Any?) {
+        ghostty_postPaneCommand(.scrollPageUp)
+    }
+
+    @objc func menuScrollPageDown(_ sender: Any?) {
+        ghostty_postPaneCommand(.scrollPageDown)
+    }
+
+    @objc func menuScrollToTop(_ sender: Any?) {
+        ghostty_postPaneCommand(.scrollToTop)
+    }
+
+    @objc func menuScrollToBottom(_ sender: Any?) {
+        ghostty_postPaneCommand(.scrollToBottom)
+    }
+
+    @objc func menuToggleCompose(_ sender: Any?) {
+        ghostty_postPaneCommand(.toggleCompose)
+    }
+
+    @objc func menuToggleMouseCapture(_ sender: Any?) {
+        ghostty_postPaneCommand(.toggleMouseCapture)
+    }
+
+    @objc func menuCycleInputSource(_ sender: Any?) {
+        ghostty_postPaneCommand(.cycleInputSource)
     }
 
     // MARK: - Menu Actions (SwiftUI Commands)

@@ -11,17 +11,21 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 //===----------------------------------------------------------------------===//
-#if CRYPTO_IN_SWIFTPM && !CRYPTO_IN_SWIFTPM_FORCE_BUILD_API
+
+#if canImport(CryptoKit)
 @_exported import CryptoKit
 #else
+
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
 import Foundation
+#endif
 
-
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
 extension HPKE {
     /// The authenticated encryption with associated data (AEAD) algorithms to use in HPKE.
-    @available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
-    public enum AEAD: CaseIterable, Hashable {
+    @nonexhaustive
+    public enum AEAD: CaseIterable, Hashable, Sendable {
 		/// An Advanced Encryption Standard cipher in Galois/Counter Mode with a key length of 128 bits.
         case AES_GCM_128
 		/// An Advanced Encryption Standard cipher in Galois/Counter Mode with a key length of 256 bits.
@@ -33,6 +37,7 @@ extension HPKE {
 		/// In export-only mode, HPKE negotiates key derivation, but you can't use it to encrypt or decrypt data.
         case exportOnly
         
+        /// Return the AEAD algorithm identifier as defined in section 7.3 of [RFC 9180](https://www.ietf.org/rfc/rfc9180.pdf).
         internal var value: UInt16 {
             switch self {
             case .AES_GCM_128: return 0x0001
@@ -46,6 +51,7 @@ extension HPKE {
             return self == .exportOnly
         }
         
+        /// Return the AEAD key size in bytes
         internal var keyByteCount: Int {
             switch self {
             case .AES_GCM_128:
@@ -59,6 +65,7 @@ extension HPKE {
             }
         }
         
+        /// Return the AEAD nonce size in bytes
         internal var nonceByteCount: Int {
             switch self {
             case .AES_GCM_128, .AES_GCM_256, .chaChaPoly:
@@ -68,6 +75,7 @@ extension HPKE {
             }
         }
         
+        /// Return the AEAD tag size in bytes
         internal var tagByteCount: Int {
             switch self {
             case .AES_GCM_128, .AES_GCM_256, .chaChaPoly:
@@ -113,4 +121,4 @@ extension HPKE {
     }
 }
 
-#endif // Linux or !SwiftPM
+#endif // canImport(CryptoKit)

@@ -16,10 +16,9 @@ import XCTest
 import Collections
 #else
 import _CollectionsTestSupport
+import InternalCollectionsUtilities
 import BasicContainers
 #endif
-
-#if compiler(>=6.2)
 
 /// Check if `left` and `right` contain equal elements in the same order.
 @available(SwiftStdlib 5.0, *)
@@ -68,6 +67,14 @@ public func expectUniqueArrayContents<
 
 @available(SwiftStdlib 6.2, *)
 class UniqueArrayTests: CollectionTestCase {
+  func test_memory_layout() {
+    let word = MemoryLayout<Int>.size
+    expectEqual(MemoryLayout<UniqueArray<Int>>.stride, 3 * word)
+    expectEqual(MemoryLayout<UniqueArray<Int>?>.stride, 3 * word)
+  }
+
+#if compiler(>=6.4) && UnstableContainersPreview
+  @available(SwiftStdlib 6.4, *)
   func test_validate_Container() {
     withSomeArrayLayouts("layout", ofCapacities: [0, 10, 100]) { layout in
       withLifetimeTracking { tracker in
@@ -75,12 +82,11 @@ class UniqueArrayTests: CollectionTestCase {
         let expected = (0 ..< layout.count).map { tracker.instance(for: $0) }
         expectEqual(tracker.instances, 2 * layout.count)
         expectUniqueArrayContents(items, equalTo: expected)
-#if compiler(>=6.4) && UnstableContainersPreview
-        checkIterable(items, expectedContents: expected)
-#endif
+        checkContainer(items, expectedContents: expected)
       }
     }
   }
+#endif
 
   func test_basics() {
     withLifetimeTracking { tracker in
@@ -130,7 +136,7 @@ class UniqueArrayTests: CollectionTestCase {
 
   func test_init_capacity() {
     do {
-      let a = UniqueArray<Int>(capacity: 0)
+      let a = UniqueArray<Int>(minimumCapacity: 0)
       expectEqual(a.capacity, 0)
       expectEqual(a.count, 0)
       expectEqual(a.freeCapacity, 0)
@@ -138,7 +144,7 @@ class UniqueArrayTests: CollectionTestCase {
     }
 
     do {
-      let a = UniqueArray<Int>(capacity: 10)
+      let a = UniqueArray<Int>(minimumCapacity: 10)
       expectEqual(a.capacity, 10)
       expectEqual(a.count, 0)
       expectEqual(a.freeCapacity, 10)
@@ -439,6 +445,7 @@ class UniqueArrayTests: CollectionTestCase {
     }
   }
 
+  @available(*, deprecated)
   func test_reallocate() {
     withSomeArrayLayouts("layout", ofCapacities: [0, 10, 100]) { layout in
       withEvery(
@@ -454,6 +461,33 @@ class UniqueArrayTests: CollectionTestCase {
           a.reallocate(capacity: newCapacity)
           expectEqual(a.count, layout.count)
           expectEqual(a.capacity, newCapacity)
+          expectEqual(tracker.instances, layout.count)
+          expectUniqueArrayContents(
+            a,
+            equivalentTo: 0 ..< layout.count,
+            by: { $0.payload == $1 },
+            printer: { "\($0.payload)" })
+        }
+      }
+    }
+  }
+
+  func test_setCapacity() {
+    withSomeArrayLayouts("layout", ofCapacities: [0, 10, 100]) { layout in
+      withEvery(
+        "newCapacity",
+        in: [
+          layout.capacity, layout.count, layout.count + 1, layout.capacity + 1,
+          0, layout.count - 1
+        ] as Set<Int>
+      ) { newCapacity in
+        withLifetimeTracking { tracker in
+          var a = tracker.uniqueArray(layout: layout)
+          expectEqual(a.count, layout.count)
+          expectEqual(a.capacity, layout.capacity)
+          a.setCapacity(newCapacity)
+          expectEqual(a.count, layout.count)
+          expectEqual(a.capacity, Swift.max(newCapacity, layout.count))
           expectEqual(tracker.instances, layout.count)
           expectUniqueArrayContents(
             a,
@@ -498,12 +532,13 @@ class UniqueArrayTests: CollectionTestCase {
         var a = tracker.uniqueArray(layout: layout)
         a.removeAll()
         expectTrue(a.isEmpty)
-        expectEqual(a.capacity, 0)
+        expectEqual(a.capacity, layout.capacity)
         expectEqual(tracker.instances, 0)
       }
     }
   }
 
+  @available(*, deprecated)
   func test_removeAll_keepingCapacity() {
     withSomeArrayLayouts("layout", ofCapacities: [0, 10, 100]) { layout in
       withLifetimeTracking { tracker in
@@ -904,7 +939,7 @@ class UniqueArrayTests: CollectionTestCase {
 
             var a = tracker.uniqueArray(layout: layout)
             let trackedAddition = addition.map { tracker.instance(for: $0) }
-            a.replace(removing: range, copying: trackedAddition)
+            a.replaceSubrange(range, copying: trackedAddition)
 
             expectUniqueArrayContents(
               a,
@@ -934,7 +969,7 @@ class UniqueArrayTests: CollectionTestCase {
             var a = tracker.uniqueArray(layout: layout)
             let trackedAddition = RigidArray(
               copying: addition.map { tracker.instance(for: $0) })
-            a.replace(removing: range, copying: trackedAddition.span)
+            a.replaceSubrange(range, copying: trackedAddition.span)
 
             expectUniqueArrayContents(
               a,
@@ -966,7 +1001,7 @@ class UniqueArrayTests: CollectionTestCase {
 
             var a = tracker.uniqueArray(layout: layout)
             trackedAddition.span.withUnsafeBufferPointer { buffer in
-              a.replace(removing: range, copying: buffer)
+              _ = a.replaceSubrange(range, copying: buffer)
             }
 
             expectUniqueArrayContents(
@@ -1019,4 +1054,3 @@ class UniqueArrayTests: CollectionTestCase {
 #endif
 #endif
 }
-#endif

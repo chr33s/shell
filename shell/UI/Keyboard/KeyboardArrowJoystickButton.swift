@@ -9,6 +9,37 @@
 import UIKit
 
 final class KeyboardArrowJoystickButton: UIView {
+    var interactionMode: KeyboardToolbarInteractionMode = .accessory
+    private var currentTouchMode: KeyboardToolbarInteractionMode = .accessory
+    private var currentTouch: UITouch?
+    private var touchStartInWindow: CGPoint = .zero
+
+    private var canDispatchTouchAction: Bool {
+        guard let window else { return false }
+        #if !os(visionOS) && !targetEnvironment(macCatalyst)
+        return window.windowScene?.activationState == .foregroundActive
+        #else
+        return true
+        #endif
+    }
+
+    private func validateTouchInteraction() -> Bool {
+        guard canDispatchTouchAction, let touch = currentTouch else {
+            cancelTouchInteraction()
+            return false
+        }
+        // Joystick movement is intentional. Only drawer taps use tap slop.
+        if currentTouchMode == .spacedBottom && mode == .drawer {
+            let location = touch.location(in: window)
+            guard bounds.contains(touch.location(in: self)),
+                  hypot(location.x - touchStartInWindow.x, location.y - touchStartInWindow.y) <= 10 else {
+                cancelTouchInteraction()
+                return false
+            }
+        }
+        return true
+    }
+
     // MARK: - Types
 
     enum Mode: String {
@@ -126,7 +157,11 @@ final class KeyboardArrowJoystickButton: UIView {
     // MARK: - Touch Handling
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard let touch = touches.first else { return }
+        guard canDispatchTouchAction, let touch = touches.first else { return }
+        currentTouchMode = interactionMode
+        if currentTouchMode == .spacedBottom && !bounds.contains(touch.location(in: self)) { return }
+        currentTouch = touch
+        touchStartInWindow = touch.location(in: window)
 
         SystemShiftReader.shared.noteTouchEvent(event)
         isTouching = true
@@ -152,7 +187,7 @@ final class KeyboardArrowJoystickButton: UIView {
     }
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard let touch = touches.first, isTouching else { return }
+        guard let touch = touches.first, isTouching, validateTouchInteraction() else { return }
 
         let current = touch.location(in: self)
         let dx = current.x - touchStartPoint.x
@@ -191,10 +226,12 @@ final class KeyboardArrowJoystickButton: UIView {
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard validateTouchInteraction() else { return }
         longPressTimer?.invalidate()
         longPressTimer = nil
 
         defer {
+            currentTouch = nil
             isTouching = false
             currentDirection = nil
             stopAutoRepeat()
@@ -213,6 +250,11 @@ final class KeyboardArrowJoystickButton: UIView {
     }
 
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        cancelTouchInteraction()
+    }
+
+    func cancelTouchInteraction() {
+        currentTouch = nil
         longPressTimer?.invalidate()
         longPressTimer = nil
         isTouching = false
@@ -223,9 +265,15 @@ final class KeyboardArrowJoystickButton: UIView {
         updateAppearance()
     }
 
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window == nil { cancelTouchInteraction() }
+    }
+
     // MARK: - Long Press
 
     private func longPressTriggered() {
+        guard validateTouchInteraction() else { return }
         longPressTimer = nil
         isLongPressDetected = true
 
@@ -257,11 +305,11 @@ final class KeyboardArrowJoystickButton: UIView {
     // MARK: - Auto-Repeat
 
     private func startAutoRepeat() {
-        guard let dir = currentDirection else { return }
+        guard validateTouchInteraction(), let dir = currentDirection else { return }
 
         autoRepeatTimer?.invalidate()
         autoRepeatTimer = Timer.scheduledTimer(withTimeInterval: autoRepeatInterval, repeats: true) { [weak self] _ in
-            guard let self, let dir = self.currentDirection else { return }
+            guard let self, self.validateTouchInteraction(), let dir = self.currentDirection else { return }
             self.sendKey(dir)
         }
         // Send one immediately at repeat start

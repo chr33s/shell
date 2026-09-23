@@ -11,10 +11,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#if !COLLECTIONS_SINGLE_MODULE
-import ContainersPreview
-#endif
-
 #if compiler(>=6.4) && UnstableHashedContainers
 
 @available(SwiftStdlib 5.0, *)
@@ -56,7 +52,8 @@ extension UniqueSet where Element: ~Copyable {
   /// Inserts the given element in the set if it is not already present.
   ///
   /// - Parameter item: An element to insert into the set.
-  /// - Returns:
+  /// - Returns: `item` if an equal member already exists in the set;
+  ///     otherwise `nil`.
   @inlinable
   @discardableResult
   public mutating func insert(
@@ -71,52 +68,13 @@ extension UniqueSet where Element: ~Copyable {
 extension UniqueSet where Element: ~Copyable {
   @_alwaysEmitIntoClient
   public mutating func insert<E: Error>(
-    maximumCount: Int,
+    addingCount newItemCount: Int,
     initializingWith initializer: (inout OutputSpan<Element>) throws(E) -> Void
   ) throws(E) -> Void {
-    _ensureFreeCapacity(maximumCount)
+    _ensureFreeCapacity(newItemCount)
     try _storage.insert(
-      maximumCount: maximumCount, initializingWith: initializer)
+      addingCount: newItemCount, initializingWith: initializer)
   }
-
-#if UnstableContainersPreview
-  @_alwaysEmitIntoClient
-  public mutating func insert<
-    E: Error,
-    P: Producer<Element, E> & ~Copyable & ~Escapable
-  >(
-    from producer: inout P
-  ) throws(E)
-  where P.Element: ~Copyable
-  {
-    var done = false
-    while !done {
-      _ensureFreeCapacity(Swift.max(producer.underestimatedCount, 1))
-      try self.insert(maximumCount: self.freeCapacity) { target throws(E) in
-        while !target.isFull, !done {
-          done = try !producer.generate(into: &target)
-        }
-      }
-    }
-  }
-#endif
-
-#if UnstableContainersPreview
-  @_alwaysEmitIntoClient
-  public mutating func insert<
-    D: Drain<Element> & ~Copyable & ~Escapable
-  >(
-    from drain: inout D
-  ) {
-    while true {
-      var span = drain.drainNext()
-      guard !span.isEmpty else { break }
-      while let next = span.popFirst() {
-        self.insert(next)
-      }
-    }
-  }
-#endif
 }
 
 @available(SwiftStdlib 5.0, *)
@@ -129,35 +87,34 @@ extension UniqueSet /* where Element: Copyable */ {
     _storage.insert(copying: items)
   }
   
-#if UnstableContainersPreview
+  @available(SwiftStdlib 6.4, *)
   @_alwaysEmitIntoClient
   package mutating func _insert<
-    S: BorrowingSequence_<Element> & ~Copyable & ~Escapable
+    S: Iterable & ~Copyable & ~Escapable
   >(
     copying items: borrowing S
-  ) {
-    _ensureFreeCapacity(items.underestimatedCount_)
-    var it = items.makeBorrowingIterator_()
+  ) throws(S.Failure)
+  where S.Element == Element {
+    _ensureFreeCapacity(items.underestimatedCount)
+    var it = items.makeBorrowingIterator()
     while true {
-      let span = it.nextSpan_()
+      let span = try it.nextSpan()
       guard !span.isEmpty else { break }
       self.insert(copying: span)
     }
   }
-#endif
-  
-#if UnstableContainersPreview
+
+  @available(SwiftStdlib 6.4, *)
   @_alwaysEmitIntoClient
   @inline(__always)
   public mutating func insert<
-    S: BorrowingSequence_<Element> & ~Copyable & ~Escapable
+    S: Iterable & ~Copyable & ~Escapable
   >(
     copying items: borrowing S
-  ) {
-    _insert(copying: items)
+  ) throws(S.Failure) where S.Element == Element {
+    try _insert(copying: items)
   }
-#endif
-  
+
   @_alwaysEmitIntoClient
   @inline(__always)
   public mutating func insert(copying items: some Sequence<Element>) {
@@ -168,17 +125,17 @@ extension UniqueSet /* where Element: Copyable */ {
     }
   }
   
-#if UnstableContainersPreview
+  @available(SwiftStdlib 6.4, *)
   @_alwaysEmitIntoClient
   @inline(__always)
   public mutating func insert<
-    S: BorrowingSequence_<Element> & Sequence<Element>
+    S: Iterable & Sequence<Element>
   >(
     copying items: borrowing S
-  ) {
-    _insert(copying: items)
+  ) throws(S.Failure)
+  where S.Element == Element {
+    try _insert(copying: items)
   }
-#endif
 }
 
 #endif

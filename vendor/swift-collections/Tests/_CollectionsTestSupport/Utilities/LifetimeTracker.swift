@@ -62,7 +62,16 @@ public class LifetimeTracker {
     return items.map { LifetimeTracked($0, for: self) }
   }
 
-#if compiler(>=6.2)
+  @available(SwiftStdlib 5.0, *)
+  public func instances<Element>(
+    count: Int,
+    generator: (Int) -> Element
+  ) -> [LifetimeTracked<Element>] {
+    (0 ..< count).map {
+      LifetimeTracked(generator($0), for: self)
+    }
+  }
+
   @available(SwiftStdlib 5.0, *)
   public func structInstances<Element>(
     count: Int,
@@ -76,7 +85,18 @@ public class LifetimeTracker {
       }
     }
   }
-#endif
+
+  @available(SwiftStdlib 5.0, *)
+  public func structInstances<S: Sequence>(
+    for items: S
+  ) -> UniqueArray<LifetimeTrackedStruct<S.Element>> {
+    var r = UniqueArray<LifetimeTrackedStruct<S.Element>>(
+      minimumCapacity: items.underestimatedCount)
+    for item in items {
+      r.append(LifetimeTrackedStruct(item, for: self))
+    }
+    return r
+  }
 
   public func instances<S: Sequence, T>(
     for items: S, by transform: (S.Element) -> T

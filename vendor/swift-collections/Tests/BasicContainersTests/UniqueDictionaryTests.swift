@@ -23,6 +23,12 @@ import ContainersPreview
 #if compiler(>=6.4) && UnstableHashedContainers
 
 class UniqueDictionaryTests: CollectionTestCase {
+  func test_memory_layout() {
+    let word = MemoryLayout<Int>.size
+    expectEqual(MemoryLayout<UniqueDictionary<String, Int>>.stride, 7 * word)
+    expectEqual(MemoryLayout<UniqueDictionary<String, Int>?>.stride, 7 * word)
+  }
+  
   func test_empty() {
     let s = UniqueDictionary<Int, String>()
     expectEqual(s.count, 0)
@@ -43,6 +49,32 @@ class UniqueDictionaryTests: CollectionTestCase {
     }
   }
   
+  func test_mutableValueForKey() {
+    typealias Key = LifetimeTracked<Int>
+    typealias Value = LifetimeTracked<String>
+    withLifetimeTracking { tracker in
+      var d = UniqueDictionary<Key, Value>(minimumCapacity: 20)
+      let firstKey = tracker.instance(for: 67)
+      let firstValue = tracker.instance(for: "sixty-seven")
+      expectNil(d.insertValue(firstValue, forKey: firstKey))
+
+      if #available(SwiftStdlib 6.4, *) {
+        let secondKey = tracker.instance(for: 67)
+        expectNotNil(d.mutableValue(forKey: secondKey)) { tmpRef in
+          // FIXME: The language needs to grow up to allow us to elide this
+          //        binding definition.
+          var valueRef = tmpRef
+          expectIdentical(valueRef.value, firstValue)
+
+          let secondValue = tracker.instance(for: "six-seven")
+          valueRef.value = secondValue
+          expectNotIdentical(valueRef.value, firstValue)
+          expectIdentical(valueRef.value, secondValue)
+        }
+      }
+    }
+  }
+
   func test_insert_one() {
     typealias Key = LifetimeTracked<Int>
     typealias Value = LifetimeTracked<String>
@@ -129,8 +161,47 @@ class UniqueDictionaryTests: CollectionTestCase {
     }
     expectEqual(actual.sorted(), expected)
   }
-  
-  
+
+  func test_keys() {
+    typealias Key = LifetimeTracked<Int>
+    typealias Value = LifetimeTracked<String>
+    withEvery("capacity", in: [0, 1, 2, 10, 100, 1000]) { capacity in
+      withLifetimeTracking { tracker in
+        var d = RigidDictionary<Key, Value>(capacity: capacity)
+        withEvery("i", in: 0 ..< capacity) { i in
+          let key = tracker.instance(for: i)
+          let value = tracker.instance(for: "\(i)")
+          d.insertValue(value, forKey: key)
+
+          expectEqual(d.keys.count, i + 1)
+          expectEqual(d.keys.capacity, capacity)
+
+#if UnstableContainersPreview
+          var actual: Set<Int> = []
+          _with(d.keys) { keys in // FIXME: Sigh, borrow accessors are limited in 6.4
+            var it = keys.makeBorrowingIterator()
+            while true {
+              let next = it.nextSpan()
+              guard !next.isEmpty else { break }
+              for i in next.indices {
+                expectTrue(
+                  actual.insert(next[i].payload).inserted,
+                  "Duplicate value \(next[i].payload)")
+              }
+            }
+          }
+          expectEqualElements(actual.sorted(), 0 ... i)
+#else
+          for j in 0 ... i {
+            expectTrue(d.keys.contains(tracker.instance(for: j)))
+          }
+#endif
+        }
+      }
+    }
+  }
+
+  @available(*, deprecated)
   func test_withKeys() {
     typealias Key = LifetimeTracked<Int>
     typealias Value = LifetimeTracked<String>
@@ -145,11 +216,11 @@ class UniqueDictionaryTests: CollectionTestCase {
           d.withKeys { keys in
             expectEqual(keys.count, i + 1)
             expectEqual(keys.capacity, capacity)
-#if compiler(>=6.4) && UnstableContainersPreview
-            var it = keys.makeBorrowingIterator_()
+#if UnstableContainersPreview
+            var it = keys.makeBorrowingIterator()
             var actual: Set<Int> = []
             while true {
-              let next = it.nextSpan_()
+              let next = it.nextSpan()
               guard !next.isEmpty else { break }
               for i in next.indices {
                 expectTrue(
@@ -196,7 +267,7 @@ class UniqueDictionaryTests: CollectionTestCase {
   }
   
 #if compiler(>=6.4) && UnstableContainersPreview
-  @available(SwiftStdlib 6.2, *)
+  @available(SwiftStdlib 6.4, *)
   func test_iteration_indices() {
     typealias Key = LifetimeTracked<Int>
     typealias Value = LifetimeTracked<String>
@@ -210,9 +281,9 @@ class UniqueDictionaryTests: CollectionTestCase {
         
         var seen: Set<Int> = []
         let indices = d.indices
-        var it = indices.makeBorrowingIterator_()
+        var it = indices.makeBorrowingIterator()
         while true {
-          let next = it.nextSpan_()
+          let next = it.nextSpan()
           if next.isEmpty { break }
           expectEqual(next.count, 1)
           var i = 0

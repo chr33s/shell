@@ -7,7 +7,7 @@
 //
 
 import Foundation
-import Citadel
+@preconcurrency import Citadel
 import NIOSSH
 import NIOCore
 import NIOTransportServices
@@ -97,6 +97,22 @@ enum SSHConnectionHelper {
         authMethod: SSHConfig.AuthMethod,
         sessionName: String = "",
         onKeyboardInteractiveChallenge: ((KeyboardInteractiveChallenge) async -> [String]?)? = nil
+    ) async throws -> SSHAuthenticationMethod {
+        let configured = try await makeConfiguredAuthMethod(
+            username: username,
+            authMethod: authMethod,
+            sessionName: sessionName,
+            onKeyboardInteractiveChallenge: onKeyboardInteractiveChallenge
+        )
+        // Open with a `none` probe, as OpenSSH does (see NoneProbeAuthDelegate).
+        return .custom(NoneProbeAuthDelegate(username: username, inner: configured))
+    }
+
+    private static func makeConfiguredAuthMethod(
+        username: String,
+        authMethod: SSHConfig.AuthMethod,
+        sessionName: String,
+        onKeyboardInteractiveChallenge: ((KeyboardInteractiveChallenge) async -> [String]?)?
     ) async throws -> SSHAuthenticationMethod {
         // When an interactive UI is wired, route every method through a single
         // composing delegate so keyboard-interactive (2FA/OTP/PAM) is reachable

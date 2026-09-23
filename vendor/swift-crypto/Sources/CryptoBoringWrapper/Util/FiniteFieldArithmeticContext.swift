@@ -11,11 +11,18 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 //===----------------------------------------------------------------------===//
-#if CRYPTO_IN_SWIFTPM && !CRYPTO_IN_SWIFTPM_FORCE_BUILD_API
-@_exported import CryptoKit
+
+#if hasFeature(SourceWarningControl)
+@diagnose(ImplementationOnlyDeprecated, as: ignored) @_implementationOnly import CCryptoBoringSSL
 #else
 @_implementationOnly import CCryptoBoringSSL
+#endif
+
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
 import Foundation
+#endif
 
 /// A context for performing mathematical operations on ArbitraryPrecisionIntegers over a finite field.
 ///
@@ -30,9 +37,9 @@ import Foundation
 /// ourselves.
 @usableFromInline
 @available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
-package class FiniteFieldArithmeticContext {
-    private var fieldSize: ArbitraryPrecisionInteger
-    package var bnCtx: OpaquePointer
+package final class FiniteFieldArithmeticContext: @unchecked Sendable {
+    private let fieldSize: ArbitraryPrecisionInteger
+    package let bnCtx: OpaquePointer
 
     @usableFromInline
     package init(fieldSize: ArbitraryPrecisionInteger) throws {
@@ -311,4 +318,3 @@ extension FiniteFieldArithmeticContext {
         }
     }
 }
-#endif  // CRYPTO_IN_SWIFTPM && !CRYPTO_IN_SWIFTPM_FORCE_BUILD_API

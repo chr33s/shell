@@ -41,6 +41,7 @@ extension BitSet {
   /// - Complexity: O(min(*max*, `other.upperBound`), where *max* is the largest
   ///    member of `self`.
   public func isEqualSet(to other: Range<Int>) -> Bool {
+    if other.isEmpty { return isEmpty }
     guard let other = other._toUInt() else { return false }
     return _read { $0.isEqualSet(to: other) }
   }
@@ -72,6 +73,7 @@ extension BitSet {
       return other.allSatisfy { _ in false }
     }
 
+#if !$Embedded
     if other is _UniqueCollection {
       // We don't need to create a temporary set.
       guard other.underestimatedCount <= self.count else { return false }
@@ -87,6 +89,7 @@ extension BitSet {
         "Invalid Collection '\(type(of: other))' (bad underestimatedCount)")
       return seen == self.count
     }
+#endif
 
     var seen: BitSet? = BitSet(reservingCapacity: self.max()!)
     var it = other.makeIterator()

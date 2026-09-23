@@ -38,7 +38,7 @@ public final class ReconnectionManager {
     // MARK: - Configuration
 
     /// Configuration for reconnection behavior.
-    struct Config: Equatable, Sendable {
+    nonisolated struct Config: Equatable, Sendable {
         /// Master gate for automatic replacement attempts.
         var enabled: Bool = true
 

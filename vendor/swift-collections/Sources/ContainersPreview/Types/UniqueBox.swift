@@ -11,7 +11,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-
 #if compiler(<6.2)
 
 @available(*, unavailable, renamed: "UniqueBox", message: "struct UniqueBox requires a Swift 6.2 toolchain")
@@ -29,17 +28,11 @@ public struct UniqueBox<Value: ~Copyable>: ~Copyable {
   public typealias T = Value
 
   @usableFromInline
-  internal let _pointer: UnsafeMutablePointer<T>
+  internal let _pointer: UnsafeMutablePointer<Value>
 
   @_alwaysEmitIntoClient
   @_transparent
   public init(_ value: consuming Value) {
-    fatalError()
-  }
-
-  @_alwaysEmitIntoClient
-  @inlinable
-  deinit {
     fatalError()
   }
 }
@@ -175,7 +168,7 @@ extension UniqueBox where Value: Copyable {
     value
   }
 
-  /// Copies the value within the unqiue box and returns it in a new unique
+  /// Copies the value within the unique box and returns it in a new unique
   /// instance.
   @_alwaysEmitIntoClient
   @_transparent
@@ -185,22 +178,25 @@ extension UniqueBox where Value: Copyable {
 }
 
 extension UniqueBox where Value: ~Copyable {
-#if compiler(>=6.3) && UnstableContainersPreview
+#if compiler(>=6.4) && UnstableContainersPreview
   /// Leak the heap allocation behind this box, converting it into an
   /// immortal mutating reference.
+  @available(SwiftStdlib 6.4, *)
   @_alwaysEmitIntoClient
   @_transparent
   @_lifetime(immortal)
+  @_unsafeNonescapableResult // FIXME: This should not be necessary
   public consuming func leak() -> MutableRef<Value> {
-    let result = unsafe MutableRef<Value>(unsafeImmortalAddress: _pointer)
+    let p = _pointer
     discard self
-    return result
+    // FIXME: _unsafeImmortalize does not work here, and MutableRef has no immortal initializer
+    return unsafe MutableRef<Value>(&p.pointee)
   }
 #endif
 
-#if compiler(>=6.3) && UnstableContainersPreview
+#if compiler(>=6.4) && UnstableContainersPreview
   /// Return a borrowing reference to the contents of this box.
-  @available(SwiftStdlib 5.0, *)
+  @available(SwiftStdlib 6.4, *)
   @_alwaysEmitIntoClient
   @_transparent
   @_lifetime(borrow self)
@@ -209,8 +205,9 @@ extension UniqueBox where Value: ~Copyable {
   }
 #endif
 
-#if compiler(>=6.3) && UnstableContainersPreview
+#if compiler(>=6.4) && UnstableContainersPreview
   /// Return a mutating reference to the contents of this box.
+  @available(SwiftStdlib 6.4, *)
   @_alwaysEmitIntoClient
   @_transparent
   @_lifetime(&self)

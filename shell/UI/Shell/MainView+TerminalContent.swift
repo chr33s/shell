@@ -511,19 +511,25 @@ extension MainView {
     ///   - keyboardFrame: The current keyboard frame (passed explicitly to ensure SwiftUI dependency tracking)
     ///   - keyboardHeight: The current keyboard height (passed explicitly to ensure SwiftUI dependency tracking)
     ///   - reservedBottomToolbarHeight: Actual toolbar/accessory height reserved by the selected focused terminal.
+    ///   - accessoryFrame: Visible terminal toolbar in screen coordinates, when available.
     ///   - containerBottomSafeAreaExpansion: Height the container safe-area escape actually gained
     ///     this layout pass, measured by the reader pair in `terminalTabsView`.
     func terminalBottomPadding(
         geometry: GeometryProxy,
-        keyboardFrame: CGRect,
+        keyboardFrame reportedKeyboardFrame: CGRect,
         keyboardHeight: CGFloat,
         reservedBottomToolbarHeight: CGFloat,
+        accessoryFrame: CGRect?,
         containerBottomSafeAreaExpansion: CGFloat
     ) -> (padding: CGFloat, gridAlignsToToolbar: Bool) {
         #if !os(visionOS) && !targetEnvironment(macCatalyst)
         let isDocked = keyboardGeometry.isKeyboardDocked
         let containerFrame = geometry.frame(in: .global)
         let isPhone = UIDevice.current.userInterfaceIdiom == .phone
+        let keyboardFrame = isPhone && accessoryFrame != nil
+            ? TerminalKeyboardGeometry.includingAccessory(
+                keyboard: reportedKeyboardFrame, accessory: accessoryFrame, container: containerFrame)
+            : reportedKeyboardFrame
         // `UIScreen.main` is deprecated and need not be the display this window
         // is on. Resolve this window's own scene through the windowId -> scene
         // link; before that link is up (or once the scene has gone away) fall
@@ -632,6 +638,7 @@ extension MainView {
         }
 
         #else
+        let keyboardFrame = reportedKeyboardFrame
         let keyboardOffset = keyboardGeometry.keyboardOverlapHeight(in: geometry.frame(in: .global), keyboardFrame: keyboardFrame)
         let rawKeyboardCoverage = keyboardOffset
         #endif
@@ -788,6 +795,10 @@ extension MainView {
         keyboardHeight: CGFloat,
         containerBottomSafeAreaExpansion: CGFloat
     ) -> some View {
+        // One measurement of the active pane's accessory for this layout pass;
+        // existing keyboard notifications already invalidate the shared view.
+        let accessoryFrame = terminals.indices.contains(selectedTabIndex)
+            ? terminals[selectedTabIndex].focusedPane?.keyboardAccessoryFrameInScreen : nil
         ZStack {
             ForEach(Array(terminals.enumerated()), id: \.element.id) { index, tab in
                 if !tab.splitTree.isEmpty {
@@ -807,6 +818,7 @@ extension MainView {
                         keyboardFrame: keyboardFrame,
                         keyboardHeight: keyboardHeight,
                         reservedBottomToolbarHeight: reservedBottomToolbarHeight,
+                        accessoryFrame: accessoryFrame,
                         containerBottomSafeAreaExpansion: containerBottomSafeAreaExpansion
                     )
                     let topPadding = bottomPadding.gridAlignsToToolbar

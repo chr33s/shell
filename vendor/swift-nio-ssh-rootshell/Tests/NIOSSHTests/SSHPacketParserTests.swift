@@ -67,10 +67,41 @@ final class SSHPacketParserTests: XCTestCase {
 
         switch try parser.nextPacket() {
         case .version(let string):
-            XCTAssertEqual(string, "xxxx\r\nyyyy\r\nSSH-2.0-OpenSSH_7.9")
+            XCTAssertEqual(string, "SSH-2.0-OpenSSH_7.9")
         default:
             XCTFail("Expecting .version")
         }
+    }
+
+    func testTooManyVersionPreLinesIsRejected() throws {
+        var parser = SSHPacketParser(allocator: ByteBufferAllocator())
+
+        var preLines = ByteBuffer.of(string: String(repeating: "x\n", count: SSHPacketParser.maximumVersionPreLines + 1))
+        parser.append(bytes: &preLines)
+
+        XCTAssertThrowsError(try parser.nextPacket()) { error in
+            XCTAssertEqual((error as? NIOSSHError)?.type, .excessiveVersionLength)
+        }
+    }
+
+    func testSequenceNumberTracking() throws {
+        var parser = SSHPacketParser(allocator: ByteBufferAllocator())
+        self.feedVersion(to: &parser)
+
+        let packet: [UInt8] = [0, 0, 0, 28, 10, 5, 0, 0, 0, 12, 115, 115, 104, 45, 117, 115, 101, 114, 97, 117, 116, 104, 42, 111, 216, 12, 226, 248, 144, 175, 157, 207]
+        var part = ByteBuffer.of(bytes: packet + packet)
+        parser.append(bytes: &part)
+
+        XCTAssertNotNil(try parser.nextPacket())
+        XCTAssertEqual(parser.lastPacketSequenceNumber, 0)
+        XCTAssertNotNil(try parser.nextPacket())
+        XCTAssertEqual(parser.lastPacketSequenceNumber, 1)
+
+        parser.resetSequenceNumber()
+        var third = ByteBuffer.of(bytes: packet)
+        parser.append(bytes: &third)
+        XCTAssertNotNil(try parser.nextPacket())
+        XCTAssertEqual(parser.lastPacketSequenceNumber, 0)
     }
 
     func testReadVersionWithoutCarriageReturn() throws {
@@ -105,7 +136,7 @@ final class SSHPacketParserTests: XCTestCase {
 
         switch try parser.nextPacket() {
         case .version(let string):
-            XCTAssertEqual(string, "xxxx\nyyyy\nSSH-2.0-OpenSSH_7.4")
+            XCTAssertEqual(string, "SSH-2.0-OpenSSH_7.4")
         default:
             XCTFail("Expecting .version")
         }

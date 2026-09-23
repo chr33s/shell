@@ -11,19 +11,23 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 //===----------------------------------------------------------------------===//
-#if CRYPTO_IN_SWIFTPM && !CRYPTO_IN_SWIFTPM_FORCE_BUILD_API
+
+#if canImport(CryptoKit)
 @_exported import CryptoKit
 #else
-import Foundation
 
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
+import Foundation
+#endif
+
 extension ASN1 {
     /// An Object Identifier is a representation of some kind of object: really any kind of object.
     ///
     /// It represents a node in an OID hierarchy, and is usually represented as an ordered sequence of numbers.
     ///
     /// We mostly don't care about the semantics of the thing, we just care about being able to store and compare them.
-    @available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
     struct ASN1ObjectIdentifier: ASN1ImplicitlyTaggable {
         static var defaultIdentifier: ASN1.ASN1Identifier {
             .objectIdentifier
@@ -31,9 +35,9 @@ extension ASN1 {
 
         private var oidComponents: [UInt]
 
-        init(asn1Encoded node: ASN1.ASN1Node, withIdentifier identifier: ASN1.ASN1Identifier) throws {
+        init(asn1Encoded node: ASN1.ASN1Node, withIdentifier identifier: ASN1.ASN1Identifier) throws(CryptoKitMetaError) {
             guard node.identifier == identifier else {
-                throw CryptoKitASN1Error.unexpectedFieldType
+                throw error(CryptoKitASN1Error.unexpectedFieldType)
             }
 
             guard case .primitive(var content) = node.content else {
@@ -67,7 +71,7 @@ extension ASN1 {
             }
 
             guard subcomponents.count >= 2 else {
-                throw CryptoKitASN1Error.invalidObjectIdentifier
+                throw error(CryptoKitASN1Error.invalidObjectIdentifier)
             }
 
             // Now we need to expand the subcomponents out. This means we need to undo the step above. The first component will be in the range 0..<40
@@ -92,8 +96,8 @@ extension ASN1 {
             self.oidComponents = oidComponents
         }
 
-        func serialize(into coder: inout ASN1.Serializer, withIdentifier identifier: ASN1.ASN1Identifier) throws {
-            coder.appendPrimitiveNode(identifier: identifier) { bytes in
+        func serialize(into coder: inout ASN1.Serializer, withIdentifier identifier: ASN1.ASN1Identifier) throws(CryptoKitMetaError) {
+            try coder.appendPrimitiveNode(identifier: identifier) { bytes in
                 var components = self.oidComponents[...]
                 guard let firstComponent = components.popFirst(), let secondComponent = components.popFirst() else {
                     preconditionFailure("Invalid number of OID components: must be at least two!")
@@ -133,19 +137,15 @@ extension ASN1 {
     }
 }
 
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
 extension ASN1.ASN1ObjectIdentifier: Hashable {}
 
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
 extension ASN1.ASN1ObjectIdentifier: ExpressibleByArrayLiteral {
         init(arrayLiteral elements: UInt...) {
             self.oidComponents = elements
         }
     }
 
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
 extension ASN1.ASN1ObjectIdentifier {
-    @available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
     enum NamedCurves {
         static let secp256r1: ASN1.ASN1ObjectIdentifier = [1, 2, 840, 10_045, 3, 1, 7]
 
@@ -154,19 +154,16 @@ extension ASN1.ASN1ObjectIdentifier {
         static let secp521r1: ASN1.ASN1ObjectIdentifier = [1, 3, 132, 0, 35]
     }
     
-    @available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
     enum HashFunctions {
         static let sha256: ASN1.ASN1ObjectIdentifier = [2, 16, 840, 1, 101, 3, 4, 2, 1]
         static let sha384: ASN1.ASN1ObjectIdentifier = [2, 16, 840, 1, 101, 3, 4, 2, 2]
         static let sha512: ASN1.ASN1ObjectIdentifier = [2, 16, 840, 1, 101, 3, 4, 2, 3]
     }
 
-    @available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
     enum AlgorithmIdentifier {
         static let idEcPublicKey: ASN1.ASN1ObjectIdentifier = [1, 2, 840, 10_045, 2, 1]
     }
 
-    @available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
     enum NameAttributes {
         static let name: ASN1.ASN1ObjectIdentifier = [2, 5, 4, 41]
         static let surname: ASN1.ASN1ObjectIdentifier = [2, 5, 4, 4]
@@ -189,13 +186,12 @@ extension ASN1.ASN1ObjectIdentifier {
 
 }
 
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
 extension ArraySlice where Element == UInt8 {
-    mutating fileprivate func readOIDSubidentifier() throws -> UInt {
+    mutating fileprivate func readOIDSubidentifier() throws(CryptoKitMetaError) -> UInt {
         // In principle OID subidentifiers can be too large to fit into a UInt. We are choosing to not care about that
         // because for us it shouldn't matter.
         guard let subidentifierEndIndex = self.firstIndex(where: { $0 & 0x80 == 0x00 }) else {
-            throw CryptoKitASN1Error.invalidASN1Object
+            throw error(CryptoKitASN1Error.invalidASN1Object)
         }
 
         let oidSlice = self[self.startIndex ... subidentifierEndIndex]
@@ -206,12 +202,11 @@ extension ArraySlice where Element == UInt8 {
     }
 }
 
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
 extension UInt {
-    fileprivate init<Bytes: Collection>(sevenBitBigEndianBytes bytes: Bytes) throws where Bytes.Element == UInt8 {
+    fileprivate init<Bytes: Collection>(sevenBitBigEndianBytes bytes: Bytes) throws(CryptoKitMetaError) where Bytes.Element == UInt8 {
         // We need to know how many bytes we _need_ to store this "int".
         guard ((bytes.count * 7) + 7) / 8 <= MemoryLayout<UInt>.size else {
-            throw CryptoKitASN1Error.invalidASN1Object
+            throw error(CryptoKitASN1Error.invalidASN1Object)
         }
 
         self = 0
@@ -225,4 +220,4 @@ extension UInt {
     }
 }
 
-#endif // Linux or !SwiftPM
+#endif // canImport(CryptoKit)

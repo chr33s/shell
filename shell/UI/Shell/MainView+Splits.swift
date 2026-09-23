@@ -143,6 +143,13 @@ extension MainView {
 
     func equalizeSplits() {
         guard terminals.indices.contains(selectedTabIndex) else { return }
+        let tab = terminals[selectedTabIndex]
+        // tmux owns control-mode geometry; a local ratio edit is lost on its
+        // next layout. Equalize the server cells and let the reconcile follow.
+        if tab.isTmuxWindow {
+            TmuxController.controller(forWindowTab: tab)?.requestEqualizeSplits(tab)
+            return
+        }
         terminals[selectedTabIndex].splitTree = terminals[selectedTabIndex].splitTree.equalize()
     }
 

@@ -59,8 +59,14 @@ extension Ghostty.TerminalView {
             return view.subviews.contains(where: containsVisibleEmojiSearch)
         }
 
-        // In modern iOS, UIWindowScene.windows contains the relevant windows.
-        let windows = scene.windows
+        var windows = scene.windows
+        // Hardware emoji search can live in a remote keyboard window with its
+        // own system scene. Include tracked keyboard windows for the key host,
+        // as well as the accessory's window when one is installed.
+        for candidate in SystemShiftReader.shared.keyboardWindows(for: hostWindow, near: keyboardAccessory)
+            where !windows.contains(where: { $0 === candidate }) {
+            windows.append(candidate)
+        }
         return windows.contains { candidate in
             candidate !== hostWindow
                 && candidate.windowLevel > hostWindow.windowLevel

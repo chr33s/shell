@@ -11,25 +11,25 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 //===----------------------------------------------------------------------===//
-import Foundation
 
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
+import Foundation
+#endif
+
 enum ByteHexEncodingErrors: Error {
     case incorrectHexValue
     case incorrectString
 }
 
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
-let charA = UInt8(UnicodeScalar("a").value)
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
-let char0 = UInt8(UnicodeScalar("0").value)
+let charA = UInt8(97 /* "a" */)
+let char0 = UInt8(48 /* "0" */)
 
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
 private func itoh(_ value: UInt8) -> UInt8 {
     return (value > 9) ? (charA + value - 10) : (char0 + value)
 }
 
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
 private func htoi(_ value: UInt8) throws -> UInt8 {
     switch value {
     case char0...char0 + 9:
@@ -41,7 +41,7 @@ private func htoi(_ value: UInt8) throws -> UInt8 {
     }
 }
 
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
+#if !hasFeature(Embedded)
 extension DataProtocol {
     var hexString: String {
         let hexLen = self.count * 2
@@ -56,18 +56,17 @@ extension DataProtocol {
             }
         }
         
-        return String(bytes: hexChars, encoding: .utf8)!
+        return String(decoding: hexChars, as: UTF8.self)
     }
 }
+#endif // !hasFeature(Embedded)
 
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
-extension MutableDataProtocol {
+extension RangeReplaceableCollection where Element == UInt8 {
     mutating func appendByte(_ byte: UInt64) {
-        withUnsafePointer(to: byte.littleEndian, { self.append(contentsOf: UnsafeRawBufferPointer(start: $0, count: 8)) })
+        withUnsafeBytes(of: byte.littleEndian, { self.append(contentsOf: $0) })
     }
 }
 
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
 extension Data {
     init(hexString: String) throws {
         self.init()
@@ -87,7 +86,6 @@ extension Data {
     }
 }
 
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
 extension Array where Element == UInt8 {
     init(hexString: String) throws {
         self.init()

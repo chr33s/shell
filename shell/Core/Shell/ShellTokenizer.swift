@@ -97,6 +97,10 @@ nonisolated final class ShellTokenizer: @unchecked Sendable {
     /// Current line number (for error messages).
     var currentLine: Int { line }
 
+    /// Raw scan position for callers that need to preserve source spelling.
+    /// `peek()` can advance this position without consuming its cached token.
+    var sourceIndex: String.Index { index }
+
     /// 1-based line on which the token the parser is about to consume begins.
     /// Unlike `currentLine` (the scanner's position, already past the peeked
     /// token) this is stable for the upcoming token, which is what `$LINENO`

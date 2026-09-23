@@ -13,10 +13,8 @@
 
 #if !COLLECTIONS_SINGLE_MODULE
 import InternalCollectionsUtilities
-import ContainersPreview
+import SpanPreview
 #endif
-
-#if compiler(>=6.2)
 
 @available(SwiftStdlib 5.0, *)
 extension UniqueArray where Element: ~Copyable {
@@ -32,7 +30,7 @@ extension UniqueArray where Element: ~Copyable {
   @inlinable
   public mutating func append(_ item: consuming Element) {
     _ensureFreeCapacity(1)
-    _storage.append(item)
+    unsafe _storage._appendUnchecked(item)
   }
 }
 
@@ -56,13 +54,14 @@ extension UniqueArray where Element: ~Copyable {
   ///       is allowed to initialize fewer than `uninitializedCount` items.
   ///       The array is appended however many items the callback adds to the
   ///       output span before it returns (or before it throws an error).
-  ///
+  /// - Returns: A valid index range addressing the newly inserted items.
   /// - Complexity: O(`uninitializedCount`)
   @_alwaysEmitIntoClient
+  @discardableResult
   public mutating func append<E: Error>(
     addingCount newItemCount: Int,
     initializingWith initializer: (inout OutputSpan<Element>) throws(E) -> Void
-  ) throws(E) {
+  ) throws(E) -> Range<Int> {
     _ensureFreeCapacity(newItemCount)
     return try _storage.append(
       addingCount: newItemCount,
@@ -82,16 +81,17 @@ extension UniqueArray where Element: ~Copyable {
   /// - Parameters:
   ///    - items: A fully initialized buffer whose contents to move into
   ///        the array.
-  ///
+  /// - Returns: A valid index range addressing the newly inserted items.
   /// - Complexity: O(`count` + `items.count`)
   @_alwaysEmitIntoClient
+  @discardableResult
   public mutating func append(
     moving items: UnsafeMutableBufferPointer<Element>
-  ) {
+  ) -> Range<Int> {
     _ensureFreeCapacity(items.count)
-    _storage.append(moving: items)
+    return _storage._appendUnchecked(moving: items)
   }
-  
+
 #if UnstableContainersPreview
   /// Moves the elements of a input span to the end of this array, leaving the
   /// span empty.
@@ -102,14 +102,15 @@ extension UniqueArray where Element: ~Copyable {
   ///
   /// - Parameters:
   ///    - items: An input span whose contents need to be appended to this array.
-  ///
+  /// - Returns: A valid index range addressing the newly inserted items.
   /// - Complexity: O(`items.count`)
   @_alwaysEmitIntoClient
+  @discardableResult
   public mutating func append(
     moving items: inout InputSpan<Element>
-  ) {
+  ) -> Range<Int> {
     _ensureFreeCapacity(items.count)
-    _storage.append(moving: &items)
+    return _storage.append(moving: &items)
   }
 #endif
 
@@ -122,14 +123,19 @@ extension UniqueArray where Element: ~Copyable {
   ///
   /// - Parameters:
   ///    - items: An output span whose contents need to be appended to this array.
-  ///
+  /// - Returns: A valid index range addressing the newly inserted items.
   /// - Complexity: O(`items.count`)
   @_alwaysEmitIntoClient
+  @discardableResult
   public mutating func append(
     moving items: inout OutputSpan<Element>
-  ) {
+  ) -> Range<Int> {
     _ensureFreeCapacity(items.count)
-    _storage.append(moving: &items)
+    return items.withUnsafeMutableBufferPointer { buffer, count in
+      let source = buffer._extracting(first: count)
+      count = 0
+      return unsafe _storage._appendUnchecked(moving: source)
+    }
   }
 
   /// Appends the elements of a given array to the end of this array by moving
@@ -142,111 +148,23 @@ extension UniqueArray where Element: ~Copyable {
   ///
   /// - Parameters:
   ///    - items: An array whose items to move to the end of this array.
-  ///
+  /// - Returns: A valid index range addressing the newly inserted items.
   /// - Complexity: O(`items.count`) when amortized over many invocations on
   ///     the same array
   @_alwaysEmitIntoClient
+  @discardableResult
   public mutating func append(
     moving items: inout RigidArray<Element>
-  ) {
-    // FIXME: Remove this in favor of a generic algorithm over range-replaceable containers
+  ) -> Range<Int> {
+    // FIXME: Remove in favor of the generic RRC algorithm
     _ensureFreeCapacity(items.count)
-    _storage.append(moving: &items)
-  }
-}
-
-@available(SwiftStdlib 5.0, *)
-extension UniqueArray where Element: ~Copyable {
-#if UnstableContainersPreview
-  /// Appends the elements of a given container to the end of this array by
-  /// consuming the source container.
-  ///
-  /// If the target array does not have sufficient capacity to hold all items
-  /// in the source array, then this automatically grows the target array's
-  /// capacity, using a geometric growth rate.
-  ///
-  /// - Parameters:
-  ///    - items: An array whose items to move to the end of this array.
-  ///
-  /// - Complexity: O(`items.count`)
-  @_alwaysEmitIntoClient
-  public mutating func append(
-    consuming items: consuming RigidArray<Element>
-  ) {
-    // FIXME: Remove this in favor of a generic algorithm over consumable containers
-    var items = items
-    self.append(moving: &items)
-  }
-#endif
-  
-#if compiler(>=6.4) && UnstableContainersPreview
-  /// Appends at most `newItemCount` items generated by a producer to the end of
-  /// this array.
-  ///
-  /// If the array doesn't have sufficient capacity to accommodate the specified
-  /// number of new elements, then this method reallocates the array's storage
-  /// to grow it, using a geometric growth rate.
-  ///
-  /// This operation appends as many items as the producer can generate before
-  /// either reaching its end (or throwing an error), or filling the specified
-  /// capacity. This operation only consumes the first `newItemCount` items in the
-  /// producer; if the producer has more, then they remain available after this
-  /// method returns.
-  ///
-  /// - Parameters:
-  ///    - newItemCount: The maximum number of items to append to the array.
-  ///    - producer: A producer that generates the items to append.
-  ///
-  /// - Complexity: O(*n*) where *n* is the number of new items, when
-  ///     amortized over many similar invocations on the same array.
-  @_alwaysEmitIntoClient
-  public mutating func append<
-    E: Error,
-    P: Producer<Element, E> & ~Copyable & ~Escapable
-  >(
-    addingCount newItemCount: Int,
-    from producer: inout P
-  ) throws(E)
-  where P.Element: ~Copyable
-  {
-    _ensureFreeCapacity(newItemCount)
-    try _storage.append(addingCount: newItemCount, from: &producer)
-  }
-#endif
-
-#if compiler(>=6.4) && UnstableContainersPreview
-  /// Appends all the items generated by a producer to the end of this deque.
-  ///
-  /// If the deque doesn't have sufficient capacity to accommodate all the
-  /// elements, then this method reallocates the deque's storage
-  /// to grow it, using a geometric growth rate.
-  ///
-  /// - Parameters:
-  ///    - producer: A producer that generates the items to append.
-  ///
-  /// - Complexity: O(*n*) where *n* is the number of new items, when
-  ///     amortized over many similarly-sized invocations on the same deque.
-  @_alwaysEmitIntoClient
-  public mutating func append<
-    E: Error,
-    P: Producer<Element, E> & ~Copyable & ~Escapable
-  >(
-    from producer: inout P
-  ) throws(E)
-  where P.Element: ~Copyable
-  {
-    var done = false
-    while !done {
-      let c = Swift.max(producer.underestimatedCount, 1)
-      _ensureFreeCapacity(c)
-      try self.append(addingCount: freeCapacity) { target throws(E) in
-        while !target.isFull, !done {
-          done = try !producer.generate(into: &target)
-        }
+    return items.edit { source in
+      source.withUnsafeMutableBufferPointer { buffer, count in
+        count = 0
+        return _storage.append(moving: buffer._extracting(first: count))
       }
     }
   }
-#endif
 }
 
 @available(SwiftStdlib 5.0, *)
@@ -260,15 +178,16 @@ extension UniqueArray {
   /// - Parameters:
   ///    - newElements: A fully initialized buffer whose contents to copy into
   ///       the array.
-  ///
+  /// - Returns: A valid index range addressing the newly inserted items.
   /// - Complexity: O(`newElements.count`) when amortized over many
   ///     invocations on the same array.
   @_alwaysEmitIntoClient
+  @discardableResult
   public mutating func append(
     copying newElements: UnsafeBufferPointer<Element>
-  ) {
+  ) -> Range<Int> {
     _ensureFreeCapacity(newElements.count)
-    unsafe _storage.append(copying: newElements)
+    return unsafe _storage._appendUnchecked(copying: newElements)
   }
 
   /// Copies the elements of a buffer to the end of this array.
@@ -280,13 +199,14 @@ extension UniqueArray {
   /// - Parameters:
   ///    - newElements: A fully initialized buffer whose contents to copy into
   ///       the array.
-  ///
+  /// - Returns: A valid index range addressing the newly inserted items.
   /// - Complexity: O(`newElements.count`) when amortized over many
   ///     invocations on the same array.
   @_alwaysEmitIntoClient
+  @discardableResult
   public mutating func append(
     copying newElements: UnsafeMutableBufferPointer<Element>
-  ) {
+  ) -> Range<Int> {
     unsafe self.append(copying: UnsafeBufferPointer(newElements))
   }
 
@@ -298,36 +218,43 @@ extension UniqueArray {
   ///
   /// - Parameters:
   ///    - newElements: A span whose contents to copy into the array.
-  ///
+  /// - Returns: A valid index range addressing the newly inserted items.
   /// - Complexity: O(`newElements.count`) when amortized over many
   ///     invocations on the same array.
   @_alwaysEmitIntoClient
-  public mutating func append(copying newElements: Span<Element>) {
+  @discardableResult
+  public mutating func append(copying newElements: Span<Element>) -> Range<Int> {
     _ensureFreeCapacity(newElements.count)
-    _storage.append(copying: newElements)
+    return newElements.withUnsafeBufferPointer { source in
+      unsafe _storage._appendUnchecked(copying: source)
+    }
   }
 
-#if compiler(>=6.4) && UnstableContainersPreview
+#if compiler(>=6.4)
+  @available(SwiftStdlib 6.4, *)
   @inlinable
-  internal mutating func _append<
-    Source: BorrowingSequence_<Element> & ~Copyable & ~Escapable
+  package mutating func _append<
+    Source: Iterable & ~Copyable & ~Escapable
   >(
     copying newElements: borrowing Source
-  ) {
-    _ensureFreeCapacity(newElements.underestimatedCount_)
-    var it = newElements.makeBorrowingIterator_()
+  ) throws(Source.Failure)
+  where Source.Element == Element {
+    _ensureFreeCapacity(newElements.underestimatedCount)
+    var it = newElements.makeBorrowingIterator()
     while true {
-      let span = it.nextSpan_()
+      let span = try it.nextSpan()
       if span.isEmpty { break }
       _ensureFreeCapacity(span.count)
-      _storage.append(copying: span)
+      span.withUnsafeBufferPointer { source in
+        _ = unsafe _storage._appendUnchecked(copying: source)
+      }
     }
   }
   // FIXME: Add _append(copyingContainer:), forwarding to the same method on RigidArray
 #endif
 
-#if compiler(>=6.4) && UnstableContainersPreview
-  /// Copies the elements of a borrowing sequence to the end of this array.
+#if compiler(>=6.4)
+  /// Copies the elements of an iterable to the end of this array.
   ///
   /// If the array does not have sufficient capacity to hold enough elements,
   /// then this reallocates the array's storage to extend its capacity, using
@@ -337,17 +264,18 @@ extension UniqueArray {
   ///
   /// - Parameters:
   ///    - newElements: A container whose contents to copy into the array.
-  ///
   /// - Complexity: O(`newElements.count`), when amortized over many invocations
   ///    over the same array.
+  @available(SwiftStdlib 6.4, *)
   @_alwaysEmitIntoClient
   @inline(__always)
   public mutating func append<
-    Source: BorrowingSequence_<Element> & ~Copyable & ~Escapable
+    Source: Iterable & ~Copyable & ~Escapable
   >(
     copying newElements: borrowing Source
-  ) {
-    self._append(copying: newElements)
+  ) throws(Source.Failure)
+  where Source.Element == Element {
+    try self._append(copying: newElements)
   }
 
 #endif
@@ -362,14 +290,13 @@ extension UniqueArray {
   ///
   /// - Parameters:
   ///    - newElements: The new elements to copy into the array.
-  ///
   /// - Complexity: O(*m*), where *m* is the length of `newElements`, when
   ///     amortized over many invocations over the same array.
   @_alwaysEmitIntoClient
   public mutating func append(copying newElements: some Sequence<Element>) {
     let done: Void? = newElements.withContiguousStorageIfAvailable { buffer in
       _ensureFreeCapacity(buffer.count)
-      unsafe _storage.append(copying: buffer)
+      _ = unsafe _storage._appendUnchecked(copying: buffer)
       return
     }
     if done != nil { return }
@@ -377,12 +304,11 @@ extension UniqueArray {
     _ensureFreeCapacity(newElements.underestimatedCount)
     var it = _storage._append(prefixOf: newElements)
     while let item = it.next() {
-      _ensureFreeCapacity(1)
-      _storage.append(item)
+      self.append(item)
     }
   }
-  
-#if compiler(>=6.4) && UnstableContainersPreview
+
+#if compiler(>=6.4)
   /// Copies the elements of a container to the end of this array.
   ///
   /// If the array does not have sufficient capacity to hold enough elements,
@@ -391,17 +317,18 @@ extension UniqueArray {
   ///
   /// - Parameters:
   ///    - newElements: A container whose contents to copy into the array.
-  ///
   /// - Complexity: O(`newElements.count`), when amortized over many invocations
   ///    over the same array.
+  @available(SwiftStdlib 6.4, *)
   @_alwaysEmitIntoClient
   @inline(__always)
   public mutating func append<
-    Source: BorrowingSequence_<Element> & Sequence<Element>
-  >(copying newElements: Source) {
-    self._append(copying: newElements)
+    Source: Iterable & Sequence<Element>
+  >(
+    copying newElements: Source
+  ) throws(Source.Failure)
+  where Source.Element == Element {
+    try self._append(copying: newElements)
   }
 #endif
 }
-
-#endif

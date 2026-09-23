@@ -49,33 +49,6 @@ private extension ConnectionConfig {
     }
 }
 
-/// A node in a tmux window's layout tree, decoded from the opaque
-/// `ghostty_tmux_layout_*` accessors. Geometry is in terminal cells.
-///
-/// `nonisolated`: built by `TmuxReconcileDecoder.decode` on the off-main action
-/// callback thread (see that type), so it must NOT pick up the project's default
-/// `@MainActor` isolation. A pure value type — safe to construct/read anywhere.
-nonisolated indirect enum TmuxLayoutNode: Equatable {
-    case pane(paneId: Int, width: Int, height: Int, x: Int, y: Int)
-    case split(direction: Direction, children: [TmuxLayoutNode], width: Int, height: Int, x: Int, y: Int)
-
-    enum Direction: Equatable { case horizontal, vertical }
-
-    var width: Int {
-        switch self {
-        case let .pane(_, w, _, _, _): return w
-        case let .split(_, _, w, _, _, _): return w
-        }
-    }
-
-    var height: Int {
-        switch self {
-        case let .pane(_, _, h, _, _): return h
-        case let .split(_, _, _, h, _, _): return h
-        }
-    }
-}
-
 /// A single tmux reconcile operation, decoded from the C op batch.
 ///
 /// `nonisolated`: produced by `TmuxReconcileDecoder.decode` on the off-main
@@ -313,8 +286,8 @@ final class TmuxController {
     /// which a teardown/resume cycle can clear, and which is ambiguous when more
     /// than one `tmux -CC` gateway is open in the same window.
     private var gatewayTabID: UUID?
-    /// The first tmux focus op is part of initial attach and must still select
-    /// the tmux window, even if the app happened to activate at the same time.
+    /// Consume the initial attach focus once; it may select a window only
+    /// while this gateway is selected (or no valid selection exists).
     private var hasProcessedInitialFocus = false
 
     // MARK: - Session dashboard state (see TmuxController+Sessions.swift)
@@ -411,6 +384,7 @@ final class TmuxController {
     /// (id=tmux-reconcile-dedup)
     private var lastAppliedTopologyOps: [TmuxReconcileOp]?
     private var skippedDuplicateReconciles = 0
+    private var equalizingWindows: Set<Int> = []
 
     // MARK: - Recovery watchdog (always-on)
 
@@ -1203,6 +1177,55 @@ final class TmuxController {
         return true
     }
 
+    /// Apply equalization on the server; the resulting reconcile owns local geometry.
+    func requestEqualizeSplits(_ tab: TabModel) {
+        guard isActive, let windowID = tab.tmuxWindowId,
+              windowTabs[windowID] === tab, !equalizingWindows.contains(windowID),
+              let layout = appliedLayout(for: windowID), layout.paneIDs.count > 1 else { return }
+        equalizingWindows.insert(windowID)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.equalizingWindows.remove(windowID) }
+            do {
+                try await TmuxSplitEqualizer.run(windowID: windowID, layout: layout) { command in
+                    guard self.isActive,
+                          self.windowTabs[windowID] === tab,
+                          self.appliedLayout(for: windowID)?.hasSameTopology(as: layout) == true else {
+                        throw TmuxSplitEqualizer.Failure.layoutChanged
+                    }
+                    return try await self.sendCommandWithReply(command)
+                }
+            } catch {
+                Ghostty.logger.warning("tmux equalize failed: \(String(describing: error))")
+            }
+        }
+    }
+
+    /// Commit a native divider's movement against the server topology, not the
+    /// binary grouping used by the UI. A missing boundary means the topology
+    /// changed during the gesture; restore its authoritative projection.
+    func requestResizeDivider(windowID: Int, horizontal: Bool,
+                              leftPaneIDs: [Int], rightPaneIDs: [Int], delta: Int) {
+        guard isActive, windowTabs[windowID] != nil,
+              let layout = appliedLayout(for: windowID) else { return }
+        guard let target = TmuxDividerResize.target(in: layout, horizontal: horizontal,
+                                                   leftPaneIDs: leftPaneIDs, rightPaneIDs: rightPaneIDs,
+                                                   delta: delta),
+              let pane = paneViews[target.paneID], pane.tmuxPaneBinding?.windowId == windowID else {
+            _ = setLayout(windowId: windowID, layout: layout, zoomedPaneId: nil)
+            return
+        }
+        pane.requestTmuxResizePane(horizontal: horizontal, cells: target.size)
+    }
+
+    private func appliedLayout(for windowID: Int) -> TmuxLayoutNode? {
+        guard let ops = lastAppliedTopologyOps else { return nil }
+        for case let .setLayout(id, layout, _) in ops where id == windowID {
+            return layout
+        }
+        return nil
+    }
+
     /// Returns false when the layout could not be applied (missing tab or a
     /// pane view the tree references doesn't exist). The tab keeps its stale
     /// splitTree, so the caller must NOT record the batch as applied — tmux
@@ -1320,6 +1343,13 @@ final class TmuxController {
     /// terminal. This routes keyboard input to this pane's surface, whose
     /// tmux backend emits `send-keys` for this pane id.
     private func focusPane(_ view: Ghostty.TerminalView, in tab: TabModel) {
+        // Background layouts also initialize their remembered focused pane.
+        // Do not clear the selected restored tab's focus while filling them.
+        let hostModel = modelContainingTab(id: tab.id) ?? tabsModel
+        guard hostModel.selectedTabID == tab.id else {
+            recordRemoteFocusPane(view, in: tab)
+            return
+        }
         let previous = tab.focusedTerminal
         for other in paneViews.values where other !== view {
             other.isLogicallyFocused = false
@@ -1342,15 +1372,10 @@ final class TmuxController {
         view.shouldBecomeFirstResponderWhenReady = true
         tab.focusedTerminal = view
 
-        // Active focus drive — mirrors MainView.setFocusedTerminal. Gated on
-        // the tab being the visible one: setLayout also routes here for
-        // background windows, and EVERY tab's panes are in the UIWindow (the
-        // tab ForEach renders them all at opacity 0), so an ungated
-        // becomeFirstResponder would steal the user's keyboard.
+        // Active focus drive — mirrors MainView.setFocusedTerminal. The
+        // selection guard above also protects logical focus from background
+        // layouts; every tab's panes can be attached to the same UIWindow.
         // ROOTSHELL-TMUX (id=tmux-focus-active)
-        let hostModel = modelContainingTab(id: tab.id) ?? tabsModel
-        guard hostModel.selectedTabID == tab.id else { return }
-
         var acquired = false
         if view.window != nil {
             // Existing pane (e.g. %window-pane-changed between attached
@@ -1707,7 +1732,11 @@ final class TmuxController {
         let isSessionSwitchFocus = pendingSessionSwitchWindowSelection == nil
             ? consumePendingSessionSwitch()
             : false
-        let isInitialFocus = !hasProcessedInitialFocus || isSessionSwitchFocus
+        // markGatewayTab runs after the first reconcile, so resolve the owner
+        // directly when its cached tab ID has not been stamped yet.
+        let isInitialFocus = !hasProcessedInitialFocus && hostModel.maySelectInitialMultiplexerTab(
+            gatewayTabID: gatewayTabID ?? ownGatewayTab()?.id
+        )
         hasProcessedInitialFocus = true
 
         // A HIDDEN window never takes selection — not even on initial attach
@@ -1731,7 +1760,8 @@ final class TmuxController {
         // tab jump on its own and chase the active window across other devices
         // attached to the same session. We honor a focus op for tab selection
         // only on:
-        //   - initial attach (land on the session's current window once), or
+        //   - initial attach from the selected gateway (or no selection), or
+        //   - a session switch THIS device requested, or
         //   - the target tab already being selected (an intra-tab pane focus
         //     change for the window the user is already viewing), or
         //   - a split THIS device just requested (pendingSplitFocus).
@@ -1742,7 +1772,7 @@ final class TmuxController {
             guard let pending = pendingSplitFocus[windowId] else { return false }
             return !pending.existingPaneIds.contains(paneId)
         }()
-        let mayChangeSelection = isInitialFocus || targetIsSelected || isLocalSplitFocus
+        let mayChangeSelection = isInitialFocus || isSessionSwitchFocus || targetIsSelected || isLocalSplitFocus
 
         if !mayChangeSelection {
             if let view = paneViews[paneId] {
@@ -2500,12 +2530,13 @@ final class TmuxController {
     /// Panes of one window in visual (split-tree leaf) order, with display
     /// titles. Falls back to paneViews-dict order if the tab/tree is missing
     /// (mid-reconcile). For swap-pane pickers.
+    /// Use the resolved pane identity, not the raw surface's "ghostty" default.
     func paneSummaries(inWindow windowId: Int) -> [(paneId: Int, title: String)] {
         if let tab = windowTabs[windowId] {
             var out: [(paneId: Int, title: String)] = []
             for view in tab.splitTree.terminalLeaves {
                 if let binding = view.tmuxPaneBinding, binding.windowId == windowId {
-                    out.append((paneId: binding.paneId, title: view.title))
+                    out.append((paneId: binding.paneId, title: view.presentation.title))
                 }
             }
             if !out.isEmpty { return out }
@@ -2513,7 +2544,7 @@ final class TmuxController {
         return paneViews
             .compactMap { paneId, view in
                 view.tmuxPaneBinding?.windowId == windowId
-                    ? (paneId: paneId, title: view.title) : nil
+                    ? (paneId: paneId, title: view.presentation.title) : nil
             }
             .sorted { $0.paneId < $1.paneId }
     }
@@ -4023,7 +4054,7 @@ extension Ghostty.TerminalView {
         guard let controller = TmuxController.controller(forOwnerSurface: binding.parentSurface),
               controller.isActive else { return }
         let flag = horizontal ? "-x" : "-y"
-        sendTmuxCommand("resize-pane -t %\(binding.paneId) \(flag) \(cells)\n", to: binding.parentSurface)
+        sendTmuxCommand("resize-pane -t @\(binding.windowId).%\(binding.paneId) \(flag) \(cells)\n", to: binding.parentSurface)
     }
 
     /// Toggle tmux's pane zoom for this pane's window. The layout round-trips

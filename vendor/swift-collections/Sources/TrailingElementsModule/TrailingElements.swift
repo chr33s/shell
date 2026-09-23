@@ -17,7 +17,7 @@
 public protocol TrailingElements: ~Copyable {
   /// The element type of the data that follows the header in memory.
   associatedtype Element
-  
+
   /// The number of elements following the header.
   var trailingCount: Int { get }
 }

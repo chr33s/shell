@@ -37,6 +37,7 @@ extension _HashNode {
   /// Instances of this class hold (tail-allocated) storage for individual
   /// nodes in a hash tree.
   @usableFromInline
+  @_fixed_layout // Not really! This module isn't ABI stable.
   internal final class Storage: _RawHashStorage {
     @usableFromInline
     internal typealias Element = (key: Key, value: Value)
@@ -84,12 +85,8 @@ extension _HashNode.Storage {
     let mincap = (bytes &+ childStride &- 1) / childStride
     let object = _HashNode.Storage.create(
       minimumCapacity: mincap
-    ) { buffer in
-#if os(OpenBSD)
+    ) { _ in
       _HashNodeHeader(byteCapacity: mincap * childStride)
-#else
-      _HashNodeHeader(byteCapacity: buffer.capacity * childStride)
-#endif
     }
 
     object.withUnsafeMutablePointers { header, elements in

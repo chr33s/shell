@@ -10,16 +10,18 @@ ios_system is a drop-in replacement for `system()` calls in iOS applications, pr
 
 ### Framework Structure
 
-The project is organized as a collection of independent frameworks, each providing a category of Unix commands:
+The project is organized as a collection of independent frameworks. The public
+binary package and release builder currently include:
 
 - **ios_system.framework**: Core system that loads and dispatches commands
 - **files.framework**: File operations (cp, mv, rm, ls, chmod, chown, etc.)
 - **shell.framework**: Shell utilities (echo, env, printenv, setenv, etc.)
 - **text.framework**: Text processing (cat, grep, sed, wc, etc.)
-- **tar.framework**: Archive operations (tar, gzip, compress, etc.)
 - **awk.framework**: AWK text processing
-- **curl_ios.framework**: Network operations (curl, scp, sftp via libssh2)
-- **ssh_cmd.framework**: SSH client commands
+- **joe.framework**: JOE terminal editor integration
+
+The Xcode project contains additional legacy targets, but they are not part of
+the `ios_system` Swift package product or the default release build.
 
 Each framework is dynamically loaded when its commands are first called and can be released after execution to manage memory.
 
@@ -77,15 +79,19 @@ Commands link against ios_system.framework to automatically use these replacemen
 ### Quick Build (Recommended)
 
 ```bash
-swift run --package-path xcfs build
+xcrun swift run --package-path xcfs build
 ```
 
-This builds all frameworks as XCFrameworks for iOS, iOS Simulator, and Catalyst. Output goes to `.build/` directory with zipped frameworks and checksums.
+Always `xcrun swift` (Xcode 27's toolchain); a swiftly `swift` on PATH fails.
+
+This builds the public release frameworks for iOS, iOS Simulator, Mac Catalyst,
+visionOS, and visionOS Simulator. Output goes to `.build/` with zipped
+frameworks, dSYMs, and checksums.
 
 ### Build Specific Frameworks
 
 ```bash
-swift run --package-path xcfs build ios_system,awk,tar
+xcrun swift run --package-path xcfs build ios_system,awk,shell
 ```
 
 ### Xcode Build (Individual Frameworks)
@@ -93,7 +99,7 @@ swift run --package-path xcfs build ios_system,awk,tar
 ```bash
 xcodebuild -project ios_system.xcodeproj -scheme ios_system -sdk iphoneos -configuration Release
 xcodebuild -project ios_system.xcodeproj -scheme files -sdk iphoneos -configuration Release
-xcodebuild -project ios_system.xcodeproj -scheme tar -sdk iphoneos -configuration Release
+xcodebuild -project ios_system.xcodeproj -scheme shell -sdk iphoneos -configuration Release
 # etc.
 ```
 
@@ -155,8 +161,8 @@ ios_system("ls -la");
 ios_system("grep pattern file.txt");
 
 // Check if command exists
-if (ios_executable("vim")) {
-    ios_system("vim myfile.txt");
+if (ios_executable("joe")) {
+    ios_system("joe myfile.txt");
 }
 ```
 
@@ -167,7 +173,9 @@ if (ios_executable("vim")) {
 ios_setStreams(custom_stdin, custom_stdout, custom_stderr);
 
 // Restrict filesystem access (sandbox within sandbox)
-ios_setMiniRoot(@"/Users/username/Documents/sandbox");
+NSString *miniRoot = [NSHomeDirectory()
+    stringByAppendingPathComponent:@"Documents/sandbox"];
+ios_setMiniRoot(miniRoot);
 
 // Add custom commands at runtime
 replaceCommand(@"mycommand", my_command_main, false);
@@ -197,19 +205,22 @@ The repository is consumable as a Swift Package with binary XCFramework targets.
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/holzschu/ios_system", from: "3.0.0")
+    .package(
+        url: "https://github.com/kitknox/ios_system-rootshell.git",
+        from: "0.1.0"
+    )
 ]
 ```
 
-Binary frameworks are downloaded from GitHub releases with checksums verified.
+Select the `ios_system` library product. Its binary frameworks are downloaded
+from the rootshell fork's GitHub releases with checksums verified by SwiftPM.
 
-## CI/CD
+## Release process
 
-GitHub Actions workflow (`.github/workflows/build.yml`) builds and publishes releases:
-- Triggers on version tags (`v*`)
-- Builds all frameworks via `swift run --package-path xcfs build`
-- Creates release with zipped XCFrameworks and checksums
-- Uploads `ios_error.h` and command dictionaries
+There is no checked-in GitHub Actions release workflow. Build release archives
+from a fresh checkout of the exact commit to be tagged, update the binary target
+checksums, and upload those same archives to the corresponding GitHub release.
+See `BUILD_FRAMEWORKS.md` for the complete release procedure.
 
 ## License Notes
 

@@ -5,6 +5,18 @@ your contribution to Apple and the community, and agree by submitting the patch
 that your contributions are licensed under the Apache 2.0 license (see
 `LICENSE.txt`).
 
+## AI tools
+
+Human discourse is an essential part of open source development. To encourage
+productive collaboration between contributors and maintainers, please refrain
+from using AI tools for the following:
+
+- Issues: titles, bodies, and comments.
+- Pull requests: titles, descriptions, and comments.
+
+Contributors who feel more comfortable writing in another language may use
+automated translation tools, but must include their original content in their
+preferred language.
 
 ## How to submit a bug report
 
@@ -44,19 +56,27 @@ $ uname -a
 Linux beefy.machine 4.4.0-101-generic #124-Ubuntu SMP Fri Nov 10 18:29:59 UTC 2017 x86_64 x86_64 x86_64 GNU/Linux
 ```
 
-## Writing a Patch
+## Contributing a pull request
 
-A good swift-crypto patch is:
+> [!IMPORTANT]
+> To ensure productive use of contributor and maintainer time and resources,
+> contributors must first agree their proposed change with a maintainer in an
+> issue. Pull requests opened without prior discussion may be closed without
+> review.
 
-1. Concise, and contains as few changes as needed to achieve the end result.
-2. Tested, ensuring that any tests provided failed before the patch and pass after it.
-3. Documented, adding API documentation as needed to cover new functions and properties.
-4. Accompanied by a great commit message, using our commit message template.
+If there is no issue already tracking the problem or feature request, please
+file a new one using your own voice (see "AI tools" usage above).
 
+Once an issue is assigned to you, follow these steps:
 
-## How to contribute your work
-
-Please open a pull request at https://github.com/apple/swift-crypto. Make sure the CI passes, and then wait for code review.
+- Prepare your change, keeping in mind that a good patch is:
+  - Concise, and contains as few changes as needed to achieve the end result.
+  - Tested, ensuring that any tests provided failed before the patch and pass
+    after it.
+  - Documented, adding API documentation as needed to cover new functions and
+    properties.
+  - Accompanied by a great commit message.
+- Open a pull request and wait for code review by the maintainers.
 
 ### How to update CMakeLists files
 
@@ -69,7 +89,7 @@ act --container-architecture linux/amd64 pull_request -j cmake-lists -W ./.githu
 
 You can find the underlying script at https://github.com/apple/swift-nio/blob/main/scripts/update-cmake-lists.sh . Using the script directly is less straightforwards because it requires you to pass the JSON config from the `pull_request.yml` file into the script, such as:
 ```
-curl -s https://raw.githubusercontent.com/apple/swift-nio/main/scripts/update-cmake-lists.sh | CONFIG_JSON='{"targets":[{"name":"CCryptoBoringSSL","type":"source","exceptions":[]},{"name":"CCryptoBoringSSLShims","type":"source","exceptions":[]},{"name":"CryptoBoringWrapper","type":"source","exceptions":[]},{"name":"Crypto","type":"source","exceptions":[]},{"name":"_CryptoExtras","type":"source","exceptions":[]},{"name":"CCryptoBoringSSL","type":"assembly","exceptions":["*/AES/*.swift"]}]}' bash
+curl -s https://raw.githubusercontent.com/apple/swift-nio/main/scripts/update-cmake-lists.sh | CONFIG_JSON='{"targets":[{"name":"CCryptoBoringSSL","type":"source","exceptions":[]},{"name":"CryptoBoringWrapper","type":"source","exceptions":[]},{"name":"Crypto","type":"source","exceptions":[]},{"name":"CryptoExtras","type":"source","exceptions":[]},{"name":"CCryptoBoringSSL","type":"assembly","exceptions":["*/AES/*.swift"]}]}' bash
 ```
 
 ## API Evolution

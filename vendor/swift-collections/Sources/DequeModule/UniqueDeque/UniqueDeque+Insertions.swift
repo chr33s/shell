@@ -13,10 +13,8 @@
 
 #if !COLLECTIONS_SINGLE_MODULE
 import InternalCollectionsUtilities
-import ContainersPreview
+import SpanPreview
 #endif
-
-#if compiler(>=6.2)
 
 @available(SwiftStdlib 5.0, *)
 extension UniqueDeque where Element: ~Copyable {
@@ -37,15 +35,16 @@ extension UniqueDeque where Element: ~Copyable {
   /// - Parameter item: The new element to insert into the deque.
   /// - Parameter index: The position at which to insert the new element.
   ///   `index` must be a valid index in the deque.
-  ///
+  /// - Returns: A valid index addressing the newly inserted element.
   /// - Complexity: O(`self.count`) when amortized over many similar
   ///     invocations on the same deque.
   @_alwaysEmitIntoClient
   @_transparent
-  public mutating func insert(_ item: consuming Element, at index: Int) {
+  @discardableResult
+  public mutating func insert(_ item: consuming Element, at index: Int) -> Int {
     _storage._checkValidIndex(index)
     _ensureFreeCapacity(1)
-    _storage._handle.uncheckedInsert(item, at: index)
+    return _storage._handle.uncheckedInsert(item, at: index)
   }
 }
 
@@ -93,22 +92,23 @@ extension UniqueDeque where Element: ~Copyable {
   ///    - initializer: A callback that gets called at most twice to directly
   ///       populate newly reserved storage within the deque. The function
   ///      is always called with an empty output span.
-  ///
+  /// - Returns: A valid index range addressing the newly inserted items.
   /// - Complexity: O(`self.count` + `newItemCount`) in addition to the complexity
   ///    of the callback invocations when amortized over many similar
   ///     invocations on the same deque.
   @_alwaysEmitIntoClient
   @inline(__always)
+  @discardableResult
   public mutating func insert<E: Error>(
     addingCount newItemCount: Int,
     at index: Int,
     initializingWith initializer: (inout OutputSpan<Element>) throws(E) -> Void
-  ) throws(E) {
+  ) throws(E) -> Range<Int> {
     _storage._checkValidIndex(index)
     precondition(newItemCount >= 0, "Cannot add a negative number of items")
-    guard newItemCount > 0 else { return }
+    guard newItemCount > 0 else { return index ..< index }
     _ensureFreeCapacity(newItemCount)
-    try _storage._handle.uncheckedInsert(
+    return try _storage._handle.uncheckedInsert(
       addingCount: newItemCount, at: index, initializingWith: initializer)
   }
 }
@@ -132,17 +132,18 @@ extension UniqueDeque where Element: ~Copyable {
   ///        the deque.
   ///    - index: The position at which to insert the new items.
   ///       `index` must be a valid index in the array.
-  ///
+  /// - Returns: A valid index range addressing the newly inserted items.
   /// - Complexity: O(`self.count` + `items.count`) when amortized over many
   ///     similar invocations on the same deque.
   @_alwaysEmitIntoClient
+  @discardableResult
   public mutating func insert(
     moving items: UnsafeMutableBufferPointer<Element>,
     at index: Int
-  ) {
-    guard !items.isEmpty else { return }
+  ) -> Range<Int> {
+    guard !items.isEmpty else { return index ..< index }
     var remainder = items
-    insert(addingCount: items.count, at: index) { target in
+    let range = insert(addingCount: items.count, at: index) { target in
       target.withUnsafeMutableBufferPointer { buffer, count in
         buffer.moveInitializeAll(
           fromContentsOf: remainder._trim(first: buffer.count))
@@ -150,6 +151,7 @@ extension UniqueDeque where Element: ~Copyable {
       }
     }
     assert(remainder.isEmpty)
+    return range
   }
 
 #if UnstableContainersPreview
@@ -169,18 +171,19 @@ extension UniqueDeque where Element: ~Copyable {
   ///        the deque.
   ///    - index: The position at which to insert the new items.
   ///       `index` must be a valid index in the deque.
-  ///
+  /// - Returns: A valid index range addressing the newly inserted items.
   /// - Complexity: O(`self.count` + `items.count`) when amortized over many
   ///     similar invocations on the same deque.
   @_alwaysEmitIntoClient
+  @discardableResult
   public mutating func insert(
     moving items: inout InputSpan<Element>,
     at index: Int
-  ) {
+  ) -> Range<Int> {
     items.withUnsafeMutableBufferPointer { buffer, count in
       let source = buffer._extracting(last: count)
-      unsafe self.insert(moving: source, at: index)
       count = 0
+      return unsafe self.insert(moving: source, at: index)
     }
   }
 #endif
@@ -201,73 +204,21 @@ extension UniqueDeque where Element: ~Copyable {
   ///        the deque.
   ///    - index: The position at which to insert the new items.
   ///       `index` must be a valid index in the deque.
-  ///
+  /// - Returns: A valid index range addressing the newly inserted items.
   /// - Complexity: O(`self.count` + `items.count`) when amortized over many
   ///     similar invocations on the same deque.
   @_alwaysEmitIntoClient
+  @discardableResult
   public mutating func insert(
     moving items: inout OutputSpan<Element>,
     at index: Int
-  ) {
+  ) -> Range<Int> {
     items.withUnsafeMutableBufferPointer { buffer, count in
       let source = buffer._extracting(first: count)
-      unsafe self.insert(moving: source, at: index)
       count = 0
+      return unsafe self.insert(moving: source, at: index)
     }
   }
-}
-
-@available(SwiftStdlib 5.0, *)
-extension UniqueDeque where Element: ~Copyable {
-#if compiler(>=6.4) && UnstableContainersPreview
-  /// Inserts at most `newItemCount` items generated by a producer into this
-  /// deque, starting at the given index.
-  ///
-  /// Existing elements in the deque's storage are moved as needed to make room
-  /// for the new items. (The direction of the move depends on the location of
-  /// the insertion, minimizing the cost.)
-  ///
-  /// If the deque does not have sufficient capacity to hold enough items,
-  /// then this reallocates the deque's storage to grow its capacity, using a
-  /// geometric growth rate.
-  ///
-  /// This operation inserts as many items as the producer can generate before
-  /// either reaching `newItemCount`, or the producer hitting its end, or
-  /// throwing an error. If the producer has more than `newItemCount` items
-  /// left in its underlying sequence, then extra items remain available after
-  /// this method returns.
-  ///
-  /// If the operation inserts fewer than `newItemCount` items, then it results
-  /// in a gap in ring buffer storage that needs to be closed by moving some
-  /// items to their correct positions given the adjusted count. This adds some
-  /// overhead compared to adding exactly as many items as promised.
-  ///
-  /// - Parameters:
-  ///    - newItemCount: The maximum number of items to insert into the deque.
-  ///    - index: The position at which to insert the new items.
-  ///       `index` must be a valid index in the deque.
-  ///    - producer: A producer that generates the items to append.
-  ///
-  /// - Complexity: O(`self.count` + `newItemCount`) when amortized over many
-  ///     similar invocations on the same deque.
-  @_alwaysEmitIntoClient
-  public mutating func insert<
-    E: Error,
-    P: Producer<Element, E> & ~Copyable & ~Escapable
-  >(
-    addingCount newItemCount: Int,
-    from producer: inout P,
-    at index: Int
-  ) throws(E)
-  where P.Element: ~Copyable
-  {
-    try insert(addingCount: newItemCount, at: index) { target throws(E) in
-      while !target.isFull, try producer.generate(into: &target) {
-        // Do nothing
-      }
-    }
-  }
-  #endif
 }
 
 @available(SwiftStdlib 5.0, *)
@@ -292,16 +243,17 @@ extension UniqueDeque /* where Element: Copyable */ {
   ///       must be fully initialized.
   ///    - index: The position at which to insert the new elements. It must be
   ///       a valid index of `self`.
-  ///
+  /// - Returns: A valid index range addressing the newly inserted items.
   /// - Complexity: O(`count` + `newElements.count`) when amortized over many
   ///     similar invocations on the same deque.
-  @inlinable
+  @_alwaysEmitIntoClient
+  @discardableResult
   public mutating func insert(
     copying items: UnsafeBufferPointer<Element>, at index: Int
-  ) {
-    guard items.count > 0 else { return }
+  ) -> Range<Int> {
+    guard items.count > 0 else { return index ..< index }
     var remainder = items
-    insert(addingCount: remainder.count, at: index) { target in
+    let range = insert(addingCount: remainder.count, at: index) { target in
       target.withUnsafeMutableBufferPointer { buffer, count in
         buffer.initializeAll(
           fromContentsOf: remainder._extracting(first: buffer.count))
@@ -310,6 +262,7 @@ extension UniqueDeque /* where Element: Copyable */ {
       }
     }
     assert(remainder.isEmpty)
+    return range
   }
 
   /// Copies the elements of a fully initialized buffer pointer into this
@@ -332,14 +285,15 @@ extension UniqueDeque /* where Element: Copyable */ {
   ///       must be fully initialized.
   ///    - index: The position at which to insert the new elements. It must be
   ///       a valid index of `self`.
-  ///
+  /// - Returns: A valid index range addressing the newly inserted items.
   /// - Complexity: O(`count` + `newElements.count`) when amortized over many
   ///     similar invocations on the same deque.
-  @inlinable
+  @_alwaysEmitIntoClient
+  @discardableResult
   public mutating func insert(
     copying items: UnsafeMutableBufferPointer<Element>,
     at index: Int
-  ) {
+  ) -> Range<Int> {
     unsafe self.insert(copying: UnsafeBufferPointer(items), at: index)
   }
 
@@ -361,51 +315,32 @@ extension UniqueDeque /* where Element: Copyable */ {
   ///    - items: The new elements to insert into the deque.
   ///    - index: The position at which to insert the new elements. It must be
   ///        a valid index of the deque.
-  ///
+  /// - Returns: A valid index range addressing the newly inserted items.
   /// - Complexity: O(`count` + `items.count`) when amortized over many similar
   ///     invocations on the same deque.
-  @inlinable
+  @_alwaysEmitIntoClient
+  @discardableResult
   public mutating func insert(
     copying items: Span<Element>, at index: Int
-  ) {
-    unsafe items.withUnsafeBufferPointer {
+  ) -> Range<Int> {
+    items.withUnsafeBufferPointer {
       unsafe self.insert(copying: $0, at: index)
     }
   }
 
-#if compiler(>=6.4) && UnstableContainersPreview
-  @inlinable
-  internal mutating func _insertContainer<
-    C: Container<Element> & ~Copyable & ~Escapable
-  >(
-    at index: Int,
-    copying items: borrowing C,
-    newCount: Int
-  ) {
-    let expectedCount = self.count + newCount
-    var it = items.makeBorrowingIterator_()
-    insert(addingCount: newCount, at: index) { target in
-      it._copyContents_(into: &target)
-    }
-    precondition(
-      it.nextSpan_().isEmpty && count == expectedCount,
-      "Broken Container: count doesn't match contents")
-  }
-#endif
-
-  @inlinable
-  internal mutating func _insertCollection(
+  @_alwaysEmitIntoClient
+  package mutating func _insertCollection(
     at index: Int,
     copying items: some Collection<Element>,
     newCount: Int
-  ) {
-    let done: Void? = items.withContiguousStorageIfAvailable { src in
+  ) -> Range<Int> {
+    let done: Range<Int>? = items.withContiguousStorageIfAvailable { src in
       self.insert(copying: src, at: index)
     }
-    if done != nil { return }
+    if let done { return done }
 
     var i = items.startIndex
-    self.insert(addingCount: newCount, at: index) { target in
+    let range = self.insert(addingCount: newCount, at: index) { target in
       while !target.isFull {
         target.append(items[i])
         items.formIndex(after: &i)
@@ -414,42 +349,8 @@ extension UniqueDeque /* where Element: Copyable */ {
     precondition(
       i == items.endIndex,
       "Broken Collection: count doesn't match contents")
+    return range
   }
-
-#if compiler(>=6.4) && UnstableContainersPreview
-  /// Copies the elements of a container into this deque at the specified
-  /// position.
-  ///
-  /// The new elements are inserted before the element currently at the
-  /// specified index. If you pass the deque's `endIndex` as the `index`
-  /// parameter, then the new elements are appended to the end of the deque.
-  ///
-  /// Existing elements in the deque's storage are moved as needed to make room
-  /// for the new items. (The direction of the move depends on the location of
-  /// the insertion, minimizing the cost.)
-  ///
-  /// If the deque does not have sufficient capacity to hold enough items,
-  /// then this reallocates the deque's storage to grow its capacity, using a
-  /// geometric growth rate.
-  ///
-  /// - Parameters:
-  ///    - newElements: The new elements to insert into the deque.
-  ///    - index: The position at which to insert the new elements. It must be
-  ///        a valid index of the deque.
-  ///
-  /// - Complexity: O(`self.count` + `items.count`) when amortized over many
-  ///     similar invocations on the same deque.
-  @_alwaysEmitIntoClient
-  @inline(__always)
-  public mutating func insert<
-    C: Container<Element> & ~Copyable & ~Escapable
-  >(
-    copying items: borrowing C, at index: Int
-  ) {
-    _insertContainer(
-      at: index, copying: items, newCount: items.count)
-  }
-#endif
 
   /// Copies the elements of a collection into this deque at the specified
   /// position.
@@ -473,49 +374,13 @@ extension UniqueDeque /* where Element: Copyable */ {
   ///
   /// - Complexity: O(`count` + `newElements.count`) when amortized over many
   ///     similar invocations on the same deque.
-  @inlinable
+  @_alwaysEmitIntoClient
   @inline(__always)
+  @discardableResult
   public mutating func insert(
     copying items: some Collection<Element>, at index: Int
-  ) {
+  ) -> Range<Int> {
     _insertCollection(
       at: index, copying: items, newCount: items.count)
   }
-
-#if compiler(>=6.4) && UnstableContainersPreview
-  /// Copies the elements of a container into this deque at the specified
-  /// position.
-  ///
-  /// The new elements are inserted before the element currently at the
-  /// specified index. If you pass the deque's `endIndex` as the `index`
-  /// parameter, then the new elements are appended to the end of the deque.
-  ///
-  /// Existing elements in the deque's storage are moved as needed to make room
-  /// for the new items. (The direction of the move depends on the location of
-  /// the insertion, minimizing the cost.)
-  ///
-  /// If the deque does not have sufficient capacity to hold enough items,
-  /// then this reallocates the deque's storage to grow its capacity, using a
-  /// geometric growth rate.
-  ///
-  /// - Parameters:
-  ///    - items: The new elements to insert into the deque.
-  ///    - index: The position at which to insert the new elements. It must be
-  ///        a valid index of the deque.
-  ///
-  /// - Complexity: O(`self.count` + `items.count`) when amortized over many
-  ///     similar invocations on the same deque.
-  @_alwaysEmitIntoClient
-  @inline(__always)
-  public mutating func insert<
-    C: Container<Element> & Collection<Element>
-  >(
-    copying items: borrowing C, at index: Int
-  ) {
-    _insertContainer(
-      at: index, copying: items, newCount: items.count)
-  }
-#endif
 }
-
-#endif

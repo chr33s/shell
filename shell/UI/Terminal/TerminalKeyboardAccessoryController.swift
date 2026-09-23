@@ -131,6 +131,24 @@ final class TerminalKeyboardAccessoryController: NSObject {
         #endif
     }
 
+    /// Actual accessory placement; the host gates this with its own toolbar
+    /// presentation policy.
+    var keyboardAccessoryFrameInScreen: CGRect? {
+        #if os(visionOS) || targetEnvironment(macCatalyst)
+        return nil
+        #else
+        guard UIDevice.current.userInterfaceIdiom == .phone,
+              let host, host.keyboardIsFirstResponder,
+              let window = host.keyboardHostView.window,
+              let accessory = keyboardAccessory,
+              let accessoryWindow = accessory.window,
+              accessoryWindow.screen === window.screen,
+              !accessoryWindow.isHidden, !accessory.isHidden,
+              accessory.alpha > 0, !accessory.bounds.isEmpty else { return nil }
+        return accessoryWindow.convert(accessory.convert(accessory.bounds, to: accessoryWindow), to: nil)
+        #endif
+    }
+
     var reservesKeyboardToolbarAtBottom: Bool {
         #if os(visionOS) || targetEnvironment(macCatalyst)
         return false
@@ -532,11 +550,21 @@ final class TerminalKeyboardAccessoryController: NSObject {
             .store(in: &cancellables)
 
         #if !os(visionOS) && !targetEnvironment(macCatalyst)
-        KeyboardGeometryMonitor.shared.keyboardStateDidChange
+        KeyboardGeometryMonitor.shared.keyboardEnvironmentDidChange
             .debounce(for: .milliseconds(50), scheduler: DispatchQueue.main)
             .sink { [weak self] _ in
                 Task { @MainActor [weak self] in
                     self?.host?.keyboardReloadInputViews()
+                }
+            }
+            .store(in: &cancellables)
+
+        // Toolbar layout changes only need the collapsed button re-laid out;
+        // reloading input views for them repeats every responder handoff.
+        KeyboardGeometryMonitor.shared.keyboardStateDidChange
+            .debounce(for: .milliseconds(50), scheduler: DispatchQueue.main)
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
                     self?.updateCollapsedKeyboardToolbarButtonLayout()
                 }
             }
@@ -878,15 +906,19 @@ final class TerminalKeyboardAccessoryController: NSObject {
             toolbarIsAtScreenEdge = hardwareAccessoryOnly
                 || !KeyboardGeometryMonitor.shared.isKeyboardDocked
         }
-        let enabled = (idiom == .phone || idiom == .pad)
+        let needsTouchProtection = (idiom == .phone || idiom == .pad)
             && isVisible
-            && !reservesBottomSafeAreaStrip
             && toolbarIsAtScreenEdge
-        bottomEdgeHomeGestureProtectionEnabled = enabled
-        keyboardAccessory?.setBottomEdgeHomeGestureProtectionEnabled(enabled)
+        let hasSpacer = reservesBottomSafeAreaStrip
+        let mode: KeyboardToolbarInteractionMode = needsTouchProtection
+            ? (hasSpacer ? .spacedBottom : .screenEdge) : .accessory
+        // A spacer preserves ordinary Home gestures, but does not make touches
+        // on the nearby keys safe to dispatch before we know they are taps.
+        bottomEdgeHomeGestureProtectionEnabled = mode == .screenEdge
+        keyboardAccessory?.setInteractionMode(mode)
         #else
         bottomEdgeHomeGestureProtectionEnabled = false
-        keyboardAccessory?.setBottomEdgeHomeGestureProtectionEnabled(false)
+        keyboardAccessory?.setInteractionMode(.accessory)
         #endif
     }
 }

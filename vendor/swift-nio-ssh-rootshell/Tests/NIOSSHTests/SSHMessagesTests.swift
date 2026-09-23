@@ -707,13 +707,19 @@ final class SSHMessagesTests: XCTestCase {
         try self.assertCorrectlyManagesPartialRead(message)
     }
 
-    func testTypeError() throws {
+    func testUnknownTypeIsPreserved() throws {
         var buffer = ByteBufferAllocator().buffer(capacity: 100)
 
         XCTAssertNil(try buffer.readSSHMessage())
 
-        buffer.writeBytes([127])
-        XCTAssertThrowsError(try buffer.readSSHMessage())
+        buffer.writeBytes([127, 1, 2, 3])
+        let message = SSHMessage.unknown(.init(type: 127, payload: ByteBuffer(bytes: [1, 2, 3])))
+        XCTAssertEqual(try buffer.readSSHMessage(), message)
+        XCTAssertEqual(buffer.readableBytes, 0)
+
+        buffer.writeSSHMessage(message)
+        XCTAssertEqual(Array(buffer.readableBytesView), [127, 1, 2, 3])
+        XCTAssertEqual(try buffer.readSSHMessage(), message)
     }
 
     func testRequestSuccess() throws {

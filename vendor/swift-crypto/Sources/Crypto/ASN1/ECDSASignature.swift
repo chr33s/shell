@@ -11,12 +11,17 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 //===----------------------------------------------------------------------===//
-#if CRYPTO_IN_SWIFTPM && !CRYPTO_IN_SWIFTPM_FORCE_BUILD_API
+
+#if canImport(CryptoKit)
 @_exported import CryptoKit
 #else
-import Foundation
 
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
+import Foundation
+#endif
+
 extension ASN1 {
     /// An ECDSA signature is laid out as follows:
     ///
@@ -26,7 +31,6 @@ extension ASN1 {
     /// }
     ///
     /// This type is generic because our different backends want to use different bignum representations.
-    @available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
     struct ECDSASignature<IntegerType: ASN1IntegerRepresentable>: ASN1ImplicitlyTaggable {
         static var defaultIdentifier: ASN1.ASN1Identifier {
             .sequence
@@ -40,8 +44,8 @@ extension ASN1 {
             self.s = s
         }
 
-        init(asn1Encoded rootNode: ASN1.ASN1Node, withIdentifier identifier: ASN1.ASN1Identifier) throws {
-            self = try ASN1.sequence(rootNode, identifier: identifier) { nodes in
+        init(asn1Encoded rootNode: ASN1.ASN1Node, withIdentifier identifier: ASN1.ASN1Identifier) throws(CryptoKitMetaError) {
+            self = try ASN1.sequence(rootNode, identifier: identifier) { nodes throws(CryptoKitMetaError) in
                 let r = try IntegerType(asn1Encoded: &nodes)
                 let s = try IntegerType(asn1Encoded: &nodes)
 
@@ -49,8 +53,8 @@ extension ASN1 {
             }
         }
 
-        func serialize(into coder: inout ASN1.Serializer, withIdentifier identifier: ASN1.ASN1Identifier) throws {
-            try coder.appendConstructedNode(identifier: identifier) { coder in
+        func serialize(into coder: inout ASN1.Serializer, withIdentifier identifier: ASN1.ASN1Identifier) throws(CryptoKitMetaError) {
+            try coder.appendConstructedNode(identifier: identifier) { coder throws(CryptoKitMetaError) in
                 try coder.serialize(self.r)
                 try coder.serialize(self.s)
             }
@@ -58,4 +62,4 @@ extension ASN1 {
     }
 }
 
-#endif // Linux or !SwiftPM
+#endif // canImport(CryptoKit)

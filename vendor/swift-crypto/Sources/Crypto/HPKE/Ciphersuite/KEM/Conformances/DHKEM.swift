@@ -11,14 +11,20 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 //===----------------------------------------------------------------------===//
-#if CRYPTO_IN_SWIFTPM && !CRYPTO_IN_SWIFTPM_FORCE_BUILD_API
+
+#if canImport(CryptoKit)
 @_exported import CryptoKit
 #else
-import Foundation
+
+#if canImport(FoundationEssentials)
+public import FoundationEssentials
+#else
+public import Foundation
+#endif
 
 /// A type that ``HPKE`` uses to encode the public key.
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
-public protocol HPKEPublicKeySerialization {
+@preconcurrency
+public protocol HPKEPublicKeySerialization: Sendable {
 	/// Creates a public key from an encoded representation.
 	///
 	/// - Parameters:
@@ -35,39 +41,50 @@ public protocol HPKEPublicKeySerialization {
 }
 
 /// A type that represents the public key in a Diffie-Hellman key exchange.
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
-public protocol HPKEDiffieHellmanPublicKey: HPKEPublicKeySerialization where EphemeralPrivateKey.PublicKey == Self {
+@preconcurrency
+public protocol HPKEDiffieHellmanPublicKey: HPKEPublicKeySerialization, Sendable where EphemeralPrivateKey.PublicKey == Self {
 	/// The type of the ephemeral private key.
     associatedtype EphemeralPrivateKey: HPKEDiffieHellmanPrivateKeyGeneration
 }
 
-/// A type that represents the private key in a Diffie-Hellman key exchange.
+/// A type that represents the public key in HPKE
+@preconcurrency
+public protocol HPKEKEMPublicKey: KEMPublicKey, HPKEPublicKeySerialization where EphemeralPrivateKey.PublicKey == Self {
+    /// The type of the ephemeral private key.
+    associatedtype EphemeralPrivateKey: HPKEKEMPrivateKeyGeneration
+}
 
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
-public protocol HPKEDiffieHellmanPrivateKey: DiffieHellmanKeyAgreement where PublicKey: HPKEDiffieHellmanPublicKey {}
+/// A type that represents the private key in a Diffie-Hellman key exchange.
+@preconcurrency
+public protocol HPKEDiffieHellmanPrivateKey: Sendable, DiffieHellmanKeyAgreement where PublicKey: HPKEDiffieHellmanPublicKey {}
+
+/// A type that represents the private key in HPKE.
+@preconcurrency
+public protocol HPKEKEMPrivateKey: Sendable, KEMPrivateKey where PublicKey: HPKEKEMPublicKey {}
 
 /// A type that represents the generation of private keys in a Diffie-Hellman key exchange.
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
-public protocol HPKEDiffieHellmanPrivateKeyGeneration: HPKEDiffieHellmanPrivateKey {
+@preconcurrency
+public protocol HPKEDiffieHellmanPrivateKeyGeneration: HPKEDiffieHellmanPrivateKey, Sendable {
 	/// Creates a private key generator.
     init()
 }
 
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
+/// A type that represents the generation of private keys in HPKE
+@preconcurrency
+public protocol HPKEKEMPrivateKeyGeneration: HPKEKEMPrivateKey, Sendable {
+    /// Creates a private key generator.
+    init() throws
+}
+
 extension HPKE {
 	/// A container for Diffie-Hellman key encapsulation mechanisms (KEMs).
-    @available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
-    public enum DHKEM {
-        @available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
+    @nonexhaustive
+    public enum DHKEM: Sendable {
         struct PublicKey<DHPK: HPKEDiffieHellmanPublicKey>: KEMPublicKey where DHPK == DHPK.EphemeralPrivateKey.PublicKey {
             let kem: HPKE.KEM
             let key: DHPK
 
-            #if !CRYPTO_IN_SWIFTPM_FORCE_BUILD_API
-            typealias EncapsulationResult = CryptoKit.KEM.EncapsulationResult
-            #else
             typealias EncapsulationResult = Crypto.KEM.EncapsulationResult
-            #endif
 
             init(_ publicKey: DHPK, kem: HPKE.KEM) throws {
                 // TODO: Validate Ciphersuite Mismatches
@@ -91,7 +108,6 @@ extension HPKE {
             }
         }
         
-        @available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
         struct PrivateKey<DHSK: HPKEDiffieHellmanPrivateKey>: KEMPrivateKey {
             let kem: HPKE.KEM
             let key: DHSK
@@ -152,4 +168,4 @@ extension HPKE {
     }
 }
 
-#endif // Linux or !SwiftPM
+#endif // canImport(CryptoKit)

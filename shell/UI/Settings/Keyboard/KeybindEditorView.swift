@@ -234,6 +234,7 @@ final class ShortcutCaptureUIView: UIView {
     private var firstTrigger: KeyTrigger?
     private var firstTriggerTime: Date?
     private var hasCompleted = false
+    private var isSuppressingMenuShortcuts = false
     private let instructionLabel = UILabel()
     private let captureLabel = UILabel()
     private var themeColors: SheetThemeColors?
@@ -350,6 +351,37 @@ final class ShortcutCaptureUIView: UIView {
         super.didMoveToWindow()
         if window != nil {
             becomeFirstResponder()
+            suppressMenuShortcutsForCapture()
+        } else {
+            restoreMenuShortcutsAfterCapture()
+        }
+    }
+
+    nonisolated deinit {
+        guard isSuppressingMenuShortcuts else { return }
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated {
+                MenuShortcutState.shared.endRecordingCapture()
+            }
+        }
+    }
+
+    /// Menu key equivalents win over `keyCommands`, so a menu-owned chord
+    /// (⌘T, ⌘N, …) would fire its action instead of being recorded. Pause
+    /// them while this view is on screen.
+    private func suppressMenuShortcutsForCapture() {
+        guard !isSuppressingMenuShortcuts else { return }
+        isSuppressingMenuShortcuts = true
+        MenuShortcutState.shared.beginRecordingCapture()
+    }
+
+    private func restoreMenuShortcutsAfterCapture() {
+        guard isSuppressingMenuShortcuts else { return }
+        isSuppressingMenuShortcuts = false
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated {
+                MenuShortcutState.shared.endRecordingCapture()
+            }
         }
     }
 

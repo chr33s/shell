@@ -100,6 +100,10 @@ class SplitPaneView: UIView, Identifiable {
     /// Bottom inset the pane's keyboard toolbar reserves in toolbar-only mode.
     var reservedKeyboardToolbarHeightAtBottom: CGFloat { 0 }
 
+    /// Visible keyboard toolbar in screen coordinates, when this pane owns it.
+    /// Used with the reported keyboard frame to reserve the complete input area.
+    var keyboardAccessoryFrameInScreen: CGRect? { nil }
+
     /// Live interaction state for bottom-edge system-gesture arbitration.
     /// Unlike the reserved height, this must never remain latched after focus
     /// leaves the pane.

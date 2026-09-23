@@ -81,6 +81,9 @@ final class SplitTreeHostingView: UIView {
 
     private var dividerViews: [SplitDividerHandleView] = []
     private var dividerReuseIndex: Int = 0
+    /// Split ratio at the start of each divider's drag, so the commit can send
+    /// the movement (in cells) rather than an absolute window fraction.
+    private var dragStartRatios: [ObjectIdentifier: Double] = [:]
 
     private var borderEligibility: [ObjectIdentifier: Bool] = [:]
 
@@ -420,19 +423,6 @@ final class SplitTreeHostingView: UIView {
         return CGRect(x: bounds.minX, y: bounds.minY, width: contentW, height: contentH)
     }
 
-    /// Window cell count for divider-resize math. While a foreign client
-    /// constrains the window, a drag acts on the REPORTED (smaller) window, not
-    /// our full-bounds capacity — otherwise it targets a larger window and tmux
-    /// clamps the result. Falls back to the bounds capacity normally.
-    private func effectiveTmuxWindowCells() -> (cols: UInt16, rows: UInt16)? {
-        if let (_, windowId, controller) = tmuxPaneAndController(),
-           controller.isWindowForeignConstrained(windowId: windowId),
-           let reported = controller.reportedWindowCells(windowId: windowId) {
-            return reported
-        }
-        return tmuxWindowCells()
-    }
-
     /// Show / update / hide the frosted-glass cover over the dead margin
     /// (`bounds − contentRect`). Called at the end of every layout pass.
     /// Idempotent: rebuilds the even-odd mask only when the geometry changes,
@@ -497,23 +487,42 @@ final class SplitTreeHostingView: UIView {
         }
     }
 
-    /// Commit a divider drag to tmux. Runs in the hosting view so it uses the
-    /// reliable container size (`tmuxWindowCells`), NOT the divider's stored
-    /// `parentBounds` or the panes' `surfaceSize` (both lag a window resize and
-    /// produced a ~2x-too-large target that tmux clamped to the edge — the
-    /// "jump"). Sets the LEFT/TOP pane to `ratio` of the window cells via a
-    /// single-axis `resize-pane`; tmux moves the divider and the reconcile +
-    /// wake reflow the panes. For a 2-pane (root) split the window IS the split
-    /// region, so this is exact.
-    fileprivate func commitDividerToTmux(node: SplitTree<SplitPaneView>.Node, ratio: Double) {
+    /// Commit the movement within this divider's own region. A nested ratio
+    /// must not be multiplied by the whole window's cell count. The controller
+    /// resolves the corresponding server boundary before sending one resize.
+    fileprivate func commitDividerToTmux(
+        node: SplitTree<SplitPaneView>.Node,
+        ratio: Double,
+        startRatio: Double?,
+        parentBounds: CGRect?
+    ) {
         guard case .split(let split) = node else { return }
-        guard let leftView = split.left.leftmostLeaf().asTerminal,
-              leftView.isTmuxPane, let cells = effectiveTmuxWindowCells() else { return }
+        guard let probe = split.left.leftmostLeaf().asTerminal,
+              let binding = probe.tmuxPaneBinding,
+              let controller = TmuxController.controller(forOwnerSurface: binding.parentSurface),
+              let size = probe.surfaceSize, let parentBounds, let startRatio else { return }
         let horizontal = split.direction == .horizontal
-        let axisCells = Int(horizontal ? cells.cols : cells.rows)
-        guard axisCells > 1 else { return }
-        let target = min(max(Int((Double(axisCells) * ratio).rounded()), 1), axisCells - 1)
-        leftView.requestTmuxResizePane(horizontal: horizontal, cells: target)
+        let scale = probe.contentScaleFactor > 0 ? probe.contentScaleFactor : probe.traitCollection.displayScale
+        guard scale > 0,
+              let delta = TmuxDividerResize.cellDelta(
+                startRatio: startRatio, endRatio: ratio,
+                extent: Double(horizontal ? parentBounds.width : parentBounds.height),
+                divider: Double(Self.dividerVisibleThickness),
+                cell: Double(horizontal ? size.cell_width_px : size.cell_height_px) / Double(scale)
+              ) else { return }
+        func paneIDs(_ node: SplitTree<SplitPaneView>.Node) -> [Int]? {
+            let leaves = node.leaves()
+            let ids = leaves.compactMap { pane -> Int? in
+                guard let candidate = pane.asTerminal?.tmuxPaneBinding,
+                      candidate.parentUUID == binding.parentUUID,
+                      candidate.windowId == binding.windowId else { return nil }
+                return candidate.paneId
+            }
+            return ids.count == leaves.count ? ids : nil
+        }
+        guard let left = paneIDs(split.left), let right = paneIDs(split.right) else { return }
+        controller.requestResizeDivider(windowID: binding.windowId, horizontal: horizontal,
+                                        leftPaneIDs: left, rightPaneIDs: right, delta: delta)
     }
 
     private func layout(
@@ -744,11 +753,23 @@ final class SplitTreeHostingView: UIView {
             color: dividerColor
         )
 
-        dividerView.onResize = { [weak self] node, ratio in
-            self?.onResize?(node, ratio)
+        dividerView.onResize = { [weak self, weak dividerView] node, ratio in
+            guard let self else { return }
+            if let dividerView, case .split(let split) = node,
+               self.dragStartRatios[ObjectIdentifier(dividerView)] == nil {
+                self.dragStartRatios[ObjectIdentifier(dividerView)] = split.ratio
+            }
+            self.onResize?(node, ratio)
         }
-        dividerView.onResizeEnd = { [weak self] node, ratio in
-            self?.commitDividerToTmux(node: node, ratio: ratio)
+        dividerView.onResizeEnd = { [weak self, weak dividerView] node, ratio in
+            guard let self else { return }
+            let startRatio = dividerView.flatMap { self.dragStartRatios.removeValue(forKey: ObjectIdentifier($0)) }
+            self.commitDividerToTmux(
+                node: node,
+                ratio: ratio,
+                startRatio: startRatio,
+                parentBounds: dividerView?.parentBounds
+            )
         }
 
         bringSubviewToFront(dividerView)
@@ -894,7 +915,7 @@ private final class SplitDividerHandleView: UIView {
 
     private var node: SplitTree<SplitPaneView>.Node?
     private var direction: SplitTree<SplitPaneView>.Direction = .horizontal
-    private var parentBounds: CGRect = .zero
+    private(set) var parentBounds: CGRect = .zero
     private var minSplitSize: CGFloat = 100
     private var visibleThickness: CGFloat = 2
 

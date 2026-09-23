@@ -90,24 +90,9 @@ extension Ghostty {
             "`": 0    // NUL
         ]
 
-        /// US keyboard layout shift mappings for digits and symbols.
-        /// Letters are handled separately via `.uppercased()`.
-        static let usShiftMap: [Character: Character] = [
-            "1": "!", "2": "@", "3": "#", "4": "$", "5": "%",
-            "6": "^", "7": "&", "8": "*", "9": "(", "0": ")",
-            "-": "_", "=": "+",
-            "[": "{", "]": "}",
-            "\\": "|",
-            ";": ":", "'": "\"",
-            ",": "<", ".": ">", "/": "?",
-            "`": "~"
-        ]
-
-        /// Returns the shifted version of a character using US keyboard layout.
+        /// Returns the shifted version of a character using the shared fallback.
         static func shiftedCharacter(_ char: Character) -> Character {
-            if char.isLetter { return char.uppercased().first ?? char }
-            if let shifted = usShiftMap[char] { return shifted }
-            return char
+            HardwareKeyboardText.shiftedCharacter(char)
         }
 
         /// Maps characters to HID usages for routing virtual keyboard
@@ -525,6 +510,10 @@ extension Ghostty {
         }
         var reservesKeyboardToolbarAtBottom: Bool {
             keyboardAccessoryController?.reservesKeyboardToolbarAtBottom ?? false
+        }
+        override var keyboardAccessoryFrameInScreen: CGRect? {
+            guard reservesKeyboardToolbarAtBottom else { return nil }
+            return keyboardAccessoryController?.keyboardAccessoryFrameInScreen
         }
         override var reservedKeyboardToolbarHeightAtBottom: CGFloat {
             // Hold the pre-resign reserve while an overlay owns the keyboard so
@@ -1226,8 +1215,13 @@ extension Ghostty {
             // surface's io.terminal is only a relay placeholder. Query the full
             // displayed-terminal scrollbar so total and offset come from the
             // same pane state.
-            if tmuxPaneBinding != nil, let surface = surface {
+            if tmuxPaneBinding != nil {
+                // Without the viewer surface there is no displayed sample;
+                // the cached relay scrollbar is not a substitute.
+                guard let surface else { return nil }
                 var scrollbar = ghostty_action_scrollbar_s()
+                // This blocking query also returns false for valid empty
+                // history (total <= len), not just a missing primary screen.
                 guard ghostty_surface_display_scrollbar(surface, &scrollbar) else { return nil }
                 return Ghostty.Action.Scrollbar(
                     total: scrollbar.total,
@@ -2017,11 +2011,6 @@ extension Ghostty {
             modTapInterceptor.onModifierChanged = { [weak self] modifier in
                 self?.virtualModTapModifier = modifier
             }
-            modTapInterceptor.onReplayKeyWithModifier = { [weak self] press, modifier in
-                guard let self else { return }
-                self.virtualModTapModifier = modifier
-                self.processKeyPress(press, virtualModifier: modifier)
-            }
             modTapInterceptor.onSourceKeyResolved = { [weak self] rule, isHold in
                 if rule.sourceKey == .capsLock && !isHold && rule.tapAction == .none {
                     self?.userWantsCapsLock.toggle()
@@ -2590,6 +2579,7 @@ extension Ghostty {
                isLogicallyFocused,
                !isFirstResponder,
                !overlayOwnsKeyboard,
+               !isHUDFieldFocused(),
                !isModalPresented() {
                 // A `windowActiveOverride` stuck `false` (a terminal that missed a
                 // `setWindowActive(true)` propagation) blocks first responder even
@@ -2714,8 +2704,17 @@ extension Ghostty {
             // shell wedges at whatever dim was last seen pre-background and
             // helix / cursor render is corrupt until the user manually
             // triggers a real resize.
+            // A size the IO thread already applied queues no resize and so
+            // no pty_resize action; resend a window change dropped while
+            // backgrounded. Decided before set_size, which updates the
+            // requested size at once. A changed size arrives through the action.
+            let applied = surfaceController.surfaceHasAppliedFramebuffer(
+                for: bounds.size, scale: contentScaleFactor)
             surfaceController.invalidateCachedSize()
             sizeDidChange(bounds.size)
+            if applied {
+                updatePTYSize()
+            }
         }
 
         /// Clears stale touch/selection state when entering background.
@@ -2748,6 +2747,11 @@ extension Ghostty {
         private func isModalPresented() -> Bool {
             guard let rootVC = window?.rootViewController else { return false }
             return rootVC.presentedViewController != nil
+        }
+
+        private func isHUDFieldFocused() -> Bool {
+            guard let window else { return false }
+            return DraggableHUDHostView.ownsFirstResponder(in: window)
         }
 
         private func syncFocusForWindowStateChange(sceneIsDeactivating: Bool = false) {
@@ -2789,11 +2793,11 @@ extension Ghostty {
                     Ghostty.logger.info("syncFocusForWindowStateChange: skipping focus - modal presented")
                     return
                 }
-                // Same for an in-hierarchy keyboard-owning overlay (the tab
-                // sidebar isn't a presented VC, so isModalPresented() misses
-                // it). becomeFirstResponder() would refuse anyway; bail early
-                // to skip the +0.05s retry churn while the overlay is up.
-                if overlayOwnsKeyboard {
+                // In-hierarchy overlays (the tab sidebar isn't a presented
+                // VC, so isModalPresented() misses it) and focused passthrough
+                // HUD fields: yield to their keyboard ownership. Find
+                // intentionally leaves the terminal logically focused.
+                if overlayOwnsKeyboard || isHUDFieldFocused() {
                     return
                 }
                 if window != nil && !isFirstResponder {
@@ -2806,9 +2810,9 @@ extension Ghostty {
                             guard self.windowIsActiveForFocus(),
                                   self.isLogicallyFocused,
                                   !self.isFirstResponder else { return }
-                            // Also check for modal in retry path
-                            if self.isModalPresented() {
-                                Ghostty.logger.info("syncFocusForWindowStateChange retry: skipping focus - modal presented")
+                            // A modal or HUD field may take focus after scheduling.
+                            if self.isModalPresented() || self.isHUDFieldFocused() {
+                                Ghostty.logger.info("syncFocusForWindowStateChange retry: skipping focus - modal or HUD owns keyboard")
                                 return
                             }
                             let retryResult = self.becomeFirstResponder()
@@ -2860,6 +2864,9 @@ extension Ghostty {
         /// focus watchdog after a tmux reconcile, whose split-tree rebuild can
         /// transiently defeat the one-shot retries in
         /// `syncFocusForWindowStateChange` / `didMoveToWindow`.
+        /// A focused passthrough HUD field is intentional keyboard ownership,
+        /// not lost terminal focus. Direct taps and HUD dismissal still use
+        /// becomeFirstResponder() to hand the keyboard back explicitly.
         /// ROOTSHELL-TMUX (id=tmux-focus-reassert)
         @discardableResult
         func reassertFirstResponderIfFocused() -> Bool {
@@ -2868,6 +2875,7 @@ extension Ghostty {
                   window != nil,
                   windowIsActiveForFocus(),
                   !overlayOwnsKeyboard,
+                  !isHUDFieldFocused(),
                   !isModalPresented() else { return false }
             if becomeFirstResponder() {
                 // Consume the one-shot hint here too: every other successful
@@ -3102,7 +3110,7 @@ extension Ghostty {
                           !self.isFirstResponder,
                           self.window != nil else { return }
                     guard self.windowIsActiveForFocus() else { return }
-                    if self.isModalPresented() { return }
+                    if self.isModalPresented() || self.isHUDFieldFocused() { return }
                     let result = self.becomeFirstResponder()
                     if result {
                         self.reloadInputViews()
@@ -3275,7 +3283,14 @@ extension Ghostty {
             // keyboard never flashes on tab switch or overlay dismissal.
             keyboardAccessoryController?.reconcileWithHideIntent()
 
-            let result = super.becomeFirstResponder()
+            // Tmux focus reconciliation may reassert focus on the current
+            // responder. Its input session is already installed.
+            let result: Bool
+            if isFirstResponder {
+                result = true
+            } else {
+                result = super.becomeFirstResponder()
+            }
 
             if result {
                 // Consume the one-shot focus hint on EVERY successful
@@ -3548,6 +3563,16 @@ extension Ghostty {
                 didHandleOptionKey = false
                 return
             }
+            #if targetEnvironment(macCatalyst)
+            // Native text repeat can have a different cadence from our timer.
+            // A held control-action binding owns every delivery, even when
+            // Option normally composes characters instead of acting as Alt.
+            if heldOptionSide != .none, text.count == 1,
+               TerminalCorrectionContext.isPrintable(text),
+               !inputController.controlCharacterPresses.isEmpty {
+                return
+            }
+            #endif
 
             // If processKeyPress already handled a session picker digit key, skip insertText.
             if didHandleSessionPickerKey {
@@ -3814,11 +3839,10 @@ extension Ghostty {
             activeToolbarView?.clearOneShotModifiers()
         }
 
-        func handleSpecialKey(_ key: UIKey) -> String? {
-            let modifiers = key.modifierFlags
+        func handleSpecialKey(_ key: UIKey, characters: String, modifiers: UIKeyModifierFlags) -> String? {
             // Sentinel characters are a key name; the keyCode branches below
             // still resolve the real key.
-            let characters = KeyCode.isUIKeyInputSentinel(key.characters) ? "" : key.characters
+            let characters = KeyCode.isUIKeyInputSentinel(characters) ? "" : characters
 
             // Check for Tab with Shift modifier FIRST (before control character check)
             // iOS converts Shift+Tab to control character 0x19, but we need to catch it as Tab
@@ -3917,7 +3941,10 @@ extension Ghostty {
         /// Updates the PTY/SSH session with the current terminal grid size
         /// Note: Only needed for external I/O mode (SSH, iOS local shell)
         /// In Catalyst PTY mode, Ghostty manages window size internally
-        func updatePTYSize() {
+        /// `applied` is the grid the IO thread just resized to (pty_resize
+        /// action). Without it the surface's requested size is used, which a
+        /// queued resize may not have reached yet.
+        func updatePTYSize(applied: (rows: UInt16, cols: UInt16, widthPx: UInt16, heightPx: UInt16)? = nil) {
             guard let surfaceSize = surfaceSize else {
                 if Self.logFrequentLayout {
                     Ghostty.logger.debug("   surfaceSize is nil, cannot update PTY size")
@@ -3972,7 +3999,8 @@ extension Ghostty {
 
             // If the session instance changed (e.g., reconnect), resend size even if unchanged.
             let sessionID = ObjectIdentifier(session as AnyObject)
-            let gridSize = (rows: surfaceSize.rows, cols: surfaceSize.columns)
+            let gridSize = applied.map { (rows: $0.rows, cols: $0.cols) }
+                ?? (rows: surfaceSize.rows, cols: surfaceSize.columns)
             if !surfaceController.shouldSendPTYSize(for: sessionID, gridSize: gridSize) {
                 // Debug log for cursor position bug investigation
                 Ghostty.logger.debug("updatePTYSize: skipped (cache hit) \(gridSize.rows)x\(gridSize.cols)")
@@ -4003,10 +4031,10 @@ extension Ghostty {
             let size = bounds.size
 
             let ptySize = TerminalPTY.TerminalSize(
-                rows: surfaceSize.rows,
-                cols: surfaceSize.columns,
-                pixelWidth: UInt16(size.width * scale),
-                pixelHeight: UInt16(size.height * scale)
+                rows: gridSize.rows,
+                cols: gridSize.cols,
+                pixelWidth: applied?.widthPx ?? UInt16(size.width * scale),
+                pixelHeight: applied?.heightPx ?? UInt16(size.height * scale)
             )
 
             do {
@@ -4130,7 +4158,8 @@ extension Ghostty {
                         #if !targetEnvironment(macCatalyst)
                         syncSelectionHandlesForSurfaceActivity()
                         #endif
-                        reloadInputViews()
+                        // Acquiring first responder already installs the input
+                        // views. Reloading here repeats the keyboard handoff.
                         return true
                     }
                 }
@@ -4155,7 +4184,6 @@ extension Ghostty {
                         #if !targetEnvironment(macCatalyst)
                         self.syncSelectionHandlesForSurfaceActivity()
                         #endif
-                        self.reloadInputViews()
                     }
                 }
                 return false
@@ -4281,7 +4309,6 @@ extension Ghostty.TerminalView: GhosttyActionDelegate {
                 if self.userOverrideTitle == nil {
                     self.title = title
                 }
-                Ghostty.logger.debug("Title changed: \(title)")
             }
         }
     }
@@ -4374,6 +4401,15 @@ extension Ghostty.TerminalView: GhosttyActionDelegate {
            let controller = TmuxController.controller(forOwnerSurface: binding.parentSurface) {
             controller.notePaneContentChanged()
         }
+    }
+
+    func handlePTYResize(rows: Int, cols: Int, widthPx: Int, heightPx: Int) {
+        let grid = (rows: UInt16(clamping: rows), cols: UInt16(clamping: cols))
+        updatePTYSize(applied: (
+            rows: grid.rows, cols: grid.cols,
+            widthPx: UInt16(clamping: widthPx), heightPx: UInt16(clamping: heightPx)))
+        // Releases the layout-deferred replay once its own grid is applied.
+        surfaceController.notePtyResizeApplied(rows: grid.rows, cols: grid.cols)
     }
 
     func handleCellSizeChange(width: CGFloat, height: CGFloat) {

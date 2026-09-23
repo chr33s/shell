@@ -1,4 +1,4 @@
-// swift-tools-version:5.10
+// swift-tools-version:6.2
 import PackageDescription
 
 let package = Package(
@@ -14,7 +14,7 @@ let package = Package(
             dependencies: [
                 .product(name: "Benchmark", package: "package-benchmark"),
                 .product(name: "Crypto", package: "swift-crypto"),
-                .product(name: "_CryptoExtras", package: "swift-crypto"),
+                .product(name: "CryptoExtras", package: "swift-crypto"),
             ],
             path: "Benchmarks/",
             plugins: [

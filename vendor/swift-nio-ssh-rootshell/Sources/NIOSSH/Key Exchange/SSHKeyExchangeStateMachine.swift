@@ -75,6 +75,8 @@ struct SSHKeyExchangeStateMachine {
     private var keyExchangeAlgorithms: [NIOSSHKeyExchangeAlgorithmProtocol.Type]
     private var previousSessionIdentifier: ByteBuffer?
     private(set) var peerRequestedExtensionInfo = false
+    /// Set on the initial KEX when *both* sides advertised kex-strict-*-v00@openssh.com (Terrapin mitigation).
+    private(set) var strictKeyExchangeNegotiated = false
     private let remoteVersion: String
     private static let routerOSVersionPrefix = "SSH-2.0-ROSSSH"
     private static let routerOSKeyExchangeAlgorithms: Set<Substring> = [
@@ -82,6 +84,8 @@ struct SSHKeyExchangeStateMachine {
         Substring("curve25519-sha256@libssh.org"),
     ]
     private static let clientExtensionInfoMarker: Substring = "ext-info-c"
+    static let clientStrictKeyExchangeMarker: Substring = "kex-strict-c-v00@openssh.com"
+    static let serverStrictKeyExchangeMarker: Substring = "kex-strict-s-v00@openssh.com"
 
     /// - Parameter localVersion: Defaults to `Constants.version`; tests may override this to model a peer with a different banner in exchange hash construction.
     init(allocator: ByteBufferAllocator, loop: EventLoop, role: SSHConnectionRole, remoteVersion: String, keyExchangeAlgorithms: [NIOSSHKeyExchangeAlgorithmProtocol.Type], transportProtectionSchemes: [NIOSSHTransportProtection.Type], previousSessionIdentifier: ByteBuffer?, localVersion: String = Constants.version) {
@@ -144,8 +148,12 @@ struct SSHKeyExchangeStateMachine {
             return self.role.keyExchangeAlgorithmNames
         }
 
-        if self.role.isClient, self.previousSessionIdentifier == nil {
-            return self.role.keyExchangeAlgorithmNames + [Self.clientExtensionInfoMarker]
+        // Extension markers belong to the initial KEX only (RFC 8308 §2.1, OpenSSH PROTOCOL §1.9).
+        if self.previousSessionIdentifier == nil {
+            if self.role.isClient {
+                return self.role.keyExchangeAlgorithmNames + [Self.clientExtensionInfoMarker, Self.clientStrictKeyExchangeMarker]
+            }
+            return self.role.keyExchangeAlgorithmNames + [Self.serverStrictKeyExchangeMarker]
         }
         return self.role.keyExchangeAlgorithmNames
     }
@@ -155,10 +163,17 @@ struct SSHKeyExchangeStateMachine {
     }
 
     mutating func handle(keyExchange message: SSHMessage.KeyExchangeMessage) throws -> SSHMultiMessage? {
-        if self.role.isServer,
-           self.previousSessionIdentifier == nil,
-           message.keyExchangeAlgorithms.contains(Self.clientExtensionInfoMarker) {
-            self.peerRequestedExtensionInfo = true
+        if self.previousSessionIdentifier == nil {
+            if self.role.isServer, message.keyExchangeAlgorithms.contains(Self.clientExtensionInfoMarker) {
+                self.peerRequestedExtensionInfo = true
+            }
+            // Strict KEX binds both directions, so it is only in force when both sides asked for it.
+            // Our RouterOS compact proposal omits our marker; enabling it on the peer's alone would
+            // reset only our sequence numbers and break every sequence-dependent MAC that follows.
+            let ourMarker = self.role.isServer ? Self.serverStrictKeyExchangeMarker : Self.clientStrictKeyExchangeMarker
+            let peerMarker = self.role.isServer ? Self.clientStrictKeyExchangeMarker : Self.serverStrictKeyExchangeMarker
+            self.strictKeyExchangeNegotiated = self.keyExchangeAlgorithmProposal.contains(ourMarker)
+                && message.keyExchangeAlgorithms.contains(peerMarker)
         }
 
         switch self.state {

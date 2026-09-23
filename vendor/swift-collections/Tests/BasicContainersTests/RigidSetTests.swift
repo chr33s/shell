@@ -16,7 +16,9 @@ import XCTest
 import Collections
 #else
 import _CollectionsTestSupport
+import InternalCollectionsUtilities
 import BasicContainers
+import ContainersPreview
 #endif
 
 #if compiler(>=6.4) && UnstableHashedContainers
@@ -57,6 +59,12 @@ func expectConsistentSet<Element: ~Copyable>(
 }
 
 class RigidSetTests: CollectionTestCase {
+  func test_memory_layout() {
+    let word = MemoryLayout<Int>.size
+    expectEqual(MemoryLayout<RigidSet<Int>>.stride, 6 * word)
+    expectEqual(MemoryLayout<RigidSet<Int>?>.stride, 6 * word)
+  }
+
   func test_empty() {
     let s = RigidSet<Int>()
     expectEqual(s.count, 0)
@@ -242,7 +250,7 @@ class RigidSetTests: CollectionTestCase {
 
   func test_bucketIterator_consistency() {
     withEvery("capacity", in: [0, 1, 2, 3, 4, 10, 100, 200]) { capacity in
-      withEvery("maximumCount", in: [1, 2, 3, Int.max]) { maximumCount in
+      withEvery("maxCount", in: [1, 2, 3, Int.max]) { maxCount in
         withLifetimeTracking { tracker in
           var s = RigidSet<LifetimeTracked<Int>>(capacity: capacity)
           withEvery("i", in: 0 ..< capacity) { i in
@@ -250,13 +258,13 @@ class RigidSetTests: CollectionTestCase {
 
             var it = s._table.makeBucketIterator()
             var j = s._table.startBucket
-            while let next = it.nextOccupiedRegion(maximumCount: maximumCount) {
+            while let next = it.nextOccupiedRegion(maxCount: maxCount) {
               expectFalse(next.isEmpty, "Empty chunk; j: \(j), next: \(next)")
               expectLessThanOrEqual(
                 next.upperBound.offset - next.lowerBound.offset,
-                maximumCount,
+                maxCount,
                 "Overlong chunk")
-              if maximumCount == Int.max, j > s._table.startBucket {
+              if maxCount == Int.max, j > s._table.startBucket {
                 expectGreaterThan(
                   next.lowerBound, j,
                   "Unnecessarily split run of occupied buckets")
@@ -280,6 +288,36 @@ class RigidSetTests: CollectionTestCase {
     }
   }
 
+#if compiler(>=6.4) && UnstableContainersPreview
+  @available(SwiftStdlib 6.4, *)
+  func test_validate_Container() {
+    withEvery("count", in: [0, 10, 100, 1000]) { count in
+      withLifetimeTracking { tracker in
+        var items: RigidSet<LifetimeTrackedStruct<Int>> = .init(capacity: count)
+        for i in 0 ..< count {
+          guard items.insert(tracker.structInstance(for: i)) == nil else {
+            expectFailure("Duplicate item \(i)")
+            return
+          }
+        }
+
+        // Get expected contents by iterating once.
+        var expected: [Int] = []
+        var it = items.makeBorrowingIterator()
+        while let v = it.next()?.value.payload {
+          expected.append(v)
+        }
+
+        //items._dump(bitmap: true)
+        checkContainer(
+          items,
+          expectedContents: expected,
+          by: { $0.payload == $1 })
+      }
+    }
+  }
+#endif
+
   func test_probeLengths() {
     let c1 = 500
     let scale = _HTable.minimumScale(forCapacity: c1)
@@ -294,18 +332,18 @@ class RigidSetTests: CollectionTestCase {
 #if UnstableContainersPreview
   func test_borrowing_iterator() {
     withEvery("capacity", in: [0, 1, 2, 3, 4, 10, 100, 1000]) { capacity in
-      withEvery("maximumCount", in: [1, 2, 3, Int.max]) { maximumCount in
+      withEvery("maxCount", in: [1, 2, 3, Int.max]) { maxCount in
         withLifetimeTracking { tracker in
           var s = RigidSet<LifetimeTracked<Int>>(capacity: capacity)
           withEvery("i", in: 0 ..< capacity) { i in
             s.insert(tracker.instance(for: i))
 
             var expected = Set(0 ... i)
-            var it = s.makeBorrowingIterator_()
+            var it = s.makeBorrowingIterator()
             while true {
-              let next = it.nextSpan_(maximumCount: maximumCount)
+              let next = it.nextSpan(maxCount: maxCount)
               guard !next.isEmpty else { break }
-              expectLessThanOrEqual(next.count, maximumCount)
+              expectLessThanOrEqual(next.count, maxCount)
               for j in next.indices {
                 let v = next[j].payload
                 expectEqual(expected.remove(v), v, "Unexpected item \(v)")
@@ -360,32 +398,27 @@ class RigidSetTests: CollectionTestCase {
   func test_insert_producer() {
     withEvery("capacity", in: [0, 1, 2, 4, 10, 100, 200]) { capacity in
       withEvery("count", in: 0 ..< capacity) { count in
-        withEvery("chunkSize", in: [1, 2, 10, 100, Int.max]) { chunkSize in
-          withLifetimeTracking { tracker in
-            var s = RigidSet<LifetimeTracked<Int>>(capacity: capacity)
+        withLifetimeTracking { tracker in
+          var s = RigidSet<LifetimeTracked<Int>>(capacity: capacity)
 
-            var i = 0
-            var p = CustomProducer<LifetimeTracked<Int>, Never>(
-              underestimatedCount: 0,
-              chunkSize: chunkSize
-            ) {
-              guard i < count else { return nil }
-              defer { i += 1 }
-              return tracker.instance(for: i)
-            }
-            s.insert(from: &p)
-            expectConsistentSet(s)
+          var p = CustomProducer<LifetimeTracked<Int>, Never>(
+            underestimatedCount: 0
+          ) { offset in
+            guard offset < count else { return nil }
+            return tracker.instance(for: offset)
+          }
+          s.insert(from: &p)
+          expectConsistentSet(s)
 
-            expectEqual(s.capacity, capacity)
-            expectEqual(s.count, count)
+          expectEqual(s.capacity, capacity)
+          expectEqual(s.count, count)
 
-            var seen: Set<Int> = []
-            var index = s.startIndex
-            while index != s.endIndex {
-              let payload = s[index].payload
-              expectTrue(seen.insert(payload).inserted, "Duplicate item \(payload)")
-              index = s.index(after: index)
-            }
+          var seen: Set<Int> = []
+          var index = s.startIndex
+          while index != s.endIndex {
+            let payload = s[index].payload
+            expectTrue(seen.insert(payload).inserted, "Duplicate item \(payload)")
+            index = s.index(after: index)
           }
         }
       }
@@ -401,14 +434,11 @@ class RigidSetTests: CollectionTestCase {
           withLifetimeTracking { tracker in
             var s = RigidSet<LifetimeTracked<Int>>(capacity: capacity)
 
-            var i = 0
             var drain = CustomDrain<LifetimeTracked<Int>>(
-              underestimatedCount: 0,
+              count: count,
               chunkSize: chunkSize
-            ) {
-              guard i < count else { return nil }
-              defer { i += 1 }
-              return tracker.instance(for: i)
+            ) { i in
+              tracker.instance(for: i)
             }
             s.insert(from: &drain)
             expectConsistentSet(s)
@@ -429,7 +459,7 @@ class RigidSetTests: CollectionTestCase {
     }
   }
 
-  func test_insert_drain_maximumCount() {
+  func test_insert_drain_maxCount() {
     withEvery("capacity", in: [5, 10, 100]) { capacity in
       withEvery("drainLength", in: [0, 1, 2, 4, 10, capacity]) { drainLength in
         withEvery("maxCount", in: [0, 1, 2, 3, 5]) { maxCount in
@@ -437,21 +467,17 @@ class RigidSetTests: CollectionTestCase {
             withLifetimeTracking { tracker in
               var s = RigidSet<LifetimeTracked<Int>>(capacity: capacity)
 
-              var i = 0
               var drain = CustomDrain<LifetimeTracked<Int>>(
-                underestimatedCount: 0,
+                count: drainLength,
                 chunkSize: chunkSize
-              ) {
-                guard i < drainLength else { return nil }
-                defer { i += 1 }
-                return tracker.instance(for: i)
+              ) { i in
+                tracker.instance(for: i)
               }
-              s.insert(maximumCount: maxCount, from: &drain)
+              s.insert(addingCount: maxCount, from: &drain)
               expectConsistentSet(s)
 
               let expectedCount = Swift.min(maxCount, drainLength)
               expectEqual(s.count, expectedCount)
-              expectEqual(i, expectedCount)
             }
           }
         }

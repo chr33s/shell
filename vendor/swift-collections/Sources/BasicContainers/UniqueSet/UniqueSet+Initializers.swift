@@ -11,10 +11,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#if !COLLECTIONS_SINGLE_MODULE
-import ContainersPreview
-#endif
-
 #if compiler(>=6.4) && UnstableHashedContainers
 
 @available(SwiftStdlib 5.0, *)
@@ -46,63 +42,38 @@ extension UniqueSet where Element: ~Copyable {
   ) throws(E) {
     self.init(minimumCapacity: minimumCapacity)
     try self.insert(
-      maximumCount: minimumCapacity,
+      addingCount: minimumCapacity,
       initializingWith: initializer)
   }
-  
-#if UnstableContainersPreview
-  @_alwaysEmitIntoClient
-  public init<
-    E: Error,
-    P: Producer<Element, E> & ~Copyable & ~Escapable
-  >(
-    minimumCapacity: Int? = nil, from producer: inout P
-  ) throws(E)
-  where P.Element: ~Copyable
-  {
-    let c = producer.underestimatedCount
-    if let minimumCapacity {
-      self.init(minimumCapacity: Swift.min(minimumCapacity, c))
-    } else {
-      self.init(minimumCapacity: c)
-    }
-    try self.insert(from: &producer)
-  }
-#endif
 }
 
 @available(SwiftStdlib 5.0, *)
 extension UniqueSet where Element: Copyable {
-  
-#if UnstableContainersPreview
+  @available(SwiftStdlib 6.4, *)
   @_alwaysEmitIntoClient
-  public init<
-    S: BorrowingSequence_<Element> & ~Copyable & ~Escapable
-  >(
+  public init<S: Iterable & ~Copyable & ~Escapable>(
     copying items: borrowing S
-  ) {
+  ) throws(S.Failure)
+  where S.Element == Element {
     self.init()
-    self.insert(copying: items)
+    try self.insert(copying: items)
   }
-#endif
-  
+
   @_alwaysEmitIntoClient
   public init(copying items: some Sequence<Element>) {
     self.init()
     self.insert(copying: items)
   }
   
-#if UnstableContainersPreview
+  @available(SwiftStdlib 6.4, *)
   @_alwaysEmitIntoClient
-  public init<
-    S: BorrowingSequence_<Element> & Sequence<Element>
-  >(
+  public init<S: Iterable & Sequence<Element>>(
     copying items: borrowing S
-  ) {
+  ) throws(S.Failure)
+  where S.Element == Element {
     self.init()
-    self._insert(copying: items)
+    try self._insert(copying: items)
   }
-#endif
 }
 
 #endif

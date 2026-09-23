@@ -11,14 +11,17 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 //===----------------------------------------------------------------------===//
-#if CRYPTO_IN_SWIFTPM && !CRYPTO_IN_SWIFTPM_FORCE_BUILD_API
+
+#if canImport(CryptoKit)
 @_exported import CryptoKit
 #else
-import Foundation
 
+#if canImport(FoundationEssentials)
+public import FoundationEssentials
+#else
+public import Foundation
+#endif
 
-
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
 extension P256.KeyAgreement.PrivateKey: HPKEDiffieHellmanPrivateKeyGeneration {
 	/// Creates a NIST P-256 elliptic curve private key for use with Diffie-Hellman key exchange.
     public init() {
@@ -26,8 +29,6 @@ extension P256.KeyAgreement.PrivateKey: HPKEDiffieHellmanPrivateKeyGeneration {
     }
 }
 
-
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
 extension P256.KeyAgreement.PublicKey: HPKEDiffieHellmanPublicKey {
 	/// The type of the ephemeral private key associated with this public key.
     public typealias EphemeralPrivateKey = P256.KeyAgreement.PrivateKey
@@ -67,8 +68,6 @@ extension P256.KeyAgreement.PublicKey: HPKEDiffieHellmanPublicKey {
     public typealias HPKEEphemeralPrivateKey = P256.KeyAgreement.PrivateKey
 }
 
-
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
 extension P384.KeyAgreement.PrivateKey: HPKEDiffieHellmanPrivateKeyGeneration {
 	/// Creates a NIST P-384 elliptic curve private key for use with Diffie-Hellman key exchange.
     public init() {
@@ -76,8 +75,6 @@ extension P384.KeyAgreement.PrivateKey: HPKEDiffieHellmanPrivateKeyGeneration {
     }
 }
 
-
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
 extension P384.KeyAgreement.PublicKey: HPKEDiffieHellmanPublicKey {
 	/// The type of the ephemeral private key associated with this public key.
     public typealias EphemeralPrivateKey = P384.KeyAgreement.PrivateKey
@@ -117,8 +114,6 @@ extension P384.KeyAgreement.PublicKey: HPKEDiffieHellmanPublicKey {
     }
 }
 
-
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
 extension P521.KeyAgreement.PrivateKey: HPKEDiffieHellmanPrivateKeyGeneration {
 	/// Creates a NIST P-521 elliptic curve private key for use with Diffie-Hellman key exchange.
     public init() {
@@ -126,8 +121,6 @@ extension P521.KeyAgreement.PrivateKey: HPKEDiffieHellmanPrivateKeyGeneration {
     }
 }
 
-
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
 extension P521.KeyAgreement.PublicKey: HPKEDiffieHellmanPublicKey {
 	/// The type of the ephemeral private key associated with this public key.
     public typealias EphemeralPrivateKey = P521.KeyAgreement.PrivateKey
@@ -170,4 +163,4 @@ extension P521.KeyAgreement.PublicKey: HPKEDiffieHellmanPublicKey {
     public typealias HPKEEphemeralPrivateKey = P521.KeyAgreement.PrivateKey
 }
 
-#endif // Linux or !SwiftPM
+#endif // canImport(CryptoKit)

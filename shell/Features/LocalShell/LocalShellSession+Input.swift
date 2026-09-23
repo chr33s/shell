@@ -443,6 +443,15 @@ extension LocalShellSession {
             return
         }
 
+        // Function names need shell tokenization: quotes and escapes don't
+        // change the name, and operators can immediately follow it (f|cat).
+        let functionTokenizer = ShellTokenizer(source: trimmedCommand)
+        if case .word(let functionWord) = functionTokenizer.next(),
+           sharedShellEnvironment.getFunction(Self.stripPUAMarkers(functionWord)) != nil {
+            executeInteractiveScript(trimmedCommand)
+            return
+        }
+
         // Update tab title to show running command (truncate to 30 chars)
         let truncatedCommand = String(command.prefix(30))
         onTitleChange?(truncatedCommand)
@@ -454,20 +463,22 @@ extension LocalShellSession {
         }
     }
 
-    /// Expand one leading ios_system alias before Shell's native-command
-    /// router runs. Without this, aliases that resolve to native commands
-    /// (`tssh`, `mosh`, `ssh`, etc.) are expanded only inside ios_system,
-    /// where those commands are not real binaries.
+    /// Expand one leading ios_system alias when native routing or a shell
+    /// function would otherwise bypass ios_system's alias expansion. The
+    /// caller's alreadyAliasExpanded flag keeps self-referential function
+    /// aliases (f='f extra') from expanding repeatedly.
     private func expandLeadingAlias(in command: String) -> String? {
         let trimmed = command.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty,
-              let split = Self.splitFirstShellWordRaw(trimmed)
+              let split = Self.splitFirstShellWordRaw(trimmed, stopAtOperators: true)
         else {
             return nil
         }
 
         let firstWord = split.word
-        guard !firstWord.hasPrefix("\\") else {
+        guard !firstWord.hasPrefix("\\"),
+              !split.remainder.trimmingCharacters(in: .whitespaces).hasPrefix("(") else {
+            // An escaped name bypasses aliases; name() defines a function.
             return nil
         }
 
@@ -480,11 +491,21 @@ extension LocalShellSession {
             return nil
         }
 
-        let remainder = split.remainder.trimmingCharacters(in: .whitespaces)
-        let expanded = Self.applyAliasArguments(aliasValue: aliasValue, remainder: remainder)
+        let aliasInput = Self.splitAliasArguments(in: trimmed)
+        var expanded = Self.applyAliasArguments(aliasValue: aliasValue, remainder: aliasInput.arguments)
             .trimmingCharacters(in: .whitespaces)
+        if !aliasInput.redirections.isEmpty {
+            expanded += " " + aliasInput.redirections
+        }
+        if !aliasInput.suffix.isEmpty {
+            expanded += " " + aliasInput.suffix
+        }
 
-        guard let expandedFirstWord = Self.splitFirstShellWordRaw(expanded)?.word else {
+        if sharedShellEnvironment.getFunction(firstWord) != nil {
+            return expanded
+        }
+
+        guard let expandedFirstWord = Self.splitFirstShellWordRaw(expanded, stopAtOperators: true)?.word else {
             return nil
         }
 
@@ -1021,7 +1042,8 @@ extension LocalShellSession {
     /// text. Quotes and backslash escapes are honored only far enough to avoid
     /// splitting inside quoted arguments; returned text keeps the user's raw
     /// quoting so native parsers and ios_system can process it normally.
-    private static func splitFirstShellWordRaw(_ command: String) -> (word: String, remainder: String)? {
+    /// Alias command names also stop at operators, including without spaces.
+    private static func splitFirstShellWordRaw(_ command: String, stopAtOperators: Bool = false) -> (word: String, remainder: String)? {
         var index = command.startIndex
         while index < command.endIndex, command[index].isWhitespace {
             index = command.index(after: index)
@@ -1060,7 +1082,9 @@ extension LocalShellSession {
                 continue
             }
 
-            if character.isWhitespace && !inSingleQuote && !inDoubleQuote {
+            if !inSingleQuote && !inDoubleQuote &&
+               (character.isWhitespace || (stopAtOperators && "|&;<>()".contains(character))) {
+                guard index > wordStart else { return nil }
                 let word = String(command[wordStart..<index])
                 let remainder = String(command[index...])
                 return (word, remainder)
@@ -1072,7 +1096,37 @@ extension LocalShellSession {
         return (String(command[wordStart..<command.endIndex]), "")
     }
 
-    /// Apply ios_system's alias argument markers to the remaining command text:
+    /// Collect all arguments of the leading command, including after redirections.
+    /// Keep redirections in their original order, separate from the arguments and
+    /// any trailing pipeline, command separator, or comment. Raw token spelling
+    /// preserves quoting, substitutions, and file-descriptor prefixes.
+    private static func splitAliasArguments(in command: String) -> (arguments: String, redirections: String, suffix: String) {
+        let tokenizer = ShellTokenizer(source: command)
+        _ = tokenizer.next() // Skip the command name.
+        var arguments: [Substring] = []
+        var redirections: [Substring] = []
+
+        while true {
+            let tokenStart = tokenizer.sourceIndex
+            let token = tokenizer.next()
+            let rawToken = command[tokenStart..<tokenizer.sourceIndex]
+                .drop(while: { $0 == " " || $0 == "\t" })
+            switch token {
+            case .word, .assignmentWord:
+                arguments.append(rawToken)
+            case .redirect:
+                redirections.append(rawToken)
+            default:
+                return (
+                    arguments.joined(separator: " "),
+                    redirections.joined(separator: " "),
+                    String(command[tokenStart...])
+                )
+            }
+        }
+    }
+
+    /// Apply ios_system's alias argument markers to arguments only:
     /// no marker appends all arguments, `!*` inserts arguments before the tail,
     /// and `!^` inserts only the first argument before the tail.
     private static func applyAliasArguments(aliasValue: String, remainder: String) -> String {
@@ -1400,8 +1454,8 @@ extension LocalShellSession {
     nonisolated static let nativeRoutedCommandNames: Set<String> = ["ssh"]
 
     /// Commands whose top-level router provides behavior users expect aliases
-    /// to inherit. Leading aliases are pre-expanded only for this set so
-    /// self-referential ios_system aliases (`ls='ls --color'`) still expand
+    /// to inherit. Leading aliases are pre-expanded for this set and when they
+    /// shadow a shell function. Other aliases (`ls='ls --color'`) still expand
     /// exactly once inside ios_system.
     private static let aliasPreExpansionCommandNames: Set<String> = ["clear", "exit", "logout", "ssh"]
 

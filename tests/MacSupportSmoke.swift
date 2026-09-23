@@ -146,7 +146,7 @@ struct MacSupportSmoke {
         }
         _ = bridge.currentInputSourceID()
         _ = bridge.currentInputSourceLanguages()
-        _ = bridge.translateKey(0, shift: false, command: false)
+        _ = bridge.translateKey(0, shift: false, command: false, option: false, capsLock: false)
         precondition(!bridge.selectInputSource("dev.chr33s.shell.no-such-input-source"),
                      "An unknown input source must be declined, not selected")
     }

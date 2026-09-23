@@ -16,11 +16,10 @@ import XCTest
 import Collections
 #else
 import _CollectionsTestSupport
+import SpanPreview
 import ContainersPreview
 import BasicContainers
 #endif
-
-#if compiler(>=6.2)
 
 /// Check if `left` and `right` contain equal elements in the same order.
 @available(SwiftStdlib 5.0, *)
@@ -66,6 +65,12 @@ internal func expectRigidArrayContents<
 
 @available(SwiftStdlib 5.0, *)
 class RigidArrayTests: CollectionTestCase {
+  func test_memory_layout() {
+    let word = MemoryLayout<Int>.size
+    expectEqual(MemoryLayout<RigidArray<Int>>.stride, 3 * word)
+    expectEqual(MemoryLayout<RigidArray<Int>?>.stride, 3 * word)
+  }
+
   func test_validate_Container() {
     withSomeArrayLayouts("layout", ofCapacities: [0, 10, 100]) { layout in
       withLifetimeTracking { tracker in
@@ -74,7 +79,9 @@ class RigidArrayTests: CollectionTestCase {
         expectEqual(tracker.instances, 2 * layout.count)
         expectRigidArrayContents(items, equalTo: expected)
 #if compiler(>=6.4) && UnstableContainersPreview
-        checkIterable(items, expectedContents: expected)
+        if #available(SwiftStdlib 6.4, *) {
+          checkContainer(items, expectedContents: expected)
+        }
 #endif
       }
     }
@@ -491,6 +498,7 @@ class RigidArrayTests: CollectionTestCase {
     }
   }
 
+  @available(*, deprecated)
   func test_reallocate() {
     withSomeArrayLayouts("layout", ofCapacities: [0, 10, 100]) { layout in
       withEvery(
@@ -506,6 +514,33 @@ class RigidArrayTests: CollectionTestCase {
           a.reallocate(capacity: newCapacity)
           expectEqual(a.count, layout.count)
           expectEqual(a.capacity, newCapacity)
+          expectEqual(tracker.instances, layout.count)
+          expectRigidArrayContents(
+            a,
+            equivalentTo: 0 ..< layout.count,
+            by: { $0.payload == $1 },
+            printer: { "\($0.payload)" })
+        }
+      }
+    }
+  }
+
+  func test_setCapacity() {
+    withSomeArrayLayouts("layout", ofCapacities: [0, 10, 100]) { layout in
+      withEvery(
+        "newCapacity",
+        in: [
+          layout.capacity, layout.count, layout.count + 1, layout.capacity + 1,
+          0, layout.count - 1
+        ] as Set<Int>
+      ) { newCapacity in
+        withLifetimeTracking { tracker in
+          var a = tracker.rigidArray(layout: layout)
+          expectEqual(a.count, layout.count)
+          expectEqual(a.capacity, layout.capacity)
+          a.setCapacity(newCapacity)
+          expectEqual(a.count, layout.count)
+          expectEqual(a.capacity, Swift.max(newCapacity, layout.count))
           expectEqual(tracker.instances, layout.count)
           expectRigidArrayContents(
             a,
@@ -1178,6 +1213,7 @@ class RigidArrayTests: CollectionTestCase {
   }
 
 #if compiler(>=6.4) && UnstableContainersPreview
+  @available(SwiftStdlib 6.4, *)
   func test_insert_copying_Container() {
     withSomeArrayLayouts("layout", ofCapacities: [0, 5, 10]) { layout in
       withEvery("i", in: 0 ... layout.count) { i in
@@ -1214,7 +1250,7 @@ class RigidArrayTests: CollectionTestCase {
           withLifetimeTracking { tracker in
             var a = tracker.rigidArray(layout: layout)
 
-            a.replace(removing: subrange, addingCount: c) { target in
+            a.replaceSubrange(subrange, addingCount: c) { target in
               expectEqual(target.freeCapacity, c)
               for i in 0 ..< c {
                 target.append(tracker.instance(for: layout.count + i))
@@ -1246,7 +1282,7 @@ class RigidArrayTests: CollectionTestCase {
             withLifetimeTracking { tracker in
               var a = tracker.rigidArray(layout: layout)
 
-              a.replace(removing: subrange, addingCount: c) { target in
+              a.replaceSubrange(subrange, addingCount: c) { target in
                 expectTrue(target.isEmpty)
                 expectEqual(target.freeCapacity, c)
                 for i in 0 ..< n {
@@ -1280,8 +1316,8 @@ class RigidArrayTests: CollectionTestCase {
           withLifetimeTracking { tracker in
             var a = tracker.rigidArray(layout: layout)
 
-            a.replace(
-              removing: subrange,
+            a.replaceSubrange(
+              subrange,
               consumingWith: { span in
                 for i in 0 ..< subrange.count {
                   expectEqual(span[i].payload, subrange.lowerBound + i)
@@ -1320,8 +1356,8 @@ class RigidArrayTests: CollectionTestCase {
             withLifetimeTracking { tracker in
               var a = tracker.rigidArray(layout: layout)
 
-              a.replace(
-                removing: subrange,
+              a.replaceSubrange(
+                subrange,
                 consumingWith: { span in
                   for i in 0 ..< subrange.count {
                     expectEqual(span[i].payload, subrange.lowerBound + i)
@@ -1370,7 +1406,7 @@ class RigidArrayTests: CollectionTestCase {
                 addition.map { tracker.instance(for: $0) },
                 isContiguous: isContiguous)
               var a = tracker.rigidArray(layout: layout)
-              a.replace(removing: range, copying: trackedAddition)
+              a.replaceSubrange(range, copying: trackedAddition)
 
               expectRigidArrayContents(
                 a,
@@ -1395,7 +1431,7 @@ class RigidArrayTests: CollectionTestCase {
 
             var a = tracker.rigidArray(layout: layout)
             let trackedAddition = RigidArray(copying: addition.map { tracker.instance(for: $0) })
-            a.replace(removing: range, copying: trackedAddition.span)
+            a.replaceSubrange(range, copying: trackedAddition.span)
 
             expectRigidArrayContents(
               a,
@@ -1410,6 +1446,7 @@ class RigidArrayTests: CollectionTestCase {
   }
 
 #if compiler(>=6.4) && UnstableContainersPreview
+  @available(SwiftStdlib 6.4, *)
   func test_replace_Container() {
     withSomeArrayLayouts("layout", ofCapacities: [0, 5, 10]) { layout in
       withEveryRange("range", in: 0 ..< layout.count) { range in
@@ -1424,7 +1461,7 @@ class RigidArrayTests: CollectionTestCase {
               let trackedAddition = StaccatoContainer(
                 contents: RigidArray(copying: addition.map { tracker.instance(for: $0) }),
                 spanCounts: [spanCount])
-              a.replace(removing: range, copying: trackedAddition)
+              a.replaceSubrange(range, copying: trackedAddition)
 
               expectRigidArrayContents(
                 a,
@@ -1441,10 +1478,11 @@ class RigidArrayTests: CollectionTestCase {
 #endif
 
 #if compiler(>=6.4) && UnstableContainersPreview
+  @available(SwiftStdlib 6.4, *)
   func test_borrowing_map() {
     let c = 100
     let items = RigidArray(capacity: c, copying: 0 ..< c)
-    let transformed = items.makeBorrowingIterator_()
+    let transformed = items.makeBorrowingIterator()
       .map { 2 * $0 }
       .collect(into: UniqueArray.self)
     expectEqual(transformed.count, c)
@@ -1454,10 +1492,11 @@ class RigidArrayTests: CollectionTestCase {
     expectUniqueArrayContents(transformed, equalTo: expected)
   }
 
+  @available(SwiftStdlib 6.4, *)
   func test_borrowing_filter() {
     let c = 100
     let items = RigidArray(capacity: c, copying: 0 ..< c)
-    let transformed = items.makeBorrowingIterator_()
+    let transformed = items.makeBorrowingIterator()
       .filter { !$0.isMultiple(of: 6) }
       .copy()
       .collect(into: UniqueArray.self)
@@ -1469,6 +1508,7 @@ class RigidArrayTests: CollectionTestCase {
 #endif
 
 #if compiler(>=6.4) && UnstableContainersPreview
+  @available(SwiftStdlib 6.4, *)
   func test_consume_subrange_drainNext() {
     withLifetimeTracking { tracker in
       var a = RigidArray<LifetimeTracked<Int>>(capacity: 4)
@@ -1476,8 +1516,8 @@ class RigidArrayTests: CollectionTestCase {
         a.append(tracker.instance(for: i))
       }
 
-      var consumer = a.consume(0 ..< 2)
-      let span = consumer.drainNext(maximumCount: .max)
+      var consumer = a.consumeSubrange(0 ..< 2)
+      let span = consumer.drainNext(maxCount: .max)
 
       expectEqual(span.count, 2)
       expectEqual(span[0].payload, 0)
@@ -1486,4 +1526,3 @@ class RigidArrayTests: CollectionTestCase {
   }
 #endif
 }
-#endif

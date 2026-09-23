@@ -11,16 +11,20 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 //===----------------------------------------------------------------------===//
-#if CRYPTO_IN_SWIFTPM && !CRYPTO_IN_SWIFTPM_FORCE_BUILD_API
+
+#if canImport(CryptoKit)
 @_exported import CryptoKit
 #else
-import Foundation
 
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
+import Foundation
+#endif
+
 extension ASN1 {
     /// An `ASN1Identifier` is a representation of the abstract notion of an ASN.1 identifier. Identifiers have a number of properties that relate to both the specific
     /// tag number as well as the properties of the identifier in the stream.
-    @available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
     internal struct ASN1Identifier {
         /// The base tag. In a general ASN.1 implementation we'd need an arbitrary precision integer here as the tag number can be arbitrarily large, but
         /// we don't need the full generality here.
@@ -59,10 +63,10 @@ extension ASN1 {
             }
         }
 
-        init(rawIdentifier: UInt8) throws {
+        init(rawIdentifier: UInt8) throws(CryptoKitMetaError) {
             // We don't support multibyte identifiers, which are signalled when the bottom 5 bits are all 1.
             guard rawIdentifier & 0x1F != 0x1F else {
-                throw CryptoKitASN1Error.invalidFieldIdentifier
+                throw error(CryptoKitASN1Error.invalidFieldIdentifier)
             }
 
             self.baseTag = rawIdentifier
@@ -113,7 +117,6 @@ extension ASN1 {
     }
 }
 
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
 extension ASN1.ASN1Identifier {
     internal static let objectIdentifier = try! ASN1.ASN1Identifier(rawIdentifier: 0x06)
     internal static let primitiveBitString = try! ASN1.ASN1Identifier(rawIdentifier: 0x03)
@@ -138,14 +141,14 @@ extension ASN1.ASN1Identifier {
     internal static let generalizedTime = try! ASN1.ASN1Identifier(rawIdentifier: 0x18)
 }
 
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
 extension ASN1.ASN1Identifier: Hashable { }
 
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
+#if !hasFeature(Embedded)
 extension ASN1.ASN1Identifier: CustomStringConvertible {
     var description: String {
         return "ASN1Identifier(\(self.baseTag))"
     }
 }
+#endif
 
-#endif // Linux or !SwiftPM
+#endif // canImport(CryptoKit)

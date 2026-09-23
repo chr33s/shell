@@ -11,18 +11,18 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 //===----------------------------------------------------------------------===//
-#if CRYPTO_IN_SWIFTPM && !CRYPTO_IN_SWIFTPM_FORCE_BUILD_API
+
+#if canImport(CryptoKit)
 @_exported import CryptoKit
 #else
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
 import Foundation
+#endif
 
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
 internal func safeCompare<LHS: ContiguousBytes, RHS: ContiguousBytes>(_ lhs: LHS, _ rhs: RHS) -> Bool {
-    #if !CRYPTO_IN_SWIFTPM_FORCE_BUILD_API
-    return coreCryptoSafeCompare(lhs, rhs)
-    #else
     return openSSLSafeCompare(lhs, rhs)
-    #endif
 }
 
-#endif // Linux or !SwiftPM
+#endif // canImport(CryptoKit)

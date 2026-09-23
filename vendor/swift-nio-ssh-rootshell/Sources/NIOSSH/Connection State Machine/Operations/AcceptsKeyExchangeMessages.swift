@@ -16,11 +16,21 @@ protocol AcceptsKeyExchangeMessages {
     var keyExchangeStateMachine: SSHKeyExchangeStateMachine { get set }
 
     var parser: SSHPacketParser { get set }
+
+    var connectionAttributes: SSHConnectionStateMachine.Attributes { get }
 }
 
 extension AcceptsKeyExchangeMessages {
     mutating func receiveKeyExchangeMessage(_ message: SSHMessage.KeyExchangeMessage) throws -> SSHConnectionStateMachine.StateMachineInboundProcessResult {
         let message = try self.keyExchangeStateMachine.handle(keyExchange: message)
+
+        // Only the initial KEX sets this; rekeys inherit the attribute.
+        if self.keyExchangeStateMachine.strictKeyExchangeNegotiated {
+            guard self.parser.lastPacketSequenceNumber == 0 else {
+                throw NIOSSHError.protocolViolation(protocolName: "key exchange", violation: "strict KEX violation: KEXINIT was not the first packet")
+            }
+            self.connectionAttributes.strictKeyExchange = true
+        }
 
         if let message = message {
             return .emitMessage(message)
@@ -48,5 +58,8 @@ extension AcceptsKeyExchangeMessages {
         // Received a new keys message. Apply the encryption keys to the parser.
         let result = try self.keyExchangeStateMachine.handleNewKeys()
         self.parser.addEncryption(result)
+        if self.connectionAttributes.strictKeyExchange {
+            self.parser.resetSequenceNumber()
+        }
     }
 }

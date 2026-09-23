@@ -11,16 +11,13 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 //===----------------------------------------------------------------------===//
+
 import XCTest
 
-#if CRYPTO_IN_SWIFTPM && !CRYPTO_IN_SWIFTPM_FORCE_BUILD_API
+#if canImport(CryptoKit)
 // Skip tests that require @testable imports of CryptoKit.
 #else
-#if !CRYPTO_IN_SWIFTPM_FORCE_BUILD_API
-@testable import CryptoKit
-#else
 @testable import Crypto
-#endif
 
 // Test Vectors are coming from https://tools.ietf.org/html/rfc4231
 class HMACTests: XCTestCase {
@@ -105,7 +102,7 @@ class HMACTests: XCTestCase {
         }
     }
     
-    func testHMAC<H: HashFunction>(key: SymmetricKey, data: Data, vectors: (H.Type) throws -> String, for: H.Type, file: StaticString = #file, line: UInt = #line) throws -> Bool {
+    func testHMAC<H: HashFunction>(key: SymmetricKey, data: Data, vectors: (H.Type) throws -> String, for: H.Type, file: StaticString = #filePath, line: UInt = #line) throws -> Bool {
         let code = try orFail(file: file, line: line) { try Data(hexString: vectors(H.self)) }
         return HMAC<H>.isValidAuthenticationCode(code, authenticating: data, using: key)
     }
@@ -233,4 +230,4 @@ class HMACTests: XCTestCase {
         XCTAssertFalse(mac == DispatchData.empty)
     }
 }
-#endif // CRYPTO_IN_SWIFTPM
+#endif // canImport(CryptoKit)

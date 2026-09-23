@@ -11,19 +11,26 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 //===----------------------------------------------------------------------===//
-#if CRYPTO_IN_SWIFTPM && !CRYPTO_IN_SWIFTPM_FORCE_BUILD_API
+#if canImport(CryptoKit)
 @_exported import CryptoKit
 #else
+#if hasFeature(SourceWarningControl)
+@diagnose(ImplementationOnlyDeprecated, as: ignored) @_implementationOnly import CCryptoBoringSSL
+#else
 @_implementationOnly import CCryptoBoringSSL
-@_implementationOnly import CCryptoBoringSSLShims
+#endif
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
 import Foundation
+#endif
 
 // For signing and verifying, we use BoringSSL's Ed25519, not the X25519 stuff.
 @available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
 extension Curve25519.Signing {
     @usableFromInline
     @available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
-    struct OpenSSLCurve25519PrivateKeyImpl {
+    struct OpenSSLCurve25519PrivateKeyImpl: Sendable {
         var _privateKey: SecureBytes
         @usableFromInline var _publicKey: [UInt8]
 
@@ -37,7 +44,7 @@ extension Curve25519.Signing {
                 privateKeyBytes in
                 privateKeyBytes = 64
                 publicKey.withUnsafeMutableBytes { publicKeyPtr in
-                    CCryptoBoringSSLShims_ED25519_keypair(
+                    CCryptoBoringSSL_ED25519_keypair(
                         publicKeyPtr.baseAddress,
                         privateKeyPtr.baseAddress
                     )
@@ -71,7 +78,7 @@ extension Curve25519.Signing {
                     privateKeyBytes in
                     privateKeyBytes = 64
                     publicKey.withUnsafeMutableBytes { publicKeyPtr in
-                        CCryptoBoringSSLShims_ED25519_keypair_from_seed(
+                        CCryptoBoringSSL_ED25519_keypair_from_seed(
                             publicKeyPtr.baseAddress,
                             privateKeyPtr.baseAddress,
                             seedPtr.baseAddress
@@ -95,7 +102,7 @@ extension Curve25519.Signing {
 
     @usableFromInline
     @available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
-    struct OpenSSLCurve25519PublicKeyImpl {
+    struct OpenSSLCurve25519PublicKeyImpl: Sendable {
         @usableFromInline
         var keyBytes: [UInt8]
 
@@ -119,4 +126,4 @@ extension Curve25519.Signing {
         }
     }
 }
-#endif  // CRYPTO_IN_SWIFTPM && !CRYPTO_IN_SWIFTPM_FORCE_BUILD_API
+#endif  // canImport(CryptoKit)

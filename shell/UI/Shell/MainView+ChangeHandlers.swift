@@ -81,7 +81,9 @@ extension MainView {
                 }
                 handleTerminalCountChange(oldCount: oldCount, newCount: newCount)
             }
-            .onChange(of: selectedTabIndex) { oldValue, newValue in
+            // A close can replace the selected tab without changing its index.
+            // Focus follows identity; reordering the same tab needs no handoff.
+            .onChange(of: tabsModel.selectedTabID) { oldValue, newValue in
                 handleSelectedTabChange(oldValue: oldValue, newValue: newValue)
             }
             .onChange(of: showConnectionSidebar) { oldValue, newValue in

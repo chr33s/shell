@@ -11,16 +11,12 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 //===----------------------------------------------------------------------===//
-import Foundation
 import XCTest
 
-#if CRYPTO_IN_SWIFTPM && !CRYPTO_IN_SWIFTPM_FORCE_BUILD_API
-import Crypto
-#elseif !CRYPTO_IN_SWIFTPM_FORCE_BUILD_API
-import CryptoKit
+#if canImport(CryptoKit)
+// Skip tests that require @testable imports of CryptoKit.
 #else
-import Crypto
-#endif
+@testable import Crypto
 
 class ChaChaPolyTests: XCTestCase {
     func testIncorrectKeySize() throws {
@@ -49,12 +45,7 @@ class ChaChaPolyTests: XCTestCase {
         XCTAssertEqual(Array(nonceFromContiguous), testNonceBytes)
         XCTAssertEqual(Array(nonceFromDiscontiguous), testNonceBytes)
 
-        XCTAssertThrowsError(try ChaChaPoly.Nonce(data: DispatchData.empty)) { error in
-            guard case .some(.incorrectParameterSize) = error as? CryptoKitError else {
-                XCTFail("Unexpected error")
-                return
-            }
-        }
+        XCTAssertThrowsError(try ChaChaPoly.Nonce(data: DispatchData.empty), error: CryptoKitError.incorrectParameterSize)
     }
 
     func testEncryptDecrypt() throws {
@@ -67,6 +58,49 @@ class ChaChaPolyTests: XCTestCase {
         let recoveredPlaintext = try orFail { try ChaChaPoly.open(ciphertext, using: key, authenticating: Data()) }
 
         XCTAssertEqual(recoveredPlaintext, plaintext)
+
+        XCTAssertEqual(recoveredPlaintext.startIndex, 0)
+    }
+
+    func testEncryptDecryptSpans() throws {
+        let plaintext: [UInt8] = Array("Some Super Secret Message".utf8)
+
+        let key = SymmetricKey(size: .bits256)
+        let nonce = ChaChaPoly.Nonce()
+
+        var ciphertext = plaintext
+        var ciphertextTag: [16 of UInt8] = .init(repeating: 0)
+
+        try orFail {
+            var ciphertextSpan = ciphertext.mutableSpan
+            var ciphertextRawSpan = ciphertextSpan.mutableBytes
+            var tagSpan = ciphertextTag.mutableSpan
+            try tagSpan.withUnsafeMutableBytes { (tagBytes) throws(CryptoKitMetaError) in
+                var tagOutputSpan = OutputRawSpan(buffer: tagBytes, initializedCount: 0)
+                try ChaChaPoly
+                    .seal(inPlace: &ciphertextRawSpan, using: key, nonce: nonce, authenticating: [UInt8]().span.bytes, tag: &tagOutputSpan)
+                _ = tagOutputSpan.finalize(for: tagBytes)
+            }
+        }
+
+        // Make sure we actually ended up with different contents.
+        XCTAssertNotEqual(ciphertext, plaintext)
+
+        do {
+            var ciphertextSpan = ciphertext.mutableSpan
+            var ciphertextRawSpan = ciphertextSpan.mutableBytes
+            try orFail {
+                try ChaChaPoly
+                    .open(
+                        inPlace: &ciphertextRawSpan,
+                        using: key,
+                        nonce: nonce,
+                        tag: ciphertextTag.span.bytes
+                    )
+            }
+        }
+
+        XCTAssertEqual(ciphertext, plaintext)
     }
 
     func testUserConstructedSealedBoxesCombined() throws {
@@ -81,12 +115,8 @@ class ChaChaPolyTests: XCTestCase {
         XCTAssertEqual(contiguousSB.tag, discontiguousSB.tag)
 
         // Empty dispatchdatas don't work, they are too small.
-        XCTAssertThrowsError(try ChaChaPoly.SealedBox(combined: DispatchData.empty)) { error in
-            guard case .some(.incorrectParameterSize) = error as? CryptoKitError else {
-                XCTFail("Unexpected error: \(error)")
-                return
-            }
-        }
+        XCTAssertThrowsError(try ChaChaPoly.SealedBox(combined: DispatchData.empty),
+                             error: CryptoKitError.incorrectParameterSize)
     }
 
     func testUserConstructedSealedBoxesSplit() throws {
@@ -118,12 +148,8 @@ class ChaChaPolyTests: XCTestCase {
         XCTAssertEqual(contiguousDiscontiguous.combined, discontiguousDiscontiguous.combined)
 
         // Empty dispatchdatas for the tag don't work, they are too small.
-        XCTAssertThrowsError(try ChaChaPoly.SealedBox(nonce: nonce, ciphertext: ciphertext, tag: DispatchData.empty)) { error in
-            guard case .some(.incorrectParameterSize) = error as? CryptoKitError else {
-                XCTFail("Unexpected error: \(error)")
-                return
-            }
-        }
+        XCTAssertThrowsError(try ChaChaPoly.SealedBox(nonce: nonce, ciphertext: ciphertext, tag: DispatchData.empty),
+                             error: CryptoKitError.incorrectParameterSize)
 
         // They work fine for the ciphertext though.
         let weirdBox = try orFail { try ChaChaPoly.SealedBox(nonce: nonce, ciphertext: DispatchData.empty, tag: tag) }
@@ -131,7 +157,7 @@ class ChaChaPolyTests: XCTestCase {
     }
 
     func testRoundTripDataProtocols() throws {
-        func roundTrip<Message: DataProtocol, AAD: DataProtocol>(message: Message, aad: AAD, file: StaticString = (#file), line: UInt = #line) throws {
+        func roundTrip<Message: DataProtocol, AAD: DataProtocol>(message: Message, aad: AAD, file: StaticString = (#filePath), line: UInt = #line) throws {
             let key = SymmetricKey(size: .bits256)
             let nonce = ChaChaPoly.Nonce()
 
@@ -218,3 +244,5 @@ class ChaChaPolyTests: XCTestCase {
         }
     }
 }
+
+#endif

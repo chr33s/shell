@@ -154,17 +154,19 @@ extension MainView {
         )
         tabsModel.clearStaleGroupOverrides()
 
-        // Restore selected tab index. Assignment is outside any
-        // `withAnimation`, so the restored index snaps in without animating
-        // from tab 0.
-        if state.selectedTabIndex >= 0 && state.selectedTabIndex < terminals.count {
-            selectedTabIndex = state.selectedTabIndex
+        // Resolve the saved selection by identity after filtering skipped
+        // tabs. The saved index indexes state.tabs, not the shorter live list.
+        // Assignment is outside any `withAnimation`, so the restored selection
+        // snaps in without animating from tab 0.
+        if state.tabs.indices.contains(state.selectedTabIndex),
+           let restoredID = restoredTabIDsBySavedID[state.tabs[state.selectedTabIndex].id],
+           tabsModel.tab(withID: restoredID) != nil {
+            tabsModel.selectedTabID = restoredID
         }
 
-        // A saved index outside the restored tab range leaves `selectedTabID`
-        // nil even though tabs exist. Repair so the displayed-tab reveal has a
-        // valid selection to follow (a nil selection would keep every tab at
-        // opacity 0).
+        // The saved selected tab may no longer be restorable. Repair so the
+        // displayed-tab reveal has a valid selection to follow (a nil
+        // selection would keep every tab at opacity 0).
         tabsModel.repairSelectionIfNeeded()
 
         // Restored pane views default to visible before their Ghostty surfaces
@@ -182,9 +184,9 @@ extension MainView {
         }
 
         // Explicitly mark the focused terminal so didMoveToWindow() will grant focus.
-        // This is needed because onChange(of: selectedTabIndex) may not fire if the
-        // restored index equals the initial value (0), and even when it does fire,
-        // the views aren't in the window yet for becomeFirstResponder() to succeed.
+        // Seed this before the restored views join the window: the selection
+        // observer may not have run yet, and becomeFirstResponder() cannot
+        // succeed until the view is attached.
         if terminals.indices.contains(selectedTabIndex),
            let focusedPane = terminals[selectedTabIndex].focusedPane {
             focusedPane.isLogicallyFocused = true

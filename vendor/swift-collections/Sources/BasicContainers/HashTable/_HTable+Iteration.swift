@@ -15,7 +15,6 @@
 import InternalCollectionsUtilities
 #endif
 
-#if compiler(>=6.2)
 extension _HTable {
   @usableFromInline
   @_lifetime(borrow self)
@@ -53,7 +52,7 @@ extension _HTable {
 
     @_alwaysEmitIntoClient
     package var _bucket: Bucket
-    
+
     /// Remaining bits not yet processed from the last word read.
     @_alwaysEmitIntoClient
     package var _nextBits: Word
@@ -98,13 +97,13 @@ extension _HTable.BucketIterator {
   package var currentBucket: Bucket {
     _bucket
   }
-  
+
   @usableFromInline
   @_transparent
   package var isAtEnd: Bool {
     _bucket >= _endBucket
   }
-  
+
   @usableFromInline
   @_transparent
   package var isOccupied: Bool {
@@ -112,7 +111,7 @@ extension _HTable.BucketIterator {
     if _words == nil { return true }
     return _nextBits.contains(0)
   }
-  
+
   @_transparent
   @_lifetime(self: copy self)
   package mutating func restart() {
@@ -123,7 +122,7 @@ extension _HTable.BucketIterator {
       _nextBitCount = UInt8(Swift.min(Word._capacity, _endBucket._offset))
     }
   }
-  
+
   @_transparent
   @_lifetime(self: copy self)
   package mutating func _wrap() {
@@ -131,7 +130,14 @@ extension _HTable.BucketIterator {
     restart()
   }
 
-  
+  @usableFromInline
+  @_lifetime(self: copy self)
+  package mutating func advanceToEnd() {
+    _bucket = _endBucket
+    _nextBits = .empty
+    _nextBitCount = 0
+  }
+
   @usableFromInline
   @discardableResult
   @_lifetime(self: copy self)
@@ -139,9 +145,7 @@ extension _HTable.BucketIterator {
     assert(!isAtEnd)
     _bucket.advanceToNextWord()
     if isAtEnd {
-      _bucket = _endBucket
-      _nextBits = .empty
-      _nextBitCount = 0
+      advanceToEnd()
       return false
     }
     if let words = _words{
@@ -170,8 +174,7 @@ extension _HTable.BucketIterator {
     assert(!isAtEnd)
     _bucket._offset &+= 1
     if isAtEnd {
-      _nextBits = .empty
-      _nextBitCount = 0
+      advanceToEnd()
       return false
     }
     guard let words = _words else { return true }
@@ -232,9 +235,9 @@ extension _HTable.BucketIterator {
   @discardableResult
   @_lifetime(self: copy self)
   package mutating func advanceToOccupied(
-    maximumCount: Int
+    maxCount: Int
   ) -> Bool {
-    var remainder = UInt(bitPattern: maximumCount)
+    var remainder = UInt(bitPattern: maxCount)
     if isAtEnd { return false }
     if _words == nil {
       let delta = Swift.min(_endBucket._offset &- _bucket._offset, remainder)
@@ -262,7 +265,7 @@ extension _HTable.BucketIterator {
     }
     return true
   }
-  
+
   @usableFromInline
   @_lifetime(self: copy self)
   package mutating func wrapToOccupied() {
@@ -309,11 +312,11 @@ extension _HTable.BucketIterator {
   @discardableResult
   @_lifetime(self: copy self)
   package mutating func advanceToUnoccupied(
-    maximumCount: Int
+    maxCount: Int
   ) -> Bool {
-    assert(maximumCount > 0)
+    assert(maxCount > 0)
     assert(!isAtEnd)
-    var remainder = UInt(bitPattern: maximumCount)
+    var remainder = UInt(bitPattern: maxCount)
     if _words == nil {
       let delta = Swift.min(_endBucket._offset &- _bucket._offset, remainder)
       _bucket._offset &+= delta
@@ -363,29 +366,28 @@ extension _HTable.BucketIterator {
   @usableFromInline
   @_lifetime(self: copy self)
   package mutating func nextOccupiedRegion(
-    maximumCount: Int = .max
+    maxCount: Int = .max
   ) -> Range<Bucket>? {
-    assert(maximumCount > 0)
+    assert(maxCount > 0)
     guard self.advanceToOccupied() else { return nil }
     assert(self.isOccupied)
     let start = self.currentBucket
-    self.advanceToUnoccupied(maximumCount: maximumCount)
+    self.advanceToUnoccupied(maxCount: maxCount)
     let end = self.currentBucket
     return Range(uncheckedBounds: (start, end))
   }
-  
+
   @usableFromInline
   @_lifetime(self: copy self)
   package mutating func nextUnoccupiedRegion(
-    maximumCount: Int = .max
+    maxCount: Int = .max
   ) -> Range<Bucket>? {
-    assert(maximumCount > 0)
+    assert(maxCount > 0)
     guard self.advanceToUnoccupied() else { return nil }
     assert(!self.isOccupied)
     let start = self.currentBucket
-    self.advanceToOccupied(maximumCount: maximumCount)
+    self.advanceToOccupied(maxCount: maxCount)
     let end = self.currentBucket
     return Range(uncheckedBounds: (start, end))
   }
 }
-#endif

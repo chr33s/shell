@@ -13,7 +13,6 @@
 
 #if !COLLECTIONS_SINGLE_MODULE
 import InternalCollectionsUtilities
-import ContainersPreview
 #endif
 
 #if compiler(<6.2)
@@ -107,7 +106,7 @@ public struct RigidDeque<Element: ~Copyable>: ~Copyable {
 /// time-constrained applications that cannot accommodate unexpected latency
 /// spikes due to a reallocation getting triggered at an inopportune moment.
 ///
-/// For use cases outside of these narrow domains, we generally recommmend
+/// For use cases outside of these narrow domains, we generally recommend
 /// to use the dynamically resizing ``UniqueDeque`` type rather than
 /// `RigidDeque`. For copyable elements, the copy-on-write `Deque` type is an
 /// even more convenient and expressive choice.
@@ -260,9 +259,29 @@ extension RigidDeque where Element: ~Copyable {
       "Index range out of bounds")
   }
 
+#if compiler(>=6.4)
   @_alwaysEmitIntoClient
   public subscript(position: Int) -> Element {
-    // FIXME: Replace with borrow/mutate accessors
+    @inline(__always)
+    @_transparent
+    @_unsafeSelfDependentResult
+    borrow {
+      _checkItemIndex(position)
+      let slot = _handle.slot(forOffset: position)
+      return _handle.ptr(at: slot).pointee
+    }
+    @inline(__always)
+    @_transparent
+    @_unsafeSelfDependentResult
+    mutate {
+      _checkItemIndex(position)
+      let slot = _handle.slot(forOffset: position)
+      return &_handle.mutablePtr(at: slot).pointee
+    }
+  }
+#else
+  @_alwaysEmitIntoClient
+  public subscript(position: Int) -> Element {
     @inline(__always)
     @_transparent
     unsafeAddress {
@@ -278,6 +297,7 @@ extension RigidDeque where Element: ~Copyable {
       return _handle.mutablePtr(at: slot)
     }
   }
+#endif
 }
 
 @available(SwiftStdlib 5.0, *)
@@ -288,7 +308,7 @@ extension RigidDeque where Element: ~Copyable {
   /// `endIndex`. Passing the same index as both `i` and `j` has no effect.
   ///
   /// - Parameter i: The index of the first value to swap.
-  /// - Parameter j: The index of the second valud to swap.
+  /// - Parameter j: The index of the second value to swap.
   ///
   /// - Complexity: O(1)
   @inlinable
@@ -314,8 +334,8 @@ extension RigidDeque where Element: ~Copyable {
   ///    greater than or equal to the current count.
   ///
   /// - Complexity: O(`count`)
-  @_alwaysEmitIntoClient
-  public mutating func reallocate(capacity newCapacity: Int) {
+  @inlinable
+  public mutating func setCapacity(_ newCapacity: Int) {
     _handle.reallocate(capacity: newCapacity)
   }
 
@@ -330,7 +350,7 @@ extension RigidDeque where Element: ~Copyable {
   @inlinable
   public mutating func reserveCapacity(_ n: Int) {
     guard capacity < n else { return }
-    reallocate(capacity: n)
+    setCapacity(n)
   }
 }
 

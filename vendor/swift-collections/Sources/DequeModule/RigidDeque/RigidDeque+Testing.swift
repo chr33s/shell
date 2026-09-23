@@ -13,13 +13,10 @@
 
 #if !COLLECTIONS_SINGLE_MODULE
 import InternalCollectionsUtilities
-import ContainersPreview
 #endif
 
 // This file contains exported but non-public entry points to support clear box
 // testing.
-
-#if compiler(>=6.2)
 
 @available(SwiftStdlib 5.0, *)
 extension RigidDeque where Element: ~Copyable {
@@ -49,7 +46,7 @@ extension RigidDeque {
     copying contents: some Sequence<Element>
   ) {
     let contents = Array(contents)
-    
+
     self.init(capacity: capacity)
     _handle.startSlot = _handle.slot(_handle.startSlot, offsetBy: startSlot)
     self.append(copying: contents)
@@ -58,5 +55,3 @@ extension RigidDeque {
     assert(self.count == contents.count)
   }
 }
-
-#endif

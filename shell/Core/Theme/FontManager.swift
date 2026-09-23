@@ -20,18 +20,6 @@ struct FontFeature: Identifiable, Hashable {
 final class FontManager: ObservableObject {
     static let shared = FontManager()
 
-    /// Information about a bundled font family
-    struct FontFamilyInfo: Identifiable, Equatable {
-        let id: String
-        let displayName: String
-        let configName: String  // Name to use in Ghostty config
-        let sampleFont: UIFont?  // For preview rendering
-
-        static func == (lhs: FontFamilyInfo, rhs: FontFamilyInfo) -> Bool {
-            lhs.id == rhs.id
-        }
-    }
-
     /// Per-font cell box adjustments (percentage deltas).
     /// Maps to Ghostty `adjust-cell-width` / `adjust-cell-height` config keys.
     struct CellAdjustments: Codable, Equatable {
@@ -58,19 +46,7 @@ final class FontManager: ObservableObject {
     /// True while `reload(keys:)` re-assigns properties from the store.
     private var isReloading = false
 
-    /// Bundled fonts used only for UI glyph rendering (profile icons, etc.).
-    /// Registered with CoreText but never offered as terminal fonts.
-    private static let hiddenUtilityFontFamilies: Set<String> = [
-        "Symbols Nerd Font Mono"
-    ]
-
     // MARK: - Published Properties
-
-    /// All available bundled font families
-    @Published private(set) var availableFamilies: [FontFamilyInfo] = []
-
-    /// System-installed monospace font families (e.g., from Font Case)
-    @Published private(set) var systemFontFamilies: [FontFamilyInfo] = []
 
     /// Currently selected font size
     @Published var currentFontSize: Double {
@@ -115,7 +91,6 @@ final class FontManager: ObservableObject {
     let cellAdjustmentsDidChange = PassthroughSubject<Void, Never>()
 
     private let logger = Logger(subsystem: "dev.chr33s.shell", category: "FontManager")
-    private var fontRegistrationObserver: NSObjectProtocol?
 
     // MARK: - Initialization
 
@@ -134,12 +109,11 @@ final class FontManager: ObservableObject {
         self.enabledFontFeatures = Self.decodeFontFeatures(store.get(Settings.Font.featurePrefs))
         self.cellAdjustments = Self.decodeCellAdjustments(store.get(Settings.Font.cellAdjustmentPrefs))
 
-        // Register bundled fonts with iOS, then load available families
+        // Register the bundled fonts so Ghostty can resolve them. Device-wide
+        // font catalog discovery (every family + glyph-advance probes) is not
+        // run at launch: nothing in the app consumes a font catalog, and the
+        // scan was measurable main-thread time before first paint.
         registerBundledFonts()
-
-        loadAvailableFamilies()
-        loadSystemFonts()
-        setupFontRegistrationObserver()
 
         SettingsRefreshHub.shared.register(keys: Self.ownedKeys) { [weak self] keys in
             self?.reload(keys: keys)
@@ -246,228 +220,6 @@ final class FontManager: ObservableObject {
         return nil
     }
 
-    // MARK: - Load Available Families
-
-    /// Scan the fonts directory and build list of available font families
-    private func loadAvailableFamilies() {
-        guard let fontsURL = findFontsDirectory() else { return }
-
-        let fileManager = FileManager.default
-        var familyMap: [String: (displayName: String, configName: String, fontURL: URL)] = [:]
-
-        guard let enumerator = fileManager.enumerator(
-            at: fontsURL,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        ) else { return }
-
-        for case let fileURL as URL in enumerator {
-            let ext = fileURL.pathExtension.lowercased()
-            guard ext == "ttf" || ext == "otf" else { continue }
-
-            let filename = fileURL.lastPathComponent
-
-            // Extract font family name from the font file
-            if let (familyName, configName) = extractFontInfo(from: fileURL) {
-                // Skip UI-only utility fonts
-                guard !Self.hiddenUtilityFontFamilies.contains(familyName) else { continue }
-
-                // Prefer Regular weight for preview
-                let isRegular = filename.contains("Regular")
-                if familyMap[familyName] == nil || isRegular {
-                    familyMap[familyName] = (familyName, configName, fileURL)
-                }
-            }
-        }
-
-        // Build FontFamilyInfo array
-        var families: [FontFamilyInfo] = []
-        for (id, info) in familyMap {
-            let sampleFont = createFont(from: info.fontURL, size: 16)
-
-            families.append(FontFamilyInfo(
-                id: id,
-                displayName: info.displayName,
-                configName: info.configName,
-                sampleFont: sampleFont
-            ))
-        }
-
-        // Sort alphabetically
-        families.sort { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
-
-        self.availableFamilies = families
-        logger.info("Loaded \(families.count) font families")
-    }
-
-    // MARK: - System Font Discovery
-
-    /// Discover monospace fonts installed on the device (e.g., via Font Case)
-    private func loadSystemFonts() {
-        let bundledConfigNames = Set(availableFamilies.map(\.configName))
-
-        var systemFonts: [FontFamilyInfo] = []
-        var seenFamilies = Set<String>()
-
-        // Use UIFontDescriptor matching to discover all monospace fonts system-wide.
-        // This finds fonts from UIFont.familyNames AND user-installed fonts (Font Case etc.)
-        // when the com.apple.developer.user-fonts entitlement is present.
-        let monoDescriptor = UIFontDescriptor(fontAttributes: [
-            .traits: [UIFontDescriptor.TraitKey.symbolic: UIFontDescriptor.SymbolicTraits.traitMonoSpace.rawValue]
-        ])
-        let matchedDescriptors = monoDescriptor.matchingFontDescriptors(withMandatoryKeys: nil)
-        let matchCount = matchedDescriptors.count
-        logger.info("[SystemFonts] UIFontDescriptor monospace matches: \(matchCount)")
-
-        for descriptor in matchedDescriptors {
-            let font = UIFont(descriptor: descriptor, size: 16)
-            let familyName = font.familyName
-
-            guard !seenFamilies.contains(familyName),
-                  !bundledConfigNames.contains(familyName),
-                  !Self.hiddenUtilityFontFamilies.contains(familyName) else { continue }
-
-            systemFonts.append(FontFamilyInfo(
-                id: familyName,
-                displayName: familyName,
-                configName: familyName,
-                sampleFont: font
-            ))
-            seenFamilies.insert(familyName)
-        }
-
-        let traitCount = systemFonts.count
-        logger.info("[SystemFonts] From trait matching: \(traitCount) monospace families")
-
-        // Also check UIFont.familyNames with glyph-advance fallback for fonts that
-        // don't set the monospace trait but are actually monospace (e.g., Berkeley Mono)
-        for familyName in UIFont.familyNames {
-            guard !seenFamilies.contains(familyName),
-                  !bundledConfigNames.contains(familyName),
-                  !Self.hiddenUtilityFontFamilies.contains(familyName) else { continue }
-
-            guard let font = UIFont(name: familyName, size: 16) else { continue }
-            guard self.isMonospaceByGlyphAdvance(font) else { continue }
-
-            logger.info("[SystemFonts] Glyph-advance detected mono: '\(familyName)'")
-            systemFonts.append(FontFamilyInfo(
-                id: familyName,
-                displayName: familyName,
-                configName: familyName,
-                sampleFont: font
-            ))
-            seenFamilies.insert(familyName)
-        }
-
-        // Check CoreText registered font descriptors for user-installed fonts
-        // that may not appear in UIFont.familyNames or descriptor matching
-        let descriptors = CTFontManagerCopyRegisteredFontDescriptors(.user, true) as? [CTFontDescriptor] ?? []
-        let ctCount = descriptors.count
-        logger.info("[SystemFonts] CTFontManager .user scope: \(ctCount) descriptors")
-
-        for descriptor in descriptors {
-            guard let familyName = CTFontDescriptorCopyAttribute(descriptor, kCTFontFamilyNameAttribute) as? String else {
-                continue
-            }
-            guard !seenFamilies.contains(familyName),
-                  !bundledConfigNames.contains(familyName),
-                  !Self.hiddenUtilityFontFamilies.contains(familyName) else { continue }
-
-            let ctFont = CTFontCreateWithFontDescriptor(descriptor, 16, nil)
-            let uiFont = ctFont as UIFont
-            let traits = uiFont.fontDescriptor.symbolicTraits
-            let isMono = traits.contains(.traitMonoSpace) || self.isMonospaceByGlyphAdvance(uiFont)
-
-            logger.info("[SystemFonts] CT user font: '\(familyName)' mono=\(isMono)")
-            guard isMono else { continue }
-
-            systemFonts.append(FontFamilyInfo(
-                id: familyName,
-                displayName: familyName,
-                configName: familyName,
-                sampleFont: uiFont
-            ))
-            seenFamilies.insert(familyName)
-        }
-
-        systemFonts.sort {
-            $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
-        }
-
-        self.systemFontFamilies = systemFonts
-        let totalCount = systemFonts.count
-        logger.info("[SystemFonts] Total: \(totalCount) system monospace font families")
-        for sf in systemFonts {
-            let name = sf.displayName
-            logger.info("[SystemFonts]   -> \(name)")
-        }
-    }
-
-    /// Check if a font is monospace by comparing glyph advance widths.
-    /// Some fonts (e.g., Berkeley Mono) don't set the OS/2 isFixedPitch flag,
-    /// so UIFontDescriptor.symbolicTraits won't include .traitMonoSpace.
-    /// This fallback compares advances of characters with typically extreme width differences.
-    private func isMonospaceByGlyphAdvance(_ font: UIFont) -> Bool {
-        let ctFont = font as CTFont
-        var characters: [UniChar] = [0x004D, 0x0069, 0x0057, 0x002E] // M, i, W, .
-        var glyphs = [CGGlyph](repeating: 0, count: characters.count)
-        guard CTFontGetGlyphsForCharacters(ctFont, &characters, &glyphs, characters.count) else { return false }
-        guard glyphs.allSatisfy({ $0 != 0 }) else { return false }
-        var advances = [CGSize](repeating: .zero, count: characters.count)
-        CTFontGetAdvancesForGlyphs(ctFont, .horizontal, glyphs, &advances, characters.count)
-        let ref = advances[0].width
-        guard ref > 0 else { return false }
-        return advances.allSatisfy { abs($0.width - ref) < 0.01 }
-    }
-
-    private func setupFontRegistrationObserver() {
-        fontRegistrationObserver = NotificationCenter.default.addObserver(
-            forName: NSNotification.Name(kCTFontManagerRegisteredFontsChangedNotification as String),
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.loadSystemFonts()
-            }
-        }
-    }
-
-    /// Extract font family name and config name from a font file
-    private func extractFontInfo(from url: URL) -> (displayName: String, configName: String)? {
-        guard let provider = CGDataProvider(url: url as CFURL),
-              let cgFont = CGFont(provider) else {
-            return nil
-        }
-
-        // Create a CTFont to get the family name
-        let ctFont = CTFontCreateWithGraphicsFont(cgFont, 12, nil, nil)
-        let familyName = CTFontCopyFamilyName(ctFont) as String
-
-        // The config name is the font family name as-is
-        return (familyName, familyName)
-    }
-
-    /// Create a UIFont from a TTF file URL
-    private func createFont(from url: URL, size: CGFloat) -> UIFont? {
-        guard let provider = CGDataProvider(url: url as CFURL),
-              let cgFont = CGFont(provider) else {
-            return nil
-        }
-
-        let ctFont = CTFontCreateWithGraphicsFont(cgFont, size, nil, nil)
-        return ctFont as UIFont
-    }
-
-    /// Check if a CTFontManager registration error indicates a duplicate/already-registered font
-    private func isAlreadyRegisteredError(_ error: Unmanaged<CFError>?) -> Bool {
-        guard let cfError = error?.takeUnretainedValue() else { return false }
-        let domain = CFErrorGetDomain(cfError) as String
-        let code = CFErrorGetCode(cfError)
-        // CTFontManagerError codes: .alreadyRegistered = 105, .duplicatedName = 106
-        guard domain == kCTFontManagerErrorDomain as String else { return false }
-        return code == 105 || code == 106
-    }
-
     // MARK: - Persistence
 
     private func saveFontSize() {
@@ -518,22 +270,6 @@ final class FontManager: ObservableObject {
             return true
         }
         return config.setFontFamily(family)
-    }
-
-    // MARK: - Helper Properties
-
-    /// Display name for the current font family
-    var currentFontFamilyDisplayName: String {
-        if let family = currentFontFamily {
-            if let bundled = availableFamilies.first(where: { $0.configName == family }) {
-                return bundled.displayName
-            }
-            if let system = systemFontFamilies.first(where: { $0.configName == family }) {
-                return system.displayName
-            }
-            return family
-        }
-        return "Ghostty Default"
     }
 
     // MARK: - Font Feature Discovery & Management

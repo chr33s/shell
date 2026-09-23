@@ -11,10 +11,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#if !COLLECTIONS_SINGLE_MODULE
-import ContainersPreview
-#endif
-
 #if compiler(>=6.4) && UnstableHashedContainers
 
 @available(SwiftStdlib 5.0, *)
@@ -96,7 +92,7 @@ extension RigidDictionary where Key: ~Copyable, Value: ~Copyable {
     return nil
   }
   
-#if UnstableContainersPreview
+  @available(SwiftStdlib 6.4, *)
   @inlinable
   @discardableResult
   @_lifetime(&self)
@@ -114,8 +110,7 @@ extension RigidDictionary where Key: ~Copyable, Value: ~Copyable {
     }
     return _borrowValue(at: bucket)
   }
-#endif
-  
+
   @inlinable
   @discardableResult
   public mutating func updateValue<E: Error, R: ~Copyable>(

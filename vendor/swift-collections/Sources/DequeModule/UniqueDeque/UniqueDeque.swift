@@ -13,7 +13,6 @@
 
 #if !COLLECTIONS_SINGLE_MODULE
 import InternalCollectionsUtilities
-import ContainersPreview
 #endif
 
 #if compiler(<6.2)
@@ -194,6 +193,22 @@ extension UniqueDeque where Element: ~Copyable {
   @inline(__always)
   public var indices: Range<Int> { unsafe Range(uncheckedBounds: (0, count)) }
 
+#if compiler(>=6.4)
+  @_alwaysEmitIntoClient
+  public subscript(position: Int) -> Element {
+    @inline(__always)
+    @_transparent
+    borrow {
+      _storage[position]
+    }
+    @inline(__always)
+    @_transparent
+    @_unsafeSelfDependentResult // FIXME: Why is this necessary?
+    mutate {
+      &_storage[position]
+    }
+  }
+#else
   @_alwaysEmitIntoClient
   public subscript(position: Int) -> Element {
     @inline(__always)
@@ -211,6 +226,7 @@ extension UniqueDeque where Element: ~Copyable {
       return _storage._handle.mutablePtr(at: slot)
     }
   }
+#endif
 }
 
 @available(SwiftStdlib 5.0, *)
@@ -221,7 +237,7 @@ extension UniqueDeque where Element: ~Copyable {
   /// `endIndex`. Passing the same index as both `i` and `j` has no effect.
   ///
   /// - Parameter i: The index of the first value to swap.
-  /// - Parameter j: The index of the second valud to swap.
+  /// - Parameter j: The index of the second value to swap.
   ///
   /// - Complexity: O(1)
   @_transparent
@@ -255,8 +271,8 @@ extension UniqueDeque where Element: ~Copyable {
   ///
   /// - Complexity: O(`count`)
   @inlinable
-  public mutating func reallocate(capacity: Int) {
-    _storage.reallocate(capacity: capacity)
+  public mutating func setCapacity(_ newCapacity: Int) {
+    _storage.setCapacity(newCapacity)
   }
 
   /// Ensure that the array has capacity to store the specified number of
@@ -275,7 +291,7 @@ extension UniqueDeque where Element: ~Copyable {
 
   @_alwaysEmitIntoClient
   @_transparent
-  internal mutating func _ensureFreeCapacity(_ freeCapacity: Int) {
+  package mutating func _ensureFreeCapacity(_ freeCapacity: Int) {
     guard _storage.freeCapacity < freeCapacity else { return }
     _ensureFreeCapacitySlow(freeCapacity)
   }
@@ -291,7 +307,7 @@ extension UniqueDeque where Element: ~Copyable {
   @inlinable
   internal mutating func _ensureFreeCapacitySlow(_ freeCapacity: Int) {
     let newCapacity = _grow(freeCapacity: freeCapacity)
-    reallocate(capacity: newCapacity)
+    setCapacity(newCapacity)
   }
 }
 

@@ -12,7 +12,8 @@
 //===----------------------------------------------------------------------===//
 
 #if !COLLECTIONS_SINGLE_MODULE
-import ContainersPreview
+import InternalCollectionsUtilities
+import SpanPreview
 #endif
 
 #if compiler(>=6.4) && UnstableHashedContainers
@@ -102,7 +103,8 @@ extension RigidSet where Element: ~Copyable {
   /// Inserts the given element in the set if it is not already present.
   ///
   /// - Parameter item: An element to insert into the set.
-  /// - Returns:
+  /// - Returns: `item` if an equal member already exists in the set;
+  ///     otherwise `nil`.
   @inlinable
   @discardableResult
   public mutating func insert(
@@ -121,14 +123,14 @@ extension RigidSet where Element: ~Copyable {
 extension RigidSet where Element: ~Copyable {
   @_alwaysEmitIntoClient
   public mutating func insert<E: Error>(
-    maximumCount: Int,
+    addingCount newItemCount: Int,
     initializingWith initializer: (inout OutputSpan<Element>) throws(E) -> Void
   ) throws(E) -> Void {
-    precondition(maximumCount >= 0, "Cannot insert a negative number of items")
-    guard maximumCount > 0 else { return }
-    precondition(freeCapacity >= maximumCount, "RigidSet capacity overflow")
-    var remainder = maximumCount
-    
+    precondition(newItemCount >= 0, "Cannot insert a negative number of items")
+    guard newItemCount > 0 else { return }
+    precondition(freeCapacity >= newItemCount, "RigidSet capacity overflow")
+    var remainder = newItemCount
+
     // FIXME: Instead of getting temporary buffers, we could place the new
     // items in unoccupied buckets, then incrementally
     // rehash them into their correct location, like the stdlib does for
@@ -164,47 +166,6 @@ extension RigidSet where Element: ~Copyable {
       }
     }
   }
-
-#if UnstableContainersPreview
-  @_alwaysEmitIntoClient
-  public mutating func insert<
-    E: Error,
-    P: Producer<Element, E> & ~Copyable & ~Escapable
-  >(
-    maximumCount: Int? = nil,
-    from producer: inout P
-  ) throws(E)
-  where P.Element: ~Copyable
-  {
-    try self.insert(
-      maximumCount: maximumCount ?? freeCapacity
-    ) { target throws(E) in
-      while !target.isFull {
-        guard try producer.generate(into: &target) else { break }
-      }
-    }
-  }
-#endif
-
-#if UnstableContainersPreview
-  @_alwaysEmitIntoClient
-  public mutating func insert<
-    D: Drain<Element> & ~Copyable & ~Escapable
-  >(
-    maximumCount: Int? = nil,
-    from drain: inout D
-  ) {
-    var remainder = maximumCount ?? freeCapacity
-    while remainder > 0 {
-      var span = drain.drainNext(maximumCount: remainder)
-      guard !span.isEmpty else { break }
-      remainder &-= span.count
-      while let next = span.popFirst() {
-        self.insert(next)
-      }
-    }
-  }
-#endif
 }
 
 @available(SwiftStdlib 5.0, *)
@@ -220,34 +181,34 @@ extension RigidSet /* where Element: Copyable */ {
     }
   }
   
-#if UnstableContainersPreview
+  @available(SwiftStdlib 6.4, *)
   @_alwaysEmitIntoClient
   package mutating func _insert<
-    S: BorrowingSequence_<Element> & ~Copyable & ~Escapable
+    S: Iterable & ~Copyable & ~Escapable
   >(
     copying items: borrowing S
-  ) {
-    var it = items.makeBorrowingIterator_()
+  ) throws(S.Failure)
+  where S.Element == Element {
+    var it = items.makeBorrowingIterator()
     while true {
-      let span = it.nextSpan_()
+      let span = try it.nextSpan()
       guard !span.isEmpty else { break }
       self.insert(copying: span)
     }
   }
-#endif
-  
-#if UnstableContainersPreview
+
+  @available(SwiftStdlib 6.4, *)
   @_alwaysEmitIntoClient
   @inline(__always)
   public mutating func insert<
-    S: BorrowingSequence_<Element> & ~Copyable & ~Escapable
+    S: Iterable & ~Copyable & ~Escapable
   >(
     copying items: borrowing S
-  ) {
-    _insert(copying: items)
+  ) throws(S.Failure)
+  where S.Element == Element {
+    try _insert(copying: items)
   }
-#endif
-  
+
   @_alwaysEmitIntoClient
   @inline(__always)
   public mutating func insert(copying items: some Sequence<Element>) {
@@ -257,17 +218,17 @@ extension RigidSet /* where Element: Copyable */ {
     }
   }
   
-#if UnstableContainersPreview
+  @available(SwiftStdlib 6.4, *)
   @_alwaysEmitIntoClient
   @inline(__always)
   public mutating func insert<
-    S: BorrowingSequence_<Element> & Sequence<Element>
+    S: Iterable & Sequence<Element>
   >(
     copying items: borrowing S
-  ) {
-    _insert(copying: items)
+  ) throws(S.Failure)
+  where S.Element == Element {
+    try _insert(copying: items)
   }
-#endif
 }
 
 #endif

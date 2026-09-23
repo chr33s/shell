@@ -6,7 +6,7 @@
 //
 
 import Foundation
-import Citadel
+@preconcurrency import Citadel
 import Combine
 import NIOCore
 import NIOSSH
@@ -43,6 +43,13 @@ final class CitadelSSHSession: SSHTerminalSession {
     /// — large pastes could reach the channel out of order.
     private var stdinStreamContinuation: AsyncStream<ByteBuffer>.Continuation?
     private var stdinWriterTask: Task<Void, Never>?
+
+    /// Window changes had the same race as stdin: a Task per `setSize` could
+    /// deliver the keyboard-up grid after the dismissed-keyboard grid, leaving
+    /// a TUI drawn at the stale row count. One send in flight; the newest
+    /// size waits behind it and intermediate sizes are dropped.
+    private var pendingResize: TerminalPTY.TerminalSize?
+    private var resizeTask: Task<Void, Never>?
 
     // Store resolved IP address for .local hostname caching
     private(set) var resolvedIPAddress: String?
@@ -868,22 +875,28 @@ final class CitadelSSHSession: SSHTerminalSession {
         // flood the remote with sizes the user never settled on (§10).
         inputGate.requestSize(TerminalGridSize(rows: size.rows, cols: size.cols))
 
-        guard let writer = stdinWriter else { return }
+        guard stdinWriter != nil else { return }
 
         // Window-change goes out of band relative to the stdin stream
         // (matches SSHSession); resize/input relative order was never
-        // guaranteed on an SSH channel anyway.
-        Task {
-            do {
-                try await writer.changeSize(
-                    cols: Int(size.cols),
-                    rows: Int(size.rows),
-                    pixelWidth: Int(size.pixelWidth),
-                    pixelHeight: Int(size.pixelHeight)
-                )
-            } catch {
-                Self.logger.error("Failed to resize PTY: \(error.localizedDescription)")
+        // guaranteed on an SSH channel anyway. Resize/resize order is.
+        pendingResize = size
+        guard resizeTask == nil else { return }
+        resizeTask = Task { [weak self] in
+            while let self, let writer = self.stdinWriter, let size = self.pendingResize {
+                self.pendingResize = nil
+                do {
+                    try await writer.changeSize(
+                        cols: Int(size.cols),
+                        rows: Int(size.rows),
+                        pixelWidth: Int(size.pixelWidth),
+                        pixelHeight: Int(size.pixelHeight)
+                    )
+                } catch {
+                    Self.logger.error("Failed to resize PTY: \(error.localizedDescription)")
+                }
             }
+            self?.resizeTask = nil
         }
     }
 
@@ -1170,6 +1183,7 @@ final class CitadelSSHSession: SSHTerminalSession {
         sessionTask?.cancel()
         sessionTask = nil
         stdinWriter = nil
+        pendingResize = nil
         finishStdinStream()
         // Retiring the generation stops the old writer and discards
         // connection-bound unsent data. It is deliberately NOT copied to a

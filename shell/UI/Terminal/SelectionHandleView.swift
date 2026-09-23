@@ -223,7 +223,7 @@ extension Ghostty {
             reticleView.alpha = 0
 
             updateChromeColors()
-            registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (view: SelectionMagnifierView, _) in
+            registerForTraitChanges(UITraitCollection.systemTraitsAffectingColorAppearance) { (view: SelectionMagnifierView, _: UITraitCollection) in
                 view.updateChromeColors()
             }
         }

@@ -19,7 +19,7 @@ import Foundation
 @testable import Shell
 
 /// A virtual clock that is also the sleeper the coordinator waits on.
-final class VirtualRecoveryScheduler: RecoveryClock, RecoverySleeper, @unchecked Sendable {
+nonisolated final class VirtualRecoveryScheduler: RecoveryClock, RecoverySleeper, @unchecked Sendable {
 
     private let lock = NSLock()
     private var currentSeconds: TimeInterval = 1_000
@@ -126,14 +126,6 @@ final class VirtualRecoveryScheduler: RecoveryClock, RecoverySleeper, @unchecked
             return waiters.remove(at: index)
         }
         cancelled?.continuation.resume(throwing: CancellationError())
-    }
-}
-
-private extension NSLock {
-    func withLock<T>(_ body: () -> T) -> T {
-        lock()
-        defer { unlock() }
-        return body()
     }
 }
 

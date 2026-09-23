@@ -280,14 +280,24 @@ extension LocalShellSession {
         ios_setenv("COLUMNS", String(size.cols), 1)
         ios_setenv("LINES", String(size.rows), 1)
 
-        // Configure PATH with ios_system commands
-        let paths = [
+        // ios_system resolves bundled commands from its command dictionary;
+        // PATH is only needed to find user-installed scripts and tools.
+        var paths = [
             documentsPath,
-            "\(documentsPath)/bin",
+            "\(documentsPath)/bin"
+        ]
+        // The simulator can read the Mac's /usr/bin/cd (a #!/bin/sh script).
+        // ios_system gives PATH scripts precedence over its builtins and tries
+        // to launch that script with dash, which we don't bundle. Keep host
+        // tools out of the simulator's PATH so cd and other builtins resolve
+        // exactly as they do on a device.
+        #if !targetEnvironment(simulator)
+        paths += [
             "/usr/bin",
             "/bin",
             "/usr/local/bin"
         ]
+        #endif
         ios_setenv("PATH", paths.joined(separator: ":"), 1)
     }
 

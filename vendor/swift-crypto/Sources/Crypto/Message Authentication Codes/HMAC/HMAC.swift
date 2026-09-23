@@ -11,10 +11,15 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 //===----------------------------------------------------------------------===//
-#if CRYPTO_IN_SWIFTPM && !CRYPTO_IN_SWIFTPM_FORCE_BUILD_API
+
+#if canImport(CryptoKit)
 @_exported import CryptoKit
 #else
-import Foundation
+#if canImport(FoundationEssentials)
+public import FoundationEssentials
+#else
+public import Foundation
+#endif
 
 /// A hash-based message authentication algorithm.
 ///
@@ -29,8 +34,7 @@ import Foundation
 /// need to encrypt the data as well as authenticate it, use a cipher like
 /// ``AES`` or ``ChaChaPoly`` to put the data into a sealed box (an instance of
 /// ``AES/GCM/SealedBox`` or ``ChaChaPoly/SealedBox``).
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
-public struct HMAC<H: HashFunction>: MACAlgorithm {
+public struct HMAC<H: HashFunction>: MACAlgorithm, Sendable {
     /// An alias for the symmetric key type used to compute or verify a message
     /// authentication code.
     public typealias Key = SymmetricKey
@@ -61,40 +65,32 @@ public struct HMAC<H: HashFunction>: MACAlgorithm {
         #if os(iOS) && (arch(arm) || arch(i386))
         fatalError("Unsupported architecture")
         #else
-        var K: ContiguousBytes
-        
-        if key.byteCount == H.blockByteCount {
-            K = key
-        } else if key.byteCount > H.blockByteCount {
-            var array = Array(repeating: UInt8(0), count: H.blockByteCount)
-            
-            K = key.withUnsafeBytes { (keyBytes)  in
-                let hash = H.hash(bufferPointer: keyBytes)
-                
-                return hash.withUnsafeBytes({ (hashBytes) in
-                    memcpy(&array, hashBytes.baseAddress!, hashBytes.count)
-                    return array
-                })
+        var innerKey = SecureBytes(capacity: H.blockByteCount) { keyOutput in
+            if key.byteCount <= keyOutput.freeCapacity {
+                keyOutput.append(contentsOf: key.bytes)
+            } else if key.byteCount > H.blockByteCount {
+                let hash = H.hash(bytes: key.bytes)
+                hash.withUnsafeBytes {
+                    keyOutput.append(contentsOf: $0.bytes)
+                }
             }
-        } else {
-            var keyArray = Array(repeating: UInt8(0), count: H.blockByteCount)
-            key.withUnsafeBytes { keyArray.replaceSubrange(0..<$0.count, with: $0) }
-            K = keyArray
+            keyOutput.append(repeating: 0, count: keyOutput.freeCapacity, as: UInt8.self)
         }
+        var outerKey = innerKey
         
         self.innerHasher = H()
-        let innerKey = K.withUnsafeBytes {
-            return $0.map({ (keyByte) in
-                keyByte ^ 0x36
-            })
+        innerKey.withUnsafeMutableBytes {
+            for i in 0 ..< $0.count {
+                $0[i] ^= 0x36
+            }
         }
-        innerHasher.update(data: innerKey)
+        innerHasher.update(bytes: innerKey.bytes)
         
         self.outerHasher = H()
-        let outerKey = K.withUnsafeBytes {
-            return $0.map({ (keyByte) in
-                keyByte ^ 0x5c
-            })
+        outerKey.withUnsafeMutableBytes {
+            for i in 0 ..< $0.count {
+                $0[i] ^= 0x5c
+            }
         }
         outerHasher.update(data: outerKey)
         #endif
@@ -110,6 +106,19 @@ public struct HMAC<H: HashFunction>: MACAlgorithm {
     public static func authenticationCode<D: DataProtocol>(for data: D, using key: SymmetricKey) -> MAC {
         var authenticator = Self(key: key)
         authenticator.update(data: data)
+        return authenticator.finalize()
+    }
+    
+    /// Computes a message authentication code for the given data.
+    ///
+    /// - Parameters:
+    ///   - data: The data for which to compute the authentication code.
+    ///   - key: The symmetric key used to secure the computation.
+    ///
+    /// - Returns: The message authentication code.
+    public static func authenticationCode(for data: RawSpan, using key: SymmetricKey) -> MAC {
+        var authenticator = Self(key: key)
+        authenticator.update(bytes: data)
         return authenticator.finalize()
     }
     
@@ -157,6 +166,10 @@ public struct HMAC<H: HashFunction>: MACAlgorithm {
         }
     }
     
+    public mutating func update(bytes: RawSpan) {
+        innerHasher.update(bytes: bytes)
+    }
+    
     /// Finalizes the message authentication computation and returns the
     /// computed code.
     ///
@@ -191,11 +204,19 @@ public struct HMAC<H: HashFunction>: MACAlgorithm {
         let computedMac = authenticator.finalize()
         return safeCompare(authenticationCodeBytes, computedMac)
     }
+    
+    private static func isValidAuthenticationCode<C: ContiguousBytes>(authenticationCodeBytes: C,
+                                                                      authenticatedData: UnsafeRawBufferPointer,
+                                                                      key: SymmetricKey) -> Bool {
+        var authenticator = Self(key: key)
+        authenticator.update(bufferPointer: authenticatedData)
+        let computedMac = authenticator.finalize()
+        return safeCompare(authenticationCodeBytes, computedMac)
+    }
 }
 
 /// A hash-based message authentication code.
-@available(macOS 10.15, iOS 13, watchOS 6, tvOS 13, macCatalyst 13, visionOS 1.0, *)
-public struct HashedAuthenticationCode<H: HashFunction>: MessageAuthenticationCode {
+public struct HashedAuthenticationCode<H: HashFunction>: MessageAuthenticationCode, Sendable {
     let digest: H.Digest
     
     /// The number of bytes in the message authentication code.
@@ -203,11 +224,13 @@ public struct HashedAuthenticationCode<H: HashFunction>: MessageAuthenticationCo
         return H.Digest.byteCount
     }
     
+#if !hasFeature(Embedded)
     /// A human-readable description of the code.
     public var description: String {
         return "HMAC with \(H.self): \(Array(digest).hexString)"
     }
-    
+#endif
+
     /// Invokes the given closure with a buffer pointer covering the raw bytes
     /// of the code.
     ///
@@ -216,8 +239,14 @@ public struct HashedAuthenticationCode<H: HashFunction>: MessageAuthenticationCo
     /// code and returns the code.
     ///
     /// - Returns: The code, as returned from the body closure.
+    #if hasFeature(Embedded)
+    public func withUnsafeBytes<R, E: Error>(_ body: (UnsafeRawBufferPointer) throws(E) -> R) throws(E) -> R {
+        return try digest.withUnsafeBytes(body)
+    }
+    #else
     public func withUnsafeBytes<R>(_ body: (UnsafeRawBufferPointer) throws -> R) rethrows -> R {
         return try digest.withUnsafeBytes(body)
     }
+    #endif
 }
-#endif // Linux or !SwiftPM
+#endif // canImport(CryptoKit)

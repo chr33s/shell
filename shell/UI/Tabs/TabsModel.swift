@@ -1352,6 +1352,15 @@ final class TabsModel {
         tabs.first(where: { $0.id == id })
     }
 
+    /// An initial multiplexer attach may replace its selected gateway, but
+    /// must preserve any other valid selection, including an empty restored
+    /// tmux placeholder. Read this when the reply arrives so a background
+    /// reconnect cannot override restoration or a newer user tab choice.
+    func maySelectInitialMultiplexerTab(gatewayTabID: UUID?) -> Bool {
+        guard let selectedTab else { return true }
+        return selectedTab.id == gatewayTabID
+    }
+
     /// Ensure `selectedTabID` still points at an existing tab; if not (e.g. the
     /// selected tab was just removed — a failed tmux placeholder), fall back to
     /// the tmux gateway tab if present, otherwise the first remaining tab. Keeps

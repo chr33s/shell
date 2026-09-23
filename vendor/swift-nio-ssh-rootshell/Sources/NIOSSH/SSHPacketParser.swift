@@ -36,6 +36,10 @@ struct SSHPacketParser {
     private var buffer: ByteBuffer
     private var state: State
     private var sequenceNumber: UInt32 = 0
+    /// Sequence number of the packet most recently returned by `nextPacket()`.
+    private(set) var lastPacketSequenceNumber: UInt32 = 0
+    /// True once the peer's version line was preceded by other text lines.
+    private(set) var sawVersionPreLines = false
     var userAuthByte60Mode: UserAuthByte60Mode = .publicKeyOK
     private let maximumPacketSize: Int
     internal static let defaultMaximumPacketSize = 1 << 17
@@ -73,6 +77,16 @@ struct SSHPacketParser {
         }
     }
 
+    /// Strict KEX (kex-strict-*-v00@openssh.com) restarts inbound numbering at 0 after each NEWKEYS.
+    mutating func resetSequenceNumber() {
+        self.sequenceNumber = 0
+    }
+
+    private mutating func didParsePacket() {
+        self.lastPacketSequenceNumber = self.sequenceNumber
+        self.sequenceNumber = self.sequenceNumber &+ 1
+    }
+
     mutating func nextPacket() throws -> SSHMessage? {
         // This parser has a slightly strange strategy: we leave the packet length field in the buffer until we're done.
         // This is necessary because some transport protection schemes need the length field for MACing purposes, and can
@@ -96,7 +110,7 @@ struct SSHPacketParser {
 
                 if let message = try self.parsePlaintext(length: length) {
                     self.state = .cleartextWaitingForLength
-                    self.sequenceNumber = self.sequenceNumber &+ 1
+                    self.didParsePacket()
                     return message
                 }
                 self.state = .cleartextWaitingForBytes(length)
@@ -106,7 +120,7 @@ struct SSHPacketParser {
         case .cleartextWaitingForBytes(let length):
             if let message = try self.parsePlaintext(length: length) {
                 self.state = .cleartextWaitingForLength
-                self.sequenceNumber = self.sequenceNumber &+ 1
+                self.didParsePacket()
                 return message
             }
             return nil
@@ -132,14 +146,14 @@ struct SSHPacketParser {
 
             if let message = try self.parseCiphertext(length: length, protection: protection) {
                 self.state = .encryptedWaitingForLength(protection)
-                self.sequenceNumber = self.sequenceNumber &+ 1
+                self.didParsePacket()
                 return message
             }
             return nil
         case .encryptedWaitingForBytes(let length, let protection):
             if let message = try self.parseCiphertext(length: length, protection: protection) {
                 self.state = .encryptedWaitingForLength(protection)
-                self.sequenceNumber = self.sequenceNumber &+ 1
+                self.didParsePacket()
                 return message
             }
             return nil
@@ -153,6 +167,8 @@ struct SSHPacketParser {
     }
 
     internal static let maximumAllowedVersionSize = 4096
+    /// RFC 4253 §4.2 lets a server send text lines before its version line; OpenSSH caps them at 1024.
+    internal static let maximumVersionPreLines = 1024
     private mutating func readVersion() throws -> String? {
         // Looking for a complete SSH version string, potentially with pre-lines
         let slice = self.buffer.readableBytesView
@@ -163,7 +179,8 @@ struct SSHPacketParser {
         let maxIndex = slice.index(slice.startIndex, offsetBy: min(slice.count, Self.maximumAllowedVersionSize))
 
         var lastLineEndIndex: ByteBufferView.Index?
-        
+        var preLines = 0
+
         for index in slice.startIndex ..< slice.endIndex {
             if index > maxIndex {
                 // Does not account for `CRLF`
@@ -173,20 +190,25 @@ struct SSHPacketParser {
             if slice[index] == 10 { // Found a line ending
                 let lineStartIndex = lastLineEndIndex?.advanced(by: 1) ?? slice.startIndex
                 let lineSlice = slice[lineStartIndex..<index]
-                
+
                 // Check if this line looks like an SSH version (any SSH version, not just 2.0)
                 if lineSlice.count >= 4 && lineSlice.starts(with: "SSH-".utf8) {
-                    // Found SSH version line, return everything up to and including this line
-                    var version = String(decoding: slice[slice.startIndex..<index], as: UTF8.self)
+                    // Only the version line is returned: pre-lines must not reach the exchange hash (RFC 4253 §4.2).
+                    var version = String(decoding: lineSlice, as: UTF8.self)
                     // read including \n
                     self.buffer.moveReaderIndex(forwardBy: slice.startIndex.distance(to: index).advanced(by: 1))
                     // Remove the trailing \r if present (but keep \n removal logic for consistency)
                     if version.last == "\r" {
                         version.removeLast()
                     }
+                    self.sawVersionPreLines = preLines > 0
                     return version
                 }
-                
+
+                preLines += 1
+                if preLines > Self.maximumVersionPreLines {
+                    throw NIOSSHError.excessiveVersionLength
+                }
                 lastLineEndIndex = index
             }
         }

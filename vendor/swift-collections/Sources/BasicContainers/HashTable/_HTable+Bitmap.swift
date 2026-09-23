@@ -15,7 +15,6 @@
 import InternalCollectionsUtilities
 #endif
 
-#if compiler(>=6.2)
 extension _HTable {
   @usableFromInline
   @frozen
@@ -35,6 +34,9 @@ extension _HTable {
 }
 
 extension _HTable.Bitmap {
+  @usableFromInline
+  package typealias Word = _HTable.Word
+
   @_transparent
   @inlinable
   package func isValid(_ bucket: Bucket) -> Bool {
@@ -67,7 +69,7 @@ extension _HTable.Bitmap {
   package func clearAll() {
     _words.update(repeating: .empty)
   }
-  
+
   @_alwaysEmitIntoClient
   package func occupiedCount() -> Int {
     var c = 0
@@ -79,7 +81,7 @@ extension _HTable.Bitmap {
 
   @inlinable
   package func firstOccupiedBucket(from start: Bucket) -> Bucket? {
-    assert(isValid(start))
+    guard isValid(start) else { return nil }
 
     var word = start.word
     var bits = _words[word]
@@ -97,11 +99,33 @@ extension _HTable.Bitmap {
     }
   }
 
+  @inlinable
+  package func firstOccupiedBucket(
+    from start: Bucket, limit: Bucket
+  ) -> Bucket {
+    assert(isValid(start) && start <= limit && limit.word <= _words.count)
+    var word = start.word
+    var bits = _words[word]
+    bits.removeAll(upTo: start.bit)
+    while word < limit.word {
+      if let bit = bits.firstMember {
+        return Bucket(word: word, bit: bit)
+      }
+      word &+= 1
+      bits = word < _words.count ? _words[word] : .empty
+    }
+    bits.removeAll(from: limit.bit)
+    if let bit = bits.firstMember {
+      return Bucket(word: word, bit: bit)
+    }
+    return limit
+  }
+
   /// Note: If the bitmap has fewer than Word.capacity bits, then this may
   /// report an unoccupied bit beyond the end of its actual size.
   @inlinable
-  package func firstUnoccupiedBucket(from start: Bucket) -> Bucket {
-    assert(isValid(start))
+  package func collisionChainEnd(from start: Bucket) -> Bucket {
+    assert(isOccupied(start))
     var word = start.word
     var bits = _words[word]
     bits.insertAll(upTo: start.bit)
@@ -120,5 +144,55 @@ extension _HTable.Bitmap {
       bits = _words[word]
     }
   }
+
+  /// Note: If the bitmap has fewer than Word.capacity bits, then this may
+  /// report an unoccupied bit beyond the end of its actual size.
+  internal func _nextOccupiedChunkEnd(
+    from start: Bucket,
+    maxCount: Int
+  ) -> Bucket {
+    assert(isValid(start))
+    var word = start.word
+    var bits = _words[word]
+    bits.insertAll(upTo: start.bit)
+    var remainder = Swift.min(
+      UInt(bitPattern: maxCount) &+ start.bit,
+      UInt(bitPattern: (_words.count &- start.word) &* Word.capacity))
+    while true {
+      bits.formComplement()
+      if let bit = bits.firstMember {
+        return Bucket(word: word, bit: Swift.min(bit, remainder))
+      }
+      if remainder < Word.capacity {
+        break
+      }
+      word &+= 1
+      remainder &-= Word._capacity
+      guard remainder > 0 else { break }
+      assert(word < _words.count)
+      bits = _words[word]
+    }
+    return Bucket(word: word, bit: remainder)
+  }
+
+  @usableFromInline
+  package func nextOccupiedRegion(
+    from bucket: inout Bucket,
+    maxCount: Int,
+    limit: Bucket
+  ) -> Range<Bucket> {
+    assert(isOccupied(bucket))
+    assert(bucket <= limit)
+    assert(maxCount > 0)
+    let end = self._nextOccupiedChunkEnd(
+      from: bucket,
+      maxCount: Swift.min(maxCount, limit.offset &- bucket.offset))
+    let result = Range(uncheckedBounds: (bucket, end))
+    if isValid(end), !isOccupied(end) {
+      bucket = firstOccupiedBucket(from: end, limit: limit)
+    } else {
+      bucket = end
+    }
+    return result
+  }
 }
-#endif

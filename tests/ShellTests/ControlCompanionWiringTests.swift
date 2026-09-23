@@ -429,14 +429,14 @@ private final class OriginRegistry: @unchecked Sendable {
     }
 }
 
-final class PathLog: @unchecked Sendable {
+nonisolated final class PathLog: @unchecked Sendable {
     private let lock = NSLock()
     private var paths: [String] = []
     func record(_ path: String) { lock.withLock { paths.append(path) } }
     func count(of path: String) -> Int { lock.withLock { paths.filter { $0 == path }.count } }
 }
 
-final class RefreshCounter: @unchecked Sendable {
+nonisolated final class RefreshCounter: @unchecked Sendable {
     private let lock = NSLock()
     private var value = 0
     var count: Int { lock.withLock { value } }

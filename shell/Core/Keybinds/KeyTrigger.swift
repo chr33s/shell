@@ -715,6 +715,24 @@ struct KeyTrigger: Codable, Hashable, CustomStringConvertible, Sendable {
         self.modifiers = modifiers
     }
 
+    /// Whether UIKit received the actual chord for this binding. Recovered or
+    /// substituted modifiers can be dispatched locally, but cannot be handed
+    /// back to UIKit to drive native shortcut repeat across responder changes.
+    @MainActor
+    func matchesHardwareChord(_ hardwareKey: UIKey) -> Bool {
+        guard let code = KeyCode(uiKey: hardwareKey) else { return false }
+        let hardware = KeyTrigger(key: code, modifiers: KeybindModifiers(uiModifierFlags: hardwareKey.modifierFlags))
+        return hardware == self
+            || (hardware.modifiers.contains(.command) && hardware.shiftedSymbolEquivalent == self)
+    }
+
+    /// Check the registered commands, not pending sequence state: UIKit and
+    /// GameController may deliver the same physical press in either order.
+    @MainActor
+    func hasKeyCommand(in commands: [UIKeyCommand], action: Selector) -> Bool {
+        commands.contains { $0.action == action && KeyTrigger(uiKeyCommand: $0) == self }
+    }
+
     /// Symbol alias for a shifted base-key trigger using the existing US shift
     /// pairs. Menu bindings can spell Shift+[ as "{". The base key has already
     /// been resolved from the layout; composed IME text is not a shortcut alias.
@@ -736,6 +754,17 @@ struct KeyTrigger: Codable, Hashable, CustomStringConvertible, Sendable {
         default: return nil
         }
         return KeyTrigger(key: symbol, modifiers: modifiers.subtracting(.shift))
+    }
+
+    /// Match Command shortcuts expressed either as a base key plus Shift or
+    /// as the shifted symbol (Cmd+Shift+[ and Cmd+{). This is needed even when
+    /// UIKit delivered every modifier correctly, before mod-tap substitution.
+    /// Explicit base-key bindings win; Option and Control remain part of the
+    /// alias so a less-modified shortcut cannot claim a different chord.
+    func resolvingShiftedSymbol(isClaimed: (KeyTrigger) -> Bool) -> KeyTrigger {
+        guard modifiers.contains(.command), let symbol = shiftedSymbolEquivalent,
+              !isClaimed(self), isClaimed(symbol) else { return self }
+        return symbol
     }
 
     /// Parse from ghostty config format: "cmd+shift+d" or "ctrl+a"

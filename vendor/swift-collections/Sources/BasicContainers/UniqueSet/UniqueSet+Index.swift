@@ -11,10 +11,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#if !COLLECTIONS_SINGLE_MODULE
-import ContainersPreview
-#endif
-
 #if compiler(>=6.4) && UnstableHashedContainers
 
 @available(SwiftStdlib 5.0, *)
@@ -59,11 +55,25 @@ extension UniqueSet where Element: ~Copyable {
   
   @inlinable
   public subscript(index: Index) -> Element {
-    // FIXME: Use borrow accessor here
-    unsafeAddress {
-      _checkItemIndex(index)
-      return .init(_storage._memberPtr(at: index._bucket))
+    borrow {
+      _storage[index]
     }
+  }
+
+  @inlinable
+  @_lifetime(borrow self)
+  public func nextSpan(
+    after index: inout Index
+  ) -> Span<Element> {
+    _storage.nextSpan(after: &index)
+  }
+
+  @inlinable
+  @_lifetime(borrow self)
+  public func nextSpan(
+    after index: inout Index, maxCount: Int, limitedBy limit: Index
+  ) -> Span<Element> {
+    _storage.nextSpan(after: &index, maxCount: maxCount, limitedBy: limit)
   }
 }
 

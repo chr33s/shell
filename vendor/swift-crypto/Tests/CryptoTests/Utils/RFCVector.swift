@@ -11,7 +11,12 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 //===----------------------------------------------------------------------===//
+
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
 import Foundation
+#endif
 
 /// This is a not-very-performant decoder of the RFC formatted test vectors.
 ///
@@ -25,11 +30,7 @@ struct RFCVectorDecoder {
     private var index: Int?
 
     init(bundleType: AnyObject, fileName: String) throws {
-        #if !CRYPTO_IN_SWIFTPM
-        let bundle = Bundle(for: type(of: bundleType))
-        let fileURL = bundle.url(forResource: fileName, withExtension: "txt")
-        #else
-        var fileURL: URL? = URL(fileURLWithPath: "\(#file)")
+        var fileURL: URL? = URL(fileURLWithPath: "\(#filePath)")
         for _ in 0..<3 {
             fileURL!.deleteLastPathComponent()
         }
@@ -44,7 +45,6 @@ struct RFCVectorDecoder {
         #else
         fileURL! = fileURL!.appendingPathComponent("Test Vectors", isDirectory: true)
         fileURL! = fileURL!.appendingPathComponent("\(fileName).txt", isDirectory: false)
-        #endif
         #endif
 
         let rfcVectorData = try Data(contentsOf: fileURL!)
@@ -284,14 +284,14 @@ extension ArraySlice where Element == Substring {
         // or begin with whitespace (these are used in some cases and we don't want them). This is a brute
         // force comparison, but it's test code, don't worry about it.
         let elements: [(String, String)] = self[..<nextCountIndex].filter { string in
-            return (string.trimmingCharacters(in: .whitespaces).count > 0 &&
+            return (string.trimmingWhitespace.count > 0 &&
                     !string.hasPrefix("#") &&
                     !string.hasPrefix("[") &&
                     !string.first!.isWhitespace)
         }.map { string in
             let split = string.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
             assert(split.count == 2)
-            return (String(split.first!.trimmingCharacters(in: .whitespaces)), String(split.last!).trimmingCharacters(in: .whitespaces))
+            return (String(split.first!.trimmingWhitespace), String(split.last!).trimmingWhitespace)
         }
 
         // Slice off the section we've parsed.
@@ -304,5 +304,18 @@ extension ArraySlice where Element == Substring {
         } else {
             return nil
         }
+    }
+}
+
+fileprivate extension StringProtocol {
+    /// Returns the string with leading and trailing whitespace removed.
+    var trimmingWhitespace: String { self.trimming { $0.isWhitespace } }
+
+    /// Returns a new string by removing leading and trailing characters
+    /// that satisfy the given predicate.
+    func trimming(while predicate: (Character) -> Bool) -> String {
+        guard let start = self.firstIndex(where: { !predicate($0) }) else { return "" }
+        let end = self.lastIndex(where: { !predicate($0) })!
+        return String(self[start...end])
     }
 }

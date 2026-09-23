@@ -16,11 +16,18 @@ import XCTest
 import Collections
 #else
 import _CollectionsTestSupport
+import InternalCollectionsUtilities
 import BasicContainers
 #endif
 
 #if compiler(>=6.4) && UnstableHashedContainers
 class UniqueSetTests: CollectionTestCase {
+  func test_memory_layout() {
+    let word = MemoryLayout<Int>.size
+    expectEqual(MemoryLayout<UniqueSet<Int>>.stride, 6 * word)
+    expectEqual(MemoryLayout<UniqueSet<Int>?>.stride, 6 * word)
+  }
+  
   func test_empty() {
     let s = UniqueSet<Int>()
     expectEqual(s.count, 0)
@@ -134,7 +141,36 @@ class UniqueSetTests: CollectionTestCase {
       expectEqual(set.capacity, expectedCapacities[j])
     }
   }
-  
+
+#if compiler(>=6.4) && UnstableContainersPreview
+  @available(SwiftStdlib 6.4, *)
+  func test_validate_Container() {
+    withEvery("count", in: [0, 10, 100, 1000]) { count in
+      withLifetimeTracking { tracker in
+        var items: UniqueSet<LifetimeTrackedStruct<Int>> = .init(minimumCapacity: count)
+        for i in 0 ..< count {
+          guard items.insert(tracker.structInstance(for: i)) == nil else {
+            expectFailure("Duplicate item \(i)")
+            return
+          }
+        }
+
+        // Get expected contents by iterating once.
+        var expected: [Int] = []
+        var it = items.makeBorrowingIterator()
+        while let v = it.next()?.value.payload {
+          expected.append(v)
+        }
+
+        checkContainer(
+          items,
+          expectedContents: expected,
+          by: { $0.payload == $1 })
+      }
+    }
+  }
+#endif
+
   func test_iteration_indexAfter() {
     let c = 1000
     withLifetimeTracking { tracker in

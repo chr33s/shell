@@ -359,6 +359,20 @@ struct CustomKeyExchange: NIOSSHKeyExchangeAlgorithmProtocol {
     static var keyExchangeAlgorithmNames: [Substring] { ["xorkex"] }
 }
 
+/// Records channel data delivered to a server child channel.
+final class ChannelDataRecorder: ChannelInboundHandler {
+    typealias InboundIn = SSHChannelData
+
+    var received: [ByteBuffer] = []
+
+    func channelRead(context: ChannelHandlerContext, data: NIOAny) {
+        if case .byteBuffer(let buffer) = self.unwrapInboundIn(data).data {
+            self.received.append(buffer)
+        }
+        context.fireChannelRead(data)
+    }
+}
+
 class BackToBackEmbeddedChannel {
     private(set) var client: EmbeddedChannel
     private(set) var server: EmbeddedChannel
@@ -994,6 +1008,100 @@ class EndToEndTests: XCTestCase {
         self.channel.clientSSHHandler?.createChannel(nil, nil)
         XCTAssertNoThrow(try self.channel.interactInMemory())
         XCTAssertEqual(self.channel.activeServerChannels.count, 1)
+    }
+
+    func testChildChannelWritesAreQueuedDuringRekey() throws {
+        XCTAssertNoThrow(try self.channel.configureWithHarness(TestHarness()))
+        XCTAssertNoThrow(try self.channel.activate())
+        XCTAssertNoThrow(try self.channel.interactInMemory())
+
+        let clientChannel = try self.channel.createNewChannel()
+        XCTAssertNoThrow(try self.channel.interactInMemory())
+        XCTAssertEqual(self.channel.activeServerChannels.count, 1)
+        let recorder = ChannelDataRecorder()
+        XCTAssertNoThrow(try self.channel.activeServerChannels[0].pipeline.addHandler(recorder).wait())
+
+        // Start a rekey without pumping it: the client is mid-KEX, so the write must be held, not failed.
+        XCTAssertNoThrow(try self.channel.clientSSHHandler!._rekey())
+        let payload = ByteBuffer(string: "written during rekey")
+        let writeFuture = clientChannel.writeAndFlush(SSHChannelData(type: .channel, data: .byteBuffer(payload)))
+        var writeCompleted = false
+        writeFuture.whenComplete { _ in writeCompleted = true }
+        self.channel.run()
+        XCTAssertFalse(writeCompleted)
+        XCTAssertEqual(recorder.received, [])
+
+        XCTAssertNoThrow(try self.channel.interactInMemory())
+        XCTAssertTrue(writeCompleted)
+        XCTAssertNoThrow(try writeFuture.wait())
+        XCTAssertEqual(recorder.received, [payload])
+
+        // The connection is healthy afterwards.
+        _ = try self.channel.createNewChannel()
+        XCTAssertNoThrow(try self.channel.interactInMemory())
+        XCTAssertEqual(self.channel.activeServerChannels.count, 2)
+    }
+
+    func testChildChannelWritesQueuedWhileRekeyAwaitsHostKeyValidation() throws {
+        class DelayedValidationDelegate: NIOSSHClientServerAuthenticationDelegate {
+            func validateHostKey(hostKey: NIOSSHPublicKey, validationCompletePromise: EventLoopPromise<Void>) {
+                validationCompletePromise.futureResult.eventLoop.scheduleTask(in: .milliseconds(100)) {
+                    validationCompletePromise.succeed(())
+                }
+            }
+        }
+
+        var harness = TestHarness()
+        harness.clientServerAuthDelegate = DelayedValidationDelegate()
+        XCTAssertNoThrow(try self.channel.configureWithHarness(harness))
+        XCTAssertNoThrow(try self.channel.activate())
+        XCTAssertNoThrow(try self.channel.interactInMemory())
+        self.channel.advanceTime(by: .milliseconds(100))
+        XCTAssertNoThrow(try self.channel.interactInMemory())
+
+        let clientChannel = try self.channel.createNewChannel()
+        XCTAssertNoThrow(try self.channel.interactInMemory())
+        XCTAssertEqual(self.channel.activeServerChannels.count, 1)
+        let recorder = ChannelDataRecorder()
+        XCTAssertNoThrow(try self.channel.activeServerChannels[0].pipeline.addHandler(recorder).wait())
+
+        // Server-initiated rekey stalls on the client's delayed host key validation.
+        XCTAssertNoThrow(try self.channel.serverSSHHandler!._rekey())
+        XCTAssertNoThrow(try self.channel.interactInMemory())
+
+        let payload = ByteBuffer(string: "written while validating")
+        let writeFuture = clientChannel.writeAndFlush(SSHChannelData(type: .channel, data: .byteBuffer(payload)))
+        var writeCompleted = false
+        writeFuture.whenComplete { _ in writeCompleted = true }
+        self.channel.run()
+        XCTAssertFalse(writeCompleted)
+
+        // Validation completes, the client sends NEWKEYS from the future callback, and the queue drains.
+        self.channel.advanceTime(by: .milliseconds(100))
+        XCTAssertNoThrow(try self.channel.interactInMemory())
+        XCTAssertTrue(writeCompleted)
+        XCTAssertNoThrow(try writeFuture.wait())
+        XCTAssertEqual(recorder.received, [payload])
+    }
+
+    func testQueuedChildWritesFailOnClose() throws {
+        XCTAssertNoThrow(try self.channel.configureWithHarness(TestHarness()))
+        XCTAssertNoThrow(try self.channel.activate())
+        XCTAssertNoThrow(try self.channel.interactInMemory())
+
+        let clientChannel = try self.channel.createNewChannel()
+        XCTAssertNoThrow(try self.channel.interactInMemory())
+
+        XCTAssertNoThrow(try self.channel.clientSSHHandler!._rekey())
+        let writeFuture = clientChannel.writeAndFlush(SSHChannelData(type: .channel, data: .byteBuffer(ByteBuffer(string: "lost"))))
+        self.channel.run()
+        // Discard the undelivered KEXINIT so teardown sees a clean channel.
+        while try self.channel.client.readOutbound(as: IOData.self) != nil {}
+
+        XCTAssertNoThrow(try self.channel.client.close().wait())
+        XCTAssertThrowsError(try writeFuture.wait()) { error in
+            XCTAssertNotNil(error as? ChannelError)
+        }
     }
 
     func testDelayedHostKeyValidation() throws {

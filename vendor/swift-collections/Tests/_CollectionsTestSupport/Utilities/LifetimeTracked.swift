@@ -54,10 +54,10 @@ public class LifetimeTracked<Payload> {
 }
 
 extension LifetimeTracked: CustomStringConvertible {
-  public var description: String {
-    return "\(payload)"
-  }
+  public var description: String { "\(payload)" }
 }
+
+extension LifetimeTracked: TestPrintable {}
 
 extension LifetimeTracked: Equatable where Payload: Equatable {
   public static func == (left: LifetimeTracked, right: LifetimeTracked) -> Bool {
