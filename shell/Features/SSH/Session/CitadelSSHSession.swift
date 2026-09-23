@@ -1005,9 +1005,7 @@ final class CitadelSSHSession: SSHTerminalSession {
                     let n = buffer.readableBytes
                     Self.logger.info("PTY session: first inbound byte received (n=\(n) bytes)")
                 }
-                if let bytesView = buffer.getBytes(at: buffer.readerIndex, length: buffer.readableBytes) {
-                    sink.emit(Data(bytesView))
-                }
+                sink.emit(Data(buffer.readableBytesView))
                 // Authenticated inbound bytes from the destination are the
                 // strongest freshness evidence there is, and they are the only
                 // way out of `suspect` when a keepalive is parked on a socket
@@ -1484,7 +1482,7 @@ final class CitadelSSHSession: SSHTerminalSession {
 /// One key to try during authentication, with an optional OpenSSH user certificate.
 /// When a certificate is present, it is offered before the plain key (matching
 /// OpenSSH's order: a certificate rejection falls back to the bare public key).
-struct SSHAuthKeyCandidate {
+nonisolated struct SSHAuthKeyCandidate {
     let variant: SSHPrivateKeyVariant
     let certifiedKey: NIOSSHCertifiedPublicKey?
 
@@ -1536,7 +1534,9 @@ struct SSHAuthKeyCandidate {
 
 /// Auth delegate that supports trying multiple SSH keys in order
 /// Used by Citadel for multi-key fallback authentication
-final class MultiKeyAuthDelegate: NIOSSHClientUserAuthenticationDelegate {
+/// `nonisolated` + `@unchecked Sendable` because NIO invokes it from the event
+/// loop, which confines its mutable state (mirrors ``KeyboardInteractiveAuthDelegate``).
+nonisolated final class MultiKeyAuthDelegate: NIOSSHClientUserAuthenticationDelegate, @unchecked Sendable {
     private static let logger = Logger(subsystem: "dev.chr33s.shell", category: "MultiKeyAuth")
 
     private let username: String
@@ -1648,7 +1648,8 @@ final class MultiKeyAuthDelegate: NIOSSHClientUserAuthenticationDelegate {
 /// Auth delegate that wraps NIOSSHPrivateKey for Citadel (single key).
 /// With a certificate, offers cert-then-plain (OpenSSH behavior); without one,
 /// behavior is identical to the original single-attempt delegate.
-final class NIOKeyAuthDelegate: NIOSSHClientUserAuthenticationDelegate {
+/// Event-loop confined, like ``MultiKeyAuthDelegate``.
+nonisolated final class NIOKeyAuthDelegate: NIOSSHClientUserAuthenticationDelegate, @unchecked Sendable {
     private let username: String
     private let privateKey: NIOSSHPrivateKey
     private let legacyRSAKey: NIOSSHPrivateKey?
@@ -1724,11 +1725,14 @@ final class NIOKeyAuthDelegate: NIOSSHClientUserAuthenticationDelegate {
 /// Host key validator that performs validation inline without nested Tasks
 /// This fixes a bug where the nested Task structure could cause lifecycle issues
 /// leading to false "key changed" messages when using jump hosts
-final class CitadelHostKeyValidatorDelegate: NIOSSHClientServerAuthenticationDelegate {
+/// `nonisolated` because NIO calls `validateHostKey` on the event loop; all
+/// validation and the user prompt run in `@MainActor` methods (mirrors
+/// ``SSHHostKeyDelegate``).
+nonisolated final class CitadelHostKeyValidatorDelegate: NIOSSHClientServerAuthenticationDelegate, @unchecked Sendable {
     private let hostname: String
     private let port: Int
     private let label: String?
-    private let onValidation: ((HostKeyValidationRequest) async -> HostKeyValidationResult)?
+    private nonisolated(unsafe) let onValidation: ((HostKeyValidationRequest) async -> HostKeyValidationResult)?
     /// CA public keys trusted for this host. When a server presents a host
     /// certificate signed by one of these, validation succeeds silently.
     private let trustedCAKeys: [NIOSSHPublicKey]

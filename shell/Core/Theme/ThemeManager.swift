@@ -27,7 +27,7 @@ final class ThemeManager {
     /// reduce per-access cost to a refcount op and remove the bridging
     /// `_ContiguousArrayStorage` paths the crash log captured. All properties
     /// remain `let`, so behavioral semantics are unchanged.
-    final class ThemeInfo: Identifiable, Equatable, @unchecked Sendable {
+    final class ThemeInfo: Identifiable, Equatable, Sendable {
         let id: String  // same as name
         let name: String
         let displayName: String

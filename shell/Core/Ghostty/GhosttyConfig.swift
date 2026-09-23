@@ -13,7 +13,7 @@ import GhosttyKit
 
 extension Ghostty {
     /// Wrapper around ghostty_config_t
-    class Config: ObservableObject {
+    final class Config: ObservableObject {
         // The underlying C pointer to the Ghostty config structure
         private(set) var config: ghostty_config_t? {
             didSet {

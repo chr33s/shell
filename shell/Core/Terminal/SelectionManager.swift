@@ -21,7 +21,7 @@ enum SelectionAppearanceMode: String, CaseIterable, Codable {
 
 @MainActor
 @Observable
-class SelectionManager {
+final class SelectionManager {
     static let shared = SelectionManager()
 
     private static let logger = Logger(subsystem: "dev.chr33s.shell", category: "SelectionManager")

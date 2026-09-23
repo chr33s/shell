@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 import os
+import Synchronization
 
 @MainActor
 protocol TerminalResponsePipelineHost: AnyObject {
@@ -350,56 +351,55 @@ final class TerminalResponsePipeline {
     }
 }
 
-private final class TerminalResponseGatewayFastPath: @unchecked Sendable {
-    private let lock = NSLock()
-    private var fastWrite: (@Sendable (Data) -> Void)?
-    private var ownerKey = 0
-    private var filterState: TerminalResponsePipeline.GatewayReportFilterState = .ground
+private nonisolated final class TerminalResponseGatewayFastPath: Sendable {
+    private struct State {
+        var fastWrite: (@Sendable (Data) -> Void)?
+        var ownerKey = 0
+        var filterState: TerminalResponsePipeline.GatewayReportFilterState = .ground
+    }
+
+    private let state = Mutex(State())
 
     func configure(fastWrite: (@Sendable (Data) -> Void)?, ownerKey: Int) {
-        lock.lock()
-        self.fastWrite = fastWrite
-        self.ownerKey = ownerKey
-        self.filterState = .ground
-        lock.unlock()
+        state.withLock { state in
+            state.fastWrite = fastWrite
+            state.ownerKey = ownerKey
+            state.filterState = .ground
+        }
     }
 
     func clear() {
-        lock.lock()
-        fastWrite = nil
-        ownerKey = 0
-        filterState = .ground
-        lock.unlock()
+        state.withLock { state in
+            state.fastWrite = nil
+            state.ownerKey = 0
+            state.filterState = .ground
+        }
     }
 
     func reset() {
-        lock.lock()
-        filterState = .ground
-        lock.unlock()
+        state.withLock { $0.filterState = .ground }
     }
 
     func dispatchIfConfigured(_ data: Data) -> Bool {
-        lock.lock()
-        guard let fastWrite else {
-            lock.unlock()
-            return false
+        let dispatch = state.withLock { state -> (write: @Sendable (Data) -> Void, filtered: Data)? in
+            guard let fastWrite = state.fastWrite else { return nil }
+            let filtered = TerminalResponsePipeline.stripTerminalReports(
+                from: data,
+                state: &state.filterState
+            )
+            return (fastWrite, filtered)
         }
+        guard let dispatch else { return false }
 
-        let filtered = TerminalResponsePipeline.stripTerminalReports(
-            from: data,
-            state: &filterState
-        )
-        lock.unlock()
-
-        if !filtered.isEmpty {
-            fastWrite(filtered)
+        if !dispatch.filtered.isEmpty {
+            dispatch.write(dispatch.filtered)
         }
         return true
     }
 }
 
 /// Re-joins a bracketed paste (`\e[200~...\e[201~`) across pipe reads.
-private final class TerminalResponsePasteCoalescer: @unchecked Sendable {
+private nonisolated final class TerminalResponsePasteCoalescer: @unchecked Sendable {
     private var buffer = Data()
     private var inProgress = false
 

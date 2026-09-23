@@ -7,7 +7,7 @@ import ShellControlClient
 /// Written with complete file protection so it is unreadable while the device
 /// is locked, and cleared on logout or account change
 /// (spec.watch.md section 7).
-final class ProtectedInboxCache: InboxCacheStore, @unchecked Sendable {
+final class ProtectedInboxCache: InboxCacheStore, Sendable {
     private let url: URL
 
     init(directory: URL? = nil) throws {

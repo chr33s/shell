@@ -13,12 +13,12 @@ import ShellControlClient
 
 /// The private Mac route could not be reached. This is a connectivity state,
 /// never a reason to clear Shell credentials (spec.iphone-gateway.md 28).
-struct TailnetUnavailable: Error, CustomStringConvertible {
+nonisolated struct TailnetUnavailable: Error, CustomStringConvertible {
     let reason: String
     var description: String { reason }
 }
 
-struct ControlTailnetTransport: ControlHTTPTransport {
+nonisolated struct ControlTailnetTransport: ControlHTTPTransport {
     private let inner: URLSessionTransport
 
     init(inner: URLSessionTransport = URLSessionTransport()) {

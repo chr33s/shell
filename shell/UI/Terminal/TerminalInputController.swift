@@ -169,15 +169,16 @@ final class TerminalInputController {
     /// (Return, Escape, Tab, Space, Arrows without CMD/Ctrl modifiers).
     /// UIKeyCommands fire before the text input system, so they must be
     /// removed for the IME to see these keys.
+    private static let imeConflictInputs: Set<String> = [
+        "\r", UIKeyCommand.inputEscape, "\t", " ",
+        UIKeyCommand.inputUpArrow, UIKeyCommand.inputDownArrow,
+        UIKeyCommand.inputLeftArrow, UIKeyCommand.inputRightArrow
+    ]
+
     private static func filterForIME(_ commands: [UIKeyCommand], hasMarkedText: Bool) -> [UIKeyCommand] {
         guard hasMarkedText else { return commands }
-        let imeConflictInputs: Set<String> = [
-            "\r", UIKeyCommand.inputEscape, "\t", " ",
-            UIKeyCommand.inputUpArrow, UIKeyCommand.inputDownArrow,
-            UIKeyCommand.inputLeftArrow, UIKeyCommand.inputRightArrow
-        ]
         return commands.filter { command in
-            guard let input = command.input, imeConflictInputs.contains(input) else { return true }
+            guard let input = command.input, Self.imeConflictInputs.contains(input) else { return true }
             // Keep commands with CMD or Ctrl (Cmd+Arrow for split nav, etc.).
             return !command.modifierFlags.isDisjoint(with: [.command, .control])
         }

@@ -14,7 +14,7 @@ import UIKit
 
 // MARK: - Text Position / Range helpers
 
-class TerminalTextPosition: UITextPosition {
+final class TerminalTextPosition: UITextPosition {
     let offset: Int
     let generation: UInt64?
     let assistanceGeneration: UInt64?
@@ -25,7 +25,7 @@ class TerminalTextPosition: UITextPosition {
     }
 }
 
-class TerminalTextRange: UITextRange {
+final class TerminalTextRange: UITextRange {
     private let _start: TerminalTextPosition
     private let _end: TerminalTextPosition
 

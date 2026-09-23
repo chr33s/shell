@@ -7,6 +7,7 @@ import Darwin
 import ShellControlBroker
 import ShellControlProtocol
 import ShellControlSecurity
+import Synchronization
 
 // The broker executable: HTTP front end, durable store, and APNs outbox.
 // Configuration comes from a --config file or the environment so no secret is
@@ -162,9 +163,8 @@ do {
 let bindHost = bindLoopback ? "127.0.0.1" : "*"
 FileHandle.standardError.write(Data("shell-control-broker: listening on \(bindHost):\(port)\n".utf8))
 
-final class BrokerShutdownCoordinator: @unchecked Sendable {
-    private let lock = NSLock()
-    private var requested = false
+final class BrokerShutdownCoordinator: Sendable {
+    private let requested = Atomic(false)
     private let workerTask: Task<Void, Never>
     private let server: HTTPServer
 
@@ -174,13 +174,7 @@ final class BrokerShutdownCoordinator: @unchecked Sendable {
     }
 
     func request() {
-        lock.lock()
-        guard !requested else {
-            lock.unlock()
-            return
-        }
-        requested = true
-        lock.unlock()
+        guard !requested.exchange(true, ordering: .acquiringAndReleasing) else { return }
         workerTask.cancel()
         server.stop()
     }

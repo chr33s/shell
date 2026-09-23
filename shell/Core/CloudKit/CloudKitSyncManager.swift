@@ -222,9 +222,7 @@ final class CloudKitSyncManager {
         if isNetworkAvailable && !isRateLimitBackoff {
             Task { await pushRecords(records) }
         } else {
-            for record in records {
-                offlineQueue.enqueue(record, operation: record.isDeleted ? .delete : .update)
-            }
+            offlineQueue.enqueue(records) { $0.isDeleted ? .delete : .update }
         }
     }
 
@@ -342,23 +340,21 @@ final class CloudKitSyncManager {
                 if !outcome.serverWins.isEmpty {
                     coordinator.applyRemote(outcome.serverWins)
                 }
-                for record in outcome.failed {
-                    offlineQueue.enqueue(record, operation: record.isDeleted ? .delete : .update)
-                }
+                offlineQueue.enqueue(outcome.failed) { $0.isDeleted ? .delete : .update }
             } catch is CancellationError {
                 return
             } catch let error as CKError where error.code == .requestRateLimited {
                 guard generation == settingsSyncGeneration else { return }
                 let retryAfter = error.retryAfterSeconds ?? 30
                 Self.logger.warning("Rate limited pushing settings, queuing \(chunk.count) and backing off \(retryAfter)s")
-                for record in chunk { offlineQueue.enqueue(record, operation: record.isDeleted ? .delete : .update) }
+                offlineQueue.enqueue(chunk) { $0.isDeleted ? .delete : .update }
                 isRateLimitBackoff = true
                 scheduleRateLimitedRetry(after: retryAfter)
                 return
             } catch {
                 guard generation == settingsSyncGeneration else { return }
                 Self.logger.warning("Failed to push settings batch, queuing: \(error.localizedDescription)")
-                for record in chunk { offlineQueue.enqueue(record, operation: record.isDeleted ? .delete : .update) }
+                offlineQueue.enqueue(chunk) { $0.isDeleted ? .delete : .update }
             }
         }
     }
@@ -804,6 +800,13 @@ final class CloudKitSyncManager {
         // Push notifications often arrive before data is queryable
         try? await Task.sleep(for: .seconds(2))
 
+        // Another notification (or a manual sync) may have started a sync, or
+        // sync may have been disabled, while this one was waiting.
+        guard isSyncEnabled, syncState == .idle else {
+            Self.logger.debug("Remote notification sync skipped: state changed during propagation delay")
+            return
+        }
+
         Self.logger.info("Starting sync after delay")
         do {
             try await performSync()
@@ -1166,23 +1169,17 @@ final class CloudKitSyncManager {
         }
 
         if !identityDeletions.isEmpty {
-            for recordName in identityDeletions {
-                offlineQueue.dequeueRecord(recordName)
-            }
+            offlineQueue.dequeueRecords(identityDeletions)
             SSHIdentityMetadataStore.shared.applyRemoteDeletions(recordNames: identityDeletions)
         }
 
         if !hostDeletions.isEmpty {
-            for recordName in hostDeletions {
-                offlineQueue.dequeueRecord(recordName)
-            }
+            offlineQueue.dequeueRecords(hostDeletions)
             KnownHostsManager.shared.applyRemoteDeletions(recordNames: hostDeletions)
         }
 
         if !profileDeletions.isEmpty {
-            for recordName in profileDeletions {
-                offlineQueue.dequeueRecord(recordName)
-            }
+            offlineQueue.dequeueRecords(profileDeletions)
             ConnectionProfileManager.shared.applyRemoteDeletions(recordNames: profileDeletions)
         }
     }
@@ -1325,7 +1322,7 @@ final class CloudKitSyncManager {
         // Settings go out as one batched save; the rest one at a time.
         let settingChanges = batch.filter { $0.recordType == AppSettingRecord.recordType }
         if !settingChanges.isEmpty {
-            for change in settingChanges { offlineQueue.dequeue(change.id) }
+            offlineQueue.dequeue(Set(settingChanges.map(\.id)))
             if isAppSettingsSyncEnabled {
                 let records = settingChanges.compactMap { try? payloadDecoder.decode(AppSettingRecord.self, from: $0.payload) }
                 await pushRecords(records)

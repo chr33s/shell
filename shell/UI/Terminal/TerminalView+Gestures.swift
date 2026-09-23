@@ -27,7 +27,7 @@ extension UITouch {
 }
 
 #if !targetEnvironment(macCatalyst)
-class TouchOnlyGestureDelegate: NSObject, UIGestureRecognizerDelegate {
+final class TouchOnlyGestureDelegate: NSObject, UIGestureRecognizerDelegate {
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         touch.type != .indirectPointer
     }

@@ -171,7 +171,7 @@ public enum HealthChecks {
 private struct UnixHealthClient: Sendable {
     let path: String
     func read(timeout: TimeInterval) async throws -> Data {
-        try await Task.detached {
+        try await BlockingIO.run {
             let client = UnixSocketClient(path: path)
             let fd = try client.connect(); defer { close(fd) }
             var value = timeval(tv_sec: Int(timeout), tv_usec: 0)
@@ -185,6 +185,6 @@ private struct UnixHealthClient: Sendable {
             }
             guard !data.isEmpty else { throw ManagementError.unavailable("health socket unavailable") }
             return data
-        }.value
+        }
     }
 }

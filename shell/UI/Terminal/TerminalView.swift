@@ -57,7 +57,7 @@ extension Ghostty {
     }
 
     /// The UIView implementation for a terminal surface on iOS
-    class TerminalView: SplitPaneView, ObservableObject, UITextInput {
+    final class TerminalView: SplitPaneView, ObservableObject, UITextInput {
 
         struct SelectionCell: Equatable {
             let col: Int
@@ -401,7 +401,14 @@ extension Ghostty {
             didSet { refreshPanePresentationTitle() }
         }
 
-        nonisolated(unsafe) var tmuxDetachInProgressAtomic: Bool = false
+        /// Read from `ghosttyAPIQueue` by the surface size path while tmux
+        /// writes it on the main actor, so it is lock-backed.
+        nonisolated var tmuxDetachInProgressAtomic: Bool {
+            get { tmuxDetachInProgressFlag.withLock { $0 } }
+            set { tmuxDetachInProgressFlag.withLock { $0 = newValue } }
+        }
+
+        private nonisolated let tmuxDetachInProgressFlag = OSAllocatedUnfairLock(initialState: false)
 
         var isTmuxDetachInProgress: Bool {
             if tmuxDetachInProgressAtomic { return true }
@@ -746,7 +753,7 @@ extension Ghostty {
         /// This gateway's owner-surface key (`Int(bitPattern:)`), used to key the
         /// tmux debug byte counters so simultaneous gateways don't share counts.
         /// 0 = none.
-        nonisolated(unsafe) var tmuxGatewayOwnerKey: Int = 0
+        var tmuxGatewayOwnerKey: Int = 0
 
         // Serial queue for PTY master reads
         let readQueue = DispatchQueue(label: "dev.chr33s.shell.pty.read", qos: .userInitiated)

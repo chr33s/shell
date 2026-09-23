@@ -446,9 +446,7 @@ extension LocalShellSession {
         options.session = UnsafeMutableRawPointer(mutating: sessionPtr)
         options.timeout_ms = -1  // No timeout
 
-        Task { @MainActor in
-            Self.logger.debug("Executing command asynchronously: '\(command)'")
-        }
+        Self.logger.debug("Executing command asynchronously: '\(command)'")
 
         // Execute command asynchronously
         let cmdHandle = ios_system_async(command, &options)
@@ -478,9 +476,7 @@ extension LocalShellSession {
         }
         let exitCode = result
 
-        Task { @MainActor in
-            Self.logger.debug("Command completed with exit code: \(exitCode)")
-        }
+        Self.logger.debug("Command completed with exit code: \(exitCode)")
 
         // Clean up stdin forwarding state BEFORE closing pipes
         let stdinWriteFd = stdinLock.withLock {

@@ -1,6 +1,7 @@
 import Foundation
 import ShellControlProtocol
 import ShellControlSecurity
+import Synchronization
 
 /// Which Watch this iPhone gateways for. Changing it is an explicit re-binding
 /// (spec.iphone-gateway.md section 10.5).
@@ -9,20 +10,17 @@ public protocol WatchBindingStore: Sendable {
     func storeBoundWatch(_ status: WatchReviewerStatus?) throws
 }
 
-public final class InMemoryWatchBindingStore: WatchBindingStore, @unchecked Sendable {
-    private let lock = NSLock()
-    private var status: WatchReviewerStatus?
+public final class InMemoryWatchBindingStore: WatchBindingStore, Sendable {
+    private let status: Mutex<WatchReviewerStatus?>
 
-    public init(_ status: WatchReviewerStatus? = nil) { self.status = status }
+    public init(_ status: WatchReviewerStatus? = nil) { self.status = Mutex(status) }
 
     public func loadBoundWatch() throws -> WatchReviewerStatus? {
-        lock.lock(); defer { lock.unlock() }
-        return status
+        status.withLock { $0 }
     }
 
     public func storeBoundWatch(_ status: WatchReviewerStatus?) throws {
-        lock.lock(); defer { lock.unlock() }
-        self.status = status
+        self.status.withLock { $0 = status }
     }
 }
 
@@ -48,6 +46,9 @@ public actor WatchGatewayRouter {
     /// Gateway-level idempotency: a retried message ID gets the same answer
     /// without a second upstream call.
     private var recent: [ControlID: (requestDigest: String, response: Data, at: Date)] = [:]
+    /// Messages still waiting on the Mac. A retry that arrives meanwhile
+    /// joins the first attempt rather than making a second upstream call.
+    private var inFlight: [ControlID: (requestDigest: String, response: Task<Data, Never>)] = [:]
     private static let recentLimit = 128
     private static let recentLifetime: TimeInterval = 300
     /// A snapshot page shrinks until its reply fits in one message.
@@ -80,15 +81,22 @@ public actor WatchGatewayRouter {
         let digest = ContentDigest.digest(of: data)
         pruneRecent()
         if let cached = recent[request.messageID] {
-            guard cached.requestDigest == digest else {
-                return encode(WatchGatewayResponse(
-                    messageID: request.messageID,
-                    serverTime: ControlTimestamp(now()),
-                    result: .failure(ControlError(code: .idempotencyConflict, message: "message id reused with a different body"))
-                ))
-            }
+            guard cached.requestDigest == digest else { return reusedMessageID(request) }
             return cached.response
         }
+        // Responding awaits the Mac, so a retry can arrive before the first
+        // attempt is recorded in `recent`; it must not go upstream a second time.
+        if let pending = inFlight[request.messageID] {
+            guard pending.requestDigest == digest else { return reusedMessageID(request) }
+            return await pending.response.value
+        }
+        let work = Task { await respondAndRecord(request, digest: digest) }
+        inFlight[request.messageID] = (digest, work)
+        return await withTaskCancellationHandler { await work.value } onCancel: { work.cancel() }
+    }
+
+    private func respondAndRecord(_ request: WatchGatewayRequest, digest: String) async -> Data {
+        defer { inFlight[request.messageID] = nil }
         let response = await respond(to: request)
         let encoded = encode(response)
         if case .gatewayUnavailable = response.result {
@@ -97,6 +105,14 @@ public actor WatchGatewayRouter {
             recent[request.messageID] = (digest, encoded, now())
         }
         return encoded
+    }
+
+    private func reusedMessageID(_ request: WatchGatewayRequest) -> Data {
+        encode(WatchGatewayResponse(
+            messageID: request.messageID,
+            serverTime: ControlTimestamp(now()),
+            result: .failure(ControlError(code: .idempotencyConflict, message: "message id reused with a different body"))
+        ))
     }
 
     /// WatchConnectivity background delivery (`transferUserInfo`, file

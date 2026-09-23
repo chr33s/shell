@@ -13,7 +13,7 @@ import os
 
 @MainActor
 @Observable
-class KeyboardToolbarManager {
+final class KeyboardToolbarManager {
     static let shared = KeyboardToolbarManager()
 
     private nonisolated static let logger = Logger(subsystem: "dev.chr33s.shell", category: "KeyboardToolbarManager")

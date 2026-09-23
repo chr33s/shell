@@ -13,7 +13,7 @@ extension Ghostty {
     /// - **Scroll wheel events** (Mac Catalyst, iPad trackpad) are handled by gesture recognizers
     ///   in TerminalViewScroll.swift and sent directly to Ghostty as mouse_scroll events
     @MainActor
-    class TerminalScrollView: UIView, UIScrollViewDelegate {
+    final class TerminalScrollView: UIView, UIScrollViewDelegate {
     // MARK: - Properties
 
     /// The scroll view that provides native scrollbars and scroll physics
@@ -1824,7 +1824,7 @@ extension Ghostty {
     // MARK: - Progress Bar View
 
     /// UIKit-based progress bar view for terminal progress indicators
-    private class ProgressBarView: UIView {
+    private final class ProgressBarView: UIView {
         private let backgroundView = UIView()
         private let foregroundView = UIView()
         private var animationDisplayLink: CADisplayLink?
@@ -1910,7 +1910,10 @@ extension Ghostty {
             guard animationDisplayLink == nil else { return }
 
             animationStartTime = CACurrentMediaTime()
-            let displayLink = CADisplayLink(target: self, selector: #selector(updateAnimation))
+            // CADisplayLink retains its target; a weak trampoline lets deinit
+            // run (and invalidate the link) if the bar is released mid-animation.
+            let target = AnimationTarget(owner: self)
+            let displayLink = CADisplayLink(target: target, selector: #selector(AnimationTarget.tick(_:)))
             displayLink.add(to: .main, forMode: .common)
             animationDisplayLink = displayLink
         }
@@ -1920,7 +1923,7 @@ extension Ghostty {
             animationDisplayLink = nil
         }
 
-        @objc private func updateAnimation() {
+        fileprivate func updateAnimation() {
             let currentTime = CACurrentMediaTime()
             let elapsed = currentTime - animationStartTime
             // 1.2 seconds each way (matching SwiftUI's autoreverses behavior)
@@ -1984,6 +1987,23 @@ extension Ghostty {
         }
 
         private var currentProgress: UInt8?
+
+        private final class AnimationTarget: NSObject {
+            weak var owner: ProgressBarView?
+
+            init(owner: ProgressBarView) {
+                self.owner = owner
+                super.init()
+            }
+
+            @objc func tick(_ link: CADisplayLink) {
+                guard let owner else {
+                    link.invalidate()
+                    return
+                }
+                owner.updateAnimation()
+            }
+        }
     }
 }
 

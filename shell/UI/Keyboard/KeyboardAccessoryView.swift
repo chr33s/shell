@@ -7,7 +7,7 @@
 
 import UIKit
 
-class KeyboardAccessoryView: UIInputView {
+final class KeyboardAccessoryView: UIInputView {
     // MARK: - Properties
 
     private(set) var toolbarView: KeyboardToolbarView

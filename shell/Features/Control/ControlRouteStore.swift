@@ -17,7 +17,7 @@ import ShellControlClient
 /// The pinned origin lives in the Keychain, device-only: it is the trust
 /// anchor every route is checked against. It is readable after first unlock
 /// so a background push can verify a route while the phone is locked.
-final class KeychainPinnedOriginStore: PinnedOriginStore, @unchecked Sendable {
+nonisolated final class KeychainPinnedOriginStore: PinnedOriginStore, Sendable {
     private let service: String
     private static let account = "pinned-origin"
 
@@ -79,7 +79,7 @@ final class KeychainPinnedOriginStore: PinnedOriginStore, @unchecked Sendable {
 /// a read throws rather than returning nil, so the router answers "gateway
 /// unavailable" instead of telling the Watch it is no longer bound — which
 /// would make the Watch forget its reviewer identity.
-final class KeychainWatchBindingStore: WatchBindingStore, @unchecked Sendable {
+nonisolated final class KeychainWatchBindingStore: WatchBindingStore, @unchecked Sendable {
     private let service: String
     private let legacyDefaults: UserDefaults
     private static let account = "watch-binding"

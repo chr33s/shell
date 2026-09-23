@@ -151,8 +151,8 @@ final class TerminalOutputPipeline {
 
         outputCoalescingResumeTimer?.invalidate()
         let debounceSeconds = Double(config.inputDebounceMs) / 1000.0
-        outputCoalescingResumeTimer = Timer.scheduledTimer(withTimeInterval: debounceSeconds, repeats: false) { _ in
-            Task { @MainActor [weak self] in
+        outputCoalescingResumeTimer = Timer.scheduledTimer(withTimeInterval: debounceSeconds, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
                 guard let self else { return }
                 self.isOutputCoalescingSuppressedByInput = false
                 self.outputCoalescingResumeTimer = nil
@@ -220,7 +220,7 @@ final class TerminalOutputPipeline {
 }
 
 // @unchecked Sendable: internal state is confined to the coalescer queue,
-// except for enabledForFastPath which uses os_unfair_lock for fast-path bypass.
+// except for enabledForFastPath which uses an unfair lock for fast-path bypass.
 nonisolated final class TerminalOutputCoalescer: @unchecked Sendable {
     private static let syncOutputStart = "\u{1B}[?2026h"
     private static let syncOutputEnd = "\u{1B}[?2026l"
@@ -238,11 +238,11 @@ nonisolated final class TerminalOutputCoalescer: @unchecked Sendable {
     private var firstEnqueueTime: DispatchTime?
     private var currentDeadline: DispatchTime?
     private var parseState = VTParseState()
-    private var parseLock = os_unfair_lock()
+    private let parseLock = OSAllocatedUnfairLock()
     private var enabledForFastPath = false
     private var disableFlushInProgress = false
     private var transitionGeneration: UInt64 = 0
-    private var fastPathLock = os_unfair_lock()
+    private let fastPathLock = OSAllocatedUnfairLock()
     private var isEnabled = false
 
     private struct VTParseState {
@@ -324,19 +324,19 @@ nonisolated final class TerminalOutputCoalescer: @unchecked Sendable {
 
     private func updateParseState(_ data: Data) {
         guard !data.isEmpty else { return }
-        os_unfair_lock_lock(&parseLock)
+        parseLock.lock()
         data.withUnsafeBytes { buffer in
             for byte in buffer {
                 parseState.advance(byte)
             }
         }
-        os_unfair_lock_unlock(&parseLock)
+        parseLock.unlock()
     }
 
     private func isSafeForSynchronizedOutput() -> Bool {
-        os_unfair_lock_lock(&parseLock)
+        parseLock.lock()
         let safe = parseState.isSafeForSync
-        os_unfair_lock_unlock(&parseLock)
+        parseLock.unlock()
         return safe
     }
 
@@ -358,7 +358,7 @@ nonisolated final class TerminalOutputCoalescer: @unchecked Sendable {
 
     func setEnabled(_ enabled: Bool) {
         let generation: UInt64
-        os_unfair_lock_lock(&fastPathLock)
+        fastPathLock.lock()
         transitionGeneration &+= 1
         generation = transitionGeneration
         if enabled {
@@ -367,7 +367,7 @@ nonisolated final class TerminalOutputCoalescer: @unchecked Sendable {
             enabledForFastPath = false
             disableFlushInProgress = true
         }
-        os_unfair_lock_unlock(&fastPathLock)
+        fastPathLock.unlock()
 
         if debug {
             Ghostty.logger.debug("OutputCoalescer setEnabled(\(enabled)) generation=\(generation)")
@@ -384,20 +384,20 @@ nonisolated final class TerminalOutputCoalescer: @unchecked Sendable {
                 self.flushLocked()
             }
 
-            os_unfair_lock_lock(&self.fastPathLock)
+            self.fastPathLock.lock()
             if self.transitionGeneration == generation {
                 self.enabledForFastPath = enabled
                 self.disableFlushInProgress = false
             }
-            os_unfair_lock_unlock(&self.fastPathLock)
+            self.fastPathLock.unlock()
         }
     }
 
     func enqueue(_ data: Data) {
-        os_unfair_lock_lock(&fastPathLock)
+        fastPathLock.lock()
         let enabled = enabledForFastPath
         let disablePending = disableFlushInProgress
-        os_unfair_lock_unlock(&fastPathLock)
+        fastPathLock.unlock()
 
         if !enabled && !disablePending {
             if debug {
@@ -659,7 +659,7 @@ nonisolated final class TerminalBufferedPipeWriter: @unchecked Sendable {
     private var headOffset = 0
     /// Total unwritten bytes across the queue.
     private var pendingByteCount = 0
-    private var bufferLock = os_unfair_lock()
+    private let bufferLock = OSAllocatedUnfairLock()
     private var writeSource: DispatchSourceWrite?
     private var fd: Int32 = -1
     private var drainCallbacks: [@Sendable () -> Void] = []
@@ -692,7 +692,7 @@ nonisolated final class TerminalBufferedPipeWriter: @unchecked Sendable {
     }
 
     func configure(fd: Int32) {
-        os_unfair_lock_lock(&bufferLock)
+        bufferLock.lock()
 
         if let source = writeSource {
             if isSuspended {
@@ -712,7 +712,7 @@ nonisolated final class TerminalBufferedPipeWriter: @unchecked Sendable {
         didLogOverflow = false
 
         guard fd >= 0 else {
-            os_unfair_lock_unlock(&bufferLock)
+            bufferLock.unlock()
             return
         }
 
@@ -726,21 +726,21 @@ nonisolated final class TerminalBufferedPipeWriter: @unchecked Sendable {
 
         source.setCancelHandler { [weak self] in
             guard let self = self else { return }
-            os_unfair_lock_lock(&self.bufferLock)
+            self.bufferLock.lock()
             self.isSuspended = true
-            os_unfair_lock_unlock(&self.bufferLock)
+            self.bufferLock.unlock()
         }
 
-        os_unfair_lock_unlock(&bufferLock)
+        bufferLock.unlock()
     }
 
     func write(_ data: Data) {
         guard !data.isEmpty else { return }
 
-        os_unfair_lock_lock(&bufferLock)
+        bufferLock.lock()
 
         guard fd >= 0, let source = writeSource else {
-            os_unfair_lock_unlock(&bufferLock)
+            bufferLock.unlock()
             Ghostty.logger.warning("BufferedPipeWriter: no FD configured, dropping \(data.count) bytes")
             return
         }
@@ -809,7 +809,7 @@ nonisolated final class TerminalBufferedPipeWriter: @unchecked Sendable {
             source.resume()
         }
 
-        os_unfair_lock_unlock(&bufferLock)
+        bufferLock.unlock()
 
         if overflowToLog > 0 {
             let cap = Self.maxBufferedBytes
@@ -836,13 +836,13 @@ nonisolated final class TerminalBufferedPipeWriter: @unchecked Sendable {
     func notifyWhenDrained(_ callback: @escaping @Sendable () -> Void) {
         var shouldRunNow = false
 
-        os_unfair_lock_lock(&bufferLock)
+        bufferLock.lock()
         if pendingByteCount == 0 {
             shouldRunNow = true
         } else {
             drainCallbacks.append(callback)
         }
-        os_unfair_lock_unlock(&bufferLock)
+        bufferLock.unlock()
 
         if shouldRunNow {
             callback()
@@ -850,7 +850,7 @@ nonisolated final class TerminalBufferedPipeWriter: @unchecked Sendable {
     }
 
     private func drainBuffer() {
-        os_unfair_lock_lock(&bufferLock)
+        bufferLock.lock()
         var callbacksToRun: [@Sendable () -> Void] = []
         var droppedToReport = 0
         var overflowHandler: (@Sendable (Int) -> Void)?
@@ -869,7 +869,7 @@ nonisolated final class TerminalBufferedPipeWriter: @unchecked Sendable {
                 isSuspended = true
                 writeSource?.suspend()
             }
-            os_unfair_lock_unlock(&bufferLock)
+            bufferLock.unlock()
             if droppedToReport > 0 {
                 overflowHandler?(droppedToReport)
             }
@@ -940,7 +940,7 @@ nonisolated final class TerminalBufferedPipeWriter: @unchecked Sendable {
                 isSuspended = true
                 source.suspend()
             }
-            os_unfair_lock_unlock(&bufferLock)
+            bufferLock.unlock()
             Ghostty.logger.error("BufferedPipeWriter: write error \(err), dropping \(droppedBytes) bytes")
             return
         }
@@ -966,7 +966,7 @@ nonisolated final class TerminalBufferedPipeWriter: @unchecked Sendable {
             overflowHandler = onOverflow
         }
 
-        os_unfair_lock_unlock(&bufferLock)
+        bufferLock.unlock()
         if droppedToReport > 0 {
             overflowHandler?(droppedToReport)
         }
@@ -976,7 +976,7 @@ nonisolated final class TerminalBufferedPipeWriter: @unchecked Sendable {
     }
 
     func cancel() {
-        os_unfair_lock_lock(&bufferLock)
+        bufferLock.lock()
         if let source = writeSource {
             if isSuspended {
                 source.resume()
@@ -993,7 +993,7 @@ nonisolated final class TerminalBufferedPipeWriter: @unchecked Sendable {
         droppedSinceLastDrain = 0
         didLogOverflow = false
         fd = -1
-        os_unfair_lock_unlock(&bufferLock)
+        bufferLock.unlock()
     }
 
     /// Install the overflow callback: fired with the total bytes dropped since
@@ -1001,22 +1001,22 @@ nonisolated final class TerminalBufferedPipeWriter: @unchecked Sendable {
     /// like a tmux -CC reset runs after congestion clears, not into it).
     /// Invoked on the writer's queue, outside the lock.
     func setOverflowHandler(_ handler: @escaping @Sendable (Int) -> Void) {
-        os_unfair_lock_lock(&bufferLock)
+        bufferLock.lock()
         onOverflow = handler
-        os_unfair_lock_unlock(&bufferLock)
+        bufferLock.unlock()
     }
 
     var pendingBytes: Int {
-        os_unfair_lock_lock(&bufferLock)
+        bufferLock.lock()
         let count = pendingByteCount
-        os_unfair_lock_unlock(&bufferLock)
+        bufferLock.unlock()
         return count
     }
 
     var debugCounters: (pending: Int, totalWritten: Int, totalDropped: Int) {
-        os_unfair_lock_lock(&bufferLock)
+        bufferLock.lock()
         let out = (pending: pendingByteCount, totalWritten: totalWritten, totalDropped: totalDropped)
-        os_unfair_lock_unlock(&bufferLock)
+        bufferLock.unlock()
         return out
     }
 }

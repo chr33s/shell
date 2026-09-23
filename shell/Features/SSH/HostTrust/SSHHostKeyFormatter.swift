@@ -41,7 +41,7 @@ enum SSHHostKeyFormatter {
     }
 
     /// Algorithm identifier (e.g. "ssh-ed25519", "ecdsa-sha2-nistp256").
-    static func keyType(for key: NIOSSHPublicKey) -> String {
+    nonisolated static func keyType(for key: NIOSSHPublicKey) -> String {
         let openSSHString = String(openSSHPublicKey: key)
         let components = openSSHString.split(separator: " ")
         return components.first.map(String.init) ?? "unknown"

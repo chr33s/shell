@@ -19,7 +19,7 @@ extension Ghostty {
     }
 
     /// A lollipop-style selection handle: circle + stem line. Visual only.
-    class SelectionHandleView: UIView {
+    final class SelectionHandleView: UIView {
 
         static let circleDiameter: CGFloat = 14
         static let lineWidth: CGFloat = 2.5
@@ -119,7 +119,7 @@ extension Ghostty {
         }
     }
 
-    class SelectionMagnifierView: UIView {
+    final class SelectionMagnifierView: UIView {
 
         enum Placement {
             case above

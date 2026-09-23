@@ -4,13 +4,14 @@ import Glibc
 #else
 import Darwin
 #endif
+import Synchronization
 
 /// A minimal HTTP/1.1 server, shared by the broker and the push relay.
 ///
 /// It speaks plain HTTP and is intended to run on loopback behind a
 /// TLS-terminating proxy: Tailscale Serve for the Mac-local broker
 /// (spec.iphone-gateway.md section 4.4), or the relay's hosting front end.
-public final class HTTPServer: @unchecked Sendable {
+public final class HTTPServer: Sendable {
     public struct Request: Sendable {
         public let method: String
         public let path: String
@@ -57,9 +58,7 @@ public final class HTTPServer: @unchecked Sendable {
     private let port: UInt16
     private let bindLoopback: Bool
     private let handler: Handler
-    private var listenSocket: Int32 = -1
-    private let stopLock = NSLock()
-    private var stopped = false
+    private let listener = Mutex<(socket: Int32, stopped: Bool)>((-1, false))
 
     public init(port: UInt16, bindLoopback: Bool = true, handler: @escaping Handler) {
         self.port = port
@@ -87,7 +86,8 @@ public final class HTTPServer: @unchecked Sendable {
     }
 
     public func start() throws {
-        listenSocket = socket(AF_INET, SOCK_STREAM, 0)
+        let listenSocket = socket(AF_INET, SOCK_STREAM, 0)
+        listener.withLock { $0.socket = listenSocket }
         var enable: Int32 = 1
         setsockopt(listenSocket, SOL_SOCKET, SO_REUSEADDR, &enable, socklen_t(MemoryLayout<Int32>.size))
         var address = sockaddr_in()
@@ -106,10 +106,7 @@ public final class HTTPServer: @unchecked Sendable {
 
     public func acceptLoop() {
         while true {
-            stopLock.lock()
-            let done = stopped
-            let socket = listenSocket
-            stopLock.unlock()
+            let (socket, done) = listener.withLock { ($0.socket, $0.stopped) }
             if done { return }
             var peer = sockaddr_in()
             var peerLength = socklen_t(MemoryLayout<sockaddr_in>.size)
@@ -133,7 +130,7 @@ public final class HTTPServer: @unchecked Sendable {
             // handler may block for the whole of a `wait=30` long poll, and a
             // bounded pool would stop serving short foreground control
             // requests once enough long polls were in flight.
-            Thread.detachNewThread { [handler] in
+            Thread.detachNewThread { [handler, peer] in
                 defer { close(client) }
                 guard let request = HTTPServer.readRequest(client, peer: HTTPServer.address(peer)) else {
                     HTTPServer.write(client, Response(status: 400, body: Data("bad request".utf8)))
@@ -152,11 +149,10 @@ public final class HTTPServer: @unchecked Sendable {
     }
 
     public func stop() {
-        stopLock.lock()
-        stopped = true
-        let socket = listenSocket
-        listenSocket = -1
-        stopLock.unlock()
+        let socket = listener.withLock { state in
+            defer { state = (-1, true) }
+            return state.socket
+        }
         if socket >= 0 { close(socket) }
     }
 
@@ -178,7 +174,7 @@ public final class HTTPServer: @unchecked Sendable {
         var buffer = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
         var raw = peer.sin_addr
         guard inet_ntop(AF_INET, &raw, &buffer, socklen_t(buffer.count)) != nil else { return nil }
-        return String(cString: buffer)
+        return String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
     }
 
     private static func readRequest(_ client: Int32, peer: String?) -> Request? {

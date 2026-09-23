@@ -2,6 +2,7 @@
 import Foundation
 import Security
 import ShellControlProtocol
+import Synchronization
 
 /// Keychain-backed credentials for the Watch.
 ///
@@ -10,7 +11,7 @@ import ShellControlProtocol
 /// and unavailable until the device is unlocked: a locked or freshly restarted
 /// Watch cannot sign, and nothing depends on the phone being unlocked
 /// (spec.watch.md section 5).
-public final class KeychainCredentialStore: DeviceCredentialStore, @unchecked Sendable {
+public final class KeychainCredentialStore: DeviceCredentialStore, Sendable {
     public enum KeychainError: Error, Equatable, Sendable {
         case status(OSStatus)
         case malformedItem
@@ -35,11 +36,10 @@ public final class KeychainCredentialStore: DeviceCredentialStore, @unchecked Se
     private let service: String
     private let accessGroup: String?
     private let accessibility: Accessibility
-    private let lock = NSLock()
     /// Accounts whose items may still carry an older, stricter class. Each is
     /// rewritten the first time it is read successfully, so a store created
     /// while the device was locked still migrates once it unlocks.
-    private var unmigrated: Set<String> = []
+    private let unmigrated = Mutex<Set<String>>([])
     private static let signingKeyAccount = "device-signing-key"
     private static let sessionAccount = "device-session"
 
@@ -54,7 +54,7 @@ public final class KeychainCredentialStore: DeviceCredentialStore, @unchecked Se
     /// what cannot be read now is migrated on its first successful read.
     public func migrateAccessibility() {
         let accounts = [Self.signingKeyAccount, Self.sessionAccount]
-        lock.withLock { unmigrated.formUnion(accounts) }
+        unmigrated.withLock { $0.formUnion(accounts) }
         for account in accounts { _ = try? read(account: account) }
     }
 
@@ -105,12 +105,12 @@ public final class KeychainCredentialStore: DeviceCredentialStore, @unchecked Se
         switch status {
         case errSecSuccess:
             guard let data = item as? Data else { throw KeychainError.malformedItem }
-            if lock.withLock({ unmigrated.contains(account) }), (try? write(account: account, data: data)) != nil {
-                lock.withLock { _ = unmigrated.remove(account) }
+            if unmigrated.withLock({ $0.contains(account) }), (try? write(account: account, data: data)) != nil {
+                unmigrated.withLock { _ = $0.remove(account) }
             }
             return data
         case errSecItemNotFound:
-            lock.withLock { _ = unmigrated.remove(account) }
+            unmigrated.withLock { _ = $0.remove(account) }
             return nil
         default:
             throw KeychainError.status(status)
@@ -127,7 +127,7 @@ public final class KeychainCredentialStore: DeviceCredentialStore, @unchecked Se
         // how an item created under an older, stricter class migrates.
         let status = Keychain.upsert(query: query, attributes: attributes)
         guard status == errSecSuccess else { throw KeychainError.status(status) }
-        lock.withLock { _ = unmigrated.remove(account) }
+        unmigrated.withLock { _ = $0.remove(account) }
     }
 }
 #endif

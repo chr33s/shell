@@ -19,7 +19,7 @@ private enum BackgroundPersistenceQueue {
 }
 
 #if !targetEnvironment(macCatalyst) && !os(visionOS)
-final class ShortRemoteSessionBackgroundTaskIDBox: @unchecked Sendable {
+nonisolated final class ShortRemoteSessionBackgroundTaskIDBox: Sendable {
     private let lock = OSAllocatedUnfairLock<UIBackgroundTaskIdentifier>(initialState: .invalid)
 
     func load() -> UIBackgroundTaskIdentifier {

@@ -9,7 +9,7 @@ import UIKit
 
 /// Manages appearance mode (light/dark/system) for the app UI
 @MainActor
-class AppearanceManager: ObservableObject {
+final class AppearanceManager: ObservableObject {
     static let shared = AppearanceManager()
 
     private nonisolated static let logger = Logger(subsystem: "dev.chr33s.shell", category: "AppearanceManager")

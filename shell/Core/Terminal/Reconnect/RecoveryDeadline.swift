@@ -171,8 +171,10 @@ func withRecoveryDeadline<Value: Sendable>(
             // The timer is owned so the winner can cancel the loser. Leaving
             // it to expire on its own left a sleeping task behind every
             // keepalive and every completed stage — harmless individually,
-            // and a steady drip over a long session.
-            let timerBox = OSAllocatedUnfairLock<Task<Void, Never>?>(initialState: nil)
+            // and a steady drip over a long session. `workFinished` covers an
+            // operation that completes before the timer is stored.
+            let timerBox = OSAllocatedUnfairLock<(timer: Task<Void, Never>?, workFinished: Bool)>(
+                initialState: (timer: nil, workFinished: false))
 
             let work = Task<Void, Never> {
                 do {
@@ -183,7 +185,10 @@ func withRecoveryDeadline<Value: Sendable>(
                 } catch {
                     box.resolve(isCurrent(generation) ? .failed(error) : .superseded)
                 }
-                timerBox.withLock { $0 }?.cancel()
+                timerBox.withLock { state -> Task<Void, Never>? in
+                    state.workFinished = true
+                    return state.timer
+                }?.cancel()
             }
 
             let timer = Task<Void, Never> {
@@ -199,7 +204,11 @@ func withRecoveryDeadline<Value: Sendable>(
                 work.cancel()
                 onAbandon?()
             }
-            timerBox.withLock { $0 = timer }
+            let workAlreadyFinished = timerBox.withLock { state -> Bool in
+                state.timer = timer
+                return state.workFinished
+            }
+            if workAlreadyFinished { timer.cancel() }
         }
     } onCancel: {
         if box.resolve(.superseded) { onAbandon?() }

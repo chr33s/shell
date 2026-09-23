@@ -1373,8 +1373,9 @@ final class TabsModel {
         // id=tmux-detach-reselect-own-gateway, neighbor close) select
         // deterministically BEFORE this runs, so this only fires when no
         // better information exists. Hidden tabs are never a valid landing.
+        let effectiveIDs = groupingSnapshot().effectiveIDs
         let groupFallback = activeGroupID.flatMap { groupID in
-            tabs.first { isUsableFallback($0) && effectiveGroupID(for: $0) == groupID }
+            tabs.first { isUsableFallback($0) && effectiveIDs[$0.id] == groupID }
         }
         let fallback = groupFallback
             ?? tabs.first(where: { $0.isTmuxGateway && isUsableFallback($0) })
@@ -1398,8 +1399,9 @@ final class TabsModel {
         let groups = availableGroups
         if let activeGroupID,
            groups.contains(where: { $0.id == activeGroupID }) {
+            let snapshot = groupingSnapshot()
             if effectiveGroupID(for: selectedTab) != activeGroupID,
-               let first = visibleTabs.first(where: { effectiveGroupID(for: $0) == activeGroupID }) {
+               let first = snapshot.visibleTabs.first(where: { snapshot.effectiveIDs[$0.id] == activeGroupID }) {
                 selectedTabID = first.id
             }
             return
@@ -1530,7 +1532,7 @@ final class TabsModel {
         // switches re-arm it — titles stay frozen until switching stops, then
         // flush once. Tunable; shorten toward 0.3 if titles feel slow to resume.
         tabSwitchAnimationTimer = Timer.scheduledTimer(withTimeInterval: 0.4, repeats: false) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.endTabSwitchAnimationGate() }
+            MainActor.assumeIsolated { self?.endTabSwitchAnimationGate() }
         }
     }
 

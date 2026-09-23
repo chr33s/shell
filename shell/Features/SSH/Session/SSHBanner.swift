@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import Synchronization
 
 /// Renders SSH session warning banners.
 ///
@@ -377,7 +378,7 @@ nonisolated enum SSHBanner {
 /// during authentication, then drained on the main actor at the `.running`
 /// emit site. `nonisolated` so the event-loop writer can reach it under the
 /// project's default-MainActor isolation.
-nonisolated final class AuthBannerBuffer: @unchecked Sendable {
+nonisolated final class AuthBannerBuffer: Sendable {
     /// Per-banner UTF-8 byte cap; longer banners are truncated. Comfortably
     /// larger than any human-readable login notice.
     private static let maxBannerBytes = 8 * 1024
@@ -400,18 +401,19 @@ nonisolated final class AuthBannerBuffer: @unchecked Sendable {
         case reset
     }
 
-    private let lock = NSLock()
-    private var banners: [String] = []
-    private var totalBytes = 0
-    private var observer: (@Sendable (Event) -> Void)?
+    private nonisolated struct State {
+        var banners: [String] = []
+        var totalBytes = 0
+        var observer: (@Sendable (Event) -> Void)?
+    }
+
+    private let state = Mutex(State())
 
     /// Sets the live observer. Invoked outside the lock on the caller's thread
     /// (the NIO event loop for `append`; any thread for `drain`/`clear`).
     /// Set before the connection starts.
     func setObserver(_ handler: (@Sendable (Event) -> Void)?) {
-        lock.lock()
-        observer = handler
-        lock.unlock()
+        state.withLock { $0.observer = handler }
     }
 
     func append(_ banner: String, source: String? = nil) {
@@ -420,36 +422,36 @@ nonisolated final class AuthBannerBuffer: @unchecked Sendable {
             text = String(decoding: text.utf8.prefix(Self.maxBannerBytes), as: UTF8.self)
         }
         let cost = text.utf8.count
-        lock.lock()
-        let accepted = totalBytes + cost <= Self.maxTotalBytes
-        if accepted {
-            banners.append(text)
-            totalBytes += cost
+        let (accepted, handler) = state.withLock { state in
+            let accepted = state.totalBytes + cost <= Self.maxTotalBytes
+            if accepted {
+                state.banners.append(text)
+                state.totalBytes += cost
+            }
+            return (accepted, state.observer)
         }
-        let handler = observer
-        lock.unlock()
         if accepted { handler?(.appended(text, source: source)) }
     }
 
     /// Returns and clears all buffered banners.
     func drain() -> [String] {
-        lock.lock()
-        let result = banners
-        banners.removeAll()
-        totalBytes = 0
-        let handler = observer
-        lock.unlock()
+        let (result, handler) = state.withLock { state in
+            let result = state.banners
+            state.banners.removeAll()
+            state.totalBytes = 0
+            return (result, state.observer)
+        }
         handler?(.reset)
         return result
     }
 
     /// Discards any buffered banners without returning them (failure/teardown).
     func clear() {
-        lock.lock()
-        banners.removeAll()
-        totalBytes = 0
-        let handler = observer
-        lock.unlock()
+        let handler = state.withLock { state in
+            state.banners.removeAll()
+            state.totalBytes = 0
+            return state.observer
+        }
         handler?(.reset)
     }
 }

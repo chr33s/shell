@@ -17,7 +17,7 @@ extension Notification.Name {
 
 /// Global tracker that aggregates session counts from all windows
 @MainActor
-class SessionTracker: ObservableObject {
+final class SessionTracker: ObservableObject {
     static let shared = SessionTracker()
 
     private nonisolated static let logger = Logger(subsystem: "dev.chr33s.shell", category: "SessionTracker")

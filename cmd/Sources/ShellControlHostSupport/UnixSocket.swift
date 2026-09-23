@@ -5,6 +5,7 @@ import Glibc
 import Darwin
 #endif
 import ShellControlProtocol
+import Synchronization
 
 /// A per-user Unix-domain socket under a private state directory: directory
 /// mode 0700, socket mode 0600, peer identity verified where supported
@@ -150,21 +151,23 @@ public struct UnixSocketClient: Sendable {
     public func exchangeAsync(_ request: IPCRequest, timeout: TimeInterval = 600) async throws -> IPCResponse {
         let descriptor = CancellableSocketDescriptor()
         return try await withTaskCancellationHandler {
-            try await Task.detached {
+            try await BlockingIO.run {
                 let fd = try connect()
                 guard descriptor.install(fd) else { throw CancellationError() }
                 defer { descriptor.closeOnce() }
                 var seconds = timeval(tv_sec: Int(timeout), tv_usec: 0)
                 setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &seconds, socklen_t(MemoryLayout<timeval>.size))
-                try Task.checkCancellation()
-                try FrameIO.writeFrame(fd, request.json)
-                var buffer = Data()
-                guard let value = try FrameIO.readFrame(fd, buffer: &buffer) else {
-                    if Task.isCancelled { throw CancellationError() }
-                    throw UnixSocketServer.SocketError.peerRejected
+                do {
+                    try FrameIO.writeFrame(fd, request.json)
+                    var buffer = Data()
+                    guard let value = try FrameIO.readFrame(fd, buffer: &buffer) else {
+                        throw UnixSocketServer.SocketError.peerRejected
+                    }
+                    return try IPCResponse(json: value)
+                } catch where descriptor.isCancelled {
+                    throw CancellationError()
                 }
-                return try IPCResponse(json: value)
-            }.value
+            }
         } onCancel: { descriptor.cancel() }
     }
 
@@ -183,18 +186,38 @@ public struct UnixSocketClient: Sendable {
     }
 }
 
-/// The lock protects the descriptor/cancel race. The unchecked conformance is
-/// intentionally confined to this synchronization wrapper.
-private final class CancellableSocketDescriptor: @unchecked Sendable {
-    private let lock = NSLock()
-    private var descriptor: Int32?
-    private var cancelled = false
+/// Blocking socket IO runs on a thread of its own: a `recv` that waits out a
+/// long `approval.wait` must not occupy a cooperative-pool thread, which the
+/// rest of the process needs to make progress.
+package enum BlockingIO {
+    package static func run<T: Sendable>(_ work: @escaping @Sendable () throws -> T) async throws -> T {
+        try await withCheckedThrowingContinuation { continuation in
+            Thread.detachNewThread { continuation.resume(with: Result(catching: work)) }
+        }
+    }
+}
+
+/// The mutex protects the descriptor/cancel race.
+private final class CancellableSocketDescriptor: Sendable {
+    private let state = Mutex<(descriptor: Int32?, cancelled: Bool)>((nil, false))
+
+    var isCancelled: Bool { state.withLock { $0.cancelled } }
 
     func install(_ descriptor: Int32) -> Bool {
-        lock.lock(); defer { lock.unlock() }
-        guard !cancelled else { close(descriptor); return false }
-        self.descriptor = descriptor; return true
+        state.withLock { state in
+            guard !state.cancelled else { close(descriptor); return false }
+            state.descriptor = descriptor; return true
+        }
     }
-    func cancel() { lock.lock(); cancelled = true; let fd = descriptor; descriptor = nil; lock.unlock(); if let fd { close(fd) } }
-    func closeOnce() { lock.lock(); let fd = descriptor; descriptor = nil; lock.unlock(); if let fd { close(fd) } }
+    func cancel() { closing { $0.cancelled = true } }
+    func closeOnce() { closing { _ in } }
+
+    private func closing(_ update: (inout (descriptor: Int32?, cancelled: Bool)) -> Void) {
+        let fd = state.withLock { state in
+            update(&state)
+            defer { state.descriptor = nil }
+            return state.descriptor
+        }
+        if let fd { close(fd) }
+    }
 }

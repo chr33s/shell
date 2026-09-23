@@ -12,7 +12,7 @@ import Foundation
 /// Manages window size and position persistence for Mac Catalyst.
 /// New windows open with the geometry of the last focused window.
 @MainActor
-class WindowSizeManager {
+final class WindowSizeManager {
     static let shared = WindowSizeManager()
 
     private static let defaultWidth: CGFloat = 800

@@ -1,5 +1,6 @@
 import Foundation
 import ShellControlProtocol
+import Synchronization
 
 /// The device-scoped session a completed enrollment returns.
 ///
@@ -97,36 +98,33 @@ public protocol DeviceCredentialStore: Sendable {
 }
 
 /// A store for tests and for hosts without a Keychain.
-public final class InMemoryCredentialStore: DeviceCredentialStore, @unchecked Sendable {
-    private let lock = NSLock()
-    private var key: InMemoryDeviceKey?
-    private var session: DeviceSession?
+public final class InMemoryCredentialStore: DeviceCredentialStore, Sendable {
+    private struct Contents {
+        var key: InMemoryDeviceKey?
+        var session: DeviceSession?
+    }
+
+    private let contents = Mutex(Contents())
 
     public init() {}
 
     public func loadSigningKey() throws -> (any DeviceSigningKey)? {
-        lock.lock(); defer { lock.unlock() }
-        return key
+        contents.withLock { $0.key }
     }
 
     public func storeSigningKey(_ key: InMemoryDeviceKey) throws {
-        lock.lock(); defer { lock.unlock() }
-        self.key = key
+        contents.withLock { $0.key = key }
     }
 
     public func loadSession() throws -> DeviceSession? {
-        lock.lock(); defer { lock.unlock() }
-        return session
+        contents.withLock { $0.session }
     }
 
     public func storeSession(_ session: DeviceSession) throws {
-        lock.lock(); defer { lock.unlock() }
-        self.session = session
+        contents.withLock { $0.session = session }
     }
 
     public func removeAll() throws {
-        lock.lock(); defer { lock.unlock() }
-        key = nil
-        session = nil
+        contents.withLock { $0 = Contents() }
     }
 }

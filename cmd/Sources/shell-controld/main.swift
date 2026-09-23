@@ -7,6 +7,7 @@ import Darwin
 import ShellControlDaemon
 import ShellControlHostSupport
 import ShellControlProtocol
+import Synchronization
 
 // shell-controld runs on the actual execution host as a per-user service.
 // Its socket is local only: no SSH and no unauthenticated control socket is
@@ -139,42 +140,27 @@ do {
 
 FileHandle.standardError.write(Data("shell-controld: listening on \(socketPath)\n".utf8))
 
-final class ListenerState: @unchecked Sendable {
-    private var running = true
-    private var shutdownRequested = false
-    private let lock = NSLock()
+final class ListenerState: Sendable {
+    private let running = Atomic(true)
+    private let shutdownRequested = Atomic(false)
     let control: Int32
     let health: Int32
     init(control: Int32, health: Int32) {
         self.control = control
         self.health = health
     }
-    var isRunning: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return running
-    }
+    var isRunning: Bool { running.load(ordering: .acquiring) }
     func stop() {
-        lock.lock()
-        guard running else {
-            lock.unlock()
-            return
-        }
-        running = false
-        lock.unlock()
+        guard running.exchange(false, ordering: .acquiringAndReleasing) else { return }
         close(control)
         close(health)
     }
     func beginShutdown() -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        if shutdownRequested { return false }
-        shutdownRequested = true
-        return true
+        !shutdownRequested.exchange(true, ordering: .acquiringAndReleasing)
     }
 }
 
-final class DaemonShutdownCoordinator: @unchecked Sendable {
+final class DaemonShutdownCoordinator: Sendable {
     private let listeners: ListenerState
     private let core: DaemonCore
     private let heartbeat: Task<Void, Never>

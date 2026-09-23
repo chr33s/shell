@@ -17,7 +17,7 @@ struct FontFeature: Identifiable, Hashable {
 
 /// Manages font selection and registration for the app
 @MainActor
-class FontManager: ObservableObject {
+final class FontManager: ObservableObject {
     static let shared = FontManager()
 
     /// Information about a bundled font family

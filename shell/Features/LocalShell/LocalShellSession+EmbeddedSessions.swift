@@ -246,6 +246,7 @@ extension LocalShellSession {
     /// Shared cleanup for embedded session end.
     private func handleEmbeddedSessionEnd(stopSession: () -> Void) {
         stopSession()
+        rejectPendingHostKeyPrompt()
         sessionMode = .localShell
         lastCommandSucceeded = true
         scriptCommandExitCode = 0
@@ -270,6 +271,7 @@ extension LocalShellSession {
             lastAttemptedSSHConfig = nil
         }
 
+        rejectPendingHostKeyPrompt()
         sessionMode = .localShell
         lastCommandSucceeded = false
         scriptCommandExitCode = 130 // Standard SIGINT exit code
@@ -499,6 +501,7 @@ extension LocalShellSession {
     private func handleSSHSessionError(_ error: Error) {
         // Also guard if we're already in password prompt mode (fallback already happened)
         if case .passwordPrompt = sessionMode { return }
+        rejectPendingHostKeyPrompt()
 
         preservingAuthBannerCard(from: embeddedSSHSession as? SSHAuthBannerCardProviding) {
             embeddedSSHSession?.stop()

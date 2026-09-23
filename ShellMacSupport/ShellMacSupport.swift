@@ -41,7 +41,6 @@ final class ShellMacSupport: NSObject, MacBridge {
     func frame(of window: NSObject) -> CGRect { (window as? NSWindow)?.frame ?? .zero }
     func setTitle(_ title: String, for window: NSObject) { (window as? NSWindow)?.title = title }
     func toggleFullScreen(_ window: NSObject) { (window as? NSWindow)?.toggleFullScreen(nil) }
-    func setAlpha(_ alpha: CGFloat, for window: NSObject) { (window as? NSWindow)?.alphaValue = alpha }
 
     func activate(_ window: NSObject) {
         NSApp.unhide(nil)

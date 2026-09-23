@@ -11,7 +11,7 @@ import os.log
 /// sign requests arrive for the same key simultaneously, only the first
 /// one triggers a biometric prompt and others wait to share the result.
 @MainActor
-class SSHKeyAuthManager {
+final class SSHKeyAuthManager {
     private nonisolated static let logger = Logger(subsystem: "dev.chr33s.shell", category: "SSHKeyAuthManager")
 
     static let shared = SSHKeyAuthManager()

@@ -85,7 +85,7 @@ struct WindowAccessor: UIViewRepresentable {
 }
 
 /// Internal view that accesses the UIWindow to configure transparency
-private class TransparentWindowView: UIView {
+private final class TransparentWindowView: UIView {
     private var cancellables = Set<AnyCancellable>()
     private var titlebarInsetRetryCount = 0
     private var titlebarInsetRetryTask: DispatchWorkItem?

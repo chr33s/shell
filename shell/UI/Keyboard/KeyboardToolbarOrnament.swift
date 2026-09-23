@@ -133,7 +133,7 @@ struct KeyboardToolbarRepresentable: UIViewRepresentable {
 
     // MARK: - Coordinator
 
-    class Coordinator: KeyboardButtonDelegate {
+    final class Coordinator: KeyboardButtonDelegate {
         weak var focusedTerminal: Ghostty.TerminalView?
         weak var toolbar: KeyboardToolbarView?
         var onHeightChanged: ((CGFloat) -> Void)?

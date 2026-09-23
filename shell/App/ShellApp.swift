@@ -132,13 +132,6 @@ struct ShellApp: App {
                         guard CloudKitSyncManager.shared.isSyncEnabled else { return }
 
                         try? await CloudKitSyncManager.shared.syncNow()
-                        // Re-check after the sync await — sync can span seconds;
-                        // a backgrounding mid-sync means the completion
-                        // checkpoint we'd log is misleading.
-                        let postCkEpoch = LifecycleEpoch.shared.background
-                        if postCkEpoch == scheduledAtBgEpoch {
-                        } else {
-                        }
                     }
                 }
                 #endif

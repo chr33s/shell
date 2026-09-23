@@ -127,9 +127,7 @@ final class ConnectionHealthMonitor {
 
         if isRunning {
             pingTask?.cancel()
-            pingTask = Task { [weak self] in
-                await self?.runPingLoop()
-            }
+            pingTask = makePingTask()
         }
     }
 
@@ -147,9 +145,7 @@ final class ConnectionHealthMonitor {
         pingHistory.removeAll()
         roundTripUnverified = false
 
-        pingTask = Task { [weak self] in
-            await self?.runPingLoop()
-        }
+        pingTask = makePingTask()
     }
 
     /// Stop the monitoring loop.
@@ -213,16 +209,28 @@ final class ConnectionHealthMonitor {
 
     // MARK: - Private Methods
 
-    private func runPingLoop() async {
-        while isRunning && !Task.isCancelled {
-            await sendPingAndUpdateHealth()
+    /// Holds `self` only for each ping, never across the sleep, so a monitor
+    /// released without `stop()` still reaches `deinit` and cancels the loop.
+    private func makePingTask() -> Task<Void, Never> {
+        Task { [weak self] in
+            while !Task.isCancelled {
+                guard let interval = await self?.pingOnce() else { return }
 
-            do {
-                try await Task.sleep(nanoseconds: UInt64(pingInterval * 1_000_000_000))
-            } catch {
-                break
+                do {
+                    try await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
+                } catch {
+                    return
+                }
             }
         }
+    }
+
+    /// One loop iteration. Returns the interval to wait before the next ping,
+    /// or `nil` once monitoring has stopped.
+    private func pingOnce() async -> TimeInterval? {
+        guard isRunning else { return nil }
+        await sendPingAndUpdateHealth()
+        return pingInterval
     }
 
     private func sendPingAndUpdateHealth() async {

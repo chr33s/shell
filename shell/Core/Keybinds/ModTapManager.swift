@@ -470,7 +470,7 @@ struct ModTapRule: Identifiable, Codable, Hashable, Sendable {
 
 @MainActor
 @Observable
-class ModTapManager {
+final class ModTapManager {
     static let shared = ModTapManager()
 
     private nonisolated static let logger = Logger(subsystem: "dev.chr33s.shell", category: "ModTapManager")

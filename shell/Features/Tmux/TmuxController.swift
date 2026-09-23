@@ -22,6 +22,7 @@
 import Foundation
 import GhosttyKit
 import os
+import Synchronization
 
 private extension SSHConfig {
     var tmuxGatewaySourceDisplayName: String {
@@ -4273,20 +4274,19 @@ struct TmuxReconcileDelivery: @unchecked Sendable {
 /// gateway-view ref + payload) is released as soon as each link's body completes;
 /// the retained `tail` holds only a Void result. ROOTSHELL-TMUX
 /// (id=tmux-reconcile-serialize)
-final class TmuxReconcileSerializer: @unchecked Sendable {
+nonisolated final class TmuxReconcileSerializer: Sendable {
     static let shared = TmuxReconcileSerializer()
-    private let lock = NSLock()
-    private var tail: Task<Void, Never>?
+    private let tail = Mutex<Task<Void, Never>?>(nil)
 
     /// Append `work` to the serial apply chain. Safe to call off the main actor.
     func enqueue(_ work: @escaping @Sendable @MainActor () -> Void) {
-        lock.lock()
-        let prev = tail
-        tail = Task { @MainActor in
-            if let prev { await prev.value }
-            work()
+        tail.withLock { current in
+            let prev = current
+            current = Task { @MainActor in
+                if let prev { await prev.value }
+                work()
+            }
         }
-        lock.unlock()
     }
 }
 

@@ -1,5 +1,6 @@
 import Foundation
 import ShellControlProtocol
+import Synchronization
 
 /// A command this device signed and whose outcome it has not yet confirmed.
 ///
@@ -76,20 +77,17 @@ public protocol CommandJournalStore: Sendable {
     func save(_ commands: [PendingCommand]) throws
 }
 
-public final class InMemoryCommandJournal: CommandJournalStore, @unchecked Sendable {
-    private let lock = NSLock()
-    private var commands: [PendingCommand] = []
+public final class InMemoryCommandJournal: CommandJournalStore, Sendable {
+    private let commands = Mutex<[PendingCommand]>([])
 
     public init() {}
 
     public func load() throws -> [PendingCommand] {
-        lock.lock(); defer { lock.unlock() }
-        return commands
+        commands.withLock { $0 }
     }
 
     public func save(_ commands: [PendingCommand]) throws {
-        lock.lock(); defer { lock.unlock() }
-        self.commands = commands
+        self.commands.withLock { $0 = commands }
     }
 }
 

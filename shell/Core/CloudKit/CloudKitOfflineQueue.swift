@@ -52,47 +52,78 @@ final class CloudKitOfflineQueue {
 
     /// Add a change to the queue
     func enqueue(_ change: PendingChange) {
-        // Check for existing change for the same record
-        if let existingIndex = pendingChanges.firstIndex(where: {
-            $0.recordType == change.recordType && $0.recordID == change.recordID
-        }) {
-            // Replace with newer change (last-write-wins)
-            pendingChanges[existingIndex] = change
-        } else {
-            pendingChanges.append(change)
+        enqueue([change])
+    }
+
+    /// Add several changes and persist the queue once.
+    func enqueue(_ changes: [PendingChange]) {
+        guard !changes.isEmpty else { return }
+        for change in changes {
+            // Check for existing change for the same record
+            if let existingIndex = pendingChanges.firstIndex(where: {
+                $0.recordType == change.recordType && $0.recordID == change.recordID
+            }) {
+                // Replace with newer change (last-write-wins)
+                pendingChanges[existingIndex] = change
+            } else {
+                pendingChanges.append(change)
+            }
+            Self.logger.debug("Enqueued change: \(change.recordType)/\(change.recordID) (\(change.operation.rawValue))")
         }
 
         persist()
-        Self.logger.debug("Enqueued change: \(change.recordType)/\(change.recordID) (\(change.operation.rawValue))")
     }
 
     /// Enqueue a syncable record change
     func enqueue<T: CloudKitSyncable>(_ record: T, operation: SyncOperation) {
+        guard let change = pendingChange(for: record, operation: operation) else { return }
+        enqueue(change)
+    }
+
+    /// Enqueue several syncable record changes with a single write to disk.
+    func enqueue<T: CloudKitSyncable>(_ records: [T], operation: (T) -> SyncOperation) {
+        enqueue(records.compactMap { pendingChange(for: $0, operation: operation($0)) })
+    }
+
+    private func pendingChange<T: CloudKitSyncable>(for record: T, operation: SyncOperation) -> PendingChange? {
         guard let payload = try? encoder.encode(record) else {
             Self.logger.error("Failed to encode record for offline queue")
-            return
+            return nil
         }
 
-        let change = PendingChange(
+        return PendingChange(
             recordType: T.recordType,
             recordID: T.recordName(for: record),
             operation: operation,
             payload: payload
         )
-        enqueue(change)
     }
 
     /// Remove a change from the queue (after successful sync)
     func dequeue(_ id: UUID) {
-        pendingChanges.removeAll { $0.id == id }
+        dequeue([id])
+    }
+
+    /// Remove several changes and persist the queue once.
+    func dequeue(_ ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        pendingChanges.removeAll { ids.contains($0.id) }
         persist()
-        Self.logger.debug("Dequeued change: \(id.uuidString)")
+        Self.logger.debug("Dequeued \(ids.count) change(s)")
     }
 
     /// Remove all changes for a specific record
     func dequeueRecord(_ recordID: String) {
-        pendingChanges.removeAll { $0.recordID == recordID }
-        persist()
+        dequeueRecords([recordID])
+    }
+
+    /// Remove all changes for several records, persisting only if any were queued.
+    func dequeueRecords(_ recordIDs: Set<String>) {
+        let beforeCount = pendingChanges.count
+        pendingChanges.removeAll { recordIDs.contains($0.recordID) }
+        if pendingChanges.count != beforeCount {
+            persist()
+        }
     }
 
     /// Get the next batch of changes to sync (oldest first)

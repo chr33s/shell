@@ -15,7 +15,7 @@ import os
 /// Shell session for Catalyst using a native child process
 /// This replaces LocalShellSession when running on Mac Catalyst
 @MainActor
-public class CatalystLocalShellSession: TerminalSession {
+public final class CatalystLocalShellSession: TerminalSession {
 
     private static let logFrequentLayout = ProcessInfo.processInfo.environment["GHOSTTY_LOG_FREQUENT_LAYOUT"] == "1"
     private static let resizeThrottleNs: UInt64 = 50_000_000  // 50ms

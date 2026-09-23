@@ -22,7 +22,7 @@ import NIOCore
 /// Sendable wrapper around a NIO `Channel`. Used to close a raw TCP channel
 /// from `onCancel` when the SSH handshake (`SSHClient.connect(on:settings:)`)
 /// hasn't completed yet.
-final class CancellationChannelBox: @unchecked Sendable {
+nonisolated final class CancellationChannelBox: @unchecked Sendable {
     let channel: Channel
     init(_ channel: Channel) { self.channel = channel }
 }
@@ -30,7 +30,7 @@ final class CancellationChannelBox: @unchecked Sendable {
 /// Sendable wrapper around an `SSHClient`. Closing the client cascades into
 /// its session channel and any child DirectTCPIP channels, which is the only
 /// way to interrupt `SSHClient.jump(to:)` mid-handshake.
-final class CancellationSSHClientBox: @unchecked Sendable {
+nonisolated final class CancellationSSHClientBox: @unchecked Sendable {
     let client: SSHClient
     init(_ client: SSHClient) { self.client = client }
 }

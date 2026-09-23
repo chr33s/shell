@@ -215,7 +215,7 @@ private final class DrawerRowView: UIView {
 
 // MARK: - KeyboardToolbarView
 
-class KeyboardToolbarView: UIView {
+final class KeyboardToolbarView: UIView {
     // MARK: - Properties
 
     weak var delegate: KeyboardButtonDelegate?

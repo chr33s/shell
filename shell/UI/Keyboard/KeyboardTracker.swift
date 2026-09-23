@@ -11,7 +11,7 @@ import GameController
 import os
 
 @Observable
-class KeyboardTracker {
+final class KeyboardTracker {
     @MainActor
     static let shared = KeyboardTracker()
 
@@ -762,7 +762,7 @@ class KeyboardTracker {
 
             if altHeld && !cmdHeld && !isSpecialKey {
                 if pressed {
-                    Task { @MainActor in
+                    Self.deliverKeyEdgeInOrder { [weak self] in
                         self?.handleModifierPrintableKeyDown(
                             keyCode,
                             controlHeld: ctrlHeld,
@@ -770,7 +770,7 @@ class KeyboardTracker {
                         )
                     }
                 } else {
-                    Task { @MainActor in
+                    Self.deliverKeyEdgeInOrder { [weak self] in
                         self?.handleTrackedPrintableKeyUp(keyCode)
                     }
                 }
@@ -778,7 +778,7 @@ class KeyboardTracker {
             }
 
             if !pressed {
-                Task { @MainActor in
+                Self.deliverKeyEdgeInOrder { [weak self] in
                     self?.handleTrackedPrintableKeyUp(keyCode)
                 }
             }
@@ -790,23 +790,33 @@ class KeyboardTracker {
 
             guard ctrlHeld else {
                 // Control released - stop any repeat
-                Task { @MainActor in
+                Self.deliverKeyEdgeInOrder { [weak self] in
                     self?.stopTrackedKeyRepeat()
                 }
                 return
             }
 
             if pressed {
-                Task { @MainActor in
+                Self.deliverKeyEdgeInOrder { [weak self] in
                     self?.handleCtrlArrowDown(keyCode)
                 }
             } else {
-                Task { @MainActor in
+                Self.deliverKeyEdgeInOrder { [weak self] in
                     self?.stopTrackedKeyRepeat(matching: keyCode)
                 }
             }
         }
         #endif
+    }
+
+    /// GCKeyboard edges go through the main dispatch queue for the same reason
+    /// as the modifier path: it preserves press/release order, which
+    /// independent MainActor tasks do not, so a fast release could otherwise
+    /// run before its press and leave key repeat running.
+    private nonisolated static func deliverKeyEdgeInOrder(_ work: @escaping @MainActor @Sendable () -> Void) {
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated(work)
+        }
     }
 
     @MainActor
@@ -851,7 +861,7 @@ class KeyboardTracker {
         let interval = keyRepeatInterval
 
         let delayTimer = Timer(timeInterval: delay, repeats: false) { [weak self] _ in
-            DispatchQueue.main.async {
+            MainActor.assumeIsolated {
                 guard let self = self, self.trackedRepeatKeyCode == keyCode else { return }
                 guard self.trackedRepeatValidator?() != false else {
                     self.stopTrackedKeyRepeat(matching: keyCode)
@@ -859,7 +869,7 @@ class KeyboardTracker {
                 }
 
                 let repeatTimer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
-                    DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
                         guard let self = self, self.trackedRepeatKeyCode == keyCode else { return }
                         guard self.trackedRepeatValidator?() != false else {
                             self.stopTrackedKeyRepeat(matching: keyCode)
@@ -1157,7 +1167,7 @@ class KeyboardTracker {
                 withTimeInterval: 1.0,
                 repeats: false
             ) { [weak self] _ in
-                Task { @MainActor [weak self] in
+                MainActor.assumeIsolated {
                     self?.setKeyboardAnimating(false)
                 }
             }

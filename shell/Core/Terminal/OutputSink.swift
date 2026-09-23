@@ -9,21 +9,33 @@ nonisolated final class LFNormalizer: @unchecked Sendable {
 
     func normalize(_ data: Data) -> Data {
         lock.withLock {
-            var out = Data()
-            out.reserveCapacity(data.count + (data.count / 16))
-            var prevCR = previousEndedWithCR
-            for byte in data {
-                if byte == 0x0A { // LF
-                    if !prevCR { out.append(0x0D) }
-                    out.append(0x0A)
-                    prevCR = false
-                    continue
+            data.withUnsafeBytes { bytes -> Data in
+                let startedWithCR = previousEndedWithCR
+                var prevCR = startedWithCR
+                var loneLFCount = 0
+                for byte in bytes {
+                    if byte == 0x0A, !prevCR { loneLFCount += 1 }
+                    prevCR = (byte == 0x0D)
                 }
-                out.append(byte)
-                prevCR = (byte == 0x0D)
+                previousEndedWithCR = prevCR
+                guard loneLFCount > 0 else { return data }
+
+                var out = Data(count: bytes.count + loneLFCount)
+                out.withUnsafeMutableBytes { dst in
+                    var j = 0
+                    var prev = startedWithCR
+                    for byte in bytes {
+                        if byte == 0x0A, !prev { // lone LF
+                            dst[j] = 0x0D
+                            j += 1
+                        }
+                        dst[j] = byte
+                        j += 1
+                        prev = (byte == 0x0D)
+                    }
+                }
+                return out
             }
-            previousEndedWithCR = prevCR
-            return out.count == data.count ? data : out
         }
     }
 }
@@ -31,8 +43,8 @@ nonisolated final class LFNormalizer: @unchecked Sendable {
 /// Thread-safe output sink for emitting session output from background threads.
 nonisolated final class OutputSink: @unchecked Sendable {
     private let lock = UnfairLock()
-    private nonisolated(unsafe) var onOutput: (@Sendable (String) -> Void)?
-    private nonisolated(unsafe) var onOutputData: (@Sendable (Data) -> Void)?
+    private var onOutput: (@Sendable (String) -> Void)?
+    private var onOutputData: (@Sendable (Data) -> Void)?
 
     nonisolated func update(onOutput: (@Sendable (String) -> Void)?, onOutputData: (@Sendable (Data) -> Void)?) {
         lock.withLock {

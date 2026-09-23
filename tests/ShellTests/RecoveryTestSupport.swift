@@ -31,10 +31,17 @@ final class VirtualRecoveryScheduler: RecoveryClock, RecoverySleeper, @unchecked
         let continuation: CheckedContinuation<Void, Error>
     }
     private var waiters: [Waiter] = []
+    /// Sleeps whose cancellation handler ran before they registered a waiter.
+    /// `onCancel` runs immediately, and concurrently with the body, when the
+    /// task is cancelled first; without this the late waiter parks forever.
+    private var cancelledIDs: Set<Int> = []
+    private var sleeps: [TimeInterval] = []
 
     /// Every duration passed to `sleep`, in call order. Tests assert on the
     /// schedule itself, not just on its side effects.
-    private(set) var requestedSleeps: [TimeInterval] = []
+    var requestedSleeps: [TimeInterval] {
+        lock.withLock { sleeps }
+    }
 
     var now: MonotonicInstant {
         lock.lock()
@@ -52,19 +59,20 @@ final class VirtualRecoveryScheduler: RecoveryClock, RecoverySleeper, @unchecked
 
         let id: Int = lock.withLock {
             nextID += 1
-            requestedSleeps.append(seconds)
+            sleeps.append(seconds)
             return nextID
         }
 
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                 let deadline: TimeInterval = lock.withLock { currentSeconds + seconds }
-                let shouldResumeNow: Bool = lock.withLock {
-                    guard deadline > currentSeconds else { return true }
+                let immediate: Result<Void, Error>? = lock.withLock {
+                    if cancelledIDs.remove(id) != nil { return .failure(CancellationError()) }
+                    guard deadline > currentSeconds else { return .success(()) }
                     waiters.append(Waiter(id: id, deadline: deadline, continuation: continuation))
-                    return false
+                    return nil
                 }
-                if shouldResumeNow { continuation.resume() }
+                if let immediate { continuation.resume(with: immediate) }
             }
         } onCancel: {
             cancel(id: id)
@@ -111,7 +119,10 @@ final class VirtualRecoveryScheduler: RecoveryClock, RecoverySleeper, @unchecked
 
     private func cancel(id: Int) {
         let cancelled: Waiter? = lock.withLock {
-            guard let index = waiters.firstIndex(where: { $0.id == id }) else { return nil }
+            guard let index = waiters.firstIndex(where: { $0.id == id }) else {
+                cancelledIDs.insert(id)
+                return nil
+            }
             return waiters.remove(at: index)
         }
         cancelled?.continuation.resume(throwing: CancellationError())

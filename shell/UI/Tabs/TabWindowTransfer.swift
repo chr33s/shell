@@ -114,7 +114,7 @@ final class TabTransferCoordinator {
     static let shared = TabTransferCoordinator()
 
     private nonisolated static let logger = Logger(subsystem: "dev.chr33s.shell", category: "TabTransfer")
-    nonisolated static let dragUTType = UTType("dev.chr33s.shell.tab-transfer")!
+    nonisolated static let dragUTType = UTType(exportedAs: "dev.chr33s.shell.tab-transfer")
     nonisolated static let activeDragExpiration: Duration = .seconds(30)
 
     struct DragPayload: Codable, Hashable {

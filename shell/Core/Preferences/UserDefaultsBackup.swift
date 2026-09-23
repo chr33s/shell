@@ -10,7 +10,7 @@
 import Foundation
 import os.log
 
-enum UserDefaultsBackup {
+nonisolated enum UserDefaultsBackup {
     private static let logger = Logger(subsystem: "dev.chr33s.shell", category: "UserDefaultsBackup")
 
     /// Keys that are virtually always set after first use. If ALL of them are nil simultaneously,

@@ -418,10 +418,10 @@ public actor BrokerStore {
     /// come from ``nextSequence``, never from the log's contents.
     func trimChangeLog() {
         let cutoff = timestamp.adding(-ApprovalPolicy.changeLogRetention)
-        while let first = changeLog.first, first.serverTime < cutoff {
-            scopes.removeValue(forKey: first.eventID)
-            changeLog.removeFirst()
-        }
+        let expired = changeLog.prefix { $0.serverTime < cutoff }
+        guard !expired.isEmpty else { return }
+        for event in expired { scopes.removeValue(forKey: event.eventID) }
+        changeLog.removeFirst(expired.count)
     }
 
     func isVisible(_ event: ChangeEvent, to principal: Principal) -> Bool {

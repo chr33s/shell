@@ -11,6 +11,7 @@
 //
 
 import Foundation
+import Synchronization
 
 // MARK: - Intent
 
@@ -268,18 +269,17 @@ struct SystemRecoveryJitter: RecoveryJitterSource {
 
 /// Deterministic jitter for tests: a seeded linear congruential generator.
 /// Not for cryptographic use — it only shapes retry timing.
-final class SeededRecoveryJitter: RecoveryJitterSource, @unchecked Sendable {
-    private let lock = NSLock()
-    private var state: UInt64
+final class SeededRecoveryJitter: RecoveryJitterSource {
+    private let state: Mutex<UInt64>
 
     init(seed: UInt64 = 0x2545_F491_4F6C_DD1D) {
-        self.state = seed == 0 ? 1 : seed
+        self.state = Mutex(seed == 0 ? 1 : seed)
     }
 
     func nextUnitInterval() -> Double {
-        lock.lock()
-        defer { lock.unlock() }
-        state = state &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
-        return Double(state >> 11) / Double(1 << 53)
+        state.withLock { state in
+            state = state &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+            return Double(state >> 11) / Double(1 << 53)
+        }
     }
 }

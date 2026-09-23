@@ -1,6 +1,7 @@
 import Foundation
 import ShellControlProtocol
 import ShellControlSecurity
+import Synchronization
 
 /// What the iPhone pins at pairing: the origin identity, plus cached routes.
 ///
@@ -59,25 +60,21 @@ public protocol PinnedOriginStore: Sendable {
     func remove() throws
 }
 
-public final class InMemoryPinnedOriginStore: PinnedOriginStore, @unchecked Sendable {
-    private let lock = NSLock()
-    private var origin: PinnedOrigin?
+public final class InMemoryPinnedOriginStore: PinnedOriginStore, Sendable {
+    private let origin: Mutex<PinnedOrigin?>
 
-    public init(_ origin: PinnedOrigin? = nil) { self.origin = origin }
+    public init(_ origin: PinnedOrigin? = nil) { self.origin = Mutex(origin) }
 
     public func load() throws -> PinnedOrigin? {
-        lock.lock(); defer { lock.unlock() }
-        return origin
+        origin.withLock { $0 }
     }
 
     public func store(_ origin: PinnedOrigin) throws {
-        lock.lock(); defer { lock.unlock() }
-        self.origin = origin
+        self.origin.withLock { $0 = origin }
     }
 
     public func remove() throws {
-        lock.lock(); defer { lock.unlock() }
-        origin = nil
+        origin.withLock { $0 = nil }
     }
 }
 

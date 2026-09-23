@@ -14,13 +14,6 @@ import os.log
 
 class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     private static let logger = Logger(subsystem: "dev.chr33s.shell", category: "AppDelegate")
-    private let protectedDataNotificationQueue: OperationQueue = {
-        let queue = OperationQueue()
-        queue.name = "dev.chr33s.shell.appDelegate.protectedData"
-        queue.maxConcurrentOperationCount = 1
-        queue.qualityOfService = .utility
-        return queue
-    }()
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         // Register volatile UserDefaults defaults BEFORE any scene/view construction.
@@ -174,11 +167,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         completionHandler([.banner, .sound])
     }
 
-    /// Subscribe to OS notifications that may correlate with watchdog wedges:
-    /// Keychain availability transitions, memory warnings, and termination.
-    /// Each observer logs a single checkpoint to the lifecycle log so the
-    /// post-mortem trace shows whether one of these events landed inside a
-    /// scene-update transaction.
+    /// Subscribe to the app lifecycle and protected-data notifications that
+    /// drive `ForegroundActivationGate` and the secure-draw gate.
     private func installLifecycleObservers() {
         let nc = NotificationCenter.default
         nc.addObserver(forName: UIApplication.willEnterForegroundNotification,
@@ -210,17 +200,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             // A lock that reaches us here rather than via willResignActive must
             // still close the secure-draw gate.
             Ghostty.isSecureDrawProhibitedAtomic = true
-        }
-        nc.addObserver(forName: UIApplication.protectedDataDidBecomeAvailableNotification,
-                       object: nil, queue: protectedDataNotificationQueue) { _ in
-            Task { @MainActor in
-            }
-        }
-        nc.addObserver(forName: UIApplication.didReceiveMemoryWarningNotification,
-                       object: nil, queue: .main) { _ in
-        }
-        nc.addObserver(forName: UIApplication.willTerminateNotification,
-                       object: nil, queue: .main) { _ in
         }
     }
 }
@@ -345,7 +324,7 @@ final class ForegroundActivationGate: Sendable {
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            Task { @MainActor [weak self] in
+            MainActor.assumeIsolated {
                 self?.runWhenSafe(
                     reason: reason,
                     delay: delay,
@@ -429,9 +408,6 @@ private final class ForegroundTransitionWatchdog: Sendable {
                 return (true, Date().timeIntervalSince(armedAt) * 1000)
             }
             guard snapshot.active else { return }
-
-            Task { @MainActor in
-            }
 
             if ordinal < 8 {
                 scheduleHeartbeat(token: token, ordinal: ordinal + 1)

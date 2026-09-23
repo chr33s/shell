@@ -24,6 +24,7 @@ final class StatusBarStyleManager {
     private var themeSubscription: AnyCancellable?
     private var windowObserver: NSObjectProtocol?
     private var isInstalled = false
+    private var swizzledClasses = Set<ObjectIdentifier>()
 
     /// Current status bar style based on terminal theme
     private(set) var currentStyle: UIStatusBarStyle = .default
@@ -104,14 +105,7 @@ final class StatusBarStyleManager {
         // Get the actual class of this instance
         let vcClass: AnyClass = type(of: viewController)
 
-        // Check if already swizzled by looking for our marker
-        let markerKey = UnsafeRawPointer(bitPattern: "StatusBarSwizzled".hashValue)!
-        if objc_getAssociatedObject(vcClass, markerKey) != nil {
-            return
-        }
-
-        // Mark as swizzled
-        objc_setAssociatedObject(vcClass, markerKey, true, .OBJC_ASSOCIATION_RETAIN)
+        guard swizzledClasses.insert(ObjectIdentifier(vcClass)).inserted else { return }
 
         // Swizzle preferredStatusBarStyle
         let originalSelector = #selector(getter: UIViewController.preferredStatusBarStyle)

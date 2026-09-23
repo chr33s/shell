@@ -15,7 +15,7 @@ final class LocalShellSession: TerminalSession, EmbeddedConnectionConfigProvidin
     var imgcatTask: Task<Void, Never>?
     var whatIsMyIPTask: Task<Void, Never>?
     // Set once in init and never mutated, safe to access from any thread
-    nonisolated(unsafe) var sessionID: UUID
+    nonisolated let sessionID: UUID
 
     /// Terminal UUID for credential persistence (enables Mosh session resume)
     /// Set by TerminalView to allow embedded sessions to save credentials with the right terminal ID
@@ -209,7 +209,7 @@ final class LocalShellSession: TerminalSession, EmbeddedConnectionConfigProvidin
     /// Persists variables, functions, and traps across source/eval commands.
     /// Set once in init() alongside sessionID. Safe to access from any thread
     /// (ShellEnvironment is @unchecked Sendable with internal locking).
-    nonisolated(unsafe) var sharedShellEnvironment: ShellEnvironment
+    nonisolated let sharedShellEnvironment: ShellEnvironment
 
     // Multi-line input buffer for incomplete compound commands (if/for/while/etc.)
     // When the user types `while [ 1 ]` and presses Enter, the parser detects
@@ -483,6 +483,7 @@ final class LocalShellSession: TerminalSession, EmbeddedConnectionConfigProvidin
         embeddedSSHSession = nil
         activeEmbeddedSSHConfig = nil
 
+        rejectPendingHostKeyPrompt()
         sessionMode = .localShell
 
         // Stop any running animations
@@ -680,14 +681,9 @@ final class LocalShellSession: TerminalSession, EmbeddedConnectionConfigProvidin
                 (self.currentCommand, self.currentPid, self.activeScriptCommandHandles)
             }
 
-            // Capture Sendable values for logging
-            let pidStr = pid != nil ? String(pid!) : "nil"
-            let hasCmd = cmd != nil
-
-            Task { @MainActor in
-                let cmdStatus = hasCmd ? "present" : "nil"
-                Self.logger.debug("[Ctrl-C] Current pid: \(pidStr), cmd handle: \(cmdStatus)")
-            }
+            let pidStr = pid.map { String($0) } ?? "nil"
+            let cmdStatus = cmd != nil ? "present" : "nil"
+            Self.logger.debug("[Ctrl-C] Current pid: \(pidStr), cmd handle: \(cmdStatus)")
 
             guard pid != nil || cmd != nil || !scriptHandles.isEmpty else {
                 Task { @MainActor [weak self] in
@@ -722,12 +718,11 @@ final class LocalShellSession: TerminalSession, EmbeddedConnectionConfigProvidin
                 if writeFd >= 0 {
                     let ctrlC: [UInt8] = [0x03]
                     let written = Darwin.write(writeFd, ctrlC, 1)
-                    Task { @MainActor in
-                        if written > 0 {
-                            Self.logger.debug("[Ctrl-C] Sent 0x03 to stdin pipe for interactive command")
-                        } else {
-                            Self.logger.warning("[Ctrl-C] Failed to write to stdin: errno=\(errno)")
-                        }
+                    if written > 0 {
+                        Self.logger.debug("[Ctrl-C] Sent 0x03 to stdin pipe for interactive command")
+                    } else {
+                        let err = errno
+                        Self.logger.warning("[Ctrl-C] Failed to write to stdin: errno=\(err)")
                     }
                 }
             } else {
@@ -885,8 +880,9 @@ final class LocalShellSession: TerminalSession, EmbeddedConnectionConfigProvidin
             // Forward to running command's stdin if one is active
             let (mode, writeFd) = stdinLock.withLock { (inputMode, commandStdinWriteFd) }
             if mode == .commandStdin && writeFd >= 0 {
-                _ = data.withUnsafeBytes { buf in
-                    Darwin.write(writeFd, buf.baseAddress!, data.count)
+                data.withUnsafeBytes { buf in
+                    guard let baseAddress = buf.baseAddress else { return }
+                    _ = Darwin.write(writeFd, baseAddress, data.count)
                 }
             }
             return
@@ -1048,9 +1044,8 @@ final class LocalShellSession: TerminalSession, EmbeddedConnectionConfigProvidin
                     guard let baseAddress = bufferPtr.baseAddress else { return }
                     let bytesWritten = Darwin.write(writeFd, baseAddress, data.count)
                     if bytesWritten < 0 {
-                        Task { @MainActor in
-                            Self.logger.error("[stdin] write failed: errno=\(errno)")
-                        }
+                        let err = errno
+                        Self.logger.error("[stdin] write failed: errno=\(err)")
                     }
                 }
             } else {

@@ -283,11 +283,11 @@ final class ControlSessionTests: XCTestCase {
         let rig = try await rig()
         await rig.session.start()
         rig.session.startPolling()
+        let cancelled = try XCTUnwrap(rig.session.pollTask)
         rig.session.noteSceneActive(false)
         rig.session.noteSceneActive(true)
         XCTAssertTrue(rig.session.isPolling)
-        // Let the cancelled loop wake from its sleep and finish.
-        try await Task.sleep(nanoseconds: 200_000_000)
+        await cancelled.value
         XCTAssertTrue(rig.session.isPolling, "the replacement loop is still registered")
         rig.session.stopPolling()
         XCTAssertFalse(rig.session.isPolling)

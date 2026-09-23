@@ -10,6 +10,7 @@ import Foundation
 import Network
 import Combine
 import os
+import Synchronization
 import UIKit
 
 /// Monitors network connectivity for reconnection triggers
@@ -68,8 +69,7 @@ final class NetworkReachabilityMonitor: ObservableObject {
     private var isMonitoring = false
     private var previouslyConnected: Bool = true
     private var previousInterfaceNames: Set<String> = []
-    private let latestPathLock = NSLock()
-    private nonisolated(unsafe) var _latestPath: NWPath?
+    private let latestPath = Mutex<NWPath?>(nil)
 
     /// Holds the latest path that arrived during a foreground resume quiet
     /// window. When the window expires, the most recent path is replayed
@@ -82,7 +82,7 @@ final class NetworkReachabilityMonitor: ObservableObject {
     /// Latest path observed while `Ghostty.isAppBackgroundedAtomic` was true.
     /// `replayBackgroundPathIfAny()` (called from the FG resume path after
     /// the gate flips) drains it and runs `handlePathUpdate` once on real
-    /// main-thread runtime. Lock-protected because writes happen on
+    /// main-thread runtime. Mutex-protected because writes happen on
     /// `monitorQueue`. The 2026-05-04 10:18 watchdog showed three
     /// `Net.path.received` events with zero `Net.path.dispatched` over a
     /// 30s window — main was suspended and the queued MainActor tasks could
@@ -90,23 +90,28 @@ final class NetworkReachabilityMonitor: ObservableObject {
     /// doing useful work, since `NetworkInfoLiveActivityBridge.deferAfterForeground`
     /// is also gated on main and can't refresh the widget while iOS holds
     /// main suspended.
-    private let backgroundPathLock = NSLock()
-    private nonisolated(unsafe) var _pendingBackgroundPath: NWPath?
-    private let activationPathFlushLock = NSLock()
-    private nonisolated(unsafe) var _activationPathFlushScheduled = false
-    private nonisolated(unsafe) var _activationPathFlushGeneration: UInt64 = 0
+    private let backgroundPath = Mutex(BackgroundPathState())
+    private let activationPathFlush = Mutex(ActivationPathFlushState())
     private nonisolated static let maxActivationPathFlushAttempts = 80
 
-    /// True if a path with `status != .satisfied` was observed while
-    /// backgrounded. Latest-wins on `_pendingBackgroundPath` would otherwise
-    /// erase a down-then-up flap (the final stashed path is `.satisfied`,
-    /// `isConnected` was never updated to false, so `handlePathUpdate`'s
-    /// `!wasConnected && nowConnected` branch never fires and listeners that
-    /// depend on `connectivityRestored` never see the recovery). The replay
-    /// path uses this flag to synthesize a `connectivityRestored` send when
-    /// the final path is satisfied but the network actually flapped during
-    /// suspension.
-    private nonisolated(unsafe) var _sawDisconnectWhileBackgrounded: Bool = false
+    private nonisolated struct BackgroundPathState {
+        var pendingPath: NWPath?
+        /// True if a path with `status != .satisfied` was observed while
+        /// backgrounded. Latest-wins on `pendingPath` would otherwise
+        /// erase a down-then-up flap (the final stashed path is `.satisfied`,
+        /// `isConnected` was never updated to false, so `handlePathUpdate`'s
+        /// `!wasConnected && nowConnected` branch never fires and listeners that
+        /// depend on `connectivityRestored` never see the recovery). The replay
+        /// path uses this flag to synthesize a `connectivityRestored` send when
+        /// the final path is satisfied but the network actually flapped during
+        /// suspension.
+        var sawDisconnect = false
+    }
+
+    private nonisolated struct ActivationPathFlushState {
+        var scheduled = false
+        var generation: UInt64 = 0
+    }
 
     /// Travels alongside `deferredPath` through the resume-quiet-window
     /// deferral so a synthesized `connectivityRestored` is tied to the
@@ -119,28 +124,21 @@ final class NetworkReachabilityMonitor: ObservableObject {
     /// connectivity loss.
     private var deferredPathSynthesizesConnectivityRestored = false
 
-    /// Thread-safe storage for disconnect timestamp (accessed from both monitorQueue and MainActor)
-    /// Uses NSLock for thread safety since it's accessed synchronously from the monitor callback
-    /// Marked nonisolated(unsafe) because they're protected by disconnectTimeLock
-    private let disconnectTimeLock = NSLock()
-    private nonisolated(unsafe) var _lastDisconnectTime: Date?
-    private nonisolated(unsafe) var _previousStatus: NWPath.Status = .satisfied
+    /// Disconnect timestamp and last-seen status, accessed from both monitorQueue and MainActor.
+    /// Mutex-protected since the monitor callback updates them synchronously.
+    private let disconnectState = Mutex(DisconnectState())
+
+    private nonisolated struct DisconnectState {
+        var lastDisconnectTime: Date?
+        var previousStatus: NWPath.Status = .satisfied
+    }
 
     /// How recently network must have been lost to consider it "recently disconnected" (5 seconds)
     private let recentDisconnectThreshold: TimeInterval = 5.0
 
     /// Thread-safe getter for last disconnect time
     private var lastDisconnectTime: Date? {
-        disconnectTimeLock.lock()
-        defer { disconnectTimeLock.unlock() }
-        return _lastDisconnectTime
-    }
-
-    /// Thread-safe setter for last disconnect time
-    private func setLastDisconnectTime(_ time: Date?) {
-        disconnectTimeLock.lock()
-        _lastDisconnectTime = time
-        disconnectTimeLock.unlock()
+        disconnectState.withLock { $0.lastDisconnectTime }
     }
 
     // MARK: - Initialization
@@ -172,23 +170,21 @@ final class NetworkReachabilityMonitor: ObservableObject {
         monitor.pathUpdateHandler = { [weak self] path in
             guard let self = self else { return }
 
-            self.latestPathLock.lock()
-            self._latestPath = path
-            self.latestPathLock.unlock()
+            self.latestPath.withLock { $0 = path }
 
             // Record disconnect time SYNCHRONOUSLY before dispatching to MainActor
             // This ensures the timestamp is set even if the MainActor task is delayed
-            self.disconnectTimeLock.lock()
-            let previousStatus = self._previousStatus
-            self._previousStatus = path.status
-            if previousStatus == .satisfied && path.status != .satisfied {
-                // Network just went down - record timestamp immediately
-                self._lastDisconnectTime = Date()
-            } else if previousStatus != .satisfied && path.status == .satisfied {
-                // Network restored - clear timestamp
-                self._lastDisconnectTime = nil
+            self.disconnectState.withLock { state in
+                let previousStatus = state.previousStatus
+                state.previousStatus = path.status
+                if previousStatus == .satisfied && path.status != .satisfied {
+                    // Network just went down - record timestamp immediately
+                    state.lastDisconnectTime = Date()
+                } else if previousStatus != .satisfied && path.status == .satisfied {
+                    // Network restored - clear timestamp
+                    state.lastDisconnectTime = nil
+                }
             }
-            self.disconnectTimeLock.unlock()
 
             // Record receipt on the monitor queue (the very first observable
             // moment of an OS-driven path change). Whether we end up
@@ -206,12 +202,12 @@ final class NetworkReachabilityMonitor: ObservableObject {
             // path; the FG resume path replays it on real runtime.
             if Ghostty.isAppBackgroundedAtomic || ForegroundActivationGate.shared.isUnsafeForSceneMutation {
                 let isDown = path.status != .satisfied
-                self.backgroundPathLock.lock()
-                self._pendingBackgroundPath = path
-                if isDown {
-                    self._sawDisconnectWhileBackgrounded = true
+                self.backgroundPath.withLock { state in
+                    state.pendingPath = path
+                    if isDown {
+                        state.sawDisconnect = true
+                    }
                 }
-                self.backgroundPathLock.unlock()
                 if ForegroundActivationGate.shared.isUnsafeForSceneMutation {
                     self.noteActivationSuppressedPathAndScheduleFlush()
                 }
@@ -271,12 +267,10 @@ final class NetworkReachabilityMonitor: ObservableObject {
     /// the resume quiet window expires (the deferral path eventually
     /// re-enters this same handler post-window).
     func replayBackgroundPathIfAny() {
-        backgroundPathLock.lock()
-        let path = _pendingBackgroundPath
-        let sawDisconnect = _sawDisconnectWhileBackgrounded
-        _pendingBackgroundPath = nil
-        _sawDisconnectWhileBackgrounded = false
-        backgroundPathLock.unlock()
+        let (path, sawDisconnect) = backgroundPath.withLock { state in
+            defer { state = BackgroundPathState() }
+            return (state.pendingPath, state.sawDisconnect)
+        }
         guard let path else { return }
         let synthesizeRestored = sawDisconnect
             && path.status == .satisfied
@@ -288,14 +282,14 @@ final class NetworkReachabilityMonitor: ObservableObject {
     }
 
     private nonisolated func noteActivationSuppressedPathAndScheduleFlush() {
-        activationPathFlushLock.lock()
-        _activationPathFlushGeneration &+= 1
-        let generation = _activationPathFlushGeneration
-        let shouldSchedule = !_activationPathFlushScheduled
-        if shouldSchedule {
-            _activationPathFlushScheduled = true
+        let (generation, shouldSchedule) = activationPathFlush.withLock { state in
+            state.generation &+= 1
+            let shouldSchedule = !state.scheduled
+            if shouldSchedule {
+                state.scheduled = true
+            }
+            return (state.generation, shouldSchedule)
         }
-        activationPathFlushLock.unlock()
 
         if shouldSchedule {
             scheduleActivationPathFlush(generation: generation, attempt: 0)
@@ -312,10 +306,10 @@ final class NetworkReachabilityMonitor: ObservableObject {
 
     @MainActor
     private func flushActivationSuppressedPathIfSafe(generation: UInt64, attempt: Int) {
-        activationPathFlushLock.lock()
-        _activationPathFlushScheduled = false
-        let latestGeneration = _activationPathFlushGeneration
-        activationPathFlushLock.unlock()
+        let latestGeneration = activationPathFlush.withLock { state in
+            state.scheduled = false
+            return state.generation
+        }
 
         guard !Ghostty.isAppBackgroundedAtomic,
               UIApplication.shared.applicationState == .active else {
@@ -329,12 +323,13 @@ final class NetworkReachabilityMonitor: ObservableObject {
                 return
             }
 
-            activationPathFlushLock.lock()
-            let shouldSchedule = !_activationPathFlushScheduled
-            if shouldSchedule {
-                _activationPathFlushScheduled = true
+            let shouldSchedule = activationPathFlush.withLock { state in
+                let shouldSchedule = !state.scheduled
+                if shouldSchedule {
+                    state.scheduled = true
+                }
+                return shouldSchedule
             }
-            activationPathFlushLock.unlock()
             if shouldSchedule {
                 scheduleActivationPathFlush(generation: latestGeneration, attempt: nextAttempt)
             }
@@ -358,10 +353,7 @@ final class NetworkReachabilityMonitor: ObservableObject {
     /// restarting the monitor. Used on foreground by sessions that only need a
     /// consolidated post-resume path signal.
     func replayLatestPathAfterResumeQuietWindow() {
-        latestPathLock.lock()
-        let path = _latestPath
-        latestPathLock.unlock()
-        guard let path else { return }
+        guard let path = latestPath.withLock({ $0 }) else { return }
 
         guard !Ghostty.isAppBackgroundedAtomic, !Ghostty.isInResumeQuietWindowAtomic else {
             deferredPath = path

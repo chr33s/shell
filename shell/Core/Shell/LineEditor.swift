@@ -2,7 +2,7 @@ import Foundation
 
 /// A line editor that provides readline-like functionality for command-line input
 @MainActor
-class LineEditor {
+final class LineEditor {
     // MARK: - Properties
 
     /// Current input buffer

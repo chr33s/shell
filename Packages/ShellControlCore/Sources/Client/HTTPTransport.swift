@@ -56,7 +56,7 @@ public enum TransportError: Error, Sendable, Equatable {
 /// `URLSession` HTTPS for reads and short, foreground control requests. There
 /// is no always-open socket and no background polling loop
 /// (spec.watch.md section 7).
-private final class NoRedirectSessionDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+private final class NoRedirectSessionDelegate: NSObject, URLSessionTaskDelegate, Sendable {
     static let shared = NoRedirectSessionDelegate()
     func urlSession(_ session: URLSession, task: URLSessionTask,
                     willPerformHTTPRedirection response: HTTPURLResponse,

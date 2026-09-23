@@ -8,7 +8,7 @@
 
 import UIKit
 
-class KeyboardArrowJoystickButton: UIView {
+final class KeyboardArrowJoystickButton: UIView {
     // MARK: - Types
 
     enum Mode: String {

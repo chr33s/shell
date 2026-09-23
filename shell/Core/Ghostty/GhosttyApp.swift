@@ -189,7 +189,7 @@ extension Ghostty {
     private nonisolated static let resumeHealthQuietWindowDeadline = OSAllocatedUnfairLock<TimeInterval>(initialState: 0)
 
     @MainActor
-    class App: ObservableObject {
+    final class App: ObservableObject {
         enum Readiness: String {
             case loading, error, ready
         }

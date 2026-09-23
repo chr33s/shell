@@ -5,7 +5,7 @@ import Security
 import ShellControlSecurity
 
 @MainActor
-class KeychainManager {
+final class KeychainManager {
     private nonisolated static let logger = Logger(subsystem: "dev.chr33s.shell", category: "KeychainManager")
 
     nonisolated static let shared = KeychainManager()
@@ -446,8 +446,11 @@ class KeychainManager {
             kSecAttrAccessGroup as String: accessGroup
         ]
 
-        SecItemDelete(query as CFDictionary)
-        // Ignore errors - passphrase may not exist
+        let status = SecItemDelete(query as CFDictionary)
+        // A missing passphrase is expected; anything else is worth a trace.
+        if status != errSecSuccess && status != errSecItemNotFound {
+            Self.logger.warning("Failed to delete passphrase: \(status) (\(Self.keychainErrorString(status)))")
+        }
     }
 
     // MARK: - OpenPubkey Secrets Storage
@@ -522,8 +525,11 @@ class KeychainManager {
             kSecAttrSynchronizable as String: kSecAttrSynchronizableAny
         ]
 
-        SecItemDelete(query as CFDictionary)
-        // Ignore errors - secrets may not exist
+        let status = SecItemDelete(query as CFDictionary)
+        // Missing secrets are expected; anything else is worth a trace.
+        if status != errSecSuccess && status != errSecItemNotFound {
+            Self.logger.warning("Failed to delete OpenPubkey secrets: \(status) (\(Self.keychainErrorString(status)))")
+        }
     }
 
     // MARK: - List Keys

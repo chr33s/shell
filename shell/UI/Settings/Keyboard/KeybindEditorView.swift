@@ -226,7 +226,7 @@ struct ShortcutCaptureView: UIViewRepresentable {
 }
 
 /// UIView that captures keyboard input for shortcut editing
-class ShortcutCaptureUIView: UIView {
+final class ShortcutCaptureUIView: UIView {
     var isSequenceMode = false
     var onCapture: ((KeySequence) -> Void)?
     var onCancel: (() -> Void)?

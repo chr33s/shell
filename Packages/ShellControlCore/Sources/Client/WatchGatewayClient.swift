@@ -1,6 +1,7 @@
 import Foundation
 import ShellControlProtocol
 import ShellControlSecurity
+import Synchronization
 
 /// The Watch's only way out: an immediate WatchConnectivity round trip to its
 /// paired iPhone. There is no URL, no Tailscale session, and no bearer token
@@ -161,14 +162,10 @@ public actor WatchGatewayClient: ControlDecisionService {
 
 /// Lets exactly one of two racing tasks resume a continuation; a second resume
 /// would trap.
-private final class FirstToFinish: @unchecked Sendable {
-    private let lock = NSLock()
-    private var finished = false
+private final class FirstToFinish: Sendable {
+    private let finished = Atomic(false)
 
     func take() -> Bool {
-        lock.lock(); defer { lock.unlock() }
-        if finished { return false }
-        finished = true
-        return true
+        !finished.exchange(true, ordering: .acquiringAndReleasing)
     }
 }

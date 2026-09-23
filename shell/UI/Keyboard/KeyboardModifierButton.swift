@@ -19,7 +19,7 @@ enum ModifierState: Equatable {
     case locked     // Active until tapped off
 }
 
-class KeyboardModifierButton: KeyboardButton {
+final class KeyboardModifierButton: KeyboardButton {
     // MARK: - Properties
 
     private let label: UILabel

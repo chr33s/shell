@@ -5,7 +5,7 @@ import os.log
 /// Manages SSH passwords stored in the Keychain
 @MainActor
 @Observable
-class SSHPasswordManager {
+final class SSHPasswordManager {
     private nonisolated static let logger = Logger(subsystem: "dev.chr33s.shell", category: "SSHPasswordManager")
 
     static let shared = SSHPasswordManager()

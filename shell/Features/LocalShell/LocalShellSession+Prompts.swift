@@ -107,6 +107,16 @@ extension LocalShellSession {
         )
     }
 
+    /// Answers an unanswered host key prompt with `.reject` before a teardown
+    /// path overwrites `sessionMode`, so the validating task is not left
+    /// suspended on a continuation nothing will resume.
+    func rejectPendingHostKeyPrompt() {
+        guard case .hostKeyPrompt(let continuation) = sessionMode else { return }
+        hostKeyResponseBuffer = ""
+        sessionMode = .localShell
+        continuation.resume(returning: .reject)
+    }
+
     /// Handle host key validation input
     func handleHostKeyInput(_ char: Character) {
         guard case .hostKeyPrompt(let continuation) = sessionMode else { return }

@@ -17,7 +17,7 @@ enum CompletionResult {
 
 /// Provides tab completion for commands and file paths
 @MainActor
-class CompletionProvider {
+final class CompletionProvider {
     // MARK: - Properties
 
     /// Cached list of available commands

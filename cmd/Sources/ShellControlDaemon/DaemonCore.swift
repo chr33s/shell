@@ -79,6 +79,9 @@ public actor DaemonCore {
     /// the integration adds an entry, so without a retention window this grows
     /// for the life of the process — and each entry can hold a decision JWS.
     private var handled: [ControlID: (bodyHash: String, response: IPCResponse, at: Date)] = [:]
+    /// Messages whose handler has not finished. A retransmission that arrives
+    /// meanwhile waits for the first attempt instead of running it again.
+    private var handling: [ControlID: (bodyHash: String?, response: Task<IPCResponse, Never>)] = [:]
     /// Long enough to cover any client's retransmission, far shorter than the
     /// daemon's lifetime.
     static let retransmissionWindow: TimeInterval = 24 * 60 * 60
@@ -368,18 +371,37 @@ public actor DaemonCore {
         // with a different body is a conflict (spec.watch.md section 17).
         if let previous = handled[request.messageID] {
             guard let hash = try? request.bodyHash(), hash == previous.bodyHash else {
-                return IPCResponse(
-                    messageID: request.messageID,
-                    ok: false,
-                    errorCode: ControlErrorCode.idempotencyConflict.rawValue,
-                    errorMessage: "message id reused with a different body"
-                )
+                return Self.reusedMessageID(request)
             }
             // The recorded result: re-running the handler would create a second
             // request, event, or receipt for one logical message.
             return previous.response
         }
+        // The handlers await the broker, so a retransmission can arrive before
+        // the first attempt is recorded in `handled`.
+        if let running = handling[request.messageID] {
+            guard let hash = try? request.bodyHash(), hash == running.bodyHash else {
+                return Self.reusedMessageID(request)
+            }
+            return await running.response.value
+        }
         pruneHandled()
+        let work = Task { await perform(request) }
+        handling[request.messageID] = (try? request.bodyHash(), work)
+        return await withTaskCancellationHandler { await work.value } onCancel: { work.cancel() }
+    }
+
+    private static func reusedMessageID(_ request: IPCRequest) -> IPCResponse {
+        IPCResponse(
+            messageID: request.messageID,
+            ok: false,
+            errorCode: ControlErrorCode.idempotencyConflict.rawValue,
+            errorMessage: "message id reused with a different body"
+        )
+    }
+
+    private func perform(_ request: IPCRequest) async -> IPCResponse {
+        defer { handling[request.messageID] = nil }
         do {
             let body: JSONValue
             switch request.type {

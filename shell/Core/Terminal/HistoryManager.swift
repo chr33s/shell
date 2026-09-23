@@ -1,8 +1,11 @@
 import Foundation
+import os
 
 /// Manages command history with persistent storage
 @MainActor
-class HistoryManager {
+final class HistoryManager {
+    private nonisolated static let logger = Logger(subsystem: "dev.chr33s.shell", category: "HistoryManager")
+
     // MARK: - Properties
 
     /// Maximum number of commands to store
@@ -159,7 +162,7 @@ class HistoryManager {
                     strongSelf.commands = loadedCommands + added
                 }
             } catch {
-                print("Failed to load history: \(error)")
+                Self.logger.error("Failed to load history: \(error.localizedDescription)")
             }
         }
     }
@@ -171,7 +174,7 @@ class HistoryManager {
             do {
                 try content.write(to: historyFilePath, atomically: true, encoding: .utf8)
             } catch {
-                print("Failed to save history: \(error)")
+                Self.logger.error("Failed to save history: \(error.localizedDescription)")
             }
         }
     }

@@ -300,8 +300,10 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
             return result
         }
 
-        // Only ever touched from this interpreter's own execution thread.
-        nonisolated(unsafe) var captured = Data()
+        // Written from whichever pipeline stage queue runs a capture (a
+        // non-last stage can reach `executeExternal` through `eval`), so it
+        // needs its own lock.
+        let captured = OSAllocatedUnfairLock(initialState: Data())
         let captureCallback = self.captureExternal
 
         // Snapshot environment to prevent side-effect leakage (POSIX: command substitution runs in a subshell)
@@ -320,13 +322,13 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
             executeExternal: { cmd in
                 // Route external commands through capture so output is collected
                 let (exitCode, output) = captureCallback(cmd)
-                captured.append(Data(output.utf8))
+                captured.withLock { $0.append(Data(output.utf8)) }
                 return exitCode
             },
             captureExternal: captureExternal,
             canStreamExternalCommand: canStreamExternalCommand,
             requiresOwnExternalPipelineStage: requiresOwnExternalPipelineStage,
-            writeOutput: { data in captured.append(data) },
+            writeOutput: { data in captured.withLock { $0.append(data) } },
             writeErrorOutput: childErrorSink,
             readLine: { _, _ -> String? in nil },
             nestingDepth: nestingDepth + 1
@@ -367,7 +369,8 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
         }
         environment.setLastExitCode(exitCode)
 
-        var result = normalizeCommandSubstitutionOutput(String(data: captured, encoding: .utf8) ?? "")
+        let capturedData = captured.withLock { $0 }
+        var result = normalizeCommandSubstitutionOutput(String(data: capturedData, encoding: .utf8) ?? "")
         // POSIX: strip trailing newlines from command substitution
         while result.hasSuffix("\r\n") { result.removeLast(2) }
         while result.hasSuffix("\n") { result.removeLast() }

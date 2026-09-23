@@ -141,6 +141,9 @@ extension Ghostty.TerminalView {
     }
 
     func stopCaptureAutoScroll() {
+        // Called on every captured mouse down/move/up; skip the associated-object
+        // writes (and NSValue boxing) when auto-scroll is already idle.
+        guard captureAutoScrollDisplayLink != nil || captureAutoScrollDirection != .none else { return }
         captureAutoScrollDisplayLink?.invalidate()
         captureAutoScrollDisplayLink = nil
         captureAutoScrollDirection = .none

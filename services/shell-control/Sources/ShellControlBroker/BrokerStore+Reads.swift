@@ -88,6 +88,18 @@ extension BrokerStore {
     /// from.
     var earliestSequence: UInt64 { changeLog.first.map { $0.sequence.value } ?? nextSequence }
 
+    /// The index of the first retained event after `sequence`. The log is
+    /// appended in sequence order, so a long poll need not rescan seven days
+    /// of events to learn that nothing is new.
+    func firstLogIndex(after sequence: LogSequence) -> Int {
+        var low = changeLog.startIndex, high = changeLog.endIndex
+        while low < high {
+            let middle = low + (high - low) / 2
+            if changeLog[middle].sequence.value > sequence.value { high = middle } else { low = middle + 1 }
+        }
+        return low
+    }
+
     func isVisible(approval entry: ApprovalRecordEntry, to principal: Principal) -> Bool {
         guard entry.accountID == principal.accountID else { return false }
         switch principal {
@@ -111,8 +123,9 @@ extension BrokerStore {
         let limit = max(1, min(limit, ChangePage.maximumEvents))
         // A scoped stream may have sequence gaps because of filtering; that is
         // not data loss (spec.watch.md section 15).
-        let events = changeLog
-            .filter { $0.sequence.value > sequence.value && isVisible($0, to: principal) }
+        let events = changeLog[firstLogIndex(after: sequence)...]
+            .lazy
+            .filter { self.isVisible($0, to: principal) }
             .prefix(limit)
         let nextSequence = events.last?.sequence ?? sequence
         return ChangePage(

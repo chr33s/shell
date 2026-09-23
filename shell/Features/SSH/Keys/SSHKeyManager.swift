@@ -33,7 +33,7 @@ enum SSHPrivateKeyVariant: @unchecked Sendable {
 
 /// Manages SSH keys for authentication
 @MainActor
-class SSHKeyManager: ObservableObject {
+final class SSHKeyManager: ObservableObject {
     private nonisolated static let logger = Logger(subsystem: "dev.chr33s.shell", category: "SSHKeyManager")
 
     static let shared = SSHKeyManager()

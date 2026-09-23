@@ -42,7 +42,7 @@ final class ControlSession {
     private let cache: any InboxCacheStore
     private let journal: CommandJournal
     private let now: @Sendable () -> Date
-    private var pollTask: Task<Void, Never>?
+    private(set) var pollTask: Task<Void, Never>?
     /// Identifies the current poll loop, so a cancelled loop that finishes
     /// late cannot clear the task that replaced it.
     private var pollGeneration = 0
@@ -238,6 +238,9 @@ final class ControlSession {
                 }
                 try reconciler.applyCompletedSnapshot(accumulator, at: page.serverTime)
             }
+            // Signing out or unbinding while the pages were in flight already
+            // cleared the inbox and its cache; adopting them would restore both.
+            guard phase == .ready else { return }
             // The reconciler never drops old approvals and trims seen event
             // IDs only past 5000; bound what is kept and cached.
             inbox = InboxBounds.bounded(reconciler.state)
@@ -317,8 +320,10 @@ final class ControlSession {
     func fetchForReview(_ requestID: ControlID) async throws -> ApprovalRecord {
         do {
             let record = try await client.approval(requestID)
-            inbox.approvals[requestID] = record
-            try? cache.commit(inbox)
+            if phase == .ready {
+                inbox.approvals[requestID] = record
+                try? cache.commit(inbox)
+            }
             noteGatewayAnswered()
             gatewayProblem = nil
             return record

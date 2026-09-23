@@ -62,10 +62,6 @@ struct MacSupportSmoke {
         precondition(first.childWindows?.isEmpty ?? true, "Hidden window must not get a backdrop")
         bridge.removeGlassBackdrop(first)
 
-        bridge.setAlpha(0, for: first)
-        precondition(first.alphaValue == 0)
-        bridge.setAlpha(1, for: first)
-
         bridge.setApplicationAppearance(2)
         precondition(NSApp.appearance?.name == .darkAqua)
         bridge.setApplicationAppearance(1)
@@ -150,7 +146,7 @@ struct MacSupportSmoke {
         }
         _ = bridge.currentInputSourceID()
         _ = bridge.currentInputSourceLanguages()
-        _ = bridge.translateKey(0, shift: false)
+        _ = bridge.translateKey(0, shift: false, command: false)
         precondition(!bridge.selectInputSource("dev.chr33s.shell.no-such-input-source"),
                      "An unknown input source must be declined, not selected")
     }

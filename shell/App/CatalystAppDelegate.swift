@@ -137,7 +137,7 @@ private final class CatalystContinuityPasteboardReceiver: NSObject {
     }
 }
 
-class CatalystAppDelegate: AppDelegate {
+final class CatalystAppDelegate: AppDelegate {
 
     // MARK: - CloudKit Sync Debouncing
 
@@ -404,7 +404,7 @@ class CatalystAppDelegate: AppDelegate {
 /// last-focused window via `applyNewWindowCascadeGeometry`; launch-restored
 /// windows are sized per-window from their saved frame in `MainView` and skip
 /// the global path (see the `hasPendingRestoration` gate in `willConnectTo`).
-class CatalystSceneDelegate: UIResponder, UIWindowSceneDelegate {
+final class CatalystSceneDelegate: UIResponder, UIWindowSceneDelegate {
 
     static let minWindowSize = CGSize(width: 400, height: 300)
 

@@ -18,7 +18,7 @@ extension Ghostty {
     /// Manages keyboard key repeat behavior with initial delay and repeat interval.
     /// Encapsulates timer state that was previously spread across multiple instance variables.
     /// Uses class (not struct) because Timer closures need to capture self.
-    class KeyRepeatManager {
+    final class KeyRepeatManager {
         private var repeatTimer: Timer?
         private var delayTimer: Timer?
         private var activeKey: UIKey?
@@ -38,12 +38,16 @@ extension Ghostty {
             stop()
             activeKey = key
 
+            let data = Data(sequence.utf8)
+
             // macOS fastest: 225ms delay, 30ms repeat interval
-            delayTimer = Timer.scheduledTimer(withTimeInterval: 0.225, repeats: false) { [weak self, sequence] _ in
-                self?.repeatTimer = Timer.scheduledTimer(withTimeInterval: 0.03, repeats: true) { _ in
-                    if let data = sequence.data(using: .utf8) {
-                        onRepeat(data)
+            delayTimer = Timer.scheduledTimer(withTimeInterval: 0.225, repeats: false) { [weak self] _ in
+                self?.repeatTimer = Timer.scheduledTimer(withTimeInterval: 0.03, repeats: true) { [weak self] timer in
+                    guard self != nil else {
+                        timer.invalidate()
+                        return
                     }
+                    onRepeat(data)
                 }
             }
         }
@@ -59,7 +63,11 @@ extension Ghostty {
 
             // macOS fastest: 225ms delay, 30ms repeat interval
             delayTimer = Timer.scheduledTimer(withTimeInterval: 0.225, repeats: false) { [weak self] _ in
-                self?.repeatTimer = Timer.scheduledTimer(withTimeInterval: 0.03, repeats: true) { _ in
+                self?.repeatTimer = Timer.scheduledTimer(withTimeInterval: 0.03, repeats: true) { [weak self] timer in
+                    guard self != nil else {
+                        timer.invalidate()
+                        return
+                    }
                     action()
                 }
             }
@@ -94,7 +102,7 @@ extension Ghostty {
     /// - Another key is pressed → held (activate modifier, replay key with modifier)
     /// - Timer fires → held (activate modifier)
     /// - Mod-tap key released before timer/other key → tap (fire tap action)
-    class ModTapInterceptor {
+    final class ModTapInterceptor {
 
         enum State {
             case idle

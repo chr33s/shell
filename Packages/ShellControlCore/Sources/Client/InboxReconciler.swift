@@ -1,5 +1,6 @@
 import Foundation
 import ShellControlProtocol
+import Synchronization
 
 /// The client's view of the ledger.
 public struct InboxState: Sendable, Hashable {
@@ -41,25 +42,21 @@ public protocol InboxCacheStore: Sendable {
     func clear() throws
 }
 
-public final class InMemoryInboxCache: InboxCacheStore, @unchecked Sendable {
-    private let lock = NSLock()
-    private var state: InboxState?
+public final class InMemoryInboxCache: InboxCacheStore, Sendable {
+    private let state = Mutex<InboxState?>(nil)
 
     public init() {}
 
     public func load() throws -> InboxState? {
-        lock.lock(); defer { lock.unlock() }
-        return state
+        state.withLock { $0 }
     }
 
     public func commit(_ state: InboxState) throws {
-        lock.lock(); defer { lock.unlock() }
-        self.state = state
+        self.state.withLock { $0 = state }
     }
 
     public func clear() throws {
-        lock.lock(); defer { lock.unlock() }
-        state = nil
+        state.withLock { $0 = nil }
     }
 }
 

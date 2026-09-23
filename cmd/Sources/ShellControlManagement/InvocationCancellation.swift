@@ -4,39 +4,50 @@ import Darwin
 #else
 import Glibc
 #endif
+import Synchronization
 
 public struct SignalCancellation: Error, Sendable { public let signal: Int32; public var exitCode: Int32 { 128 + signal } }
 
 /// Process-wide signal fan-out. State and callback access are protected by the
-/// lock; the unchecked conformance is limited to this synchronization wrapper,
-/// not used to silence model or actor isolation errors.
-public final class InvocationCancellation: @unchecked Sendable {
+/// mutex; callbacks run outside it.
+public final class InvocationCancellation: Sendable {
     public static let shared = InvocationCancellation()
-    private let lock = NSLock()
-    private var callbacks: [UUID: @Sendable () -> Void] = [:]
-    private var caught: Int32?
-    private var sources: [DispatchSourceSignal] = []
+    private struct State {
+        var callbacks: [UUID: @Sendable () -> Void] = [:]
+        var caught: Int32?
+    }
+    private let state = Mutex(State())
+    private let sources: [DispatchSourceSignal]
 
     private init() {
+        var sources: [DispatchSourceSignal] = []
         for number in [SIGINT, SIGTERM, SIGHUP] {
             signal(number, SIG_IGN)
             let source = DispatchSource.makeSignalSource(signal: number, queue: .global())
+            sources.append(source)
+        }
+        self.sources = sources
+        for (number, source) in zip([SIGINT, SIGTERM, SIGHUP], sources) {
             source.setEventHandler { [weak self] in self?.cancel(signal: number) }
-            source.resume(); sources.append(source)
+            source.resume()
         }
     }
 
     private func cancel(signal: Int32) {
-        lock.lock(); if caught == nil { caught = signal }; let values = Array(callbacks.values); lock.unlock()
+        let values = state.withLock { state in
+            if state.caught == nil { state.caught = signal }
+            return Array(state.callbacks.values)
+        }
         values.forEach { $0() }
     }
 
     private func register(_ callback: @escaping @Sendable () -> Void) -> (UUID, Int32?) {
-        lock.lock(); defer { lock.unlock() }
-        let id = UUID(); callbacks[id] = callback; return (id, caught)
+        state.withLock { state in
+            let id = UUID(); state.callbacks[id] = callback; return (id, state.caught)
+        }
     }
-    private func unregister(_ id: UUID) { lock.lock(); callbacks[id] = nil; lock.unlock() }
-    private func caughtSignal() -> Int32? { lock.lock(); defer { lock.unlock() }; return caught }
+    private func unregister(_ id: UUID) { state.withLock { $0.callbacks[id] = nil } }
+    private func caughtSignal() -> Int32? { state.withLock { $0.caught } }
 
     public func run<T: Sendable>(_ operation: @escaping @Sendable () async throws -> T) async throws -> T {
         let task = Task { try await operation() }
@@ -52,13 +63,12 @@ public final class InvocationCancellation: @unchecked Sendable {
 }
 
 public enum TerminalPrompt {
-    private final class Reader: @unchecked Sendable {
+    private final class Reader: Sendable {
         let fd: Int32
-        private let lock = NSLock()
-        private var cancelled = false
+        private let cancelled = Atomic(false)
         init(fd: Int32) { self.fd = fd }
-        func cancel() { lock.lock(); cancelled = true; lock.unlock() }
-        func isCancelled() -> Bool { lock.lock(); defer { lock.unlock() }; return cancelled }
+        func cancel() { cancelled.store(true, ordering: .releasing) }
+        func isCancelled() -> Bool { cancelled.load(ordering: .acquiring) }
         deinit { close(fd) }
     }
 

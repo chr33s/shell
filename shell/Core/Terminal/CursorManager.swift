@@ -120,7 +120,7 @@ enum CursorEffect: String, CaseIterable, Codable {
 
 @MainActor
 @Observable
-class CursorManager {
+final class CursorManager {
     static let shared = CursorManager()
 
     private static let logger = Logger(subsystem: "dev.chr33s.shell", category: "CursorManager")

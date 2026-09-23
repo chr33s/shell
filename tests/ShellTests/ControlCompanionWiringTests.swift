@@ -447,7 +447,12 @@ final class RefreshCounter: @unchecked Sendable {
 /// `WhenUnlocked` Keychain item refuses writes on a locked phone.
 private final class LockableCredentialStore: DeviceCredentialStore, @unchecked Sendable {
     private let inner = InMemoryCredentialStore()
-    var locked = false
+    private let lock = NSLock()
+    private var isLocked = false
+    var locked: Bool {
+        get { lock.withLock { isLocked } }
+        set { lock.withLock { isLocked = newValue } }
+    }
     struct Locked: Error {}
 
     func loadSigningKey() throws -> (any DeviceSigningKey)? { try inner.loadSigningKey() }

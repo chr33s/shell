@@ -4,6 +4,7 @@ import Darwin
 #else
 import Glibc
 #endif
+import Synchronization
 
 public enum HostIOError: Error, CustomStringConvertible, Sendable {
     case unsafePath(String)
@@ -101,10 +102,9 @@ public enum SecureFileSystem {
     }
 }
 
-public final class FileLock: @unchecked Sendable {
+public final class FileLock: Sendable {
     private let descriptor: Int32
-    private var released = false
-    private let mutex = NSLock()
+    private let released = Mutex(false)
 
     private init(descriptor: Int32) { self.descriptor = descriptor }
 
@@ -124,9 +124,10 @@ public final class FileLock: @unchecked Sendable {
     }
 
     public func release() {
-        mutex.lock(); defer { mutex.unlock() }
-        guard !released else { return }
-        _ = flock(descriptor, LOCK_UN); close(descriptor); released = true
+        released.withLock { released in
+            guard !released else { return }
+            _ = flock(descriptor, LOCK_UN); close(descriptor); released = true
+        }
     }
 
     deinit { release() }

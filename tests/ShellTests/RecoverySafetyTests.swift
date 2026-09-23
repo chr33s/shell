@@ -403,7 +403,7 @@ final class RecoverySafetyTests: XCTestCase {
             // Deliberately cancellation-insensitive.
             var spins = 0
             while spins < 3 {
-                try? await Task.sleep(nanoseconds: 60_000_000)
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
                 spins += 1
             }
             return 99
@@ -432,17 +432,34 @@ final class RecoverySafetyTests: XCTestCase {
     }
 
     /// Progress resets the inactivity budget but never the overall one.
-    func testAC10_progressResetsInactivityButNotTheOverallStageDeadline() {
+    func testAC10_progressResetsInactivityButNotTheOverallStageDeadline() async {
         let scheduler = VirtualRecoveryScheduler()
         let deadline = RecoveryStageDeadline(
             generation: 3, inactivity: 10, overall: 30, clock: scheduler)
-
-        Task { await scheduler.advance(by: 0) }
         XCTAssertNil(deadline.expiredBudget())
 
         // Progress from another generation must not keep this stage alive.
+        await scheduler.advance(by: 8)
         deadline.noteProgress(generation: 99)
-        XCTAssertEqual(deadline.generation, 3)
+        await scheduler.advance(by: 4)
+        guard case .inactivityExpired? = deadline.expiredBudget() else {
+            return XCTFail("a retired generation's progress reset the inactivity budget")
+        }
+
+        // Matched progress resets inactivity, repeatedly...
+        deadline.noteProgress(generation: 3)
+        await scheduler.advance(by: 8)
+        XCTAssertNil(deadline.expiredBudget())
+        deadline.noteProgress(generation: 3)
+        await scheduler.advance(by: 8)
+        XCTAssertNil(deadline.expiredBudget())
+
+        // ...but never the overall budget.
+        deadline.noteProgress(generation: 3)
+        await scheduler.advance(by: 2)
+        guard case .overallExpired? = deadline.expiredBudget() else {
+            return XCTFail("progress extended the overall stage deadline")
+        }
     }
 
     // MARK: - AC-16 / AC-18 (recovery UI copy)
