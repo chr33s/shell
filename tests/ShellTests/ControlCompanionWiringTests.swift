@@ -351,6 +351,125 @@ final class ControlCompanionWiringTests: XCTestCase {
         XCTAssertTrue(source.contains("didReceiveMessageData"), "the Watch gateway answers interactive messages")
     }
 
+    // MARK: - Control companion setup (spec.control-companion-setup.md)
+
+    /// A pairing without a recorded alert choice starts with remote alerts
+    /// off, and nothing registers with a relay or the Mac.
+    func testRemoteAlertsDefaultOffAndNothingRegisters() async throws {
+        let key = OriginSigningKey()
+        let stub = OriginStub(key: key)
+        let companion = ControlCompanion(credentials: try enrolledCredentials(), origins: InMemoryPinnedOriginStore(try pinned(key)),
+                                         transport: stub, journalStore: { InMemoryCommandJournal() },
+                                         alertStore: InMemoryRemoteAlertPolicyStore())
+        await companion.start()
+        XCTAssertEqual(companion.alertPolicy?.choice, .off)
+        XCTAssertEqual(companion.alertPolicy?.displayState, .off)
+        XCTAssertEqual(stub.paths.count(of: "/v1/devices/me/push-capability"), 0)
+    }
+
+    /// An older Mac without the preference API is never reported as having
+    /// stopped alerts.
+    func testDisablingAlertsOnAnOlderMacNeedsAHostUpdate() async throws {
+        let key = OriginSigningKey()
+        let credentials = try enrolledCredentials()
+        let store = InMemoryRemoteAlertPolicyStore()
+        let deviceID = try XCTUnwrap(try credentials.loadSession()).deviceID.rawValue
+        store.save(.migrated(priorUseEstablished: true, relayAvailable: true), originID: OriginStub.originID(for: key).rawValue, deviceID: deviceID)
+        let stub = OriginStub(key: key)
+        let companion = ControlCompanion(credentials: credentials, origins: InMemoryPinnedOriginStore(try pinned(key)),
+                                         transport: stub, journalStore: { InMemoryCommandJournal() }, alertStore: store)
+        await companion.start()
+        XCTAssertEqual(companion.alertPolicy?.displayState, .configured)
+        await companion.setRemoteAlerts(.off)
+        XCTAssertEqual(companion.alertPolicy?.displayState, .disableNeedsHostUpdate)
+        XCTAssertGreaterThan(stub.paths.count(of: NotificationPreference.path), 0)
+    }
+
+    /// With the Mac unreachable, local registration stops at once and the
+    /// Mac's side shows as pending — not as done.
+    func testDisablingAlertsWhileTheMacIsOfflineIsPending() async throws {
+        let key = OriginSigningKey()
+        let credentials = try enrolledCredentials()
+        let store = InMemoryRemoteAlertPolicyStore()
+        let deviceID = try XCTUnwrap(try credentials.loadSession()).deviceID.rawValue
+        store.save(.migrated(priorUseEstablished: true, relayAvailable: true), originID: OriginStub.originID(for: key).rawValue, deviceID: deviceID)
+        var stub = OriginStub(key: key)
+        stub.unreachable = true
+        let companion = ControlCompanion(credentials: credentials, origins: InMemoryPinnedOriginStore(try pinned(key)),
+                                         transport: stub, journalStore: { InMemoryCommandJournal() }, alertStore: store)
+        await companion.start()
+        await companion.setRemoteAlerts(.off)
+        XCTAssertEqual(companion.alertPolicy?.displayState, .disablePending)
+        XCTAssertNil(companion.alertPolicy?.registration)
+        XCTAssertNotNil(try credentials.loadSession(), "turning alerts off never touches pairing")
+    }
+
+    /// The iPhone reports its own vantage: route and identity it proved,
+    /// Tailscale state it cannot see as unknown, and an optional Watch as
+    /// not configured rather than broken.
+    func testCheckConnectionReportsTheIPhonesOwnEvidence() async throws {
+        let key = OriginSigningKey()
+        let companion = ControlCompanion(credentials: try enrolledCredentials(), origins: InMemoryPinnedOriginStore(try pinned(key)),
+                                         transport: OriginStub(key: key), journalStore: { InMemoryCommandJournal() },
+                                         alertStore: InMemoryRemoteAlertPolicyStore())
+        await companion.start()
+        await companion.checkConnection()
+        let report = try XCTUnwrap(companion.diagnostics)
+        XCTAssertEqual(report.vantage, .iphone)
+        XCTAssertEqual(report.readiness(for: .iphoneReview), .pass)
+        XCTAssertEqual(report.check("origin_identity")?.code, .originVerified)
+        XCTAssertEqual(report.check("tailscale_iphone")?.state, .unknown)
+        XCTAssertNotEqual(report.check("watch")?.state, .fail)
+        XCTAssertEqual(report.check("remote_alerts")?.code, .alertsDisabledByUser)
+        let export = String(decoding: try XCTUnwrap(companion.diagnosticExport()), as: UTF8.self)
+        XCTAssertFalse(export.contains("mac.example.ts.net"), "tailnet names are redacted")
+        XCTAssertTrue(export.contains("origin_verified"))
+    }
+
+    func testCheckConnectionWithTheMacUnreachableKeepsCredentials() async throws {
+        let key = OriginSigningKey()
+        let credentials = try enrolledCredentials()
+        var stub = OriginStub(key: key)
+        stub.unreachable = true
+        let companion = ControlCompanion(credentials: credentials, origins: InMemoryPinnedOriginStore(try pinned(key)),
+                                         transport: stub, journalStore: { InMemoryCommandJournal() },
+                                         alertStore: InMemoryRemoteAlertPolicyStore())
+        await companion.start()
+        await companion.checkConnection()
+        let report = try XCTUnwrap(companion.diagnostics)
+        XCTAssertEqual(report.check("mac_route")?.state, .fail)
+        XCTAssertEqual(report.check("origin_identity")?.state, .unknown, "not reached is not a mismatch")
+        XCTAssertEqual(companion.phase, .ready)
+        XCTAssertNotNil(try credentials.loadSession())
+    }
+
+    /// Signing out asks the Mac to stop alerts first; when it cannot
+    /// confirm (here an older Mac), the user is told how to stop them.
+    func testSignOutTurnsAlertsOffAtTheMacOrSaysHow() async throws {
+        let key = OriginSigningKey()
+        let credentials = try enrolledCredentials()
+        let store = InMemoryRemoteAlertPolicyStore()
+        let deviceID = try XCTUnwrap(try credentials.loadSession()).deviceID.rawValue
+        store.save(.migrated(priorUseEstablished: true, relayAvailable: true), originID: OriginStub.originID(for: key).rawValue, deviceID: deviceID)
+        let stub = OriginStub(key: key)
+        let companion = ControlCompanion(credentials: credentials, origins: InMemoryPinnedOriginStore(try pinned(key)),
+                                         transport: stub, journalStore: { InMemoryCommandJournal() }, alertStore: store)
+        await companion.start()
+        await companion.signOut()
+        XCTAssertGreaterThan(stub.paths.count(of: NotificationPreference.path), 0, "the Mac was asked before credentials went")
+        XCTAssertTrue(companion.statusMessage?.contains("shell-control revoke \(deviceID)") ?? false, companion.statusMessage ?? "nil")
+        XCTAssertNil(try credentials.loadSession())
+    }
+
+    func testControlSettingsOfferGuidedSetupAndSeparateRecovery() throws {
+        let source = try controlSource()
+        XCTAssertTrue(source.contains("Set up Control"))
+        XCTAssertTrue(source.contains("shell-control setup --guided"))
+        XCTAssertTrue(source.contains("ControlRecoveryView"))
+        XCTAssertTrue(source.contains("Export diagnostics"))
+        XCTAssertTrue(source.contains("Remote alerts are off. Open Control and refresh to check for requests."))
+    }
+
     // MARK: Helpers
 
     private func pinned(_ key: OriginSigningKey) throws -> PinnedOrigin {

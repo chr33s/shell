@@ -20,8 +20,18 @@ struct DeviceRecord: Sendable {
     /// A relay-signed push capability an iPhone handed over. It is a delivery
     /// address only (spec.iphone-gateway.md section 16.1).
     var pushCapability: String?
+    /// The iPhone's explicit remote-alert choice. Absent on records that
+    /// predate it, which keep their legacy eligibility at version 0
+    /// (spec.control-companion-setup.md section 10.3).
+    var notificationPreference: NotificationPreference? = nil
 
     var isRevoked: Bool { revokedAt != nil }
+    /// The preference as reported: an absent one is version 0, enabled.
+    var effectiveNotificationPreference: NotificationPreference {
+        notificationPreference ?? NotificationPreference(enabled: true, version: 0)
+    }
+    /// Explicitly turned off: no relay or direct-APNs send may target it.
+    var alertsSuppressed: Bool { notificationPreference?.enabled == false }
     var isWatchReviewer: Bool { gatewayDeviceID != nil }
     /// The iPhone is a full-review client; a Watch, standalone or behind a
     /// gateway, is a glance-sized surface that never approves a request

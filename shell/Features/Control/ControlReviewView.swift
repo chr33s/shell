@@ -47,6 +47,13 @@ struct ControlReviewView: View {
         let now = ControlTimestamp(Date())
         Form {
             Section {
+                if SetupTestFixture.isWatchTest(record.spec) {
+                    // A label only: approving here is this iPhone's decision,
+                    // which does not test the Watch.
+                    Label(String(localized: "This setup test is for your Apple Watch. Approve it on the Watch to test the Watch."),
+                          systemImage: "applewatch")
+                        .font(.footnote)
+                }
                 Text(DisplaySanitizer.sanitize(record.spec.summary, maxScalars: 200).text)
                     .font(.headline)
                 LabeledContent(String(localized: "Origin"), value: record.spec.originID.rawValue)
@@ -116,24 +123,40 @@ struct ControlReviewView: View {
     }
 }
 
-/// Pairing with the Mac over Tailscale, route updates, and the Watch this
-/// iPhone gateways for. Private keys never leave the device that made them
-/// (spec.iphone-gateway.md sections 9, 10, and 24).
+/// Settings → Control: evidence-based status, the requests waiting on this
+/// iPhone, and the entry to guided setup. Private keys never leave the device
+/// that made them (spec.iphone-gateway.md sections 9, 10, and 24;
+/// spec.control-companion-setup.md section 8).
 struct ControlSetupView: View {
     let companion: ControlCompanion
 
     @State private var pastedText = ""
     @State private var showScanner = false
-    @State private var confirmForget = false
 
     var body: some View {
         List {
-            macSection
-            pairingSection
-            if companion.phase != .notConfigured {
-                actionsSection
+            if companion.phase == .notConfigured {
+                invitationSection
+            } else {
+                ControlStatusSection(companion: companion)
+                ControlActionsSection(companion: companion)
+                if companion.phase == .ready {
+                    ControlRequestsSection(companion: companion)
+                    ControlRemoteAlertsSection(companion: companion)
+                }
             }
+            pairingSection
             watchSection
+            if companion.phase != .notConfigured {
+                Section {
+                    NavigationLink(String(localized: "Sign out or forget Mac…")) {
+                        ControlRecoveryView(companion: companion)
+                    }
+                    .themedRow()
+                } footer: {
+                    Text(String(localized: "Recovery actions remove trust or credentials and are kept apart from everyday controls."))
+                }
+            }
         }
         .themedList()
         .navigationTitle(String(localized: "Control"))
@@ -149,59 +172,20 @@ struct ControlSetupView: View {
             }
         }
         #endif
-        .confirmationDialog(
-            String(localized: "Forget this Mac?"),
-            isPresented: $confirmForget
-        ) {
-            Button(String(localized: "Forget Mac"), role: .destructive) {
-                Task { await companion.forgetMac() }
-            }
-        } message: {
-            Text(String(localized: "This iPhone and its Watch will need to pair again."))
-        }
     }
 
-    private var phaseTitle: String {
-        switch companion.phase {
-        case .notConfigured: String(localized: "Not paired")
-        case .needsEnrollment: String(localized: "Needs pairing")
-        case .ready: String(localized: "Ready")
-        }
-    }
-
+    /// Never configured: a neutral invitation, not a warning.
     @ViewBuilder
-    private var macSection: some View {
+    private var invitationSection: some View {
         Section {
-            LabeledContent(String(localized: "Status"), value: phaseTitle)
+            Text(String(localized: "Review permission requests from your Mac on this iPhone, privately over Tailscale. An Apple Watch and remote alerts are optional."))
                 .themedRow()
-            if let fingerprint = companion.originFingerprint {
-                LabeledContent(String(localized: "Shell origin")) {
-                    Text(fingerprint).font(.footnote.monospaced())
-                }
-                .themedRow()
+            NavigationLink(String(localized: "Set up Control")) {
+                ControlSetupGuideView(companion: companion)
             }
-            if let route = companion.currentRoute {
-                LabeledContent(String(localized: "Route"), value: URL(string: route)?.host ?? route)
-                    .themedRow()
-            }
-            switch companion.routeState {
-            case .unknown:
-                EmptyView()
-            case .reachable:
-                LabeledContent(String(localized: "Private route"), value: String(localized: "Reachable"))
-                    .themedRow()
-            case .unavailable(let reason):
-                Label(reason, systemImage: "network.slash")
-                    .font(.footnote)
-                    .themedRow()
-            }
-            if let status = companion.statusMessage {
-                Text(status).font(.footnote).themedRow()
-            }
-        } header: {
-            Text(String(localized: "Mac"))
+            .themedRow()
         } footer: {
-            Text(String(localized: "Shell reaches your Mac privately over Tailscale. Keep Tailscale connected on this iPhone; VPN On Demand is recommended. A changed Tailscale address never requires pairing again."))
+            Text(String(localized: "Terminal, SSH, and tmux never need Control."))
         }
     }
 
@@ -217,6 +201,7 @@ struct ControlSetupView: View {
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .keyboardType(.URL)
+                .accessibilityLabel(String(localized: "Pairing or route link"))
                 .themedRow()
             Button(String(localized: "Use pasted code")) {
                 let text = pastedText
@@ -229,77 +214,34 @@ struct ControlSetupView: View {
                 ControlPairingConfirmation(companion: companion, pending: pending)
             }
             ControlPairingProgressRows(companion: companion)
+            if companion.phase == .notConfigured, let status = companion.statusMessage {
+                Text(status).font(.footnote).themedRow()
+            }
         } header: {
             Text(String(localized: "Pair or update route"))
         } footer: {
-            Text(String(localized: "Run shell-control setup (or pair) on your Mac and scan its QR. A route QR from shell-control route only updates how this iPhone reaches the Mac; it is not a new pairing."))
-        }
-    }
-
-    @ViewBuilder
-    private var actionsSection: some View {
-        Section {
-            Button(String(localized: "Refresh")) { Task { await companion.refresh() } }
-                .themedRow()
-            if companion.phase == .ready {
-                Button(String(localized: "Sign out"), role: .destructive) { Task { await companion.signOut() } }
-                    .themedRow()
-            }
-            Button(String(localized: "Forget Mac"), role: .destructive) { confirmForget = true }
-                .themedRow()
+            Text(String(localized: "Run shell-control setup --guided (or pair) on your Mac and scan its QR. A route QR from shell-control route only updates how this iPhone reaches the Mac; it is not a new pairing."))
         }
     }
 
     @ViewBuilder
     private var watchSection: some View {
         #if os(iOS) && !targetEnvironment(macCatalyst)
-        let session = ControlPairingSession.shared
-        let gateway = ControlWatchGateway.shared
-        Section {
-            LabeledContent(String(localized: "Watch app"), value: session.isWatchAppInstalled
-                ? String(localized: "Installed")
-                : String(localized: "Not installed"))
-                .themedRow()
-            if session.isWatchAppInstalled {
-                LabeledContent(String(localized: "Reachable"), value: session.isReachable
-                    ? String(localized: "Yes")
-                    : String(localized: "No"))
-                    .themedRow()
-            }
-            if let watch = gateway.boundWatch {
-                LabeledContent(String(localized: "Reviewer"), value: watchStateTitle(watch.state))
-                    .themedRow()
-                LabeledContent(String(localized: "Watch key")) {
-                    Text(watch.fingerprint).font(.footnote.monospaced())
+        if companion.phase == .ready {
+            Section {
+                NavigationLink {
+                    ControlWatchSetupView(companion: companion)
+                } label: {
+                    LabeledContent(String(localized: "Apple Watch"), value: ControlStatusText.watch(ControlWatchGateway.shared.boundWatch, installed: ControlPairingSession.shared.isWatchAppInstalled))
                 }
                 .themedRow()
-                if let code = watch.userCode {
-                    LabeledContent(String(localized: "Watch code"), value: code)
-                        .font(.body.monospaced())
-                        .themedRow()
-                    Text(String(localized: "Confirm this code on the Mac running shell-control setup."))
-                        .font(.footnote)
-                        .themedRow()
-                }
-                Button(String(localized: "Forget Watch on this iPhone"), role: .destructive) { gateway.forgetWatch() }
-                    .themedRow()
+            } header: {
+                Text(String(localized: "Apple Watch (optional)"))
+            } footer: {
+                Text(String(localized: "The Watch signs its own decisions with its own key; this iPhone only carries them to the Mac, live, and cannot approve on its behalf."))
             }
-        } header: {
-            Text(String(localized: "Apple Watch"))
-        } footer: {
-            Text(String(localized: "Open Shell on the Watch to set it up. The Watch signs its own decisions with its own key; this iPhone only carries them to the Mac, live, and cannot approve on its behalf."))
         }
         #endif
-    }
-
-    private func watchStateTitle(_ state: WatchReviewerStatus.State) -> String {
-        switch state {
-        case .pending: String(localized: "Waiting for Mac confirmation")
-        case .active: String(localized: "Enrolled via this iPhone")
-        case .denied: String(localized: "Declined")
-        case .expired: String(localized: "Expired")
-        case .revoked: String(localized: "Revoked")
-        }
     }
 }
 

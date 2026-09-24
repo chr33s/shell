@@ -18,13 +18,13 @@ public struct SetupOptions: Sendable {
 }
 
 public actor LifecycleCoordinator {
-    public let store: InstallationStore
-    private let manager: any ServiceManager
-    private let installer: NativeBundleInstaller
+    public nonisolated let store: InstallationStore
+    let manager: any ServiceManager
+    let installer: NativeBundleInstaller
     private let home: URL
-    private let health: any ControlHealthChecking
+    let health: any ControlHealthChecking
     private let origins: any OriginProvisioning
-    private let tailnet: any TailnetRuntime
+    let tailnet: any TailnetRuntime
     private let readinessDeadline: Duration
     private let readinessPoll: Duration
 
@@ -66,6 +66,11 @@ public actor LifecycleCoordinator {
         var loaded: LoadedInstallation
         if store.exists() {
             loaded = try store.load()
+            if loaded.installation.addressMode == .tailscale, loaded.installation.port != port || loaded.installation.servePorts == nil {
+                // Serve may still point at the previous port, including on an
+                // installation from before ports were recorded.
+                loaded.installation.noteServePort(loaded.installation.port)
+            }
             loaded.installation.addressMode = mode
             loaded.installation.port = port
             loaded.installation.tailscalePath = tailscale
@@ -88,9 +93,11 @@ public actor LifecycleCoordinator {
         }
         let binaries = try installer.install(manifest)
         try store.save(loaded.installation)
-        if existing?.installation.addressMode == .tailscale, mode != .tailscale, let path = existing?.installation.tailscalePath {
-            // Leaving the tailnet profile withdraws the Serve handler it owned.
-            try? await tailnet.disableServe(tailscale: path)
+        if let previous = existing?.installation, previous.addressMode == .tailscale, mode != .tailscale,
+           let path = previous.tailscalePath {
+            // Leaving the tailnet profile withdraws the Serve handler it owned
+            // — only that one, and never another app's configuration.
+            await withdrawOwnedServe(previous, tailscale: path)
         }
         return try await start(&loaded, binaries: binaries)
     }
@@ -291,7 +298,7 @@ public actor LifecycleCoordinator {
             try await provisionOriginIfNeeded(&loaded)
             try await startDaemon(&loaded, binaries: binaries, operation: &operation)
             localCommitted = true
-            if loaded.installation.addressMode == .tailscale { try await configureServe(loaded) }
+            if loaded.installation.addressMode == .tailscale { try await configureServe(&loaded) }
             do {
                 try await waitUntil { self.isReady(await self.status(loaded: loaded)) }
             } catch {
@@ -437,13 +444,25 @@ public actor LifecycleCoordinator {
     /// Configures Tailscale Serve and then validates the resulting state
     /// rather than trusting the CLI's exit status
     /// (spec.iphone-gateway.md section 4.4).
-    private func configureServe(_ loaded: LoadedInstallation) async throws {
+    private func configureServe(_ loaded: inout LoadedInstallation) async throws {
         let path = try tailscalePath(loaded.installation)
         guard let host = loaded.installation.publicURL.flatMap({ URL(string: $0)?.host }) else {
             throw ManagementError.unavailable("tailscale route is not known")
         }
         var state = try await tailnet.serveStatus(tailscale: path)
+        guard !state.isFunnelled(host: host) else {
+            throw ManagementError.unavailable("serve_public_exposure: Tailscale Funnel is enabled for https://\(host); the broker must not be public — run `tailscale funnel 443 off`")
+        }
+        if case .conflict(let reason) = state.ownership(host: host, ownedPorts: loaded.installation.ownedServePorts) {
+            // Another application owns the endpoint: stop before replacing it
+            // (spec.control-companion-setup.md section 7.3).
+            throw ManagementError.unavailable("serve_conflict: \(reason); Shell did not change it — move that handler or free HTTPS 443, then rerun setup")
+        }
         if !state.servesBroker(host: host, port: loaded.installation.port) {
+            // Recorded before Serve changes, so a failure after this point
+            // never leaves Shell's own handler looking like another app's.
+            loaded.installation.noteServePort(loaded.installation.port)
+            try store.save(loaded.installation)
             try await tailnet.configureServe(tailscale: path, port: loaded.installation.port)
             state = try await tailnet.serveStatus(tailscale: path)
         }
@@ -453,10 +472,38 @@ public actor LifecycleCoordinator {
         guard !state.isFunnelled(host: host) else {
             throw ManagementError.unavailable("Tailscale Funnel is enabled for https://\(host); the broker must not be public — run `tailscale funnel 443 off`")
         }
+        if loaded.installation.servePorts != [loaded.installation.port] {
+            loaded.installation.servePorts = [loaded.installation.port]
+            try store.save(loaded.installation)
+        }
         note("Configuring private HTTPS...\n  https://\(host)\n  Tailscale Serve: active\n")
     }
 
-    private func tailscalePath(_ installation: Installation) throws -> String {
+    /// Removes Shell's Serve handler if — and only if — Shell owns it. Other
+    /// apps' mounts on HTTPS 443 are kept by removing only the `/` mount, and
+    /// the result is checked rather than assumed.
+    private func withdrawOwnedServe(_ installation: Installation, tailscale path: String) async {
+        guard let host = installation.publicURL.flatMap({ URL(string: $0)?.host }) else { return }
+        let manual = "check `tailscale serve status` and remove Shell's https://\(host)/ handler, or the loopback broker stays reachable from the tailnet"
+        let state: ServeState
+        do { state = try await tailnet.serveStatus(tailscale: path) } catch {
+            note("Tailscale Serve status could not be read (\(error)); \(manual)\n")
+            return
+        }
+        guard case .shell = state.ownership(host: host, ownedPorts: installation.ownedServePorts) else { return }
+        let shared = !(state.otherMounts["\(host.lowercased()):443"] ?? []).isEmpty
+        do {
+            try await tailnet.disableServe(tailscale: path, rootOnly: shared)
+            let after = try await tailnet.serveStatus(tailscale: path)
+            if case .shell = after.ownership(host: host, ownedPorts: installation.ownedServePorts) {
+                note("Shell's Tailscale Serve handler is still present; \(manual)\n")
+            }
+        } catch {
+            note("Removing Shell's Tailscale Serve handler failed (\(error)); \(manual)\n")
+        }
+    }
+
+    func tailscalePath(_ installation: Installation) throws -> String {
         guard let path = installation.tailscalePath else { throw ManagementError.corrupt("tailscale mode is missing tailscale_path") }
         guard FileManager.default.isExecutableFile(atPath: path) else {
             throw ManagementError.unavailable("the Tailscale CLI moved or was removed: \(path); rerun setup")
@@ -483,7 +530,7 @@ public actor LifecycleCoordinator {
         throw ManagementError.unavailable("service readiness deadline exceeded")
     }
 
-    private func status(loaded: LoadedInstallation) async -> ManagementStatus {
+    func status(loaded: LoadedInstallation) async -> ManagementStatus {
         let stamp = timestamp(), id = loaded.installation.installationID
         async let brokerJob = manager.observe(label: label(.broker, id)); async let daemonJob = manager.observe(label: label(.daemon, id))
         async let brokerHealth = health.broker(url: URL(string: ControlLoopback.url(port: loaded.installation.port))!, expectedIdentity: serviceIdentity(id))
@@ -657,7 +704,7 @@ public actor LifecycleCoordinator {
                        launchAgentsDirectory: home.appendingPathComponent("Library/LaunchAgents").path)
     }
 
-    private func label(_ component: Component, _ id: UUID) -> String { "dev.chr33s.shell.control.\(id.uuidString.lowercased()).\(component.rawValue)" }
-    private func serviceIdentity(_ id: UUID) -> String { "shell-control:\(id.uuidString.lowercased())" }
+    func label(_ component: Component, _ id: UUID) -> String { "dev.chr33s.shell.control.\(id.uuidString.lowercased()).\(component.rawValue)" }
+    func serviceIdentity(_ id: UUID) -> String { "shell-control:\(id.uuidString.lowercased())" }
     private func timestamp() -> String { ISO8601DateFormatter().string(from: Date()) }
 }

@@ -117,6 +117,11 @@ extension BrokerStore {
         guard let deviceID = principal.deviceID, var device = devices[deviceID], !device.isWatchReviewer else {
             throw ControlError(code: .notAuthorized, message: "only an iPhone registers a push capability")
         }
+        // Registration never resets an explicit off: the iPhone opts in
+        // through the preference first (spec.control-companion-setup.md 10.3).
+        guard !device.alertsSuppressed else {
+            throw ControlError(code: .notAuthorized, message: "remote alerts are off for this device")
+        }
         guard !capability.isEmpty, capability.utf8.count <= Self.maximumPushCapabilityBytes,
               capability.allSatisfy({ $0.isASCII && !$0.isWhitespace })
         else {
@@ -125,6 +130,50 @@ extension BrokerStore {
         device.pushCapability = capability
         devices[deviceID] = device
         try commit()
+    }
+
+    // MARK: Notification preference
+
+    /// `GET /v1/devices/me/notification-preference`: the authenticated
+    /// iPhone's own record only.
+    public func notificationPreference(principal: Principal) throws -> NotificationPreference {
+        try preferenceDevice(principal).effectiveNotificationPreference
+    }
+
+    /// `PUT /v1/devices/me/notification-preference`: an atomic compare-and-set
+    /// on `expected_version`. Off durably suppresses relay and direct-APNs
+    /// delivery to this device and removes its stored delivery material; it
+    /// changes delivery only, never reviewer authorization
+    /// (spec.control-companion-setup.md section 10.3).
+    public func setNotificationPreference(principal: Principal, update: NotificationPreferenceUpdate) throws -> NotificationPreference {
+        var device = try preferenceDevice(principal)
+        let current = device.effectiveNotificationPreference
+        guard update.expectedVersion == current.version else {
+            throw ControlError(
+                code: .idempotencyConflict,
+                message: "notification preference is at version \(current.version)",
+                currentProjection: current.json
+            )
+        }
+        let next = NotificationPreference(enabled: update.enabled, version: current.version + 1)
+        device.notificationPreference = next
+        if !update.enabled {
+            device.push = nil
+            device.pushCapability = nil
+        }
+        devices[device.deviceID] = device
+        try commit()
+        return next
+    }
+
+    private func preferenceDevice(_ principal: Principal) throws -> DeviceRecord {
+        guard let deviceID = principal.deviceID, let device = devices[deviceID], !device.isRevoked else {
+            throw ControlError(code: .notAuthorized, message: "only an enrolled device has a notification preference")
+        }
+        guard !device.isWatchReviewer else {
+            throw ControlError(code: .notAuthorized, message: "a Watch reviewer's alerts follow its iPhone")
+        }
+        return device
     }
 
     // MARK: Watch reviewers
@@ -325,7 +374,8 @@ extension BrokerStore {
                     "label": .string(device.label),
                     "key_fingerprint": .string((try? device.publicJWK.displayFingerprint()) ?? ""),
                     "gateway_device_id": device.gatewayDeviceID.map { JSONValue($0) },
-                    "push": .bool(device.pushCapability != nil || device.push != nil)
+                    "push": .bool(device.pushCapability != nil || device.push != nil),
+                    "alerts_enabled": device.isWatchReviewer ? nil : .bool(!device.alertsSuppressed)
                 ])
             }),
             "pending_approvals": .number(.int(Int64(approvals.values.filter { $0.projection.resolution == .pending }.count)))
@@ -349,7 +399,7 @@ extension BrokerStore {
     // MARK: Relay outbox
 
     func enqueueRelayPushes(accountID: ControlID, spec: ApprovalSpec) {
-        for device in devices.values where device.accountID == accountID && !device.isRevoked {
+        for device in devices.values where device.accountID == accountID && !device.isRevoked && !device.alertsSuppressed {
             guard let capability = device.pushCapability else { continue }
             relayOutbox.append(RelayPushEntry(
                 capability: capability,

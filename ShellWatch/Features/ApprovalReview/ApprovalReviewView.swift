@@ -46,6 +46,12 @@ struct ApprovalReviewView: View {
         let approvability = record.watchApprovability(at: now)
         List {
             Section {
+                if SetupTestFixture.matches(record.spec) {
+                    // A label only: the decision is still this Watch's own
+                    // signed, live decision (spec.control-companion-setup.md 11).
+                    Label(String(localized: "Setup test — nothing will run"), systemImage: "checkmark.shield")
+                        .font(.caption)
+                }
                 Text(DisplaySanitizer.sanitize(record.spec.summary, maxScalars: 200).text)
                     .font(.headline)
                 LabeledContent(String(localized: "Origin"), value: shortID(record.spec.originID))

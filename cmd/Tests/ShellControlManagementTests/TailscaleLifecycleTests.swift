@@ -25,7 +25,14 @@ actor FakeTailnet: TailnetRuntime {
         guard configureTakesEffect, let name = status.dnsName else { return }
         serve.proxies["\(name):443"] = "http://127.0.0.1:\(port)"
     }
-    func disableServe(tailscale: String) async throws { disableCalls += 1; serve = ServeState() }
+    func disableServe(tailscale: String, rootOnly: Bool) async throws {
+        disableCalls += 1
+        if rootOnly {
+            for key in serve.proxies.keys { serve.proxies[key] = nil }
+        } else {
+            serve = ServeState()
+        }
+    }
 
     func setDNSName(_ name: String) { status.dnsName = name }
     func setFunnel(_ host: String) { serve.funnel.insert("\(host):443") }

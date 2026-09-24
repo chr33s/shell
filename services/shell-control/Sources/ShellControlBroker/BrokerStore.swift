@@ -351,7 +351,11 @@ public actor BrokerStore {
     }
 
     public func capabilities() -> ServiceCapabilities {
-        ServiceCapabilities(serviceIdentity: serviceIdentity, serverTime: timestamp)
+        ServiceCapabilities(
+            requiredFeatures: ControlFeature.supported.union([ControlFeature.notificationPreference]).sorted(),
+            serviceIdentity: serviceIdentity,
+            serverTime: timestamp
+        )
     }
 
     public func health() -> JSONValue {

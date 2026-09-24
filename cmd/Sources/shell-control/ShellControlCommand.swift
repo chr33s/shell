@@ -16,7 +16,8 @@ struct ShellControlCommand: AsyncParsableCommand {
             SetupCommand.self, UpCommand.self, DownCommand.self, RestartCommand.self,
             ServiceCommand.self, StatusCommand.self, LogsCommand.self, PairCommand.self,
             ConfirmCommand.self, RouteCommand.self, RevokeCommand.self, PushCommand.self,
-            NotifyCommand.self, RequestCommand.self, ReceiptCommand.self
+            NotifyCommand.self, RequestCommand.self, ReceiptCommand.self,
+            DoctorCommand.self, TestReviewCommand.self
         ]
     )
     mutating func run() async throws { print(Self.helpMessage()) }

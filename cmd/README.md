@@ -27,7 +27,10 @@ the simulator only.
 ## Commands
 
 ```text
+shell-control setup --guided [--skip-watch-setup] [--mode tailscale|loopback] [--port N] [--tailscale-path PATH]
 shell-control setup [--no-watch] [--mode tailscale|loopback] [--port N] [--tailscale-path PATH] [--reset-origin-key]
+shell-control doctor [--json] [--check] [--export /absolute/new-file.json]
+shell-control test-review --reviewer iphone|watch --device-id <ENROLLED-DEVICE-ID> [--timeout SECONDS]
 shell-control up
 shell-control down
 shell-control restart broker|daemon|all
@@ -60,6 +63,43 @@ pair again). `revoke` disables an iPhone (and with it the transport of every
 Watch it gateways for) or a single Watch reviewer. `push configure --relay-url`
 sends approval hints through the stateless Shell Push Relay; the Mac then holds
 no APNs credential.
+
+## Control companion setup
+
+`setup --guided` is the interactive path of
+[`spec.control-companion-setup.md`](../spec.control-companion-setup.md): it
+explains the companion, runs read-only preflight checks (release bundle,
+installation state, Tailscale, MagicDNS, and Serve ownership), reconciles the
+services through the same lifecycle as `setup`, offers **Start at login**, shows a
+one-use pairing QR and waits for a broker-confirmed iPhone, runs the safe review
+test, and then offers the optional Apple Watch and describes the remote-alert mode.
+It needs an interactive terminal and refuses otherwise before changing anything.
+Rerunning it observes the installation instead of replaying steps; non-secret
+checkpoints live in `guided-setup.json`. Ctrl+C stops only the guide: pairings,
+keys, journals, and running services are left as they are. A stopped installation
+stays stopped unless you choose **Start Control services**.
+
+`--skip-watch-setup` skips only the optional Apple Watch step. `--no-watch` keeps
+its meaning for non-guided setup — do not monitor enrollment — and is rejected with
+`--guided`. `--reset-origin-key` is a separate recovery step and is also rejected
+with `--guided`.
+
+Setup never replaces another application's Tailscale Serve handler: if HTTPS 443
+on this Mac's name already serves something that is not Shell's loopback broker, it
+stops with `serve_conflict` and changes nothing. It never resets the whole Serve
+configuration, and a Funnel-exposed endpoint is never reported ready.
+
+`doctor` is read-only host evidence in the `shell-control-diagnostics/1` schema
+(`--json`). It checks the host, not whether an iPhone or Watch can reach it now.
+`--check` exits 0 only when every required host check passed just now; an
+unconfigured Watch or disabled remote alerts do not fail it. `status` and
+`status --check` are unchanged.
+
+`test-review` publishes the fixed setup-test request ("Setup test — no operation
+will be executed", `/usr/bin/true`, never executed) to the selected enrolled
+reviewer and passes only when that device's signed approval is consumed and the
+no-operation receipt is recorded. It exits 0/10/11/12/13 like `request --wait`, and
+1 when a decision was recorded but the receipt was not.
 
 Login persistence requires tailscale mode. `down` commits stopped intent, disables and unloads every owned job, and survives logout/login. `service uninstall` removes future-login registration without interrupting current jobs.
 

@@ -42,10 +42,15 @@ let package = Package(
         .executableTarget(name: "shell-control", dependencies: [
             "ShellControlManagement", "ShellControlHostSupport",
             .product(name: "ShellControlProtocol", package: "ShellControlCore"),
+            .product(name: "ShellControlSecurity", package: "ShellControlCore"),
+            .product(name: "ShellControlClient", package: "ShellControlCore"),
             .product(name: "ArgumentParser", package: "swift-argument-parser")
         ]),
         .testTarget(name: "ShellControlDaemonTests", dependencies: ["ShellControlDaemon"]),
-        .testTarget(name: "ShellControlManagementTests", dependencies: ["ShellControlManagement", "ShellControlHostSupport"]),
+        .testTarget(name: "ShellControlManagementTests", dependencies: [
+            "ShellControlManagement", "ShellControlHostSupport",
+            .product(name: "ShellControlClient", package: "ShellControlCore")
+        ]),
         .testTarget(name: "ShellControlCommandTests", dependencies: ["ShellControlManagement"])
     ]
 )

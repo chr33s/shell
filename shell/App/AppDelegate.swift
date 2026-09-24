@@ -100,6 +100,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         }
     }
 
+    /// No token: recorded as a remote-alert failure only while this iPhone
+    /// wants Control alerts. Review is unaffected.
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: any Error) {
+        Task { @MainActor in
+            await ControlCompanion.shared.didFailToRegisterForRemoteNotifications()
+        }
+    }
+
     func application(
         _ application: UIApplication,
         didReceiveRemoteNotification userInfo: [AnyHashable: Any],

@@ -441,6 +441,9 @@ extension BrokerStore {
         guard registration.platform == device.platform else {
             throw ControlError(code: .invalidPayload, message: "platform does not match the enrolled device")
         }
+        guard !device.alertsSuppressed else {
+            throw ControlError(code: .notAuthorized, message: "remote alerts are off for this device")
+        }
         device.push = registration
         devices[deviceID] = device
         try commit()
@@ -451,7 +454,7 @@ extension BrokerStore {
     private func enqueueApprovalPushes(accountID: ControlID, spec: ApprovalSpec) {
         let payload = ApprovalPushPayload(eventID: .random(), requestID: spec.requestID)
         guard let body = try? payload.encoded() else { return }
-        for device in devices.values where device.accountID == accountID && !device.isRevoked {
+        for device in devices.values where device.accountID == accountID && !device.isRevoked && !device.alertsSuppressed {
             guard let push = device.push else { continue }
             outbox.append(OutboxEntry(
                 payload: body,
@@ -474,7 +477,7 @@ extension BrokerStore {
             "event_id": JSONValue(event.eventID)
         ])
         guard let body = try? JSONCanonicalization.canonicalize(json), body.count <= ApprovalPushPayload.maximumBytes else { return }
-        for device in devices.values where device.accountID == accountID && !device.isRevoked {
+        for device in devices.values where device.accountID == accountID && !device.isRevoked && !device.alertsSuppressed {
             guard let push = device.push else { continue }
             outbox.append(OutboxEntry(
                 payload: body,

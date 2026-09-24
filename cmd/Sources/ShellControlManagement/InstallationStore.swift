@@ -63,7 +63,7 @@ public struct InstallationStore: Sendable {
     public func create(releaseID: String, mode: AddressMode, publicURL: String?, port: Int) throws -> LoadedInstallation {
         try prepareRoot()
         guard !exists() else { throw ManagementError.invalid("installation already exists") }
-        let allowed = Set(["install.lock", "credentials", "services", "launchd", "logs"])
+        let allowed = Set(["install.lock", "credentials", "services", "launchd", "logs", "guided-setup.json"])
         let entries = try FileManager.default.contentsOfDirectory(atPath: paths.root.path)
         let unexplained = entries.filter { !allowed.contains($0) && !$0.hasPrefix(".installation.json.tmp-") }
         guard unexplained.isEmpty else {

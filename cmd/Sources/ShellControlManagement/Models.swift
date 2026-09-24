@@ -46,11 +46,26 @@ public struct Installation: Codable, Equatable, Sendable {
     public var push: PushConfiguration
     /// The Tailscale CLI used for Serve configuration in `tailscale` mode.
     public var tailscalePath: String?
+    /// Loopback ports Shell may have pointed Tailscale Serve at: recorded
+    /// before Serve is changed, and narrowed to the current port once the
+    /// result is verified. A handler for one of them is Shell's own after a
+    /// port change, not a conflict.
+    public var servePorts: [Int]?
 
     enum CodingKeys: String, CodingKey {
         case format, installationID = "installation_id", desiredState = "desired_state", persistent, port
         case addressMode = "address_mode", publicURL = "public_url", releaseID = "release_id", push
-        case tailscalePath = "tailscale_path"
+        case tailscalePath = "tailscale_path", servePorts = "serve_ports"
+    }
+
+    /// Loopback ports whose Serve handler Shell owns.
+    public var ownedServePorts: Set<Int> { Set([port] + (servePorts ?? [])) }
+
+    /// Records a port Serve may point at, bounded.
+    mutating func noteServePort(_ value: Int) {
+        var ports = (servePorts ?? []).filter { $0 != value }
+        ports.append(value)
+        servePorts = Array(ports.suffix(8))
     }
 
     public init(installationID: UUID = UUID(), desiredState: DesiredState = .running,
@@ -129,6 +144,8 @@ public struct InstallationPaths: Sendable {
     public var journal: URL { root.appendingPathComponent("dispatch-journal.ndjson") }
     public var controlSocket: URL { root.appendingPathComponent("control.sock") }
     public var healthSocket: URL { root.appendingPathComponent("health.sock") }
+    /// Non-secret guided-setup checkpoints (spec.control-companion-setup.md 7.4).
+    public var guidedSetup: URL { root.appendingPathComponent("guided-setup.json") }
     public init(root: URL) { self.root = root }
 }
 

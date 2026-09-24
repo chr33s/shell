@@ -152,7 +152,8 @@ public enum BrokerSnapshotCodec {
             "revoked_at": device.revokedAt.map { JSONValue($0) },
             "push": device.push?.json,
             "gateway_device_id": device.gatewayDeviceID.map { JSONValue($0) },
-            "push_capability": device.pushCapability.map { .string($0) }
+            "push_capability": device.pushCapability.map { .string($0) },
+            "notification_preference": device.notificationPreference?.json
         ])
     }
 
@@ -172,7 +173,8 @@ public enum BrokerSnapshotCodec {
             revokedAt: try reader.optionalTimestamp("revoked_at"),
             push: try reader.optionalValue("push").map { try PushRegistration(json: $0) },
             gatewayDeviceID: try reader.optionalID("gateway_device_id"),
-            pushCapability: try reader.optionalString("push_capability", maxLength: 4096)
+            pushCapability: try reader.optionalString("push_capability", maxLength: 4096),
+            notificationPreference: try reader.optionalValue("notification_preference").map(NotificationPreference.init(json:))
         )
     }
 

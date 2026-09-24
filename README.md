@@ -148,8 +148,20 @@ iPhone is recommended so Shell's requests bring the tunnel up. Download the sign
 native Shell Control disk image for the Mac's architecture and run its CLI:
 
 ```sh
-bin/shell-control setup    # Tailscale check, loopback broker, Tailscale Serve, origin key, pairing QR
+bin/shell-control setup --guided   # Control companion setup: preflight, services, iPhone pairing, a safe test review
+bin/shell-control setup            # the same host setup without the guide
 ```
+
+**Control companion setup** (`setup --guided`, and **Settings → Control → Set up
+Control** on the iPhone) walks through *Prepare Mac → Pair iPhone → Test review →
+Done*. It finishes with a Mac and an iPhone alone: the Apple Watch and remote
+alerts are optional later steps, and a fresh guided setup leaves remote alerts off
+(no-relay mode: open Control and refresh to check for requests). The test review
+publishes a fixed "Setup test — no operation will be executed" request through the
+normal review, signed-decision, consume, and receipt pipeline; nothing runs.
+`shell-control doctor` diagnoses the Mac (read-only); **Check connection** on the
+iPhone diagnoses the iPhone's own path. See
+[`spec.control-companion-setup.md`](spec.control-companion-setup.md).
 
 Setup installs the verified native executables under `~/.local/lib/chr33s-shell`;
 it does not need Node, npm, a compiler, or a checkout. It reports missing
@@ -244,8 +256,9 @@ Four sections, nothing else:
 - **SSH** — profiles, SSH identities, known hosts, saved passwords, recovery
 - **tmux** — default mode, default session name, close-window behavior
 - **Sync** — iCloud sync toggles per data class, plus last-sync status
-- **Control** — optional companion: pair with the Mac over Tailscale
-  (`shell-control setup` QR), apply route updates, and see the Watch this iPhone
+- **Control** — optional companion: guided setup, pair with the Mac over
+  Tailscale (`shell-control setup` QR), status and diagnostics, pending requests,
+  remote alerts (off by default), route updates, and the Watch this iPhone
   gateways for
 
 ## Losing the network

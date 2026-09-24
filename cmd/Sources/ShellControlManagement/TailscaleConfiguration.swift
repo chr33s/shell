@@ -1,5 +1,6 @@
 import Foundation
 import ShellControlHostSupport
+import ShellControlProtocol
 import ShellControlSecurity
 
 /// What `tailscale status --json` says about this Mac.
@@ -35,33 +36,71 @@ public struct TailnetStatus: Sendable, Equatable {
 }
 
 /// The part of Tailscale Serve's configuration Shell verifies: HTTPS 443 on
-/// this node's name proxying to the loopback broker, and never Funnel.
+/// this node's name proxying to the loopback broker, and never Funnel. It also
+/// inventories what else is served, so Shell never replaces another app's
+/// handler (spec.control-companion-setup.md section 7.3).
 public struct ServeState: Sendable, Equatable {
     public var proxies: [String: String]
     public var funnel: Set<String>
+    /// `host:port` → mount paths other than `/`, which belong to other apps.
+    public var otherMounts: [String: Set<String>]
+    /// `host:port` whose `/` handler serves something other than a proxy
+    /// (files, text, or a type this parser does not know).
+    public var nonProxyRoots: Set<String>
+    /// TCP ports Serve forwards as raw TCP rather than HTTPS.
+    public var tcpForwards: Set<String>
+    /// `host:port` whose `/` is held by a foreground `tailscale serve` or
+    /// `tailscale funnel` session. Shell only ever configures `--bg`.
+    public var foregroundRoots: Set<String> = []
 
-    public init(proxies: [String: String] = [:], funnel: Set<String> = []) {
+    public init(proxies: [String: String] = [:], funnel: Set<String> = [],
+                otherMounts: [String: Set<String>] = [:], nonProxyRoots: Set<String> = [], tcpForwards: Set<String> = []) {
         self.proxies = proxies
         self.funnel = funnel
+        self.otherMounts = otherMounts
+        self.nonProxyRoots = nonProxyRoots
+        self.tcpForwards = tcpForwards
     }
 
     /// Parses `tailscale serve status --json` (an `ipn.ServeConfig`).
     public init(json data: Data) throws {
-        proxies = [:]
-        funnel = []
+        self.init()
         let trimmed = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed != "null" else { return }
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw ManagementError.unavailable("tailscale serve status is not a JSON object")
         }
+        apply(object, foreground: false)
+        // Foreground sessions nest whole configurations under their session
+        // IDs; they are served just the same and must not read as absent.
+        for (_, session) in object["Foreground"] as? [String: Any] ?? [:] {
+            if let config = session as? [String: Any] { apply(config, foreground: true) }
+        }
+    }
+
+    private mutating func apply(_ object: [String: Any], foreground: Bool) {
         for (hostPort, value) in object["Web"] as? [String: Any] ?? [:] {
-            let handlers = (value as? [String: Any])?["Handlers"] as? [String: Any]
-            if let proxy = (handlers?["/"] as? [String: Any])?["Proxy"] as? String {
-                proxies[hostPort.lowercased()] = proxy
+            let key = hostPort.lowercased()
+            let handlers = (value as? [String: Any])?["Handlers"] as? [String: Any] ?? [:]
+            for (path, handler) in handlers {
+                if path == "/" {
+                    if foreground {
+                        foregroundRoots.insert(key)
+                    } else if let proxy = (handler as? [String: Any])?["Proxy"] as? String {
+                        proxies[key] = proxy
+                    } else {
+                        nonProxyRoots.insert(key)
+                    }
+                } else {
+                    otherMounts[key, default: []].insert(path)
+                }
             }
         }
         for (hostPort, value) in object["AllowFunnel"] as? [String: Any] ?? [:] where value as? Bool == true {
             funnel.insert(hostPort.lowercased())
+        }
+        for (port, value) in object["TCP"] as? [String: Any] ?? [:] {
+            if let handler = value as? [String: Any], handler["TCPForward"] != nil { tcpForwards.insert(port) }
         }
     }
 
@@ -73,6 +112,21 @@ public struct ServeState: Sendable, Equatable {
 
     public func isFunnelled(host: String) -> Bool { funnel.contains("\(host.lowercased()):443") }
 
+    /// Who holds `https://<host>/`. Shell owns it only when it proxies to a
+    /// loopback port this installation uses or used. Anything else — another
+    /// proxy target, a file or text handler, raw TCP on 443 — is a conflict
+    /// setup stops on rather than replacing.
+    public func ownership(host: String, ownedPorts: Set<Int>) -> ServeOwnership {
+        let key = "\(host.lowercased()):443"
+        if tcpForwards.contains("443") { return .conflict("HTTPS 443 is forwarded as raw TCP by another Serve configuration") }
+        if nonProxyRoots.contains(key) { return .conflict("https://\(host)/ is served by a non-proxy Serve handler") }
+        if foregroundRoots.contains(key) { return .conflict("https://\(host)/ is held by a foreground tailscale serve or funnel session") }
+        guard let proxy = proxies[key] else { return .absent }
+        let target = Self.normalizedTarget(proxy)
+        if ownedPorts.contains(where: { target == "127.0.0.1:\($0)" }) { return .shell(port: Int(target.split(separator: ":").last ?? "") ?? 0) }
+        return .conflict("https://\(host)/ already proxies to \(DisplaySanitizer.sanitize(proxy, maxScalars: 200).text)")
+    }
+
     static func normalizedTarget(_ proxy: String) -> String {
         var target = proxy.lowercased()
         for prefix in ["http://", "https+insecure://"] where target.hasPrefix(prefix) { target = String(target.dropFirst(prefix.count)) }
@@ -83,14 +137,24 @@ public struct ServeState: Sendable, Equatable {
     }
 }
 
+public enum ServeOwnership: Sendable, Equatable {
+    /// Nothing is served at `https://<host>/`.
+    case absent
+    /// Shell's own loopback broker (at `port`) is served there.
+    case shell(port: Int)
+    /// Another application's handler; Shell must not replace it.
+    case conflict(String)
+}
+
 /// Tailscale side effects, injectable so lifecycle tests never shell out.
 public protocol TailnetRuntime: Sendable {
     func status(tailscale: String) async throws -> TailnetStatus
     func serveStatus(tailscale: String) async throws -> ServeState
     /// Points HTTPS 443 on this node at the loopback broker.
     func configureServe(tailscale: String, port: Int) async throws
-    /// Removes the HTTPS 443 handler Shell configured.
-    func disableServe(tailscale: String) async throws
+    /// Removes the HTTPS 443 handler Shell configured. With `rootOnly`, only
+    /// the `/` mount is removed and other apps' mounts on 443 stay.
+    func disableServe(tailscale: String, rootOnly: Bool) async throws
 }
 
 public struct LiveTailnetRuntime: TailnetRuntime {
@@ -128,8 +192,9 @@ public struct LiveTailnetRuntime: TailnetRuntime {
         }
     }
 
-    public func disableServe(tailscale: String) async throws {
-        _ = try await runner.run(tailscale, ["serve", "--https=443", "off"], timeout: 15)
+    public func disableServe(tailscale: String, rootOnly: Bool) async throws {
+        let arguments = rootOnly ? ["serve", "--https=443", "--set-path=/", "off"] : ["serve", "--https=443", "off"]
+        _ = try await runner.run(tailscale, arguments, timeout: 15)
     }
 }
 

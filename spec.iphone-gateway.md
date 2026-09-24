@@ -926,6 +926,33 @@ If no Push Relay is configured:
 - Watch refresh through the iPhone discovers requests;
 - authorization behavior is unchanged.
 
+A fresh guided setup starts in no-relay mode even when the build carries a relay
+URL: registration needs an explicit, per-origin, per-iPhone opt-in
+(spec.control-companion-setup.md section 10).
+
+### 16.6 Per-device notification preference (additive)
+
+```text
+GET /v1/devices/me/notification-preference   → { "enabled": true, "version": 0 }
+PUT /v1/devices/me/notification-preference   { "enabled": false, "expected_version": 0 }
+                                              → { "enabled": false, "version": 1 }
+```
+
+Device-authenticated and scoped to the calling iPhone's own record; a Watch
+reviewer has none. A record without a stored preference reports version 0 with
+its legacy value (enabled). `PUT` is an atomic compare-and-set: a stale
+`expected_version` is `409 idempotency_conflict` with the current preference in
+`current_projection`; an accepted write increments the version. Unknown fields,
+invalid types, and unauthenticated calls use the existing error conventions.
+
+`enabled: false` durably suppresses relay and direct-APNs sends to that device and
+deletes its stored delivery material; `PUT /v1/devices/me/push-capability` and
+`PUT /v1/devices/me/push` are refused while it is off, so a registration never
+re-enables it implicitly. It changes delivery only — never grants, pairing, or
+pending approvals — and other reviewers are unaffected. A broker that serves it
+lists `notification.preference.v1` in `/v1/capabilities`; a `404` from an older
+broker means disabling cannot be reported complete.
+
 ---
 
 ## 17. iPhone lifecycle
@@ -1697,6 +1724,7 @@ Where this profile lives in the repository:
 | iPhone | `shell/Features/Control/ControlOriginTrust.swift`, `ControlTailnetTransport.swift`, `ControlGatewaySession.swift`, `ControlWatchGateway.swift`, `ControlRouteStore.swift`, `ControlPushCapability.swift`, `ControlPairingSession.swift` |
 | Watch | `ShellWatch/Services/WatchGatewayClient.swift`, `GatewayCache.swift`, `WatchDecisionJournal.swift`, `ControlSession.swift` |
 | Push Relay | `services/push-relay/` |
+| Control companion setup: guided CLI, `doctor`, `test-review`, diagnostics, notification preference | `cmd/Sources/ShellControlManagement/GuidedSetupCoordinator.swift`, `HostDiagnostics.swift`, `SetupReviewTest.swift`; `Packages/ShellControlCore/Sources/Client/ControlDiagnostics.swift`, `RemoteAlerts.swift`; `shell/Features/Control/ControlSetupGuide.swift` (spec.control-companion-setup.md) |
 
 Decisions taken where this document leaves room:
 

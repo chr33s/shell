@@ -306,6 +306,16 @@ public struct BrokerService: Sendable {
             try await store.registerPushCapability(principal: principal, capability: capability)
             return json(status: 200, .object(["ok": true]))
 
+        case ("GET", NotificationPreference.path):
+            return json(status: 200, try await store.notificationPreference(principal: principal).json,
+                        headers: ["Cache-Control": "no-store"])
+
+        case ("PUT", NotificationPreference.path):
+            try await limiter.check(bucket: "notification_preference", limit: 60)
+            let update = try NotificationPreferenceUpdate(json: try body(request))
+            return json(status: 200, try await store.setNotificationPreference(principal: principal, update: update).json,
+                        headers: ["Cache-Control": "no-store"])
+
         case ("POST", "/v1/gateways/me/watch-reviewers"):
             try await limiter.check(bucket: "watch_reviewer", limit: 20)
             let enrollment = try WatchEnrollmentRequest(json: try body(request))

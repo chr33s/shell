@@ -27,14 +27,14 @@ struct EnrollmentView: View {
                     Text(String(localized: "Key fingerprint \(status.fingerprint)"))
                         .font(.caption2)
                         .foregroundStyle(.secondary)
-                    Text(String(localized: "Confirm this code on the Mac running shell-control setup."))
+                    Text(String(localized: "Confirm this code on the Mac running shell-control setup --guided (or shell-control pair --watch)."))
                         .font(.caption)
                     Button(String(localized: "Check again")) {
                         Task { await session.checkEnrollment() }
                     }
                     .disabled(!gateway.isReachable)
                 default:
-                    Text(String(localized: "This Watch reaches your Mac through its paired iPhone. Pair the iPhone first in Shell → Settings → Control."))
+                    Text(String(localized: "This Watch reaches your Mac through its paired iPhone. Pair the iPhone first in Shell → Settings → Control. The Watch is optional: the iPhone reviews on its own."))
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                     Button(String(localized: "Start setup")) {

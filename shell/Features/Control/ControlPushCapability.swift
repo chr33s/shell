@@ -8,6 +8,11 @@
 //  Mac's ledger is simply discovered on the next refresh
 //  (spec.iphone-gateway.md section 16).
 //
+//  Registration runs only under an explicit local "configured" choice for
+//  this origin and device: a build-configured relay URL is availability, not
+//  consent. Every attempt runs under a policy generation, and a result from
+//  an older generation is discarded (spec.control-companion-setup.md 10).
+//
 
 import Foundation
 import UserNotifications
@@ -29,62 +34,102 @@ enum ControlPushCapability {
         return url
     }
 
-    private static let lastTokenKey = "dev.chr33s.shell.control.push.token"
-    private static let expiryKey = "dev.chr33s.shell.control.push.capability-expiry"
-    /// The Mac's device record the capability was handed to. Signing out,
-    /// revocation, and re-pairing all create a new record, which needs its
-    /// own copy even when the token is unchanged.
-    private static let deviceKey = "dev.chr33s.shell.control.push.device"
+    /// Keys written by builds before the explicit policy. Read once, to tell
+    /// whether this device already used remote alerts, then removed.
+    private static let legacyTokenKey = "dev.chr33s.shell.control.push.token"
+    private static let legacyExpiryKey = "dev.chr33s.shell.control.push.capability-expiry"
+    private static let legacyDeviceKey = "dev.chr33s.shell.control.push.device"
 
-    /// Asks for remote notifications once paired and a relay exists.
+    /// A cached capability is renewed once it is this close to expiry.
+    static let renewalMargin: TimeInterval = 7 * 24 * 60 * 60
+
+    /// The policy for a device record already paired before this build:
+    /// prior use is preserved, and otherwise the user is asked once.
+    static func migratedPolicy(deviceID: String, defaults: UserDefaults = .standard) -> RemoteAlertPolicy {
+        let prior = defaults.string(forKey: legacyDeviceKey) == deviceID && defaults.string(forKey: legacyTokenKey) != nil
+        for key in [legacyTokenKey, legacyExpiryKey, legacyDeviceKey] { defaults.removeObject(forKey: key) }
+        return .migrated(priorUseEstablished: prior, relayAvailable: relayURL != nil)
+    }
+
+    /// Asks for notification permission and an APNs token, only when this
+    /// device chose remote alerts and a relay exists. Review never waits on
+    /// this prompt.
     @MainActor
-    static func registerIfConfigured() {
+    static func requestRegistration(policy: RemoteAlertPolicy) {
         #if os(iOS) && !targetEnvironment(macCatalyst)
-        guard relayURL != nil else { return }
+        guard relayURL != nil, policy.permitsRegistration else { return }
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in
             Task { @MainActor in UIApplication.shared.registerForRemoteNotifications() }
         }
         #endif
     }
 
-    /// Mints a capability for a new token, a new device record, or one nearing
-    /// expiry, and publishes it to the Mac. Failure costs only prompt
-    /// notification.
-    static func publish(deviceToken: Data, gateway: ControlGatewaySession, defaults: UserDefaults = .standard) async {
-        guard let relayURL else { return }
+    /// Whether the user has denied notifications for Shell.
+    static func notificationsDenied() async -> Bool {
+        await UNUserNotificationCenter.current().notificationSettings().authorizationStatus == .denied
+    }
+
+    /// Mints a capability for a new token, device record, relay endpoint, or
+    /// one nearing expiry, and publishes it to the Mac. Failures are recorded
+    /// as bounded, sanitized states; they never affect review.
+    static func publish(deviceToken: Data, gateway: ControlGatewaySession, alerts: RemoteAlertCoordinator) async {
+        guard let generation = await alerts.beginRegistration() else { return }
+        guard let relayURL else {
+            await alerts.recordFailure(.relayUnavailable, generation: generation)
+            return
+        }
+        if await notificationsDenied() {
+            await alerts.recordFailure(.permissionDenied, generation: generation)
+            return
+        }
         let token = deviceToken.map { String(format: "%02x", $0) }.joined()
-        let expiry = defaults.object(forKey: expiryKey) as? Date ?? .distantPast
-        guard let deviceID = await gateway.deviceSession?.deviceID.rawValue else { return }
-        if defaults.string(forKey: lastTokenKey) == token,
-           defaults.string(forKey: deviceKey) == deviceID,
-           expiry.timeIntervalSinceNow > 7 * 24 * 60 * 60 { return }
+        let topic = Bundle.main.bundleIdentifier ?? "dev.chr33s.shell"
+        var candidate = RemoteAlertRegistration(
+            relayEndpoint: relayURL.absoluteString, topic: topic, environment: environment.rawValue,
+            originID: alerts.originID, deviceID: alerts.deviceID,
+            tokenFingerprint: RemoteAlertRegistration.fingerprint(token: token), expiresAt: .distantFuture
+        )
+        if await alerts.isCurrent(candidate, margin: renewalMargin) { return }
+        let capability: String
         do {
             var request = URLRequest(url: relayURL.appendingPathComponent("v1/capabilities"), timeoutInterval: 15)
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONCanonicalization.canonicalize(.object([
                 "apns_token": .string(token),
-                "topic": .string(Bundle.main.bundleIdentifier ?? "dev.chr33s.shell"),
+                "topic": .string(topic),
                 "environment": .string(environment.rawValue)
             ]))
             let (data, response) = try await URLSession.shared.data(for: request)
-            guard (response as? HTTPURLResponse)?.statusCode == 201 else { return }
+            guard (response as? HTTPURLResponse)?.statusCode == 201 else {
+                await alerts.recordFailure(.relayRejected, generation: generation)
+                return
+            }
             var reader = try JSONReader(try JSONValue.parse(data))
-            let capability = try reader.string("capability", maxLength: 4096)
+            capability = try reader.string("capability", maxLength: 4096)
             let expiresAt = try reader.timestamp("expires_at")
-            try await gateway.authenticatedClient().registerPushCapability(capability)
-            defaults.set(token, forKey: lastTokenKey)
-            defaults.set(expiresAt.date, forKey: expiryKey)
-            defaults.set(deviceID, forKey: deviceKey)
+            guard expiresAt.date > Date() else {
+                await alerts.recordFailure(.capabilityExpired, generation: generation)
+                return
+            }
+            candidate.expiresAt = expiresAt.date
+        } catch is URLError {
+            await alerts.recordFailure(.networkFailure, generation: generation)
+            return
         } catch {
-            // The ledger on the Mac is still discovered on the next refresh.
+            await alerts.recordFailure(.relayRejected, generation: generation)
+            return
         }
-    }
-
-    static func forget(defaults: UserDefaults = .standard) {
-        defaults.removeObject(forKey: lastTokenKey)
-        defaults.removeObject(forKey: expiryKey)
-        defaults.removeObject(forKey: deviceKey)
+        // The user may have turned alerts off while the relay answered: a
+        // capability minted under an older generation is never uploaded.
+        guard await alerts.beginRegistration() == generation else { return }
+        do {
+            try await gateway.authenticatedClient().registerPushCapability(capability)
+        } catch {
+            await alerts.recordFailure(.macRegistrationPending, generation: generation)
+            return
+        }
+        await alerts.completeRegistration(candidate, generation: generation)
     }
 
     /// The APNs environment the token was issued for. That follows the
@@ -118,5 +163,37 @@ enum ControlPushCapability {
     /// a CloudKit push). Only identifiers are read.
     static func isApprovalHint(_ userInfo: [AnyHashable: Any]) -> Bool {
         (userInfo["event"] as? String) == "approval.created" && (userInfo["request_id"] as? String).flatMap(ControlID.init) != nil
+    }
+}
+
+/// Remote-alert policies in the app's defaults, one per origin and device
+/// record. Non-secret: choices, versions, and a token fingerprint only.
+final class DefaultsRemoteAlertPolicyStore: RemoteAlertPolicyStore, @unchecked Sendable {
+    private let defaults: UserDefaults
+    private static let prefix = "dev.chr33s.shell.control.alerts."
+
+    init(defaults: UserDefaults = .standard) { self.defaults = defaults }
+
+    private func key(_ originID: String, _ deviceID: String) -> String { "\(Self.prefix)\(originID).\(deviceID)" }
+
+    func load(originID: String, deviceID: String) -> RemoteAlertPolicy? {
+        guard let data = defaults.data(forKey: key(originID, deviceID)) else { return nil }
+        return try? JSONDecoder().decode(RemoteAlertPolicy.self, from: data)
+    }
+
+    func save(_ policy: RemoteAlertPolicy, originID: String, deviceID: String) {
+        guard let data = try? JSONEncoder().encode(policy) else { return }
+        defaults.set(data, forKey: key(originID, deviceID))
+    }
+
+    func remove(originID: String, deviceID: String) {
+        defaults.removeObject(forKey: key(originID, deviceID))
+    }
+
+    /// Forgets every policy for an origin (the Mac was forgotten or replaced).
+    func removeAll(originID: String) {
+        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix("\(Self.prefix)\(originID).") {
+            defaults.removeObject(forKey: key)
+        }
     }
 }

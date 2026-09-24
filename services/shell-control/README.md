@@ -24,7 +24,13 @@ tailnet by Tailscale Serve. Given an origin identity (`origin_id` plus
   the gateway credential, the binding, revocation, and the grant on every call
   and verifying the Watch's own JWS;
 - stores relay push capabilities (`PUT /v1/devices/me/push-capability`) and sends
-  approval hints to the Shell Push Relay.
+  approval hints to the Shell Push Relay;
+- serves each iPhone's own remote-alert preference
+  (`GET`/`PUT /v1/devices/me/notification-preference`, compare-and-set on
+  `expected_version`, 409 when stale). Off suppresses relay and direct-APNs sends
+  to that device and deletes its delivery material; later registrations are
+  refused until the iPhone opts in again. It changes delivery, never authority,
+  and is advertised as `notification.preference.v1` in `/v1/capabilities`.
 
 ## Trust boundary
 
