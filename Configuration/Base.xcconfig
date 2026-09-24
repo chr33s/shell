@@ -94,6 +94,18 @@ LD_RUNPATH_SEARCH_PATHS = $(inherited) @executable_path/Frameworks
 // built with -undefined dynamic_lookup can flat-lookup into it.
 OTHER_LDFLAGS = $(inherited) -lresolv -Wl,-unexported_symbol,_onig* -Wl,-unexported_symbol,_Onig*
 
+// The Mac Catalyst SDK variant appends `$(TOOLCHAIN_DIR)/usr/lib/swift/maccatalyst`
+// to LIBRARY_SEARCH_PATHS, and when the downloadable Metal toolchain asset is
+// installed Xcode resolves TOOLCHAIN_DIR to that cryptex — which ships no
+// `usr/lib/swift` at all — so every link warns the search path is missing.
+// Overriding LIBRARY_SEARCH_PATHS cannot help: the SDK variant layer is applied
+// on top of this file and pulls our value in through its own `$(inherited)`.
+// So pin the toolchain instead. Safe here because the project compiles no .metal
+// sources (GhosttyKit ships prebuilt) and the compilers already come from
+// XcodeDefault; spelled out because Xcode rejects DT_TOOLCHAIN_DIR in the
+// evaluation of LIBRARY_SEARCH_PATHS.
+TOOLCHAIN_DIR[sdk=macosx*] = $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain
+
 // ios_system resource plists are not needed on Mac Catalyst.
 EXCLUDED_SOURCE_FILE_NAMES[sdk=macosx*] = $(inherited) commandDictionary.plist extraCommandsDictionary.plist
 

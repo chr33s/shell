@@ -49,7 +49,7 @@ public enum GlobalRequest {
     }
 
     /// The data associated with a successful response to a TCP forwarding request.
-    public struct TCPForwardingResponse: Hashable {
+    public struct TCPForwardingResponse: Hashable, Sendable {
         /// If requested to listen on a port, and the port the client requested was 0, this is set to the
         /// port that was actually bound. Otherwise is nil.
         public var boundPort: Int?

@@ -78,7 +78,7 @@ public extension SSHServerConfiguration {
      Client is obligated to display this banner to the end user, unless explicitely told
      to ignore banners.
      */
-    struct UserAuthBanner {
+    struct UserAuthBanner : Sendable{
         /**
          The message to be displayed by client to end user during authentication.
          Note that control characters contained in message might be filtered by

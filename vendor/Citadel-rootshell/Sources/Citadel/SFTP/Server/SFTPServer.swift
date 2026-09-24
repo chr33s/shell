@@ -32,7 +32,7 @@ public struct SSHContext {
     public let username: String?
 }
 
-public struct SSHShellContext {
+public struct SSHShellContext : Sendable{
     public struct WindowSize {
         public let columns: Int
         public let rows: Int

@@ -358,18 +358,18 @@ final class CatalystAppDelegate: AppDelegate {
 
     // MARK: - URL Handling
 
-    func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
-        return Self.routeAutomationURL(url, source: "appDelegate.open")
-    }
-
-    /// Shared by the app- and scene-level entry points. Handles ssh:// and
-    /// returns false for anything else, which lets the caller fall through to
-    /// its own handling.
+    /// Shared by the scene-level entry points. Handles ssh:// and returns false
+    /// for anything else, which lets the caller fall through to its own
+    /// handling.
+    ///
+    /// URLs reach the scene lifecycle, not the app delegate: a cold-start open
+    /// arrives in `UIScene.ConnectionOptions.urlContexts` and a warm one in
+    /// `scene(_:openURLContexts:)`, both below in `CatalystSceneDelegate`.
     ///
     /// The notification is addressed to one window: it is delivered to every
     /// `MainView`, and without a target each open window would connect. The
-    /// scene the URL arrived on is that window; an app-level open that names no
-    /// scene goes to the focused one.
+    /// scene the URL arrived on is that window; a caller that names no scene
+    /// (SwiftUI's `onOpenURL`) goes to the focused one.
     @discardableResult
     static func routeAutomationURL(_ url: URL, source: String, deliveredTo scene: UIWindowScene? = nil) -> Bool {
         guard let components = SSHURLParser.parse(url) else { return false }

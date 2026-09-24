@@ -598,7 +598,7 @@ private extension UserAuthenticationStateMachine {
                !config.trustedUserCAKeys.isEmpty {
                 // This is a certificate and we have trusted CAs configured
                 do {
-                    let criticalOptions = try certifiedKey.validate(
+                    _ = try certifiedKey.validate(
                         principal: request.username,
                         type: .user,
                         allowedAuthoritySigningKeys: config.trustedUserCAKeys,

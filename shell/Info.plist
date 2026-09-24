@@ -25,14 +25,14 @@
 	</array>
 	<key>SHELLControlPushRelayURL</key>
 	<string>$(SHELL_CONTROL_PUSH_RELAY_URL)</string>
-	<key>UIBackgroundModes</key>
-	<array>
-		<string>remote-notification</string>
-	</array>
 	<key>ShellCloudKitContainer</key>
 	<string>$(SHELL_CLOUDKIT_CONTAINER)</string>
 	<key>ShellKeychainAccessGroup</key>
 	<string>$(SHELL_KEYCHAIN_ACCESS_GROUP)</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
 	<key>UIFileSharingEnabled</key>
 	<true/>
 	<key>UILaunchScreen</key>

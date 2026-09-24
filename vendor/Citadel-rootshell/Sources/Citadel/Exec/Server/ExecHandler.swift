@@ -140,9 +140,9 @@ final class ExecHandler: ChannelDuplexHandler {
                 .channelOption(ChannelOptions.allowRemoteHalfClosure, value: true)
                 .channelInitializer { pipeChannel in
                     pipeChannel.pipeline.addHandlers(SSHInboundChannelDataWrapper(), theirs)
-                }.withPipes(
-                    inputDescriptor: dup(handler.stdoutPipe.fileHandleForReading.fileDescriptor),
-                    outputDescriptor: dup(handler.stdinPipe.fileHandleForWriting.fileDescriptor)
+                }.takingOwnershipOfDescriptors(
+                    input: dup(handler.stdoutPipe.fileHandleForReading.fileDescriptor),
+                    output: dup(handler.stdinPipe.fileHandleForWriting.fileDescriptor)
                 )
         }.flatMap { pipeChannel -> EventLoopFuture<Channel> in
             self.pipeChannel = pipeChannel

@@ -18,7 +18,7 @@ import NIOCore
 /// Note: SSH certificate authentication is supported through the publicKey method,
 /// not as a separate authentication method. When using certificates, the publicKey
 /// method is used with a certified key.
-public struct NIOSSHAvailableUserAuthenticationMethods: OptionSet {
+public struct NIOSSHAvailableUserAuthenticationMethods: OptionSet, Sendable {
     public var rawValue: UInt8
 
     public init(rawValue: UInt8) {
@@ -158,7 +158,7 @@ extension NIOSSHUserAuthenticationRequest.Request.HostBased: Hashable {}
 
 /// A specific offer of user authentication. This type is the one used on the client side. The
 /// associated server side type is `NIOSSHUserAuthenticationRequest`.
-public struct NIOSSHUserAuthenticationOffer {
+public struct NIOSSHUserAuthenticationOffer: Sendable {
     public var username: String
 
     public var offer: Offer
@@ -278,13 +278,13 @@ extension SSHMessage.UserAuthRequestMessage {
 }
 
 /// The outcome of a user authentication attempt.
-public enum NIOSSHUserAuthenticationOutcome {
+public enum NIOSSHUserAuthenticationOutcome: Sendable {
     case success
     case partialSuccess(remainingMethods: NIOSSHAvailableUserAuthenticationMethods)
     case failure
 }
 
-enum NIOSSHUserAuthenticationResponseMessage {
+enum NIOSSHUserAuthenticationResponseMessage: Sendable {
     case success
     case failure(SSHMessage.UserAuthFailureMessage)
     case publicKeyOK(SSHMessage.UserAuthPKOKMessage)

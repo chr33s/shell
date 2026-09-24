@@ -182,7 +182,7 @@ extension SSHMessage {
         var signature: NIOSSHSignature
     }
 
-    struct UserAuthRequestMessage: Equatable {
+    struct UserAuthRequestMessage: Equatable, Sendable {
         // SSH_MSG_USERAUTH_REQUEST
         static let id: UInt8 = 50
 
