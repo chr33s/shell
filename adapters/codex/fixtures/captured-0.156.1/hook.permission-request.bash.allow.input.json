@@ -1,0 +1,13 @@
+{
+  "cwd": "/Users/example/contract/work",
+  "hook_event_name": "PermissionRequest",
+  "model": "gpt-6-astra",
+  "permission_mode": "default",
+  "session_id": "01a0d63e-7596-7e63-ade2-b2f8b454f04c",
+  "tool_input": {
+    "command": "touch hook-allowed.txt"
+  },
+  "tool_name": "Bash",
+  "transcript_path": "/Users/example/.codex/sessions/2026/09/25/rollout-2026-09-25T08-46-52-01a0d63e-7596-7e63-ade2-b2f8b454f04c.jsonl",
+  "turn_id": "01a0d63e-75c3-7650-825d-fdecc2bfa42f"
+}

@@ -206,12 +206,18 @@ extension BrokerStore {
             throw ControlError(code: .notAuthorized, message: "decision not allowed for this request")
         }
         if command.decision == .approve {
+            // An agent operation this build cannot render — an unknown kind
+            // or a scope wider than one native gate — is never approvable,
+            // whichever client sent the command (spec.agent-relay.md 6.1).
+            if entry.spec.operation.schema == AgentToolOperation.schema, !entry.spec.operation.isRecognized {
+                throw ControlError(code: .unsupportedOperation, message: "this agent operation cannot be approved remotely")
+            }
             // A request that needs fuller review is approvable only from an
             // enrolled full-review client. The device kind comes from the
             // broker's own registration, never from the command
             // (spec.watch.md section 6).
             let fullReview = principal.deviceID.flatMap { devices[$0] }?.isFullReviewClient ?? false
-            guard fullReview || (entry.spec.minimumReview == .watch && entry.projection.watchReviewAllowed) else {
+            guard fullReview || (entry.spec.permitsWatchApproval && entry.projection.watchReviewAllowed) else {
                 throw ControlError(code: .fullReviewRequired, message: "this request needs fuller review")
             }
             // Approve requires fresh source presence; Reject does not.

@@ -1,0 +1,84 @@
+{
+  "allowed_responses": [
+    "answer",
+    "decline"
+  ],
+  "created_at": "2026-09-24T08:00:00Z",
+  "effect": "answer_question",
+  "expires_at": "2026-09-24T08:05:00Z",
+  "job_id": "30000000-0000-4000-8000-000000000001",
+  "minimum_review": "full",
+  "origin_id": "20000000-0000-4000-8000-000000000001",
+  "questions": [
+    {
+      "choices": [
+        {
+          "id": "focused",
+          "label": "Changed modules only"
+        },
+        {
+          "id": "all",
+          "label": "Entire test suite"
+        }
+      ],
+      "id": "test_scope",
+      "kind": "single_choice",
+      "prompt": "Which tests should run next?",
+      "required": true
+    },
+    {
+      "choices": [
+        {
+          "id": "ios",
+          "label": "iOS"
+        },
+        {
+          "description": "Watch simulator",
+          "id": "watchos",
+          "label": "watchOS"
+        },
+        {
+          "id": "macos",
+          "label": "macOS"
+        }
+      ],
+      "id": "platforms",
+      "kind": "multi_choice",
+      "max_selections": 2,
+      "min_selections": 1,
+      "prompt": "Which platforms?",
+      "required": false
+    },
+    {
+      "hint": "Optional",
+      "id": "note",
+      "kind": "text",
+      "max_bytes": 512,
+      "prompt": "Anything else?",
+      "required": false
+    }
+  ],
+  "request_id": "10000000-0000-4000-8000-000000000002",
+  "required_features": [
+    "agent.input.v1",
+    "agent.input.consume.v1"
+  ],
+  "run_id": "40000000-0000-4000-8000-000000000001",
+  "source": {
+    "adapter_build": "1.0.0",
+    "agent_session_id": "50000000-0000-4000-8000-000000000001",
+    "answer_mapping_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+    "connection_epoch": "70000000-0000-4000-8000-000000000001",
+    "context_sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+    "native_request_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+    "native_wait_id": "60000000-0000-4000-8000-000000000002",
+    "provider": "codex",
+    "provider_build": "0.44.0",
+    "provider_request_id": 23,
+    "provider_session_id": "thread-example",
+    "provider_turn_id": "turn-example"
+  },
+  "summary": "Choose the test scope",
+  "type": "input.request",
+  "v": 1
+}

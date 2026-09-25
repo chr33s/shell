@@ -55,7 +55,10 @@ extension BrokerStore {
         for runID in runIDs {
             guard var run = runs[runID], run.originID == originID else { continue }
             let wasFresh = run.lastSeenAt.map { now.date.timeIntervalSince($0.date) <= ApprovalPolicy.presenceStaleAfter } ?? false
-            let waiting = Set(waitingRequestIDs.filter { approvals[$0]?.spec.runID == runID })
+            // A native wait is an approval or an agent input of this run.
+            let waiting = Set(waitingRequestIDs.filter {
+                approvals[$0]?.spec.runID == runID || agent.inputs[$0]?.spec.runID == runID
+            })
             let material = !wasFresh || waiting != run.waitingRequestIDs
             run.lastSeenAt = now
             run.waitingRequestIDs = waiting
@@ -143,6 +146,14 @@ extension BrokerStore {
             throw ControlError(code: .alreadyResolved, message: "job cancellation was requested")
         }
         try validateLifetime(of: spec)
+        switch spec.operation {
+        case .agentTool(let operation):
+            try validateAgentApproval(operation, spec: spec, originID: originID)
+        case .unknown(let schema, _) where schema == AgentToolOperation.schema:
+            throw ControlError(code: .invalidPayload, message: "agent operation does not parse")
+        default:
+            break
+        }
         var entry = ApprovalRecordEntry(
             spec: spec,
             requestHash: hash,
@@ -160,6 +171,9 @@ extension BrokerStore {
             accountID: principal.accountID,
             originID: originID
         )
+        if case .agentTool(let operation) = spec.operation {
+            recordAgentApproval(operation, spec: spec, accountID: principal.accountID)
+        }
         try commit()
         enqueueApprovalPushes(accountID: principal.accountID, spec: spec)
         enqueueRelayPushes(accountID: principal.accountID, spec: spec)

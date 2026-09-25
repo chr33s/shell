@@ -35,7 +35,35 @@ final class ControlSession {
     private(set) var reviewer: WatchReviewerStatus?
     private(set) var enrollmentMessage: String?
 
+    /// Whether the iPhone and Mac offer `shell-agent/1` to this Watch. An old
+    /// iPhone or Mac is `unsupported`, never an error loop
+    /// (spec.agent-relay.md section 15.5).
+    enum AgentAvailability: Equatable {
+        case unknown
+        case unsupported
+        /// This Watch was not granted agent reads through its iPhone.
+        case notEnabled
+        case available
+    }
+
+    private(set) var agentAvailability: AgentAvailability = .unknown
+    /// Typed questions as last seen through the iPhone. Kept in memory only:
+    /// readable, marked stale, when the iPhone drops away; never a basis for
+    /// an answer, which always refetches first.
+    private(set) var agentInputs: [ControlID: InputRecord] = [:]
+    private(set) var agentLastRefreshedAt: ControlTimestamp?
+    private(set) var agentSubmissions: [ControlID: AgentSubmissionState] = [:]
+    /// Why the last answer to a question was not sent.
+    private(set) var agentProblems: [ControlID: String] = [:]
+
     private let client: WatchGatewayClient
+    /// The agent extension over the same WatchConnectivity link, strictly
+    /// separate from the base protocol.
+    private let agentClient: WatchAgentGatewayClient
+    private var agentCursor: ChangeCursor?
+    private var agentLastAttempt: Date?
+    private var agentLastProbe: Date?
+    private var agentLastGrantCheck: Date?
     private let link: any WatchGatewayLink
     private let keys: any DeviceCredentialStore
     private let reviewerStore: any WatchReviewerStore
@@ -67,6 +95,7 @@ final class ControlSession {
     ) throws {
         self.link = link
         self.client = WatchGatewayClient(link: link)
+        self.agentClient = WatchAgentGatewayClient(link: link)
         self.keys = keys
         self.reviewerStore = reviewerStore
         self.cache = cache
@@ -106,6 +135,7 @@ final class ControlSession {
     private func adopt(_ status: WatchReviewerStatus) async {
         reviewer = status
         await client.setWatchDeviceID(status.watchDeviceID)
+        await agentClient.setWatchDeviceID(status.watchDeviceID)
         switch status.state {
         case .active: phase = .ready
         case .pending: phase = .awaitingConfirmation(status)
@@ -198,9 +228,13 @@ final class ControlSession {
         inbox = InboxState()
         reviewer = nil
         submissions = [:]
+        resetAgent()
         phase = .needsEnrollment
         enrollmentMessage = String(localized: "Set this Watch up again through its iPhone")
-        Task { await client.setWatchDeviceID(nil) }
+        Task {
+            await client.setWatchDeviceID(nil)
+            await agentClient.setWatchDeviceID(nil)
+        }
     }
 
     // MARK: Refresh
@@ -249,6 +283,7 @@ final class ControlSession {
             gatewayProblem = nil
             lastError = nil
             consecutiveFailures = 0
+            await refreshAgent()
         } catch let error as ControlError where error.code == .cursorExpired {
             // A cursor that outlived the log or a permissions change forces a
             // fresh snapshot so stale unauthorized objects are removed.
@@ -333,6 +368,217 @@ final class ControlSession {
         }
     }
 
+    // MARK: Agent questions
+
+    var pendingAgentInputs: [InputRecord] {
+        agentInputs.values
+            .filter { $0.projection.resolution == .pending }
+            .sorted { $0.spec.createdAt < $1.spec.createdAt }
+    }
+
+    /// A Mac without the extension, an old iPhone, or a Watch without the
+    /// grant is asked again only this rarely.
+    static let agentReprobeInterval: TimeInterval = 300
+    /// Pages of one pending-only agent snapshot the Watch reads before it
+    /// gives up on the cut and keeps what it had.
+    static let agentMaxSnapshotPages = 32
+
+    /// More pending agent questions than the Watch lists in one refresh.
+    struct AgentSnapshotTooLarge: Error, Equatable {}
+
+    /// Snapshot, then changes, of the agent projection through the iPhone,
+    /// no faster than the poll floor unless `force`d after an answer.
+    func refreshAgent(force: Bool = false) async {
+        guard phase == .ready, isGatewayReachable else { return }
+        let date = now()
+        if !force, let agentLastAttempt, date.timeIntervalSince(agentLastAttempt) < ApprovalPolicy.minimumPollInterval { return }
+        switch agentAvailability {
+        case .unsupported, .notEnabled:
+            if !force, let agentLastProbe, date.timeIntervalSince(agentLastProbe) < Self.agentReprobeInterval { return }
+        case .unknown, .available:
+            break
+        }
+        agentLastAttempt = date
+        do {
+            if agentAvailability != .available {
+                agentLastProbe = date
+                guard try await agentClient.capabilities().isCompatible else {
+                    agentAvailability = .unsupported
+                    return
+                }
+            }
+            try await reconcileAgent()
+            agentAvailability = .available
+            await refreshReviewerGrantsIfNeeded()
+        } catch WatchGatewayError.unsupportedVersion {
+            // An iPhone without the extension: no downgrade to anything else.
+            agentAvailability = .unsupported
+            agentInputs = [:]
+        } catch let error as ControlError where error.code == .notFound {
+            agentAvailability = .unsupported
+            agentInputs = [:]
+        } catch let error as ControlError where error.code == .notAuthorized {
+            agentAvailability = .notEnabled
+            agentInputs = [:]
+        } catch let error as ControlError where error.code == .cursorExpired {
+            agentCursor = nil
+        } catch {
+            note(error)
+        }
+    }
+
+    private func reconcileAgent() async throws {
+        if let cursor = agentCursor {
+            let page = try await agentClient.changes(after: cursor)
+            for event in page.events {
+                // Only questions matter here; agent approvals arrive through
+                // the base inbox.
+                guard let record = try? InputRecord(json: event.projection) else { continue }
+                if let existing = agentInputs[record.spec.requestID],
+                   existing.projection.stateVersion > record.projection.stateVersion { continue }
+                agentInputs[record.spec.requestID] = record
+            }
+            agentCursor = page.cursor
+            agentLastRefreshedAt = page.serverTime
+        } else {
+            // Only what can still be answered: resolved history is not
+            // needed here and would crowd pending questions out.
+            var page = try await agentClient.snapshot(pendingOnly: true)
+            var inputs: [ControlID: InputRecord] = [:]
+            var pages = 0
+            while true {
+                for case .supported(let record) in page.inputs { inputs[record.spec.requestID] = record }
+                pages += 1
+                guard let token = page.nextPageToken else { break }
+                // A cut that does not end here is never adopted: its cursor
+                // would skip everything after the last page read.
+                guard pages < Self.agentMaxSnapshotPages else { throw AgentSnapshotTooLarge() }
+                let next = try await agentClient.snapshot(pageToken: token, pendingOnly: true)
+                guard next.snapshotToken == page.snapshotToken else {
+                    throw ControlError(code: .cursorExpired, message: "agent snapshot cut moved")
+                }
+                page = next
+            }
+            // Signing out while the pages were in flight already cleared
+            // this state; adopting them would restore it.
+            guard phase == .ready else { return }
+            agentInputs = inputs
+            agentCursor = page.cursor
+            agentLastRefreshedAt = page.serverTime
+        }
+        // Keep what is pending and the newest few outcomes.
+        let resolved = agentInputs.values
+            .filter { $0.projection.resolution.isTerminal }
+            .sorted { $0.spec.createdAt > $1.spec.createdAt }
+        for record in resolved.dropFirst(16) { agentInputs.removeValue(forKey: record.spec.requestID) }
+    }
+
+    /// Agent grants are added on the Mac after enrollment; the stored reviewer
+    /// status is refreshed so the answer is signed with current grants.
+    private func refreshReviewerGrantsIfNeeded() async {
+        guard let reviewer, !reviewer.grants.contains(.agentInputsRespond) else { return }
+        let date = now()
+        if let agentLastGrantCheck, date.timeIntervalSince(agentLastGrantCheck) < Self.agentReprobeInterval { return }
+        agentLastGrantCheck = date
+        guard let status = try? await client.enrollmentStatus(),
+              status.state == .active, status.watchDeviceID == reviewer.watchDeviceID else { return }
+        try? reviewerStore.store(status)
+        self.reviewer = status
+    }
+
+    /// Always fetched live through the iPhone before any answer is enabled.
+    func fetchInputForReview(_ requestID: ControlID) async throws -> InputRecord {
+        do {
+            let record = try await agentClient.input(requestID)
+            if phase == .ready { agentInputs[requestID] = record }
+            noteGatewayAnswered()
+            gatewayProblem = nil
+            return record
+        } catch {
+            note(error)
+            throw error
+        }
+    }
+
+    /// Signs the answer the user confirmed on the final screen with this
+    /// Watch's own key and sends it live through the iPhone. A draft that
+    /// was never confirmed, or changed after confirmation, is not sent
+    /// (spec.agent-relay.md sections 8.1 and 13.2).
+    func respond(with draft: WatchAnswerDraft, to record: InputRecord) async {
+        guard let response = draft.confirmedResponse(for: record.spec) else {
+            agentProblems[record.spec.requestID] = String(localized: "Confirm the exact answer before sending")
+            return
+        }
+        await submit(response, to: record)
+    }
+
+    /// Declines, after its own explicit confirmation in the view.
+    func decline(_ record: InputRecord) async {
+        await submit(.decline, to: record)
+    }
+
+    private func submit(_ response: InputResponse, to record: InputRecord) async {
+        let requestID = record.spec.requestID
+        // Nothing is queued: an unreachable iPhone disables submission now.
+        guard isGatewayReachable else {
+            agentProblems[requestID] = String(localized: "iPhone unavailable — no answer is queued")
+            return
+        }
+        guard let coordinator = makeAgentCoordinator() else { return }
+        agentSubmissions[requestID] = .sending
+        agentProblems[requestID] = nil
+        do {
+            agentSubmissions[requestID] = try await coordinator.respond(response, reviewed: record)
+        } catch let error as ControlError {
+            agentSubmissions[requestID] = nil
+            lastError = "\(error.code.rawValue): \(error.message)"
+            agentProblems[requestID] = error.provesCommandNotRecorded ? Self.notRecordedText(error) : describe(error)
+            if error.code == .deviceRevoked || error.code == .reviewerNotBound { note(error) }
+        } catch let error as WatchGatewayError {
+            agentSubmissions[requestID] = nil
+            note(error)
+            agentProblems[requestID] = describe(error)
+        } catch {
+            // Refused before anything was sent: changed, not answerable here,
+            // no grant, or a local failure. A failure after submission is
+            // journalled under its command ID and reconciled later.
+            agentSubmissions[requestID] = nil
+            agentProblems[requestID] = describe(error)
+        }
+        pendingCommands = await journal.pending
+        await refresh()
+        await refreshAgent(force: true)
+    }
+
+    /// The answer coordinator is built with this Watch's signer and key and
+    /// Watch-level review, so every answer is attributable to the Watch.
+    private func makeAgentCoordinator() -> AgentInputCoordinator? {
+        guard phase == .ready,
+              let reviewer, let audience = reviewer.audience,
+              let key = try? keys.loadSigningKey()
+        else { return nil }
+        return AgentInputCoordinator(
+            service: agentClient,
+            journal: journal,
+            key: key,
+            signer: SignerIdentity(deviceID: reviewer.watchDeviceID, audience: audience, grants: reviewer.grants),
+            review: .watch,
+            now: now
+        )
+    }
+
+    private func resetAgent() {
+        agentAvailability = .unknown
+        agentInputs = [:]
+        agentCursor = nil
+        agentLastRefreshedAt = nil
+        agentSubmissions = [:]
+        agentProblems = [:]
+        agentLastAttempt = nil
+        agentLastProbe = nil
+        agentLastGrantCheck = nil
+    }
+
     func decide(_ decision: ControlDecision, on record: ApprovalRecord) async {
         guard let coordinator = await makeCoordinator() else { return }
         submissions[record.spec.requestID] = .sending
@@ -375,11 +621,17 @@ final class ControlSession {
     }
 
     /// On reconnection, ask about every command whose outcome is unresolved,
-    /// by its original command ID.
+    /// by its original command ID. Agent answers are asked about only through
+    /// the agent extension (spec.agent-relay.md section 8.3).
     func reconcilePendingCommands() async {
         guard let coordinator = await makeCoordinator() else { return }
+        let answers = makeAgentCoordinator()
         for command in await journal.pending {
-            if let state = try? await coordinator.reconcile(command) {
+            if command.isAgentCommand {
+                if let answers, let state = try? await answers.reconcile(command) {
+                    agentSubmissions[command.targetID] = state
+                }
+            } else if let state = try? await coordinator.reconcile(command) {
                 submissions[command.targetID] = state
             }
         }
@@ -462,6 +714,18 @@ final class ControlSession {
             return String(localized: "This Watch is not allowed to do that")
         case DecisionCoordinator.CoordinatorError.noSession:
             return String(localized: "Set this Watch up again through its iPhone")
+        case is AgentSnapshotTooLarge:
+            return String(localized: "Too many agent questions to list on this Watch. Review them on your iPhone.")
+        case AgentInputCoordinator.CoordinatorError.requestChangedDuringReview:
+            return String(localized: "This question changed while you were reviewing it. Review it again.")
+        case AgentInputCoordinator.CoordinatorError.notAnswerableHere:
+            return String(localized: "Answer this question on your iPhone or Mac")
+        case AgentInputCoordinator.CoordinatorError.missingGrant:
+            return String(localized: "This Watch is not allowed to answer agent questions")
+        case AgentInputCoordinator.CoordinatorError.invalidResponse:
+            return String(localized: "The answer does not fit the question")
+        case WatchGatewayError.unsupportedVersion:
+            return String(localized: "Update Shell on your iPhone to answer agent questions")
         default: return String(describing: error)
         }
     }
@@ -479,10 +743,12 @@ final class ControlSession {
         submissions = [:]
         pendingCommands = []
         decisionProblems = [:]
+        resetAgent()
         phase = .needsEnrollment
         Task {
             try? await journal.clear()
             await client.setWatchDeviceID(nil)
+            await agentClient.setWatchDeviceID(nil)
         }
     }
 }

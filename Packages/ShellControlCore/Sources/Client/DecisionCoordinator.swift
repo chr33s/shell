@@ -293,6 +293,12 @@ public actor DecisionCoordinator {
     /// still retrieve status, but never creates a new decision
     /// (spec.watch.md section 15).
     public func reconcile(_ pending: PendingCommand) async throws -> SubmissionState {
+        // An agent command is reconciled only through the agent endpoints;
+        // the base endpoint would never find it, and resending it there
+        // would be refused (spec.agent-relay.md section 8.1).
+        guard !pending.isAgentCommand else {
+            return .outcomeUnknown(commandID: pending.commandID, reason: "reconciled by the agent coordinator")
+        }
         do {
             let result = try await client.commandResult(pending.commandID)
             try await journal.resolve(pending.commandID)

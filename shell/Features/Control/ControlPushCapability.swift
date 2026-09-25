@@ -159,10 +159,12 @@ enum ControlPushCapability {
         return aps == "development" ? .development : .production
     }
 
-    /// Whether a remote notification is a Shell approval hint (as opposed to
-    /// a CloudKit push). Only identifiers are read.
+    /// Whether a remote notification is a Shell approval or agent-question
+    /// hint (as opposed to a CloudKit push). Only identifiers are read; the
+    /// review screen resolves which kind the request is.
     static func isApprovalHint(_ userInfo: [AnyHashable: Any]) -> Bool {
-        (userInfo["event"] as? String) == "approval.created" && (userInfo["request_id"] as? String).flatMap(ControlID.init) != nil
+        ["approval.created", "input.created"].contains(userInfo["event"] as? String ?? "")
+            && (userInfo["request_id"] as? String).flatMap(ControlID.init) != nil
     }
 }
 

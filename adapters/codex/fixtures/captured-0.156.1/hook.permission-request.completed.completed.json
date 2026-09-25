@@ -1,0 +1,24 @@
+{
+  "emittedAtMs": 1790300817556,
+  "method": "hook/completed",
+  "params": {
+    "run": {
+      "completedAt": 1790300817,
+      "displayOrder": 2,
+      "durationMs": 22,
+      "entries": [],
+      "eventName": "permissionRequest",
+      "executionMode": "sync",
+      "handlerType": "command",
+      "id": "permission-request:2:/Users/example/contract/work/.codex/hooks.json:exec-9540bc23-173f-4801-8927-38b6a9453298",
+      "scope": "turn",
+      "source": "project",
+      "sourcePath": "/Users/example/contract/work/.codex/hooks.json",
+      "startedAt": 1790300817,
+      "status": "completed",
+      "statusMessage": null
+    },
+    "threadId": "01a0d63e-7596-7e63-ade2-b2f8b454f04c",
+    "turnId": "01a0d63e-75c3-7650-825d-fdecc2bfa42f"
+  }
+}

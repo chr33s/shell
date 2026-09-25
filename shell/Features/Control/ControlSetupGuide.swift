@@ -257,10 +257,11 @@ struct ControlRequestsSection: View {
 
     var body: some View {
         Section {
-            if companion.pending.isEmpty {
+            // Agent approvals are listed under Agents, with their context.
+            if companion.basePending.isEmpty {
                 Text(String(localized: "No requests are waiting.")).foregroundStyle(.secondary).themedRow()
             }
-            ForEach(companion.pending, id: \.spec.requestID) { record in
+            ForEach(companion.basePending, id: \.spec.requestID) { record in
                 NavigationLink {
                     ControlReviewView(companion: companion, requestID: record.spec.requestID)
                 } label: {

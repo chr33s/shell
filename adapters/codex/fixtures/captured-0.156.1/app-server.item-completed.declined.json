@@ -1,0 +1,29 @@
+{
+  "emittedAtMs": 1790261845275,
+  "method": "item/completed",
+  "params": {
+    "completedAtMs": 1790261845275,
+    "item": {
+      "aggregatedOutput": null,
+      "command": "/bin/zsh -lc 'touch codex-denied.txt'",
+      "commandActions": [
+        {
+          "command": "touch codex-denied.txt",
+          "type": "unknown"
+        }
+      ],
+      "cwd": "/Users/example/contract/work",
+      "durationMs": null,
+      "exitCode": null,
+      "id": "exec-4d419cb0-77e1-496f-a764-178e36a8c9ea",
+      "pluginId": null,
+      "processId": null,
+      "scriptPath": null,
+      "source": "agent",
+      "status": "declined",
+      "type": "commandExecution"
+    },
+    "threadId": "01a0d3eb-c837-73e0-88d1-1704306a81ad",
+    "turnId": "01a0d3eb-c887-7bc0-b28c-6f990ed0b06b"
+  }
+}

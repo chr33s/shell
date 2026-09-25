@@ -73,6 +73,16 @@ public enum DeviceGrant: String, Sendable, Hashable, CaseIterable {
     /// no standalone network credential (spec.iphone-gateway.md section 10.4).
     case requestsReadViaGateway = "requests.read-via-gateway"
     case notificationsReadViaGateway = "notifications.read-via-gateway"
+    /// `shell-agent/1` grants, each separately revocable and never part of a
+    /// default set (spec.agent-relay.md section 17.1).
+    case agentSessionsRead = "agent.sessions.read"
+    case agentInputsRead = "agent.inputs.read"
+    case agentInputsRespond = "agent.inputs.respond"
+    /// A Watch reviewer reads agent inputs only through its gateway iPhone.
+    case agentInputsReadViaGateway = "agent.inputs.read-via-gateway"
+    /// Reserved for later managed-session profiles; nothing accepts them yet.
+    case agentMessagesSend = "agent.messages.send"
+    case agentTurnsCancel = "agent.turns.cancel"
 
     /// Device enrollment and policy changes require account administration, not
     /// ordinary decision credentials, so they have no device grant at all.
@@ -84,6 +94,13 @@ public enum DeviceGrant: String, Sendable, Hashable, CaseIterable {
     public static let watchReviewerDefault: Set<DeviceGrant> = [
         .requestsReadViaGateway, .approvalsDecide, .notificationsReadViaGateway, .notificationsAck
     ]
+
+    /// What `shell-control agent grant` adds to an iPhone, and to a Watch
+    /// reviewer (spec.agent-relay.md section 17.1).
+    public static let agentPhone: Set<DeviceGrant> = [.agentSessionsRead, .agentInputsRead, .agentInputsRespond]
+    public static let agentWatchReviewer: Set<DeviceGrant> = [.agentInputsReadViaGateway, .agentInputsRespond]
+    /// Every agent grant, for revocation.
+    public static let agent: Set<DeviceGrant> = agentPhone.union(agentWatchReviewer).union([.agentMessagesSend, .agentTurnsCancel])
 }
 
 /// Where a device's private key and refresh credential live.

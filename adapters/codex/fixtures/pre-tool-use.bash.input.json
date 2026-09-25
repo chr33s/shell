@@ -1,0 +1,11 @@
+{
+  "cwd": "/Users/example/src/shell",
+  "hook_event_name": "PreToolUse",
+  "permission_mode": "default",
+  "session_id": "019243aa-bbbb-7ccc-8ddd-eeeeffff0000",
+  "tool_input": {
+    "command": "ls"
+  },
+  "tool_name": "Bash",
+  "turn_id": "turn-7"
+}

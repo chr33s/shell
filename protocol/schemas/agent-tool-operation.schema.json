@@ -1,0 +1,201 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shell.chr33s.dev/schemas/agent-tool-operation.schema.json",
+  "title": "agent.tool.v1",
+  "description": "An agent operation waiting at one native permission gate (spec.agent-relay.md section 6). Unknown kinds and scopes are carried but never approvable.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "provider",
+    "provider_build",
+    "adapter_build",
+    "agent_session_id",
+    "native_wait_id",
+    "kind",
+    "tool_name",
+    "permission_scope",
+    "native_request_sha256",
+    "context_sha256"
+  ],
+  "properties": {
+    "schema": {
+      "const": "agent.tool.v1"
+    },
+    "provider": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.-]{1,64}$"
+    },
+    "provider_build": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "adapter_build": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "agent_session_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "native_wait_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "connection_epoch": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "provider_session_id": {
+      "type": "string",
+      "maxLength": 256
+    },
+    "provider_turn_id": {
+      "type": "string",
+      "maxLength": 256
+    },
+    "provider_request_id": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        {
+          "type": "integer"
+        }
+      ]
+    },
+    "provider_tool_use_id": {
+      "type": "string",
+      "maxLength": 256
+    },
+    "kind": {
+      "type": "string",
+      "description": "shell, file_change, tool_call; anything else is unknown"
+    },
+    "tool_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "cwd": {
+      "type": "string",
+      "pattern": "^/"
+    },
+    "permission_scope": {
+      "type": "string",
+      "description": "single_native_gate is the only remotely approvable scope in v1"
+    },
+    "reason": {
+      "type": "string",
+      "maxLength": 2048
+    },
+    "shell_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "representation",
+        "shell_identity"
+      ],
+      "properties": {
+        "representation": {
+          "enum": [
+            "command_string",
+            "argv"
+          ]
+        },
+        "command": {
+          "type": "string",
+          "minLength": 1
+        },
+        "argv": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        },
+        "shell_identity": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "options": {
+          "type": "object",
+          "maxProperties": 16,
+          "additionalProperties": {
+            "type": [
+              "string",
+              "integer",
+              "boolean",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "file_changes": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "change",
+          "diff",
+          "base_sha256"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "pattern": "^/"
+          },
+          "change": {
+            "enum": [
+              "create",
+              "modify",
+              "delete"
+            ]
+          },
+          "diff": {
+            "type": "string"
+          },
+          "base_sha256": {
+            "oneOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "tool_call": {},
+    "unavailable": {
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_.-]{1,64}$"
+      }
+    },
+    "native_request_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "context_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

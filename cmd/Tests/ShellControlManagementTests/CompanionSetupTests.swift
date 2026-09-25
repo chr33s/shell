@@ -627,6 +627,8 @@ actor FakeAdapter: SetupTestAdapter {
             return IPCResponse(messageID: request.messageID, ok: true, body: .object(["receipt_id": JSONValue(ControlID.random())]))
         case .approvalWithdraw, .notify:
             return IPCResponse(messageID: request.messageID, ok: true)
+        case .agentRegister, .agentEvent, .inputRequest, .inputWait, .inputWithdraw, .agentReceipt, .sessionCommandWait:
+            return IPCResponse(messageID: request.messageID, ok: false, errorCode: "unsupported_command", errorMessage: "not scripted")
         }
     }
 }

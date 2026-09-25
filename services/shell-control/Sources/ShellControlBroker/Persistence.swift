@@ -131,6 +131,7 @@ public enum BrokerSnapshotCodec {
                     "consumed_by": tombstone.consumedBy.map { JSONValue($0) }
                 ])
             }),
+            "agent": encodeAgent(store.agent),
             "change_log": .array(store.changeLog.map { event in
                 JSONWriter.object([
                     "event": event.json,

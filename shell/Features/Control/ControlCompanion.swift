@@ -66,6 +66,12 @@ final class ControlCompanion {
     private(set) var routeCheckedAt: Date?
     /// The most recent setup-test request this iPhone has seen.
     private(set) var latestSetupTest: ApprovalRecord?
+    /// Recently decided agent approvals, newest first, for the agent view's
+    /// outcomes (spec.agent-relay.md section 13.1).
+    private(set) var agentApprovalOutcomes: [ApprovalRecord] = []
+    /// The optional agent integration: questions, sessions, and detailed
+    /// delivery, kept apart from the base inbox (spec.agent-relay.md 12.2).
+    let agent = ControlAgentCenter()
 
     struct PendingPairing: Equatable {
         let invitation: PairingInvitation
@@ -253,6 +259,8 @@ final class ControlCompanion {
     private func clear() {
         inbox = InboxReconciler()
         pending = []
+        agentApprovalOutcomes = []
+        agent.reset()
         lastRefreshedAt = nil
         statusMessage = nil
         routeState = .unknown
@@ -287,9 +295,10 @@ final class ControlCompanion {
 
     // MARK: Review
 
-    /// Returns whether the snapshot was fetched.
+    /// Returns whether the snapshot was fetched. `forceAgent` lets an
+    /// explicit refresh or a just-sent answer skip the agent poll floor.
     @discardableResult
-    func refresh() async -> Bool {
+    func refresh(forceAgent: Bool = false) async -> Bool {
         guard phase == .ready else { return false }
         var fetched = false
         do {
@@ -300,11 +309,15 @@ final class ControlCompanion {
             latestSetupTest = state.approvals.values
                 .filter { SetupTestFixture.isIPhoneTest($0.spec) }
                 .max { $0.spec.createdAt < $1.spec.createdAt }
+            agentApprovalOutcomes = Array(state.recentOutcomes.filter(\.isAgentApproval).prefix(20))
             routeState = .reachable(await gateway.currentRoute?.url.host ?? "")
             routeCheckedAt = Date()
             statusMessage = nil
             fetched = true
             await reconcileJournal(client: client)
+            // Its own feed and cursor; a Mac without the extension or an
+            // iPhone without the grant costs one throttled probe.
+            await agent.refresh(using: client, grants: await gateway.deviceSession?.grants ?? [], force: forceAgent)
             // Foreground reconnection also finishes an unacknowledged alert
             // choice — only that settings intent, never approval commands.
             await syncRemoteAlerts(client: client)
@@ -420,7 +433,7 @@ final class ControlCompanion {
     /// A definitive broker refusal: the command was not recorded and was
     /// dropped from the journal, so nothing retries it. Says why, and what to
     /// do next.
-    static func notRecordedText(_ error: ControlError) -> String {
+    nonisolated static func notRecordedText(_ error: ControlError) -> String {
         let reason = String(localized: "Not recorded: \(error.message)")
         switch error.code {
         case .staleVersion, .policyChanged, .hashMismatch, .challengeExpired:
@@ -465,15 +478,177 @@ final class ControlCompanion {
     }
 
     /// Ambiguous outcomes are reconciled by their original command ID; a
-    /// replacement decision is never minted.
+    /// replacement decision is never minted. Agent answers are asked about
+    /// only through the agent endpoints (spec.agent-relay.md section 8.3).
     private func reconcileJournal(client: ControlAPIClient) async {
         guard let journal = commandJournal(), let material = await gateway.signingMaterial() else { return }
         let coordinator = DecisionCoordinator(
             service: client, journal: journal, key: material.key, signer: material.signer, review: Self.review
         )
+        let answers = AgentInputCoordinator(
+            service: client, journal: journal, key: material.key, signer: material.signer, review: Self.review
+        )
         for command in await journal.pending {
-            _ = try? await coordinator.reconcile(command)
+            if command.isAgentCommand {
+                // Session commands reconcile through the same command
+                // endpoint, by their own command ID; their target is the
+                // session, not a question.
+                guard let state = try? await answers.reconcile(command) else { continue }
+                switch command.agentType {
+                case .agentMessage?, .turnCancel?:
+                    agent.noteSessionCommand(state, commandID: command.commandID, sessionID: command.targetID)
+                default:
+                    agent.note(state, for: command.targetID)
+                }
+            } else {
+                _ = try? await coordinator.reconcile(command)
+            }
         }
+    }
+
+    // MARK: Agent questions
+
+    /// Pending approvals for agent operations, shown in the agent view.
+    var agentPending: [ApprovalRecord] { pending.filter(\.isAgentApproval) }
+    /// Every other pending approval, shown under Requests.
+    var basePending: [ApprovalRecord] { pending.filter { !$0.isAgentApproval } }
+
+    /// A notification or link names a request without saying which kind: an
+    /// approval is tried first and, only on `not_found`, a typed question
+    /// (spec.agent-relay.md section 12.3). Always a live fetch.
+    func lookup(_ requestID: ControlID) async throws -> ControlRequestLookup.Found {
+        let client: ControlAPIClient
+        do {
+            client = try await gateway.authenticatedClient()
+        } catch {
+            await note(error)
+            throw error
+        }
+        let mayReadInputs = await gateway.deviceSession?.grants.contains(.agentInputsRead) ?? false
+        do {
+            let found = try await ControlRequestLookup.resolve(
+                approval: { try await client.approval(requestID) },
+                input: mayReadInputs ? { try await client.input(requestID) } : nil
+            )
+            if case .input(let record) = found { agent.adopt(record) }
+            return found
+        } catch let error as ControlError where error.code == .notFound {
+            throw error
+        } catch {
+            await note(error)
+            throw error
+        }
+    }
+
+    /// The exact question, refetched and its digest recomputed before review.
+    func fetchInput(_ requestID: ControlID) async throws -> InputRecord {
+        do {
+            let record = try await gateway.authenticatedClient().input(requestID)
+            agent.adopt(record)
+            return record
+        } catch {
+            await note(error)
+            throw error
+        }
+    }
+
+    /// Signs and sends one typed answer or decline with this iPhone's key,
+    /// through the same review → challenge → sign → journal → submit
+    /// sequence as a decision (spec.agent-relay.md section 8.2).
+    func respond(_ response: InputResponse, to record: InputRecord) async {
+        let requestID = record.spec.requestID
+        guard let journal = commandJournal() else {
+            agent.noteNotSent(String(localized: "Answers are unavailable: this iPhone cannot store them right now."), for: requestID)
+            return
+        }
+        guard let material = await gateway.signingMaterial() else { return }
+        agent.noteSending(requestID)
+        do {
+            let client = try await gateway.authenticatedClient()
+            let coordinator = AgentInputCoordinator(
+                service: client, journal: journal, key: material.key, signer: material.signer, review: Self.review
+            )
+            agent.note(try await coordinator.respond(response, reviewed: record), for: requestID)
+        } catch let error as ControlError where error.provesCommandNotRecorded
+            && error.code != .deviceRevoked && error.code != .reviewerNotBound {
+            agent.noteNotSent(Self.notRecordedText(error), for: requestID)
+        } catch let error as AgentInputCoordinator.CoordinatorError {
+            agent.noteNotSent(ControlAgentText.coordinatorError(error), for: requestID)
+        } catch is CommandJournalUnavailable {
+            agent.noteNotSent(String(localized: "Answers are unavailable until this iPhone is unlocked."), for: requestID)
+        } catch {
+            // Refused or unreachable before a recorded answer was confirmed.
+            // Any journalled command is reconciled by its own ID; the refresh
+            // below shows the question as it now stands.
+            await note(error)
+            agent.noteNotSent((error as? ControlError)?.message ?? statusMessage ?? String(describing: error), for: requestID)
+        }
+        await refresh(forceAgent: true)
+    }
+
+    // MARK: Managed sessions
+
+    /// The session, refetched live so review shows its current turn state.
+    func fetchAgentSession(_ sessionID: ControlID) async throws -> AgentSessionProjection {
+        do {
+            let session = try await gateway.authenticatedClient().agentSession(sessionID)
+            agent.adopt(session)
+            return session
+        } catch {
+            await note(error)
+            throw error
+        }
+    }
+
+    /// Signs and sends exactly the confirmed action, built from the session
+    /// as reviewed. A moved session is reported and refetched for a fresh
+    /// review; nothing is resent or retargeted (spec.agent-relay.md 16).
+    func sendSessionCommand(_ proposal: AgentSessionProposal) async {
+        let sessionID = proposal.action.agentSessionID
+        guard let journal = commandJournal() else {
+            agent.noteSessionNotSent(String(localized: "Messages are unavailable: this iPhone cannot store them right now."), sessionID: sessionID)
+            return
+        }
+        guard let material = await gateway.signingMaterial() else { return }
+        agent.noteSessionSending(sessionID)
+        do {
+            let client = try await gateway.authenticatedClient()
+            let coordinator = AgentSessionCoordinator(service: client, journal: journal, key: material.key, signer: material.signer)
+            switch try await AgentSessionSender.send(proposal, with: coordinator) {
+            case .submitted(let state):
+                if let commandID = AgentSessionSender.commandID(of: state) {
+                    agent.noteSessionCommand(state, commandID: commandID, sessionID: sessionID, action: proposal.action)
+                }
+            case .refused(let failure):
+                agent.noteSessionNotSent(failure.text, sessionID: sessionID)
+            }
+        } catch is CommandJournalUnavailable {
+            agent.noteSessionNotSent(String(localized: "Messages are unavailable until this iPhone is unlocked."), sessionID: sessionID)
+        } catch {
+            await note(error)
+            agent.noteSessionNotSent((error as? ControlError)?.message ?? statusMessage ?? String(describing: error), sessionID: sessionID)
+        }
+        await refresh(forceAgent: true)
+        _ = try? await fetchAgentSession(sessionID)
+    }
+
+    /// Follows this session's unsettled commands by their command IDs.
+    /// Callers pace this at or above the poll floor.
+    func followSessionCommands(_ sessionID: ControlID) async {
+        await refresh()
+        guard let client = try? await gateway.authenticatedClient() else { return }
+        // Only this iPhone's own commands are asked about directly; the
+        // agent feed carries every other record.
+        let pending = agent.pendingSessionCommands(sessionID).filter { agent.sessionCommands[$0] != nil }
+        if !pending.isEmpty, let journal = commandJournal(), let material = await gateway.signingMaterial() {
+            let coordinator = AgentSessionCoordinator(service: client, journal: journal, key: material.key, signer: material.signer)
+            for commandID in pending {
+                if let state = try? await coordinator.refresh(commandID) {
+                    agent.noteSessionCommand(state, commandID: commandID, sessionID: sessionID)
+                }
+            }
+        }
+        if let session = try? await client.agentSession(sessionID) { agent.adopt(session) }
     }
 
     private func note(_ error: any Error) async {
@@ -862,5 +1037,13 @@ final class ControlCompanion {
         #else
         return "iPhone"
         #endif
+    }
+}
+
+extension ApprovalRecord {
+    /// Whether this base approval asks about an `agent.tool.v1` operation.
+    var isAgentApproval: Bool {
+        if case .agentTool = spec.operation { return true }
+        return false
     }
 }

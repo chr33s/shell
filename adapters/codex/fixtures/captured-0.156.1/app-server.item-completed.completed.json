@@ -1,0 +1,29 @@
+{
+  "emittedAtMs": 1790261851755,
+  "method": "item/completed",
+  "params": {
+    "completedAtMs": 1790261851751,
+    "item": {
+      "aggregatedOutput": null,
+      "command": "/bin/zsh -lc 'touch codex-allowed.txt'",
+      "commandActions": [
+        {
+          "command": "touch codex-allowed.txt",
+          "type": "unknown"
+        }
+      ],
+      "cwd": "/Users/example/contract/work",
+      "durationMs": 0,
+      "exitCode": 0,
+      "id": "exec-e1a6d86e-0863-4e59-b696-c3340e50e3ce",
+      "pluginId": null,
+      "processId": "43942",
+      "scriptPath": null,
+      "source": "unifiedExecStartup",
+      "status": "completed",
+      "type": "commandExecution"
+    },
+    "threadId": "01a0d3eb-c837-73e0-88d1-1704306a81ad",
+    "turnId": "01a0d3eb-eab4-7142-97f6-d043fe0e96de"
+  }
+}

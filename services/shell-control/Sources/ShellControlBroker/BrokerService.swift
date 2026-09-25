@@ -246,6 +246,20 @@ public struct BrokerService: Sendable {
             return json(status: 200, .object(["ok": true]))
         }
 
+        if request.method == "POST", request.path.hasPrefix("/v1/admin/devices/"), request.path.hasSuffix("/agent-grants") {
+            try await limiter.check(bucket: "admin", limit: 30)
+            let principal = try localAdministrator(request)
+            let idText = String(request.path.dropFirst("/v1/admin/devices/".count).dropLast("/agent-grants".count))
+            guard let deviceID = ControlID(idText) else { throw ControlError(code: .notFound, message: "no such device") }
+            var reader = try JSONReader(try body(request))
+            let enabled = try reader.bool("enabled")
+            let messages = try reader.optionalBool("messages") ?? false
+            let cancel = try reader.optionalBool("cancel") ?? false
+            try reader.rejectUnknownMembers()
+            let grants = try await store.setAgentGrants(deviceID: deviceID, enabled: enabled, messages: messages, cancel: cancel, principal: principal)
+            return json(status: 200, .object(["grants": JSONValue(strings: grants.map(\.rawValue).sorted())]))
+        }
+
         if request.method == "POST", request.path.hasPrefix("/v1/pairings/"), request.path.hasSuffix("/claim") {
             try await limiter.check(bucket: "pairing", limit: 20)
             let idText = String(request.path.dropFirst("/v1/pairings/".count).dropLast("/claim".count))
@@ -411,6 +425,9 @@ public struct BrokerService: Sendable {
         if request.path.hasPrefix(BrokerService.reviewerPrefix) {
             return try await routeGateway(request, principal: principal)
         }
+        if request.path.hasPrefix("/v1/agent/") {
+            return try await routeAgent(request, principal: principal)
+        }
         if request.method == "GET", request.path.hasPrefix("/v1/approvals/") {
             guard let requestID = ControlID(String(request.path.dropFirst("/v1/approvals/".count))) else {
                 throw ControlError(code: .notFound, message: "no such request")
@@ -477,6 +494,9 @@ public struct BrokerService: Sendable {
             throw ControlError(code: .notFound, message: "no such watch reviewer")
         }
         let rest = Array(parts.dropFirst())
+        if rest.first == "agent" {
+            return try await routeGatewayAgent(request, principal: principal, watchID: watchID, rest: Array(rest.dropFirst()))
+        }
         switch (request.method, rest.first, rest.count) {
         case ("GET", nil, 0):
             return json(status: 200, try await store.watchReviewer(principal: principal, watchID: watchID).json)
@@ -588,7 +608,7 @@ public struct BrokerService: Sendable {
     /// Requiring a loopback `Host` AND the absence of any forwarding header
     /// means a proxied request fails one check or the other. The admin secret
     /// is still required on top of this.
-    private func localAdministrator(_ request: HTTPServer.Request, formSecret: String? = nil) throws -> Principal {
+    func localAdministrator(_ request: HTTPServer.Request, formSecret: String? = nil) throws -> Principal {
         guard isLoopbackHost(request), !isForwarded(request) else {
             throw ControlError(code: .notFound, message: "no such endpoint")
         }
@@ -628,7 +648,7 @@ public struct BrokerService: Sendable {
         return String(authorization.dropFirst("Bearer ".count))
     }
 
-    private func body(_ request: HTTPServer.Request) throws -> JSONValue {
+    func body(_ request: HTTPServer.Request) throws -> JSONValue {
         guard request.body.count <= JSONLimits.maxDocumentBytes else {
             throw ControlError(code: .invalidPayload, message: "document exceeds 64 KiB")
         }
@@ -665,14 +685,14 @@ public struct BrokerService: Sendable {
         BrokerService.parseFormBody(request.body)
     }
 
-    private func json(status: Int, _ value: JSONValue, headers extra: [String: String] = [:]) -> HTTPServer.Response {
+    func json(status: Int, _ value: JSONValue, headers extra: [String: String] = [:]) -> HTTPServer.Response {
         let data = (try? JSONCanonicalization.canonicalize(value)) ?? Data("{}".utf8)
         var headers = extra
         headers["Content-Type"] = "application/json"
         return HTTPServer.Response(status: status, headers: headers, body: data)
     }
 
-    private func respond(_ error: ControlError) -> HTTPServer.Response {
+    func respond(_ error: ControlError) -> HTTPServer.Response {
         json(status: error.code.httpStatus, error.json)
     }
 }

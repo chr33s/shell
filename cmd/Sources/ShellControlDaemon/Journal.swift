@@ -29,6 +29,16 @@ public struct DispatchJournal: Sendable {
         /// Persist the recovery payload and mutation ID *before* the network write.
         case recoveryQueued(mutationID: ControlID, kind: String, requestID: ControlID, payload: String)
         case recoveryAcknowledged(mutationID: ControlID)
+        /// `shell-agent/1` input records. The immutable input is persisted
+        /// before it is published, the consume mutation ID before the claim,
+        /// and every delivery state the adapter reports, so a crash leaves a
+        /// withdrawal or an `unknown` receipt to send — never a replay
+        /// (spec.agent-relay.md section 9.3).
+        case inputPersisted(requestID: ControlID, requestHash: String, runID: ControlID)
+        case inputResolved(requestID: ControlID, resolution: String)
+        case inputConsumeIntent(requestID: ControlID, mutationID: ControlID, commandID: ControlID)
+        case inputClaimed(requestID: ControlID, permitID: ControlID, applyBefore: ControlTimestamp)
+        case inputDelivery(requestID: ControlID, receiptID: ControlID, dispatch: String)
 
         var json: JSONValue {
             switch self {
@@ -93,6 +103,16 @@ public struct DispatchJournal: Sendable {
                 ])
             case .recoveryAcknowledged(let mutationID):
                 return .object(["kind": "recovery_acknowledged", "mutation_id": JSONValue(mutationID)])
+            case .inputPersisted(let requestID, let hash, let runID):
+                return .object(["kind": "input_persisted", "request_id": JSONValue(requestID), "request_hash": .string(hash), "run_id": JSONValue(runID)])
+            case .inputResolved(let requestID, let resolution):
+                return .object(["kind": "input_resolved", "request_id": JSONValue(requestID), "resolution": .string(resolution)])
+            case .inputConsumeIntent(let requestID, let mutationID, let commandID):
+                return .object(["kind": "input_consume_intent", "request_id": JSONValue(requestID), "mutation_id": JSONValue(mutationID), "command_id": JSONValue(commandID)])
+            case .inputClaimed(let requestID, let permitID, let applyBefore):
+                return .object(["kind": "input_claimed", "request_id": JSONValue(requestID), "permit_id": JSONValue(permitID), "apply_before": JSONValue(applyBefore)])
+            case .inputDelivery(let requestID, let receiptID, let dispatch):
+                return .object(["kind": "input_delivery", "request_id": JSONValue(requestID), "receipt_id": JSONValue(receiptID), "dispatch": .string(dispatch)])
             }
         }
 
@@ -156,6 +176,16 @@ public struct DispatchJournal: Sendable {
                 )
             case "recovery_acknowledged":
                 return .recoveryAcknowledged(mutationID: try reader.id("mutation_id"))
+            case "input_persisted":
+                return .inputPersisted(requestID: try reader.id("request_id"), requestHash: try reader.string("request_hash", maxLength: 80), runID: try reader.id("run_id"))
+            case "input_resolved":
+                return .inputResolved(requestID: try reader.id("request_id"), resolution: try reader.string("resolution", maxLength: 16))
+            case "input_consume_intent":
+                return .inputConsumeIntent(requestID: try reader.id("request_id"), mutationID: try reader.id("mutation_id"), commandID: try reader.id("command_id"))
+            case "input_claimed":
+                return .inputClaimed(requestID: try reader.id("request_id"), permitID: try reader.id("permit_id"), applyBefore: try reader.timestamp("apply_before"))
+            case "input_delivery":
+                return .inputDelivery(requestID: try reader.id("request_id"), receiptID: try reader.id("receipt_id"), dispatch: try reader.string("dispatch", maxLength: 32))
             default:
                 throw ValidationError.unsupported("journal entry")
             }
@@ -420,5 +450,66 @@ public struct DispatchJournal: Sendable {
             }
         }
         return queued.values.filter { !acknowledged.contains($0.mutationID) }
+    }
+
+    /// What the journal says about agent inputs after a restart.
+    public struct InputRecovery: Sendable {
+        public struct Item: Sendable, Hashable {
+            public var requestHash: String
+            public var runID: ControlID
+            public var permitID: ControlID?
+            public var commandID: ControlID?
+            public var consumeMutationID: ControlID?
+            /// The last delivery state the adapter reported, if any.
+            public var dispatch: String?
+        }
+        /// Published and never observed resolved: the adapter that waited on
+        /// it is gone with the old process, so it is withdrawn.
+        public var pending: [ControlID: Item] = [:]
+        /// Claimed, with no terminal delivery: the effect is uncertain and is
+        /// reported `unknown`, never replayed.
+        public var uncertain: [ControlID: Item] = [:]
+        /// A consume intent with no recorded claim: the broker may hold a
+        /// claim whose reply was lost. Nothing was dispatched.
+        public var stranded: [ControlID: Item] = [:]
+    }
+
+    public func recoverInputs(at frontier: [Entry]) -> InputRecovery {
+        var items: [ControlID: InputRecovery.Item] = [:]
+        var resolved: Set<ControlID> = []
+        var terminal: Set<ControlID> = []
+        for entry in frontier {
+            switch entry {
+            case .inputPersisted(let requestID, let hash, let runID):
+                items[requestID] = .init(requestHash: hash, runID: runID)
+            case .inputResolved(let requestID, _):
+                resolved.insert(requestID)
+            case .inputConsumeIntent(let requestID, let mutationID, let commandID):
+                items[requestID]?.commandID = commandID
+                items[requestID]?.consumeMutationID = mutationID
+            case .inputClaimed(let requestID, let permitID, _):
+                items[requestID]?.permitID = permitID
+            case .inputDelivery(let requestID, _, let dispatch):
+                items[requestID]?.dispatch = dispatch
+                if let state = AgentDispatch(rawValue: dispatch), state.isTerminal || state == .nativeResponseWritten {
+                    terminal.insert(requestID)
+                }
+            case .withdrawn(let requestID):
+                terminal.insert(requestID)
+            default:
+                break
+            }
+        }
+        var recovery = InputRecovery()
+        for (requestID, item) in items where !terminal.contains(requestID) {
+            if item.permitID != nil {
+                recovery.uncertain[requestID] = item
+            } else if item.consumeMutationID != nil {
+                recovery.stranded[requestID] = item
+            } else if !resolved.contains(requestID) {
+                recovery.pending[requestID] = item
+            }
+        }
+        return recovery
     }
 }

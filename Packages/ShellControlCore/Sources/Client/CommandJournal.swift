@@ -15,7 +15,11 @@ public struct PendingCommand: Sendable, Hashable {
 
     public let commandID: ControlID
     public let signedCommand: String
-    public let type: ControlCommandType
+    /// The base command type, or nil for a `shell-agent/1` command.
+    public let type: ControlCommandType?
+    /// The agent command type; reconciled only through the agent endpoints
+    /// (spec.agent-relay.md section 8.3).
+    public let agentType: AgentCommandType?
     public let targetID: ControlID
     public let notAfter: ControlTimestamp
     public var status: Status
@@ -31,10 +35,30 @@ public struct PendingCommand: Sendable, Hashable {
         self.commandID = commandID
         self.signedCommand = signedCommand
         self.type = type
+        self.agentType = nil
         self.targetID = targetID
         self.notAfter = notAfter
         self.status = status
     }
+
+    public init(
+        commandID: ControlID,
+        signedCommand: String,
+        agentType: AgentCommandType,
+        targetID: ControlID,
+        notAfter: ControlTimestamp,
+        status: Status = .sending
+    ) {
+        self.commandID = commandID
+        self.signedCommand = signedCommand
+        self.type = nil
+        self.agentType = agentType
+        self.targetID = targetID
+        self.notAfter = notAfter
+        self.status = status
+    }
+
+    public var isAgentCommand: Bool { agentType != nil }
 
     /// The identical command may be retried while its challenge and lifetime
     /// remain valid; a fresh signature is never generated automatically
@@ -45,7 +69,7 @@ public struct PendingCommand: Sendable, Hashable {
         .object([
             "command_id": JSONValue(commandID),
             "signed_command": .string(signedCommand),
-            "type": .string(type.rawValue),
+            "type": .string(type?.rawValue ?? agentType?.rawValue ?? ""),
             "target_id": JSONValue(targetID),
             "not_after": JSONValue(notAfter),
             "status": .string(status.rawValue)
@@ -57,10 +81,15 @@ public struct PendingCommand: Sendable, Hashable {
         commandID = try reader.id("command_id")
         signedCommand = try reader.string("signed_command", maxLength: 8192)
         let typeText = try reader.string("type", maxLength: 32)
-        guard let type = ControlCommandType(rawValue: typeText) else {
+        if let type = ControlCommandType(rawValue: typeText) {
+            self.type = type
+            self.agentType = nil
+        } else if let agentType = AgentCommandType(rawValue: typeText) {
+            self.type = nil
+            self.agentType = agentType
+        } else {
             throw ValidationError.unsupported("command type \(typeText)")
         }
-        self.type = type
         targetID = try reader.id("target_id")
         notAfter = try reader.timestamp("not_after")
         let statusText = try reader.string("status", maxLength: 32)

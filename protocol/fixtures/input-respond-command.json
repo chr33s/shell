@@ -1,0 +1,35 @@
+{
+  "action": "answer",
+  "answers": [
+    {
+      "kind": "text",
+      "question_id": "note",
+      "text": "Run swiftlint too"
+    },
+    {
+      "choice_ids": [
+        "ios",
+        "macos"
+      ],
+      "kind": "multi_choice",
+      "question_id": "platforms"
+    },
+    {
+      "choice_id": "focused",
+      "kind": "single_choice",
+      "question_id": "test_scope"
+    }
+  ],
+  "aud": "shell-control:a0000000-0000-4000-8000-000000000001",
+  "challenge_id": "server-issued-256-bit-base64url-value",
+  "command_id": "80000000-0000-4000-8000-000000000001",
+  "device_id": "90000000-0000-4000-8000-000000000001",
+  "expected_state_version": 1,
+  "issued_at": "2026-09-24T08:01:00Z",
+  "not_after": "2026-09-24T08:02:00Z",
+  "policy_version": 1,
+  "request_hash": "sha256:87706fd2909aa85c6725ed47167c55ae80525b0050fab303e5f509590ecdc1f1",
+  "request_id": "10000000-0000-4000-8000-000000000002",
+  "type": "input.respond",
+  "v": 1
+}

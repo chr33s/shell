@@ -1,0 +1,27 @@
+{
+  "cwd": "/Users/example/contract/work",
+  "hook_event_name": "PermissionRequest",
+  "permission_mode": "default",
+  "permission_suggestions": [
+    {
+      "destination": "session",
+      "directories": [
+        "/Users/example/contract/work"
+      ],
+      "type": "addDirectories"
+    },
+    {
+      "destination": "session",
+      "mode": "acceptEdits",
+      "type": "setMode"
+    }
+  ],
+  "prompt_id": "61793ed4-5ccd-4a2f-91e3-147e20fbca57",
+  "session_id": "9d5e1435-7f3a-4281-9740-69bbaf87c81a",
+  "tool_input": {
+    "command": "touch shell-contract-denied.txt",
+    "description": "Create a file named shell-contract-denied.txt"
+  },
+  "tool_name": "Bash",
+  "transcript_path": "/Users/example/.claude/projects/-Users-example-contract-work/9d5e1435-7f3a-4281-9740-69bbaf87c81a.jsonl"
+}

@@ -1,0 +1,11 @@
+{
+  "cwd": "/Users/example/src/shell",
+  "hook_event_name": "PermissionRequest",
+  "permission_mode": "default",
+  "session_id": "019243aa-bbbb-7ccc-8ddd-eeeeffff0000",
+  "tool_input": {
+    "command": "*** Begin Patch\n*** Update File: README.md\n@@\n-Shell\n+Shell Terminal\n*** End Patch"
+  },
+  "tool_name": "apply_patch",
+  "turn_id": "turn-7"
+}

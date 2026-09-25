@@ -1,0 +1,79 @@
+{
+  "adapter_build" : "1.0.0",
+  "coverage_exclusions" : [
+    "PermissionRequest carries no tool_use_id; acceptance of a written decision is not correlated.",
+    "Sandbox network prompts and other native prompts not listed in routes stay in the terminal.",
+    "Tool calls auto-approved by provider rules or modes never reach the hook and were not reviewed by Shell.",
+    "Bash inputs with authorization-relevant fields beyond command, description, timeout, and run_in_background are refused remotely.",
+    "MultiEdit, NotebookEdit, MCP tools, and permission-rule suggestions are not remotely approvable.",
+    "AskUserQuestion free-text (Other) answers, option previews, and duplicate question text disable the question route.",
+    "Interactive and headless (-p) execution are validated separately."
+  ],
+  "documentation_checked_on" : "2026-09-24",
+  "documentation_sources" : [
+    "https://code.claude.com/docs/en/hooks",
+    "https://code.claude.com/docs/en/agent-sdk/user-input"
+  ],
+  "executable" : "claude",
+  "failure_behavior" : [
+    "Before a request is published (Control disabled, daemon unavailable, unsupported build or tool), the hook writes no decision and the provider's own terminal prompt applies.",
+    "After publication, broker failure, a malformed internal result, expiry, or changed native context produce a native denial while the hook is alive, labelled a system outcome.",
+    "If the hook never starts, is killed, or reaches the provider's timeout, no Shell decision is written; this is a hook-profile limitation, not mandatory enforcement.",
+    "Delivery is reported native_response_written; acceptance is unobservable through a hook and is never reported as applied."
+  ],
+  "profile" : "hook",
+  "provider" : "claude-code",
+  "provider_wire_name" : "claude_code",
+  "routes" : [
+    {
+      "enabled_by_default" : true,
+      "hook_event" : "PermissionRequest",
+      "response" : "hookSpecificOutput.decision.behavior allow|deny (no updatedInput, updatedPermissions, or mode change)",
+      "route" : "permission_request.shell",
+      "tools" : [
+        "Bash"
+      ]
+    },
+    {
+      "enabled_by_default" : false,
+      "hook_event" : "PermissionRequest",
+      "response" : "hookSpecificOutput.decision.behavior allow|deny",
+      "route" : "permission_request.file_change",
+      "tools" : [
+        "Edit",
+        "Write"
+      ]
+    },
+    {
+      "enabled_by_default" : true,
+      "hook_event" : "PreToolUse",
+      "response" : "hookSpecificOutput.permissionDecision allow with updatedInput {questions (preserved), answers}",
+      "route" : "pre_tool_use.ask_user_question",
+      "tools" : [
+        "AskUserQuestion"
+      ]
+    }
+  ],
+  "schema" : "shell-agent-adapter-manifest/1",
+  "tested_builds" : [
+    {
+      "evidence" : "contract_tested",
+      "fixtures" : [
+        "captured-2.1.281/permission-request.bash.allow.headless.input.json",
+        "captured-2.1.281/permission-request.bash.deny.headless.input.json",
+        "permission-request.bash.allow.expected.json",
+        "permission-request.bash.deny.expected.json"
+      ],
+      "minimum" : "2.1.281",
+      "modes" : [
+        "headless"
+      ],
+      "routes" : [
+        "permission_request.shell"
+      ]
+    }
+  ],
+  "version_arguments" : [
+    "--version"
+  ]
+}

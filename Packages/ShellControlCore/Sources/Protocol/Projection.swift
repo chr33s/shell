@@ -39,6 +39,11 @@ public enum Dispatch: String, Sendable, Hashable, CaseIterable {
         switch (self, next) {
         case (.none, .awaitingOrigin):
             return true
+        // A rejection written to a native gate whose acceptance the adapter
+        // cannot observe is reported honestly as unknown
+        // (spec.agent-relay.md section 9.2).
+        case (.awaitingOrigin, .unknown):
+            return true
         case (.awaitingOrigin, .claimed):
             return true
         // A verified rejection receipt applies without a claim, and an
@@ -242,7 +247,7 @@ extension ApprovalRecord {
         if !Set(spec.requiredFeatures).isSubset(of: supportedFeatures) {
             return .reviewElsewhere(reason: .unsupportedRequiredFeature)
         }
-        if review != .full, spec.minimumReview != .watch || !projection.watchReviewAllowed {
+        if review != .full, !spec.permitsWatchApproval || !projection.watchReviewAllowed {
             return .reviewElsewhere(reason: .policyRequiresFullReview)
         }
         if !projection.presence.isFresh(at: now) { return .reviewElsewhere(reason: .sourceNotPresent) }

@@ -71,6 +71,49 @@ public enum ControlJWS {
         compactSerialization: String,
         resolveKey: (ControlID) throws -> DeviceJWK?
     ) throws -> VerifiedCommand {
+        let verified = try verifySignature(compactSerialization: compactSerialization, resolveKey: resolveKey)
+        let command = try ControlCommand.decode(verified.payload)
+        guard command.envelope.deviceID == verified.keyID else { throw JWSError.keyIdentifierMismatch }
+        return VerifiedCommand(
+            deviceID: verified.keyID,
+            payload: verified.payload,
+            command: command,
+            compactSerialization: compactSerialization,
+            payloadHash: verified.payloadHash
+        )
+    }
+
+    public struct VerifiedAgentCommand: Sendable, Hashable {
+        public let deviceID: ControlID
+        public let payload: JSONValue
+        public let command: AgentCommand
+        public let compactSerialization: String
+        public let payloadHash: String
+    }
+
+    /// The same signature checks, decoded by the separate agent command
+    /// union: an agent command is never accepted by the base decoder, nor a
+    /// base command by this one (spec.agent-relay.md section 8.1).
+    public static func verifyAgent(
+        compactSerialization: String,
+        resolveKey: (ControlID) throws -> DeviceJWK?
+    ) throws -> VerifiedAgentCommand {
+        let verified = try verifySignature(compactSerialization: compactSerialization, resolveKey: resolveKey)
+        let command = try AgentCommand.decode(verified.payload)
+        guard command.envelope.deviceID == verified.keyID else { throw JWSError.keyIdentifierMismatch }
+        return VerifiedAgentCommand(
+            deviceID: verified.keyID,
+            payload: verified.payload,
+            command: command,
+            compactSerialization: compactSerialization,
+            payloadHash: verified.payloadHash
+        )
+    }
+
+    private static func verifySignature(
+        compactSerialization: String,
+        resolveKey: (ControlID) throws -> DeviceJWK?
+    ) throws -> (keyID: ControlID, payload: JSONValue, payloadHash: String) {
         let segments = compactSerialization.split(separator: ".", omittingEmptySubsequences: false)
         guard segments.count == 3 else { throw JWSError.malformed }
         guard let headerBytes = Base64URL.decode(String(segments[0])),
@@ -108,14 +151,6 @@ public enum ControlJWS {
         guard try JSONCanonicalization.canonicalize(payload) == payloadBytes else {
             throw JWSError.payloadNotCanonical
         }
-        let command = try ControlCommand.decode(payload)
-        guard command.envelope.deviceID == keyID else { throw JWSError.keyIdentifierMismatch }
-        return VerifiedCommand(
-            deviceID: keyID,
-            payload: payload,
-            command: command,
-            compactSerialization: compactSerialization,
-            payloadHash: ContentDigest.digest(of: payloadBytes)
-        )
+        return (keyID, payload, ContentDigest.digest(of: payloadBytes))
     }
 }

@@ -140,20 +140,26 @@ do {
 
 FileHandle.standardError.write(Data("shell-controld: listening on \(socketPath)\n".utf8))
 
+// The accept loops live in ShellControlHostSupport so the bundled Control host
+// serves adapters exactly as this daemon does (spec.agent-relay.md 19.2).
+let queue = DispatchQueue(label: "dev.chr33s.shell.controld", attributes: .concurrent)
+let controlLoop = FramedIPCServer(listener: listener, queue: queue) { request in
+    await core.handle(request)
+}
+let healthLoop = HealthSocketServer(listener: healthListener) { await core.health() }
+
 final class ListenerState: Sendable {
-    private let running = Atomic(true)
     private let shutdownRequested = Atomic(false)
-    let control: Int32
-    let health: Int32
-    init(control: Int32, health: Int32) {
+    let control: FramedIPCServer
+    let health: HealthSocketServer
+    init(control: FramedIPCServer, health: HealthSocketServer) {
         self.control = control
         self.health = health
     }
-    var isRunning: Bool { running.load(ordering: .acquiring) }
+    var isRunning: Bool { control.isRunning }
     func stop() {
-        guard running.exchange(false, ordering: .acquiringAndReleasing) else { return }
-        close(control)
-        close(health)
+        control.stop()
+        health.stop()
     }
     func beginShutdown() -> Bool {
         !shutdownRequested.exchange(true, ordering: .acquiringAndReleasing)
@@ -189,31 +195,8 @@ final class DaemonShutdownCoordinator: Sendable {
     }
 }
 
-let listeners = ListenerState(control: listener, health: healthListener)
-let queue = DispatchQueue(label: "dev.chr33s.shell.controld", attributes: .concurrent)
-
-queue.async {
-    while listeners.isRunning {
-        let client = accept(healthListener, nil, nil)
-        if client < 0 {
-            if !listeners.isRunning { return }
-            continue
-        }
-        defer { close(client) }
-        guard UnixSocketServer.verifyPeer(client) else { continue }
-        let snapshot = DispatchSemaphore(value: 0)
-        nonisolated(unsafe) var body = Data("{}".utf8)
-        Task {
-            let json = await core.health()
-            body = (try? JSONCanonicalization.canonicalize(json)) ?? body
-            snapshot.signal()
-        }
-        snapshot.wait()
-        _ = body.withUnsafeBytes { raw in
-            send(client, raw.baseAddress, raw.count, 0)
-        }
-    }
-}
+let listeners = ListenerState(control: controlLoop, health: healthLoop)
+queue.async { healthLoop.acceptLoop() }
 
 signal(SIGPIPE, SIG_IGN)
 let shutdown = DaemonShutdownCoordinator(listeners: listeners, core: core, heartbeat: heartbeat)
@@ -222,41 +205,10 @@ signal(SIGINT, SIG_IGN)
 let termSource = shutdown.makeSignalSource(SIGTERM)
 let intSource = shutdown.makeSignalSource(SIGINT)
 
-while listeners.isRunning {
-    let client = accept(listener, nil, nil)
-    if client < 0 {
-        if !listeners.isRunning { break }
-        continue
-    }
-    guard UnixSocketServer.verifyPeer(client) else {
-        close(client)
-        continue
-    }
-    queue.async {
-        defer { close(client) }
-        var buffer = Data()
-        while listeners.isRunning {
-            guard let value = try? FrameIO.readFrame(client, buffer: &buffer) else { return }
-            guard let request = try? IPCRequest(json: value) else {
-                _ = try? FrameIO.writeFrame(client, IPCResponse(
-                    messageID: .random(),
-                    ok: false,
-                    errorCode: ControlErrorCode.invalidPayload.rawValue,
-                    errorMessage: "unreadable frame"
-                ).json)
-                return
-            }
-            let semaphore = DispatchSemaphore(value: 0)
-            nonisolated(unsafe) var response = IPCResponse(messageID: request.messageID, ok: false)
-            Task {
-                response = await core.handle(request)
-                semaphore.signal()
-            }
-            semaphore.wait()
-            try? FrameIO.writeFrame(client, response.json)
-        }
-    }
-}
+// A waiting adapter that disappears — killed at its provider's timeout, or
+// exited — takes its native wait with it; FramedIPCServer cancels the wait
+// rather than keep it alive in a healthy daemon (spec.agent-relay.md 5.2, 10.2).
+controlLoop.acceptLoop()
 
 termSource.cancel()
 intSource.cancel()

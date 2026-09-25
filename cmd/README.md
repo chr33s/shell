@@ -47,6 +47,15 @@ shell-control push disable
 shell-control notify --title TEXT [options]
 shell-control request --spec-file /absolute/request.json [--wait]
 shell-control receipt --run-capability CAP --result RESULT [options]
+shell-control agent install claude-code|codex [--dry-run] [--include-file-changes] [--no-questions] [--watch-shell-approval] [--enable-managed]
+shell-control agent uninstall claude-code|codex
+shell-control agent doctor [--json]
+shell-control agent hook claude-code|codex
+shell-control agent test claude-code|codex --reviewer iphone|watch
+shell-control agent launch claude-code|codex -- <provider arguments>
+shell-control agent launch codex --managed [--thread THREAD-ID]
+shell-control agent grant <DEVICE-ID> [--revoke] [--messages] [--cancel]
+shell-control agent allow-build claude-code|codex <BUILD> [--yes] [--remove]
 ```
 
 Use `--state-dir /absolute/path` before or after a subcommand, or `SHELL_CONTROL_STATE_DIR`, for an isolated native installation. The production default is `~/.local/state/shell-control`. Non-interactive `confirm` requires `--yes`.
@@ -106,6 +115,109 @@ Login persistence requires tailscale mode. `down` commits stopped intent, disabl
 An installation made by an earlier release with a Cloudflare tunnel mode is migrated to `tailscale` by the next `setup`, which also stops and removes the old cloudflared job and its files. Devices paired against the old public URL must pair again from the new QR.
 
 Adapter stdout is JSON. Permission authority remains the structured `shell-control/1` permit and exact run/request context—not an exit status. `request --wait` exits 0/10/11/12/13 for approved/rejected/expired/cancelled/unavailable.
+
+## Agent relay
+
+`agent` implements the hook profile of
+[`spec.agent-relay.md`](../spec.agent-relay.md): Claude Code `PermissionRequest`
+(Bash; Edit/Write with `--include-file-changes`, iPhone review only) and
+`PreToolUse` `AskUserQuestion`, and Codex `PermissionRequest` (Bash).
+
+`install` merges only Shell's stanzas into `~/.claude/settings.json` or
+`~/.codex/hooks.json` (other hooks are preserved; the previous file is kept as
+`*.shell-control-backup-<time>`), with a 360-second outer timeout. Codex runs
+the hook only after you trust it with `/hooks` in Codex; setup never bypasses
+that. `grant` adds the separately revocable agent grants to one enrolled iPhone
+(`agent.sessions.read`, `agent.inputs.read`, `agent.inputs.respond`) or Watch
+(`agent.inputs.read-via-gateway`, `agent.inputs.respond`); approvals need only
+the existing approval grant.
+
+The hook reviews within 300 seconds, stops waiting by 330 seconds after entry,
+and always exits 0 — its stdout is the provider's decision JSON or nothing.
+Before a request is published (Control stopped, unsupported tool, untested
+build) it writes nothing and the provider's own terminal prompt applies. After
+publication, failure, expiry, or changed context writes a denial labelled a
+system outcome. An allow is written only after a validated claim, a local
+recheck, and a journaled `dispatch_started`; delivery is then reported
+`native_response_written`, because a hook cannot observe acceptance. A
+question that is not answered in time stays with the terminal; no answer is
+invented.
+
+Every provider build is informational until it is covered by a
+`contract_tested` range in `adapters/<provider>/manifest.json`, or until you run
+`allow-build` for that exact build (`user_attested`, never "Ready"). `doctor`
+reports readiness per provider. `test` runs the safe fixture — a fixed
+`true` command that is never executed — through the real reviewer, claim,
+native-response encoding, and receipt pipeline. The hook-profile limits are
+real: a provider that never starts the hook, kills it, or auto-approves a tool
+before the hook runs is not reviewed by Shell.
+
+### Managed Codex (experimental)
+
+`agent install codex --enable-managed` enables the managed app-server routes, and
+`agent launch codex --managed` then runs `codex app-server` over stdio, owned by
+that command (spec.agent-relay.md sections 11.2, 11.3, and 16). There is no Codex
+TUI in this mode: agent text streams to the terminal, and typed lines start a turn
+or steer the active one (`/interrupt`, `/approve N`, `/deny N`, `/answer N a || b`,
+`/quit`). Command and file-change approvals and `requestUserInput` questions go to
+Shell Control with their exact JSON-RPC ID and connection epoch; whichever answers
+first — this terminal or a device — wins, and the other is withdrawn. A remote
+answer is written only as a one-time `accept`/`decline` (never `acceptForSession`),
+and `accepted` is reported only from the app-server's correlated
+`serverRequest/resolved`. A remote request that expires stays with the terminal.
+
+Devices granted `agent grant <id> --messages` (and `--cancel`) can send new
+instructions, steer the active turn, or interrupt it. Each command is signed
+against a digest of the exact text, mode, and turn it targets, recorded once,
+claimed once for this connection, and refused — never queued — if the session
+moved. An interrupt acknowledgement is not proof the process stopped. Messages
+carry plain text only. The app-server interface is documented as experimental,
+so this profile stays opt-in; every build is informational until attested or
+covered by a tested range.
+
+## Bundled Control host (TestFlight profile)
+
+Section 19 of [`spec.agent-relay.md`](../spec.agent-relay.md) adds a second
+distribution profile: the Control host packaged **inside the Mac Catalyst
+app** as the sandboxed `ShellControlHost.app` LaunchAgent (see
+[`../ShellControlHost`](../ShellControlHost/README.md)). It is separate from
+the standalone Developer ID/CLI profile above and never installs, copies, or
+starts it.
+
+`ShellControlHostRuntime` (this package) composes the broker and daemon in one
+process: single-writer lock of its private container, identity, legacy
+detection, ledger restore, loopback broker, journal recovery with bounded
+backoff, and only then adapter ingress and a `ready` phase. It depends on
+`ShellControlDaemon`, `ShellControlHostSupport`, and `ShellControlBroker`, and
+must never depend on `ShellControlManagement`. The adapter accept loop it
+shares with `shell-controld` is `FramedIPCServer` in `ShellControlHostSupport`.
+
+| Boundary | Mechanism |
+|---|---|
+| Storage | Ledger, journal, lock, identity, and origin key in the host's sandbox container (`Application Support/ShellControlHost`, 0700/0600); nothing resolved from `$HOME`. The origin key is never regenerated once the identity exists. |
+| UI ↔ host | Swift XPC on the launchd Mach service `group.dev.chr33s.shell.control.host`: Codable `ControlHostRequest`/`ControlHostReply` (`status`, `mint_pairing`, `list_devices`, `list_pending_pairings`, `confirm_pairing`, `revoke_device`, `set_agent_grants`, `set_route`, `verify_route`, `stop_accepting_work`, `resume_accepting_work`). The listener requires `isFromSameTeam(andMatchesSigningIdentifier: "dev.chr33s.shell")`, and every message is re-checked against the sender's audit token (`senderSatisfies`); unknown operations and versions are rejected. `NSXPCConnection(machServiceName:)` is unavailable to Mac Catalyst, so both sides use `XPCSession`/`XPCListener`. |
+| Adapter ↔ host | **Candidate:** the framed Unix socket `control.sock` in the App Group container, same-user peer check, per-run capabilities, 64 concurrent connections. `agent hook`, `agent test`, and `agent doctor` use it when no `--state-dir` is given and no standalone daemon is live. Whether an external provider hook can reach it under the distributed sandbox, and whether macOS prompts for group-container access, is for the distribution spike (spec 19.6). |
+| Tailscale | The host never runs `tailscale`. You configure `tailscale serve --bg --https=443 http://127.0.0.1:8443`, enter the MagicDNS name in Shell, and the host verifies it by fetching `/v1/origin/proof` through it and checking the signature under its origin key. Failures are `invalid_name`, `unreachable`, `tls_failure`, `http_status`, `not_shell_broker`, or `origin_mismatch`. Pairing is refused until the route is verified. |
+| Legacy install | Before claiming authority the host probes `127.0.0.1:<port>/v1/capabilities` and, where readable, `~/.local/state/shell-control/control.sock`. A foreign broker, a live standalone daemon, or an occupied port is `legacy_conflict` with the remedy (`shell-control down`); nothing is bound and no second ledger is written. |
+
+The Catalyst UI reports the readiness states of spec 19.9
+(`not_enabled`, `approval_required`, `registered_starting`, `ready_local`,
+`route_unavailable`, `disabled_by_user`, `incompatible_build`, `degraded`, plus
+`legacy_conflict`) from user intent, `SMAppService` status, and host status
+together; `.enabled` alone is never "ready". `ready_local` means the host and
+route are healthy, not that approvals are: that still needs the safe fixture
+(`shell-control agent test`).
+
+What is validated in this repository: `swift test --package-path cmd`
+(`ShellControlHostRuntimeTests`: startup order, recovery before readiness,
+duplicate refusal, legacy conflicts, identity persistence, stop/resume,
+XPC peer rejection with the real code-signing check, route verification,
+socket discovery), the Catalyst build layout, the absence of the host from iOS
+builds, and a manual run of the unsigned host binary. What remains a release
+gate, and is not claimed: signing and provisioning of both bundle IDs with the
+App Group, TestFlight processing and install on a clean Mac, sandbox
+enforcement with a real provider hook, the background-item consent prompts,
+quit/logout/sleep behaviour, and scenarios A37–A52 of spec section 22.
 
 ## Development and release
 

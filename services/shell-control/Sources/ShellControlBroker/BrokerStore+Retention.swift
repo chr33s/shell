@@ -59,7 +59,9 @@ extension BrokerStore {
         idempotency = idempotency.filter { $0.value.recordedAt >= cutoff }
         receipts = receipts.filter { $0.value >= cutoff }
 
-        let referencedRuns = Set(approvals.values.map(\.spec.runID))
+        purgeAgentRetained(cutoff: cutoff)
+
+        let referencedRuns = Set(approvals.values.map(\.spec.runID)).union(agent.inputs.values.map(\.spec.runID))
         for (id, run) in runs where !referencedRuns.contains(id) {
             if let lastSeen = run.lastSeenAt, lastSeen >= cutoff { continue }
             if run.lastSeenAt == nil, run.registration.startedAt >= cutoff { continue }
@@ -76,5 +78,38 @@ extension BrokerStore {
             return now < rotatedAt.adding(BrokerStore.refreshReplayGrace)
         }
         enrollmentTokens = enrollmentTokens.filter { now < $0.value.expiresAt }
+    }
+}
+
+extension BrokerStore {
+    /// The agent ledger ages out on the base floors: seven days of change
+    /// history and thirty days of command evidence. A purged input leaves a
+    /// tombstone so its ID is never reused (spec.agent-relay.md section 18).
+    func purgeAgentRetained(cutoff: ControlTimestamp) {
+        trimAgentChangeLog()
+        for (id, entry) in agent.inputs where entry.spec.expiresAt < cutoff {
+            agent.inputTombstones[id] = entry.requestHash
+            agent.inputs.removeValue(forKey: id)
+            agent.itemSequences.removeValue(forKey: id)
+        }
+        for (id, _) in agent.approvals where approvals[id] == nil {
+            agent.approvals.removeValue(forKey: id)
+            agent.itemSequences.removeValue(forKey: id)
+        }
+        for (id, entry) in agent.sessions {
+            // An ended session ages out; so does an "active" one whose origin
+            // never reported its end (the agent was killed) and that has not
+            // been seen for the whole retention period.
+            let last = entry.projection.endedAt ?? entry.projection.lastSeenAt ?? entry.projection.registration.startedAt
+            guard last < cutoff else { continue }
+            let referenced = agent.inputs.values.contains { $0.spec.source.agentSessionID == id }
+                || agent.approvals.values.contains { $0.reference.agentSessionID == id }
+            guard !referenced else { continue }
+            agent.sessions.removeValue(forKey: id)
+            agent.itemSequences.removeValue(forKey: id)
+        }
+        agent.idempotency = agent.idempotency.filter { $0.value.recordedAt >= cutoff }
+        agent.sessionCommands = agent.sessionCommands.filter { $0.value.record.recordedAt >= cutoff }
+        agent.mutations = agent.mutations.filter { $0.value.recordedAt >= cutoff }
     }
 }

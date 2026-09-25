@@ -1,0 +1,48 @@
+{
+  "hookSpecificOutput": {
+    "hookEventName": "PreToolUse",
+    "permissionDecision": "allow",
+    "updatedInput": {
+      "answers": {
+        "Which platforms?": "iOS, macOS",
+        "Which tests should run next?": "Entire test suite"
+      },
+      "questions": [
+        {
+          "header": "Tests",
+          "multiSelect": false,
+          "options": [
+            {
+              "description": "Fast feedback",
+              "label": "Changed modules only"
+            },
+            {
+              "description": "Slower, complete",
+              "label": "Entire test suite"
+            }
+          ],
+          "question": "Which tests should run next?"
+        },
+        {
+          "header": "Platforms",
+          "multiSelect": true,
+          "options": [
+            {
+              "description": "iPhone simulator",
+              "label": "iOS"
+            },
+            {
+              "description": "Watch simulator",
+              "label": "watchOS"
+            },
+            {
+              "description": "Mac Catalyst",
+              "label": "macOS"
+            }
+          ],
+          "question": "Which platforms?"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "allowed_decisions": [
+    "approve",
+    "reject"
+  ],
+  "created_at": "2026-09-24T08:00:00Z",
+  "expires_at": "2026-09-24T08:05:00Z",
+  "job_id": "30000000-0000-4000-8000-000000000001",
+  "minimum_review": "full",
+  "operation": {
+    "adapter_build": "1.0.0",
+    "agent_session_id": "50000000-0000-4000-8000-000000000001",
+    "context_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+    "cwd": "/Users/example/src/shell",
+    "kind": "shell",
+    "native_request_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+    "native_wait_id": "60000000-0000-4000-8000-000000000001",
+    "permission_scope": "single_native_gate",
+    "provider": "claude_code",
+    "provider_build": "2.1.281",
+    "provider_session_id": "native-session-example",
+    "reason": "Show working tree status",
+    "schema": "agent.tool.v1",
+    "shell_request": {
+      "command": "git status --short",
+      "options": {
+        "timeout": 120000
+      },
+      "representation": "command_string",
+      "shell_identity": null
+    },
+    "tool_name": "Bash",
+    "unavailable": [
+      "environment",
+      "shell_identity"
+    ]
+  },
+  "origin_id": "20000000-0000-4000-8000-000000000001",
+  "request_id": "10000000-0000-4000-8000-000000000001",
+  "required_features": [
+    "agent.tool.v1",
+    "agent.shell.v1",
+    "consume.v1"
+  ],
+  "run_id": "40000000-0000-4000-8000-000000000001",
+  "summary": "Bash: git status --short",
+  "type": "approval.request",
+  "v": 1
+}

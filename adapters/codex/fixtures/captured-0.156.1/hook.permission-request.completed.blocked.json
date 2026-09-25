@@ -1,0 +1,29 @@
+{
+  "emittedAtMs": 1790300805064,
+  "method": "hook/completed",
+  "params": {
+    "run": {
+      "completedAt": 1790300805,
+      "displayOrder": 2,
+      "durationMs": 22,
+      "entries": [
+        {
+          "kind": "feedback",
+          "text": "Denied by the reviewer in Shell Control."
+        }
+      ],
+      "eventName": "permissionRequest",
+      "executionMode": "sync",
+      "handlerType": "command",
+      "id": "permission-request:2:/Users/example/contract/work/.codex/hooks.json:exec-0713a934-648c-41ef-a160-deef80bf28cb",
+      "scope": "turn",
+      "source": "project",
+      "sourcePath": "/Users/example/contract/work/.codex/hooks.json",
+      "startedAt": 1790300805,
+      "status": "blocked",
+      "statusMessage": null
+    },
+    "threadId": "01a0d63e-45e1-7e90-8327-717a09cc67d4",
+    "turnId": "01a0d63e-4612-7810-8553-be6f16ca6c9e"
+  }
+}

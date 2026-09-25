@@ -32,6 +32,17 @@ tailnet by Tailscale Serve. Given an origin identity (`origin_id` plus
   refused until the iPhone opts in again. It changes delivery, never authority,
   and is advertised as `notification.preference.v1` in `/v1/capabilities`.
 
+It also serves the optional `shell-agent/1` extension of
+[`../../spec.agent-relay.md`](../../spec.agent-relay.md) under `/v1/agent/*`:
+agent session registration, immutable typed inputs, signed `input.respond`
+commands (first valid response wins), one-time input consume permits bound to
+the exact native wait, detailed `agent.delivery.v1` receipts, informational
+agent events, and a separate agent change feed. Agent approvals ride the base
+approval ledger with the `agent.tool.v1` operation. The same store, commit,
+idempotency, and signature rules serve both; the extension is not a second
+authority. `POST /v1/admin/devices/{id}/agent-grants` (loopback admin) adds or
+removes one device's agent grants.
+
 ## Trust boundary
 
 V1 trusts the broker operator — in the gateway profile, the Mac itself. TLS protects transport, device signatures bind

@@ -1,0 +1,9 @@
+{
+  "hookSpecificOutput": {
+    "decision": {
+      "behavior": "deny",
+      "message": "Denied by the reviewer in Shell Control."
+    },
+    "hookEventName": "PermissionRequest"
+  }
+}

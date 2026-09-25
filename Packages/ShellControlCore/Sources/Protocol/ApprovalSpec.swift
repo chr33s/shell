@@ -32,8 +32,10 @@ public enum ControlFeature {
     public static let notificationAck = "notification.ack.v1"
     public static let handoff = "handoff.v1"
 
-    /// What this build of ShellControlCore actually implements.
-    public static let supported: Set<String> = [exec, consume, jobCancel, notificationAck, handoff]
+    /// What this build of ShellControlCore actually implements, including
+    /// the `shell-agent/1` operation and input features it renders.
+    public static let supported: Set<String> = Set([exec, consume, jobCancel, notificationAck, handoff])
+        .union(AgentFeature.supported)
 }
 
 /// The immutable permission question.
@@ -173,6 +175,15 @@ public struct ApprovalSpec: Sendable, Hashable {
     }
 
     public func isExpired(at now: ControlTimestamp) -> Bool { now >= expiresAt }
+
+    /// Whether the spec itself permits a Watch-sized approval: the declared
+    /// minimum review, and for an agent operation the narrow Watch policy
+    /// (spec.agent-relay.md section 13.2).
+    public var permitsWatchApproval: Bool {
+        guard minimumReview == .watch else { return false }
+        if case .agentTool(let operation) = operation { return operation.isWatchEligible }
+        return true
+    }
 }
 
 public enum ApprovalPolicy {

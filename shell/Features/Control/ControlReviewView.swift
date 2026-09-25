@@ -5,7 +5,9 @@
 //  The phone's larger review surface. A request whose `minimum_review` is
 //  `full` can only be completed here or on another enrolled full-review
 //  client; until one exists it stays unapproved or expires
-//  (spec.watch.md section 6).
+//  (spec.watch.md section 6). A request ID that names an agent question
+//  rather than an approval opens the question review instead
+//  (spec.agent-relay.md section 12.3).
 //
 
 import SwiftUI
@@ -19,12 +21,15 @@ struct ControlReviewView: View {
     let requestID: ControlID
 
     @State private var record: ApprovalRecord?
+    @State private var input: InputRecord?
     @State private var failure: String?
     @State private var confirming: ControlDecision?
 
     var body: some View {
         Group {
-            if let record {
+            if let input {
+                ControlAgentInputView(companion: companion, requestID: requestID, initial: input)
+            } else if let record {
                 form(record)
             } else if let failure {
                 ContentUnavailableView(
@@ -38,7 +43,14 @@ struct ControlReviewView: View {
         }
         .navigationTitle(String(localized: "Review request"))
         .task {
-            do { record = try await companion.fetch(requestID) } catch { failure = String(describing: error) }
+            do {
+                switch try await companion.lookup(requestID) {
+                case .approval(let found): record = found
+                case .input(let found): input = found
+                }
+            } catch {
+                failure = String(describing: error)
+            }
         }
     }
 
@@ -54,15 +66,22 @@ struct ControlReviewView: View {
                           systemImage: "applewatch")
                         .font(.footnote)
                 }
-                Text(DisplaySanitizer.sanitize(record.spec.summary, maxScalars: 200).text)
-                    .font(.headline)
+                if case .agentTool = record.spec.operation {
+                    // Adapter-supplied text, attributed as such.
+                    ControlAgentSuppliedText(text: record.spec.summary, maxScalars: 200, font: .headline)
+                } else {
+                    Text(DisplaySanitizer.sanitize(record.spec.summary, maxScalars: 200).text)
+                        .font(.headline)
+                }
                 LabeledContent(String(localized: "Origin"), value: record.spec.originID.rawValue)
                 LabeledContent(String(localized: "Run"), value: record.spec.runID.rawValue)
                 LabeledContent(String(localized: "Expires"), value: record.spec.expiresAt.rfc3339)
                 LabeledContent(String(localized: "Digest"), value: record.requestHash)
                     .font(.footnote.monospaced())
             }
-            if case .exec(let operation) = record.spec.operation {
+            if case .agentTool(let operation) = record.spec.operation {
+                agentSections(record, operation: operation, now: now)
+            } else if case .exec(let operation) = record.spec.operation {
                 Section(String(localized: "Command")) {
                     LabeledContent(String(localized: "Working directory"), value: DisplaySanitizer.sanitize(operation.cwd, maxScalars: 1024).text)
                     // Full arguments, never silently truncated.
@@ -87,10 +106,21 @@ struct ControlReviewView: View {
                 // full-review client, so Approve is never offered for a
                 // request the submission would refuse.
                 Button(String(localized: "Approve once")) { confirming = .approve }
-                    .disabled(!record.canApprove(at: now, review: ControlCompanion.review))
+                    .disabled(!record.canApprove(at: now, review: ControlCompanion.review) || Self.hidesContent(record))
                 if record.spec.allowedDecisions.contains(.approve),
                    case .reviewElsewhere(let reason) = record.approvability(at: now, review: ControlCompanion.review) {
                     Text(ControlCompanion.reviewElsewhereText(reason))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } else if Self.hidesContent(record) {
+                    // Hidden or truncated authorization-relevant content
+                    // prevents confirmation (spec.agent-relay.md 13.1).
+                    Text(String(localized: "Review on Mac: this operation is too large to show in full here."))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                if case .agentTool = record.spec.operation {
+                    Text(String(localized: "Approve once answers this one native permission gate. It does not promise a single subprocess, network request, or file write."))
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -121,6 +151,36 @@ struct ControlReviewView: View {
             Button(String(localized: "Cancel"), role: .cancel) { confirming = nil }
         }
     }
+
+    /// Whether any authorization-relevant part of an agent operation could
+    /// not be shown in full here.
+    static func hidesContent(_ record: ApprovalRecord) -> Bool {
+        guard case .agentTool(let operation) = record.spec.operation else { return false }
+        return AgentOperationDisplay(operation).isTruncated
+    }
+
+    /// Provider/session context, the exact operation, and — once decided —
+    /// detailed delivery, which is distinct from the base dispatch.
+    @ViewBuilder
+    private func agentSections(_ record: ApprovalRecord, operation: AgentToolOperation, now: ControlTimestamp) -> some View {
+        let agent = companion.agent
+        Section {
+            LabeledContent(String(localized: "Freshness"), value: ControlAgentText.freshness(record.projection.presence, now: now))
+            LabeledContent(String(localized: "Review"), value: ControlAgentText.review(record.spec.minimumReview))
+            if let reference = agent.inbox.approvals[record.spec.requestID], record.projection.resolution != .pending {
+                LabeledContent(String(localized: "Delivery"), value: ControlAgentText.dispatch(reference.dispatch))
+                if let task = ControlAgentText.operation(reference.operation) {
+                    LabeledContent(String(localized: "Task"), value: task)
+                }
+            }
+        }
+        ControlAgentSessionSection(
+            provider: operation.provider,
+            providerBuild: operation.providerBuild,
+            session: agent.inbox.session(operation.agentSessionID)
+        )
+        ControlAgentOperationSections(operation: operation)
+    }
 }
 
 /// Settings → Control: evidence-based status, the requests waiting on this
@@ -135,6 +195,10 @@ struct ControlSetupView: View {
 
     var body: some View {
         List {
+            #if targetEnvironment(macCatalyst)
+            // This Mac as the bundled Control host (spec.agent-relay.md 19.4).
+            ControlHostEntrySection(lifecycle: .shared)
+            #endif
             if companion.phase == .notConfigured {
                 invitationSection
             } else {
@@ -142,6 +206,7 @@ struct ControlSetupView: View {
                 ControlActionsSection(companion: companion)
                 if companion.phase == .ready {
                     ControlRequestsSection(companion: companion)
+                    ControlAgentSection(companion: companion)
                     ControlRemoteAlertsSection(companion: companion)
                 }
             }
@@ -161,7 +226,7 @@ struct ControlSetupView: View {
         .themedList()
         .navigationTitle(String(localized: "Control"))
         .task { await companion.start() }
-        .refreshable { await companion.refresh() }
+        .refreshable { await companion.refresh(forceAgent: true) }
         .onReceive(NotificationCenter.default.publisher(for: .controlPairingReceived)) { _ in
             Task { await companion.start() }
         }

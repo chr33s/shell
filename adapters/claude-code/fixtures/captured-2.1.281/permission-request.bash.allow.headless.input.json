@@ -1,0 +1,27 @@
+{
+  "cwd": "/Users/example/contract/work",
+  "hook_event_name": "PermissionRequest",
+  "permission_mode": "default",
+  "permission_suggestions": [
+    {
+      "destination": "session",
+      "directories": [
+        "/Users/example/contract/work"
+      ],
+      "type": "addDirectories"
+    },
+    {
+      "destination": "session",
+      "mode": "acceptEdits",
+      "type": "setMode"
+    }
+  ],
+  "prompt_id": "9b58b790-a86b-44f6-bf78-dad37a55ec15",
+  "session_id": "9d337e33-8d9f-4ba4-9a5a-dfbd073291a7",
+  "tool_input": {
+    "command": "touch shell-contract-allowed.txt",
+    "description": "Create an empty file named shell-contract-allowed.txt"
+  },
+  "tool_name": "Bash",
+  "transcript_path": "/Users/example/.claude/projects/-Users-example-contract-work/9d337e33-8d9f-4ba4-9a5a-dfbd073291a7.jsonl"
+}

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Its own sandbox, not inherited: launchd starts this helper, not the
+	     Shell app, so com.apple.security.inherit must never be set
+	     (spec.agent-relay.md section 19.5). -->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<!-- The shared group both executables claim: the Mach service name and
+	     the adapter ingress socket live in its namespace. -->
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.dev.chr33s.shell.control</string>
+	</array>
+	<!-- The loopback broker Tailscale Serve fronts, and the adapter socket. -->
+	<key>com.apple.security.network.server</key>
+	<true/>
+	<!-- Route verification through the user's MagicDNS name, and the daemon
+	     half's loopback calls into the broker half. -->
+	<key>com.apple.security.network.client</key>
+	<true/>
+</dict>
+</plist>

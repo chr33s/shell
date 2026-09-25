@@ -30,6 +30,8 @@ public actor BrokerStore {
     var relayOutbox: [RelayPushEntry] = []
     var pairings: [ControlID: PairingRecord] = [:]
     var watchReviewerRequests: [ControlID: WatchReviewerRequestRecord] = [:]
+    /// `shell-agent/1` state, committed with everything else.
+    var agent = AgentLedger()
     var enrollments: [ControlID: EnrollmentRecord] = [:]
     var deviceAuthorizations: [String: DeviceAuthorizationRecord] = [:]
     var enrollmentTokens: [String: TokenRecord] = [:]
@@ -54,6 +56,7 @@ public actor BrokerStore {
         let tombstones: [ControlID: Tombstone]; let changeLog: [ChangeEvent]
         let outbox: [OutboxEntry]; let relayOutbox: [RelayPushEntry]
         let policyVersion: Int64; let nextSequence: UInt64
+        let agent: AgentLedger
     }
 
     func stateBackup() -> StateBackup {
@@ -62,7 +65,7 @@ public actor BrokerStore {
                     challenges: challenges, idempotency: idempotency, originMutations: originMutations,
                     receipts: receipts, tombstones: tombstones, changeLog: changeLog,
                     outbox: outbox, relayOutbox: relayOutbox, policyVersion: policyVersion,
-                    nextSequence: nextSequence)
+                    nextSequence: nextSequence, agent: agent)
     }
 
     func restore(_ backup: StateBackup) {
@@ -73,6 +76,7 @@ public actor BrokerStore {
         receipts = backup.receipts; tombstones = backup.tombstones; changeLog = backup.changeLog
         outbox = backup.outbox; relayOutbox = backup.relayOutbox
         policyVersion = backup.policyVersion; nextSequence = backup.nextSequence
+        agent = backup.agent
     }
 
     func commit(restoring backup: StateBackup) throws {
@@ -234,6 +238,9 @@ public actor BrokerStore {
         }
         // The counter never falls behind the log it numbers.
         if let last = changeLog.last { nextSequence = max(nextSequence, last.sequence.value + 1) }
+        if let ledger = reader.optionalValue("agent") {
+            agent = try BrokerSnapshotCodec.decodeAgent(ledger)
+        }
     }
 
     // MARK: Administration
@@ -482,6 +489,7 @@ public actor BrokerStore {
             }
         }
         challenges = challenges.filter { $0.value.expiresAt > now }
+        sweepExpiredInputs()
     }
 
     func refreshPresence(for entry: inout ApprovalRecordEntry) {

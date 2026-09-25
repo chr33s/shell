@@ -1,0 +1,8 @@
+{
+  "hookSpecificOutput": {
+    "decision": {
+      "behavior": "allow"
+    },
+    "hookEventName": "PermissionRequest"
+  }
+}

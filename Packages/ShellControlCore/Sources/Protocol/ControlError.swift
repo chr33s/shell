@@ -28,6 +28,21 @@ public enum ControlErrorCode: String, Sendable, Hashable, CaseIterable {
     /// which the Mac confirms as a re-binding (spec.iphone-gateway.md 10.5).
     case reviewerNotBound = "reviewer_not_bound"
 
+    // `shell-agent/1` failures (spec.agent-relay.md section 18). They are
+    // emitted only by extension endpoints and local IPC, never on a base
+    // endpoint an older client decodes.
+    case unsupportedProviderVersion = "unsupported_provider_version"
+    case unsupportedInputSchema = "unsupported_input_schema"
+    case hookNotTrusted = "hook_not_trusted"
+    case nativeWaitGone = "native_wait_gone"
+    case nativeContextChanged = "native_context_changed"
+    case requestResolved = "request_resolved"
+    case reviewRequired = "review_required"
+    case gatewayUnavailable = "gateway_unavailable"
+    case responseInvalid = "response_invalid"
+    case limitExceeded = "limit_exceeded"
+    case outcomeUnknown = "outcome_unknown"
+
     public var httpStatus: Int {
         switch self {
         case .invalidPayload, .unsupportedCommand: return 400
@@ -41,6 +56,14 @@ public enum ControlErrorCode: String, Sendable, Hashable, CaseIterable {
         case .originUnavailable: return 423
         case .rateLimited: return 429
         case .temporarilyUnavailable: return 503
+        case .unsupportedProviderVersion, .unsupportedInputSchema, .hookNotTrusted: return 422
+        case .nativeWaitGone, .nativeContextChanged: return 410
+        case .requestResolved: return 409
+        case .reviewRequired: return 403
+        case .gatewayUnavailable: return 503
+        case .responseInvalid: return 400
+        case .limitExceeded: return 429
+        case .outcomeUnknown: return 409
         }
     }
 
@@ -48,7 +71,7 @@ public enum ControlErrorCode: String, Sendable, Hashable, CaseIterable {
     /// never creates a replacement command automatically.
     public var isRetryable: Bool {
         switch self {
-        case .rateLimited, .temporarilyUnavailable: return true
+        case .rateLimited, .temporarilyUnavailable, .gatewayUnavailable: return true
         default: return false
         }
     }
@@ -84,11 +107,15 @@ public enum ControlErrorCode: String, Sendable, Hashable, CaseIterable {
              .notAuthorized, .fullReviewRequired,
              .requestExpired, .challengeExpired, .cursorExpired,
              .staleVersion, .hashMismatch, .policyChanged,
-             .unsupportedOperation, .originUnavailable:
+             .unsupportedOperation, .originUnavailable,
+             .unsupportedProviderVersion, .unsupportedInputSchema, .hookNotTrusted,
+             .nativeWaitGone, .nativeContextChanged, .reviewRequired, .responseInvalid,
+             .limitExceeded:
             return true
         case .invalidPayload, .invalidToken, .notFound,
              .alreadyResolved, .idempotencyConflict, .alreadyClaimed,
-             .rateLimited, .temporarilyUnavailable:
+             .rateLimited, .temporarilyUnavailable,
+             .requestResolved, .gatewayUnavailable, .outcomeUnknown:
             return false
         }
     }
@@ -106,6 +133,13 @@ public enum ControlErrorCode: String, Sendable, Hashable, CaseIterable {
         case .unsupportedOperation: return .handoff
         case .originUnavailable: return .leavePending
         case .rateLimited, .temporarilyUnavailable: return .backoffAndRetry
+        case .unsupportedProviderVersion, .unsupportedInputSchema, .hookNotTrusted: return .handoff
+        case .nativeWaitGone, .nativeContextChanged: return .refreshReviewOrSnapshot
+        case .requestResolved, .outcomeUnknown: return .showRecordedState
+        case .reviewRequired: return .showPolicyOutcome
+        case .gatewayUnavailable: return .backoffAndRetry
+        case .responseInvalid: return .stopAndFix
+        case .limitExceeded: return .leavePending
         }
     }
 }

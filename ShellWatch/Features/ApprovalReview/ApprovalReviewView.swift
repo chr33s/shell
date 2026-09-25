@@ -5,18 +5,23 @@ import ShellControlClient
 /// The review screen. It fetches the current request live through the iPhone
 /// before enabling any decision, shows the exact argument vector and working directory, escapes
 /// control and bidi characters, and never silently truncates an
-/// authorization-relevant argument (spec.watch.md section 6).
+/// authorization-relevant argument (spec.watch.md section 6). A request ID
+/// that names an agent question instead opens question review
+/// (spec.agent-relay.md section 12.3).
 struct ApprovalReviewView: View {
     @Environment(ControlSession.self) private var session
     let requestID: ControlID
 
     @State private var record: ApprovalRecord?
+    @State private var input: InputRecord?
     @State private var loadError: String?
     @State private var confirming: ControlDecision?
 
     var body: some View {
         Group {
-            if let record {
+            if let input {
+                InputReviewView(requestID: requestID, initial: input)
+            } else if let record {
                 content(record)
             } else if let loadError {
                 ContentUnavailableView(
@@ -35,6 +40,13 @@ struct ApprovalReviewView: View {
     private func load() async {
         do {
             record = try await session.fetchForReview(requestID)
+        } catch let error as ControlError where error.code == .notFound && input == nil {
+            // Questions reuse the approval hint: try the agent extension.
+            if let found = try? await session.fetchInputForReview(requestID) {
+                input = found
+            } else {
+                loadError = String(describing: error)
+            }
         } catch {
             loadError = String(describing: error)
         }
@@ -88,6 +100,8 @@ struct ApprovalReviewView: View {
                             }
                         }
                     }
+                case .agentTool(let operation):
+                    AgentOperationRows(operation: operation)
                 case .unknown(let schema, _):
                     Label(
                         String(localized: "Unsupported operation: \(schema)"),
@@ -111,6 +125,10 @@ struct ApprovalReviewView: View {
 
             Section {
                 switch approvability {
+                case .approvable where AgentOperationRows.hidesContent(record.spec.operation):
+                    // Hidden or truncated content prevents confirmation.
+                    Label(String(localized: "Review on another device: too long to show here"), systemImage: "iphone.and.arrow.forward")
+                        .font(.caption2)
                 case .approvable:
                     Button(String(localized: "Approve once")) { confirming = .approve }
                         .disabled(!session.isGatewayReachable)
@@ -191,6 +209,103 @@ enum SubmissionLabel {
         case .hostAccepted: return String(localized: "Host accepted")
         case .notApplied: return String(localized: "Not applied")
         case .outcomeUnknown: return String(localized: "Outcome unknown")
+        }
+    }
+}
+
+/// The exact `agent.tool.v1` shell request: the command string as sent (or
+/// one line per argument), the working directory, and every option, escaped
+/// visibly. Other kinds are shown by kind only; the approvability check
+/// already sends them to the iPhone (spec.agent-relay.md sections 6.3 and
+/// 13.2).
+struct AgentOperationRows: View {
+    struct Option {
+        let name: DisplaySanitizer.Result
+        let value: DisplaySanitizer.Result
+    }
+
+    let operation: AgentToolOperation
+
+    /// Watch-eligible shell commands are at most 160 bytes, so this budget
+    /// never trims one; anything that would be trimmed is not approvable here.
+    static let maximumScalars = 512
+
+    static func hidesContent(_ operation: ControlOperation) -> Bool {
+        guard case .agentTool(let agent) = operation else { return false }
+        return lines(agent).contains { $0.isTruncated }
+            || options(agent).contains { $0.name.isTruncated || $0.value.isTruncated }
+            || agent.cwd.map { DisplaySanitizer.sanitize($0, maxScalars: maximumScalars).isTruncated } ?? false
+    }
+
+    /// Every shell option, by name. The Watch cannot approve a request with
+    /// options, but its review still shows them all before a reject.
+    static func options(_ operation: AgentToolOperation) -> [Option] {
+        (operation.shellRequest?.options ?? [:]).sorted { $0.key < $1.key }.map { name, value in
+            Option(
+                name: DisplaySanitizer.sanitize(name, maxScalars: maximumScalars),
+                value: DisplaySanitizer.sanitize(value.displayText, maxScalars: maximumScalars)
+            )
+        }
+    }
+
+    static func lines(_ operation: AgentToolOperation) -> [DisplaySanitizer.Result] {
+        guard let shell = operation.shellRequest else { return [] }
+        if let command = shell.command { return [DisplaySanitizer.sanitize(command, maxScalars: maximumScalars)] }
+        return DisplaySanitizer.argumentLines(shell.argv ?? [], maxScalars: maximumScalars)
+    }
+
+    var body: some View {
+        Text(verbatim: AgentSubmissionLabel.provider(operation.provider) + " · " + operation.kind.rawValue)
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+        if case .shell = operation.kind, let shell = operation.shellRequest {
+            if let cwd = operation.cwd {
+                LabeledContent(String(localized: "Working directory")) {
+                    Text(verbatim: DisplaySanitizer.sanitize(cwd, maxScalars: Self.maximumScalars).text)
+                        .font(.system(.caption, design: .monospaced))
+                }
+            }
+            let lines = Self.lines(operation)
+            ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(verbatim: shell.representation == .argv ? "argv[\(index)]" : String(localized: "Command"))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Text(verbatim: line.text)
+                        .font(.system(.caption, design: .monospaced))
+                    if line.didEscape {
+                        Label(String(localized: "Contains escaped characters"), systemImage: "eye.trianglebadge.exclamationmark")
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
+                    }
+                }
+            }
+            ForEach(Array(Self.options(operation).enumerated()), id: \.offset) { _, option in
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(verbatim: option.name.text)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Text(verbatim: option.value.text)
+                        .font(.system(.caption, design: .monospaced))
+                    if option.name.didEscape || option.value.didEscape {
+                        Label(String(localized: "Contains escaped characters"), systemImage: "eye.trianglebadge.exclamationmark")
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
+                    }
+                }
+            }
+            if let reason = operation.reason {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(String(localized: "Reason (agent)"))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Text(verbatim: "“" + DisplaySanitizer.sanitize(reason, maxScalars: 2048).text + "”")
+                        .font(.caption2)
+                }
+            }
+        } else {
+            Label(String(localized: "Review on iPhone"), systemImage: "iphone.and.arrow.forward")
+                .font(.caption2)
         }
     }
 }

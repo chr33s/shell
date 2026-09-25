@@ -1,0 +1,253 @@
+{
+  "invalid_responses": [
+    {
+      "name": "missing_required",
+      "response": {
+        "action": "answer",
+        "answers": []
+      }
+    },
+    {
+      "name": "unknown_choice",
+      "response": {
+        "action": "answer",
+        "answers": [
+          {
+            "choice_id": "Entire test suite",
+            "kind": "single_choice",
+            "question_id": "test_scope"
+          }
+        ]
+      }
+    },
+    {
+      "name": "unsorted",
+      "response": {
+        "action": "answer",
+        "answers": [
+          {
+            "choice_id": "all",
+            "kind": "single_choice",
+            "question_id": "test_scope"
+          },
+          {
+            "choice_ids": [
+              "ios"
+            ],
+            "kind": "multi_choice",
+            "question_id": "platforms"
+          }
+        ]
+      }
+    },
+    {
+      "name": "duplicate_question",
+      "response": {
+        "action": "answer",
+        "answers": [
+          {
+            "choice_id": "all",
+            "kind": "single_choice",
+            "question_id": "test_scope"
+          },
+          {
+            "choice_id": "all",
+            "kind": "single_choice",
+            "question_id": "test_scope"
+          }
+        ]
+      }
+    },
+    {
+      "name": "extra_question",
+      "response": {
+        "action": "answer",
+        "answers": [
+          {
+            "kind": "text",
+            "question_id": "extra",
+            "text": "x"
+          },
+          {
+            "choice_id": "all",
+            "kind": "single_choice",
+            "question_id": "test_scope"
+          }
+        ]
+      }
+    },
+    {
+      "name": "too_many_selections",
+      "response": {
+        "action": "answer",
+        "answers": [
+          {
+            "choice_ids": [
+              "ios",
+              "watchos",
+              "macos"
+            ],
+            "kind": "multi_choice",
+            "question_id": "platforms"
+          },
+          {
+            "choice_id": "all",
+            "kind": "single_choice",
+            "question_id": "test_scope"
+          }
+        ]
+      }
+    },
+    {
+      "name": "non_committed_order",
+      "response": {
+        "action": "answer",
+        "answers": [
+          {
+            "choice_ids": [
+              "macos",
+              "ios"
+            ],
+            "kind": "multi_choice",
+            "question_id": "platforms"
+          },
+          {
+            "choice_id": "all",
+            "kind": "single_choice",
+            "question_id": "test_scope"
+          }
+        ]
+      }
+    },
+    {
+      "name": "text_over_limit",
+      "response": {
+        "action": "answer",
+        "answers": [
+          {
+            "kind": "text",
+            "question_id": "note",
+            "text": "ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+          },
+          {
+            "choice_id": "all",
+            "kind": "single_choice",
+            "question_id": "test_scope"
+          }
+        ]
+      }
+    },
+    {
+      "name": "kind_mismatch",
+      "response": {
+        "action": "answer",
+        "answers": [
+          {
+            "kind": "text",
+            "question_id": "test_scope",
+            "text": "all"
+          }
+        ]
+      }
+    }
+  ],
+  "invalid_specs": [
+    {
+      "name": "duplicate_question_ids",
+      "patch": {
+        "questions": [
+          {
+            "choices": [
+              {
+                "id": "focused",
+                "label": "Changed modules only"
+              },
+              {
+                "id": "all",
+                "label": "Entire test suite"
+              }
+            ],
+            "id": "test_scope",
+            "kind": "single_choice",
+            "prompt": "Which tests should run next?",
+            "required": true
+          },
+          {
+            "choices": [
+              {
+                "id": "focused",
+                "label": "Changed modules only"
+              },
+              {
+                "id": "all",
+                "label": "Entire test suite"
+              }
+            ],
+            "id": "test_scope",
+            "kind": "single_choice",
+            "prompt": "Which tests should run next?",
+            "required": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "unknown_question_kind",
+      "patch": {
+        "questions": [
+          {
+            "hint": "Optional",
+            "id": "note",
+            "kind": "file_upload",
+            "max_bytes": 512,
+            "prompt": "Anything else?",
+            "required": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "regex_constraint",
+      "patch": {
+        "questions": [
+          {
+            "hint": "Optional",
+            "id": "note",
+            "kind": "text",
+            "max_bytes": 512,
+            "pattern": "^[a-z]+$",
+            "prompt": "Anything else?",
+            "required": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "non_ascii_choice_id",
+      "patch": {
+        "questions": [
+          {
+            "choices": [
+              {
+                "id": "fokussierté",
+                "label": "x"
+              }
+            ],
+            "id": "test_scope",
+            "kind": "single_choice",
+            "prompt": "Which tests should run next?",
+            "required": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "decline_without_answer",
+      "patch": {
+        "allowed_responses": [
+          "decline"
+        ]
+      }
+    }
+  ]
+}

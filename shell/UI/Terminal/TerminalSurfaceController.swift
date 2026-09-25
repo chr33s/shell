@@ -575,8 +575,9 @@ final class TerminalSurfaceController: NSObject {
         ghostty_surface_set_content_scale(surface, scale, scale)
         ghostty_surface_set_size(surface, framebufferWidth, framebufferHeight)
         Ghostty.TerminalView.ghosttyAPIQueue.async { [weak self] in
+            guard let self else { return }
             Task { @MainActor in
-                self?.completeSurfaceResize(needsRestore: needsRestore)
+                self.completeSurfaceResize(needsRestore: needsRestore)
             }
         }
         #else
@@ -604,8 +605,9 @@ final class TerminalSurfaceController: NSObject {
         guard !host.surfaceTmuxDetachInProgressAtomic else { return }
         ghostty_surface_set_size(surface, framebufferWidth, framebufferHeight)
         Ghostty.TerminalView.ghosttyAPIQueue.async { [weak self] in
+            guard let self else { return }
             Task { @MainActor in
-                self?.completeSurfaceResize(needsRestore: needsRestore)
+                self.completeSurfaceResize(needsRestore: needsRestore)
             }
         }
         #else

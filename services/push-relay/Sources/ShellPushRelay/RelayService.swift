@@ -57,6 +57,9 @@ public struct RelayService: Sendable {
     }
 
     public static let approvalEvent = "approval.created"
+    /// A typed agent question is waiting (spec.agent-relay.md section 12.3).
+    /// Same generic, identifier-only hint; opening it fetches current state.
+    public static let inputEvent = "input.created"
 
     public func handle(_ request: HTTPServer.Request) async -> HTTPServer.Response {
         do {
@@ -169,7 +172,8 @@ public struct RelayService: Sendable {
         } catch {
             throw ControlError(code: .notAuthorized, message: "push capability rejected")
         }
-        guard event == Self.approvalEvent, presentation == "approval", capability.schema == PushCapability.approvalSchema else {
+        let allowed = (event == Self.approvalEvent && presentation == "approval") || (event == Self.inputEvent && presentation == "input")
+        guard allowed, capability.schema == PushCapability.approvalSchema else {
             throw ControlError(code: .unsupportedCommand, message: "event is not allowed by this capability")
         }
         guard !collapseID.isEmpty, collapseID.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || "._-".contains($0)) }) else {
@@ -184,7 +188,9 @@ public struct RelayService: Sendable {
             collapseID: collapseID,
             // A hint that arrives after the longest possible approval is noise.
             expiration: ControlTimestamp(now()).adding(ApprovalPolicy.maximumLifetime),
-            payload: try Self.approvalPayload(originID: originID, requestID: requestID)
+            payload: event == Self.inputEvent
+                ? try Self.inputPayload(originID: originID, requestID: requestID)
+                : try Self.approvalPayload(originID: originID, requestID: requestID)
         )
         do {
             try await sender.send(delivery)
@@ -210,6 +216,25 @@ public struct RelayService: Sendable {
             ]),
             "v": 1,
             "event": .string(approvalEvent),
+            "origin_id": JSONValue(originID),
+            "request_id": JSONValue(requestID)
+        ]))
+    }
+
+    /// The question hint: as generic as the approval hint. No question,
+    /// choice, or answer text leaves the Mac (spec.agent-relay.md 12.3).
+    public static func inputPayload(originID: ControlID, requestID: ControlID) throws -> Data {
+        try JSONCanonicalization.canonicalize(.object([
+            "aps": .object([
+                "alert": .object([
+                    "title": "Question from an agent",
+                    "body": "An agent is waiting for an answer"
+                ]),
+                "category": .string(PushCategory.approval),
+                "content-available": 1
+            ]),
+            "v": 1,
+            "event": .string(inputEvent),
             "origin_id": JSONValue(originID),
             "request_id": JSONValue(requestID)
         ]))

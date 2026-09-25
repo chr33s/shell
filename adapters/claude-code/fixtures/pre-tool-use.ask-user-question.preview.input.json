@@ -1,0 +1,28 @@
+{
+  "cwd": "/Users/example/src/shell",
+  "hook_event_name": "PreToolUse",
+  "permission_mode": "default",
+  "session_id": "8a1f0c2e-5b4d-4e8f-9c1a-2b3c4d5e6f70",
+  "tool_input": {
+    "questions": [
+      {
+        "header": "Tests",
+        "multiSelect": false,
+        "options": [
+          {
+            "description": "a",
+            "label": "A",
+            "preview": "<div>a</div>"
+          },
+          {
+            "description": "b",
+            "label": "B"
+          }
+        ],
+        "question": "Which tests should run next?"
+      }
+    ]
+  },
+  "tool_name": "AskUserQuestion",
+  "transcript_path": "/Users/example/.claude/projects/example/8a1f0c2e.jsonl"
+}

@@ -46,6 +46,18 @@ public enum IPCMessageType: String, Sendable, Hashable, CaseIterable {
     case approvalWait = "approval.wait"
     case approvalWithdraw = "approval.withdraw"
     case receipt
+    // `shell-agent/1` messages, negotiated by an agent adapter
+    // (spec.agent-relay.md section 15.4). Existing approval messages remain
+    // the approval path.
+    case agentRegister = "agent.register"
+    case agentEvent = "agent.event"
+    case inputRequest = "input.request"
+    case inputWait = "input.wait"
+    case inputWithdraw = "input.withdraw"
+    case agentReceipt = "agent.receipt"
+    /// A managed adapter waits for its session's next signed command and
+    /// receives it claimed for its connection (spec.agent-relay.md 16).
+    case sessionCommandWait = "session.command.wait"
 }
 
 /// Every IPC request carries a message ID and the per-run local capability;

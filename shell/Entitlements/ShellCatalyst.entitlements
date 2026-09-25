@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Shell Control approval hints arrive from the optional push relay. -->
+	<key>aps-environment</key>
+	<string>development</string>
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<key>com.apple.security.network.client</key>
+	<true/>
+	<key>com.apple.security.files.user-selected.read-write</key>
+	<true/>
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)dev.chr33s.shell</string>
+	</array>
+	<key>com.apple.developer.icloud-container-identifiers</key>
+	<array>
+		<string>iCloud.dev.chr33s.shell</string>
+	</array>
+	<key>com.apple.developer.icloud-services</key>
+	<array>
+		<string>CloudKit</string>
+	</array>
+	<!-- Mac Catalyst only: the App Group shared with the bundled Control host,
+	     whose Mach service lives in its namespace (spec.agent-relay.md 19.5).
+	     iOS, iPadOS, and visionOS keep Shell.entitlements unchanged. -->
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.dev.chr33s.shell.control</string>
+	</array>
+</dict>
+</plist>

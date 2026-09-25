@@ -137,8 +137,12 @@ public actor WatchGatewayClient: ControlDecisionService {
     /// would hang on exactly the case this deadline exists for. The losing task
     /// keeps running; the caller has already returned.
     private func send(_ payload: Data) async throws -> Data {
-        let link = self.link
-        let timeout = self.timeout
+        try await Self.boundedSend(payload, link: link, timeout: timeout)
+    }
+
+    /// One round trip over `link`, bounded by `timeout`; shared with the
+    /// agent extension client.
+    static func boundedSend(_ payload: Data, link: any WatchGatewayLink, timeout: Duration) async throws -> Data {
         let claim = FirstToFinish()
         return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, any Error>) in
             let work = Task<Void, Never> {

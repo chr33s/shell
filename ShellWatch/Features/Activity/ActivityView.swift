@@ -65,7 +65,9 @@ struct PendingCommandRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(command.type.rawValue)
+            // A base command, or a `shell-agent/1` answer reconciled through
+            // the agent endpoints (spec.agent-relay.md section 8.3).
+            Text(command.type?.rawValue ?? command.agentType?.rawValue ?? "")
                 .font(.caption)
             Text(PendingCommandLabel.text(command.status))
                 .font(.caption2)

@@ -48,6 +48,26 @@ final class RelayServiceTests: XCTestCase {
         XCTAssertEqual(payload["aps"]?["alert"]?["title"]?.stringValue, "Approval needed")
     }
 
+    func testQuestionHintIsGenericAndDistinct() async throws {
+        let apns = RecordingRelayAPNs()
+        let service = RelayService(key: OriginSigningKey(), configuration: .init(allowedTopics: [topic]), sender: apns)
+        let sealed = try await capability(service)
+        let requestID = ControlID.random()
+        var body = try XCTUnwrap(hint(sealed, requestID: requestID, event: "input.created").objectValue)
+        body["presentation_class"] = "input"
+        let (status, _) = try await post(service, "/v1/push", .object(body))
+        XCTAssertEqual(status, 202)
+        let deliveries = await apns.deliveries
+        let payload = try JSONValue.parse(try XCTUnwrap(deliveries.first?.payload))
+        XCTAssertEqual(payload["event"]?.stringValue, "input.created")
+        XCTAssertEqual(payload["request_id"]?.stringValue, requestID.rawValue)
+        XCTAssertEqual(payload["aps"]?["alert"]?["title"]?.stringValue, "Question from an agent")
+        // The pairing of event and presentation is fixed.
+        body["presentation_class"] = "approval"
+        let (mismatched, _) = try await post(service, "/v1/push", .object(body))
+        XCTAssertEqual(mismatched, 400)
+    }
+
     func testUnconfiguredTopicsAndArbitraryTextAreRefused() async throws {
         let service = RelayService(key: OriginSigningKey(), configuration: .init(allowedTopics: [topic]), sender: RecordingRelayAPNs())
         let (status, _) = try await post(service, "/v1/capabilities", .object([

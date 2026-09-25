@@ -8,23 +8,33 @@ import Foundation
 /// (spec.watch.md section 9).
 public enum ControlOperation: Sendable, Hashable {
     case exec(ExecOperation)
+    /// `agent.tool.v1` (spec.agent-relay.md section 6).
+    case agentTool(AgentToolOperation)
     case unknown(schema: String, raw: JSONValue)
 
     public var schema: String {
         switch self {
         case .exec: return ExecOperation.schema
+        case .agentTool: return AgentToolOperation.schema
         case .unknown(let schema, _): return schema
         }
     }
 
+    /// Recognized means this build renders the operation. An agent operation
+    /// of an unknown kind or scope is carried but never recognized, so a
+    /// full-size screen cannot make it approvable (spec.agent-relay.md 6.1).
     public var isRecognized: Bool {
-        if case .unknown = self { return false }
-        return true
+        switch self {
+        case .exec: return true
+        case .agentTool(let operation): return operation.isRenderable
+        case .unknown: return false
+        }
     }
 
     public var json: JSONValue {
         switch self {
         case .exec(let operation): return operation.json
+        case .agentTool(let operation): return operation.json
         case .unknown(_, let raw): return raw
         }
     }
@@ -35,6 +45,14 @@ public enum ControlOperation: Sendable, Hashable {
         switch schema {
         case ExecOperation.schema:
             return .exec(try ExecOperation(json: value))
+        case AgentToolOperation.schema:
+            // A variant this build cannot parse stays displayable but
+            // unapprovable, rather than making the whole snapshot unreadable;
+            // the raw value keeps the request hash intact.
+            if let operation = try? AgentToolOperation(json: value), operation.json == value {
+                return .agentTool(operation)
+            }
+            return .unknown(schema: schema, raw: value)
         default:
             return .unknown(schema: schema, raw: value)
         }

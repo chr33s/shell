@@ -39,6 +39,25 @@ struct InboxView: View {
                         }
                     }
                 }
+                if session.agentAvailability == .available || !session.pendingAgentInputs.isEmpty {
+                    Section(String(localized: "Questions")) {
+                        if session.pendingAgentInputs.isEmpty {
+                            Text(String(localized: "No agent is asking"))
+                                .foregroundStyle(.secondary)
+                        }
+                        ForEach(session.pendingAgentInputs, id: \.spec.requestID) { record in
+                            NavigationLink {
+                                InputReviewView(requestID: record.spec.requestID)
+                            } label: {
+                                InputRow(record: record, now: ControlTimestamp(session.currentDate))
+                            }
+                        }
+                    }
+                } else if session.agentAvailability == .notEnabled {
+                    Text(String(localized: "Agent questions are not enabled for this Watch"))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
                 Section(String(localized: "Recent")) {
                     ForEach(session.inbox.unacknowledgedNotifications, id: \.eventID) { event in
                         NotificationRow(event: event)
@@ -87,6 +106,30 @@ struct ApprovalRow: View {
             Text(record.spec.operation.schema)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
+            ExpiryLabel(expiresAt: record.spec.expiresAt)
+        }
+    }
+}
+
+/// An agent question. A question too complex for the Watch says so here,
+/// before it is opened.
+struct InputRow: View {
+    let record: InputRecord
+    let now: ControlTimestamp
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(verbatim: "“" + DisplaySanitizer.sanitize(record.spec.summary, maxScalars: 80).text + "”")
+                .font(.headline)
+                .lineLimit(2)
+            Text(verbatim: AgentSubmissionLabel.provider(record.spec.source.provider))
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            if case .reviewElsewhere(let reason) = record.answerability(at: now, review: .watch) {
+                Text(AgentSubmissionLabel.reviewOnIPhone(reason))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
             ExpiryLabel(expiresAt: record.spec.expiresAt)
         }
     }

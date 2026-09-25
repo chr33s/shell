@@ -130,7 +130,8 @@ ShellWatchTests/             its unit tests, hosted by ShellWatch.app
 shell/Features/Control/      iPhone pairing, review, and the Watch gateway
 services/shell-control/      the Mac-local broker: durable ledger and HTTP front end
 services/push-relay/         the optional, stateless Shell Push Relay
-cmd/                         shell-controld (host service) and shell-control (CLI)
+cmd/                         shell-controld (host service), shell-control (CLI), and the bundled host runtime
+ShellControlHost/            the sandboxed Control host LaunchAgent, embedded in the Mac Catalyst app only
 adapters/                    example blocking-hook integrations
 protocol/                    published schemas and interoperability fixtures
 ```
@@ -175,6 +176,14 @@ with the Mac and confirm there; the CLI never auto-approves. Then open Shell on 
 Watch and choose **Start setup**: the Watch generates its own key, the iPhone
 carries the public half to the Mac, and the Mac confirms it. `shell-control status
 --text` summarises Tailscale, Serve, origin, enrolled devices, and pending requests.
+**Agent relay.** `shell-control agent install claude-code` (or `codex`) adds a
+native permission hook so Claude Code and Codex permission prompts — and Claude
+Code's `AskUserQuestion` questions — can be answered from the iPhone, and
+eligible short ones from the Watch, while the agent keeps running in the
+terminal or tmux. Decisions return to the exact waiting hook; nothing is typed
+into a terminal. See [`spec.agent-relay.md`](spec.agent-relay.md) and the
+*Agent relay* section of [`cmd/README.md`](cmd/README.md).
+
 See [`cmd/README.md`](cmd/README.md) for every command, and
 [`services/push-relay/README.md`](services/push-relay/README.md) for optional
 remote alerts.

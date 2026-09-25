@@ -1,0 +1,46 @@
+{
+  "cwd": "/Users/example/src/shell",
+  "hook_event_name": "PreToolUse",
+  "permission_mode": "default",
+  "session_id": "8a1f0c2e-5b4d-4e8f-9c1a-2b3c4d5e6f70",
+  "tool_input": {
+    "questions": [
+      {
+        "header": "Tests",
+        "multiSelect": false,
+        "options": [
+          {
+            "description": "Fast feedback",
+            "label": "Changed modules only"
+          },
+          {
+            "description": "Slower, complete",
+            "label": "Entire test suite"
+          }
+        ],
+        "question": "Which tests should run next?"
+      },
+      {
+        "header": "Platforms",
+        "multiSelect": true,
+        "options": [
+          {
+            "description": "iPhone simulator",
+            "label": "iOS"
+          },
+          {
+            "description": "Watch simulator",
+            "label": "watchOS"
+          },
+          {
+            "description": "Mac Catalyst",
+            "label": "macOS"
+          }
+        ],
+        "question": "Which platforms?"
+      }
+    ]
+  },
+  "tool_name": "AskUserQuestion",
+  "transcript_path": "/Users/example/.claude/projects/example/8a1f0c2e.jsonl"
+}

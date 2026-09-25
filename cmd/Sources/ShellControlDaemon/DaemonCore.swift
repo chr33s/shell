@@ -17,6 +17,9 @@ public actor DaemonCore {
         public var healthSocketPath: String
         public var journalURL: URL
         public var heartbeatInterval: TimeInterval
+        /// How often a wait re-reads the broker; never faster than the
+        /// protocol's polling floor outside tests.
+        public var pollInterval: TimeInterval = ApprovalPolicy.minimumPollInterval
 
         public init(
             brokerURL: URL,
@@ -54,6 +57,21 @@ public actor DaemonCore {
         /// permit it already granted.
         var consumeIntents: [ControlID: ControlID] = [:]
         var lastActivity: Date
+        /// The agent session this run belongs to, once `agent.register`d.
+        var agentSessionID: ControlID?
+        /// The provider process that owns the native waits of this run.
+        var owner: ProcessIdentity?
+        /// Consume mutation IDs journaled for this run's answered inputs.
+        var inputConsumes: [ControlID: ControlID] = [:]
+    }
+
+    /// A registered provider session instance, keyed on the host by its
+    /// provider identity and owning process. Continuity is never inferred
+    /// from a pane, a title, or a display name (spec.agent-relay.md 5.1).
+    struct AgentSessionBinding: Sendable {
+        let agentSessionID: ControlID
+        let registration: AgentSessionRegistration
+        let owner: ProcessIdentity?
     }
 
     let configuration: Configuration
@@ -62,7 +80,8 @@ public actor DaemonCore {
     /// Every CLI invocation says `hello`, so bindings are bounded: a binding
     /// with no live wait is dropped once idle, and only runs blocked on a
     /// request are sent in the presence heartbeat.
-    private var runs: [String: RunBinding] = [:]
+    var runs: [String: RunBinding] = [:]
+    var agentSessions: [String: AgentSessionBinding] = [:]
     /// Runs whose last wait just ended: one more heartbeat clears the broker's
     /// waiting flag, then they leave the presence set.
     private var drainedRuns: Set<ControlID> = []
@@ -86,8 +105,8 @@ public actor DaemonCore {
     /// daemon's lifetime.
     static let retransmissionWindow: TimeInterval = 24 * 60 * 60
     static let maximumHandledMessages = 4096
-    private let now: @Sendable () -> Date
-    private var acceptingWork = true
+    let now: @Sendable () -> Date
+    var acceptingWork = true
     private var lastOriginAuthentication: ContinuousClock.Instant?
     private var recoveryPendingCount = 0
     private var startupCandidates: [ControlID: String]?
@@ -137,6 +156,7 @@ public actor DaemonCore {
             candidates[requestID] = "uncertain"
         }
         startupCandidates = candidates
+        _ = try queueInputRecovery(at: frontier)
         recoveryPendingCount = candidates.count + (try journal.pendingRecoveries().count)
     }
 
@@ -286,6 +306,21 @@ public actor DaemonCore {
     private func retryPersistedRecoveryMutations() async {
         guard let pending = try? journal.pendingRecoveries() else { return }
         for item in pending {
+            if item.kind.hasPrefix("input_") || item.kind == "agent_receipt" {
+                do {
+                    try await performInputRecovery(item)
+                    try journal.append(.recoveryAcknowledged(mutationID: item.mutationID))
+                } catch let error as ControlError where !error.code.isRetryable && error.code != .invalidToken {
+                    // A definitive broker answer (not found, already
+                    // resolved, a refused transition) means nothing remains
+                    // owed; it is retired rather than retried forever, which
+                    // would keep health at "recovering".
+                    try? journal.append(.recoveryAcknowledged(mutationID: item.mutationID))
+                } catch {
+                    // Transport failure: the obligation stays pending.
+                }
+                continue
+            }
             do {
                 do {
                     try await performRecovery(item)
@@ -417,6 +452,20 @@ public actor DaemonCore {
                 body = try await handleWithdraw(request)
             case .receipt:
                 body = try await handleReceipt(request)
+            case .agentRegister:
+                body = try await handleAgentRegister(request)
+            case .agentEvent:
+                body = try await handleAgentEvent(request)
+            case .inputRequest:
+                body = try await handleInputRequest(request)
+            case .inputWait:
+                body = try await handleInputWait(request)
+            case .inputWithdraw:
+                body = try await handleInputWithdraw(request)
+            case .agentReceipt:
+                body = try await handleAgentReceipt(request)
+            case .sessionCommandWait:
+                body = try await handleSessionCommandWait(request)
             }
             let response = IPCResponse(messageID: request.messageID, ok: true, body: body)
             handled[request.messageID] = (try request.bodyHash(), response, now())
@@ -460,7 +509,7 @@ public actor DaemonCore {
         let capabilities = try reader.stringArray("capabilities", maxCount: 32, maxLength: 64)
         let schemas = try reader.stringArray("operation_schemas", maxCount: 32, maxLength: 64)
         try reader.rejectUnknownMembers()
-        guard schemas.allSatisfy({ $0 == ExecOperation.schema }) else {
+        guard schemas.allSatisfy({ $0 == ExecOperation.schema || $0 == AgentToolOperation.schema }) else {
             // A tool without a negotiated schema gets notifications and a link
             // to review elsewhere, not a synthetic approval implementation.
             throw ControlError(code: .unsupportedOperation, message: "no negotiated renderer for those schemas")
@@ -486,11 +535,11 @@ public actor DaemonCore {
             "run_id": JSONValue(runID),
             "job_id": JSONValue(jobID),
             "run_capability": .string(capability),
-            "operation_schemas": JSONValue(strings: [ExecOperation.schema])
+            "operation_schemas": JSONValue(strings: schemas.isEmpty ? [ExecOperation.schema] : schemas)
         ])
     }
 
-    private func binding(for request: IPCRequest) throws -> RunBinding {
+    func binding(for request: IPCRequest) throws -> RunBinding {
         guard let capability = request.runCapability, var binding = runs[capability] else {
             throw ControlError(code: .notAuthorized, message: "unknown run capability")
         }
@@ -533,6 +582,15 @@ public actor DaemonCore {
         }
         let requestID = try reader.optionalID("request_id") ?? .random()
         try reader.rejectUnknownMembers()
+        var requiredFeatures = [operation.schema, ControlFeature.consume]
+        if case .agentTool(let agentOperation) = operation {
+            // An agent operation belongs to the agent session registered on
+            // this run, and requires its kind token (spec.agent-relay.md 6.4).
+            guard let sessionID = binding.agentSessionID, sessionID == agentOperation.agentSessionID else {
+                throw ControlError(code: .invalidPayload, message: "agent operation does not belong to this run's agent session")
+            }
+            requiredFeatures = agentOperation.requiredFeatures
+        }
         let created = timestamp
         let spec = try ApprovalSpec(
             requestID: requestID,
@@ -544,7 +602,7 @@ public actor DaemonCore {
             summary: summary,
             operation: operation,
             minimumReview: minimumReview,
-            requiredFeatures: [operation.schema, ControlFeature.consume]
+            requiredFeatures: requiredFeatures
         )
         let hash = try spec.requestHash()
         try journal.append(.requestPersisted(requestID: spec.requestID, requestHash: hash, runID: binding.runID))
@@ -573,8 +631,29 @@ public actor DaemonCore {
         let deadline = now().addingTimeInterval(TimeInterval(timeout))
 
         markWaiting(requestID, capability: binding.capability, isWaiting: true)
+        do {
+            return try await waitForApproval(requestID, requestHash: requestHash, binding: binding, deadline: deadline)
+        } catch where Task.isCancelled {
+            // The adapter went away: its native wait is gone. The request is
+            // withdrawn rather than left answerable (spec.agent-relay.md 5.2).
+            markWaiting(requestID, capability: binding.capability, isWaiting: false)
+            if binding.agentSessionID != nil {
+                await withdrawOutsideCancellation(requestID, runID: binding.runID, requestHash: requestHash)
+            }
+            throw ControlError(code: .nativeWaitGone, message: "the waiting adapter disconnected")
+        }
+    }
 
+    private func waitForApproval(_ requestID: ControlID, requestHash: String, binding: RunBinding, deadline: Date) async throws -> JSONValue {
         while now() < deadline {
+            try Task.checkCancellation()
+            if let owner = runs[binding.capability]?.owner, !owner.isAlive {
+                markWaiting(requestID, capability: binding.capability, isWaiting: false)
+                // Journaled as withdrawn only when the broker confirmed it;
+                // otherwise restart recovery still withdraws it.
+                await withdrawOutsideCancellation(requestID, runID: binding.runID, requestHash: requestHash)
+                return ApprovalWaitOutcome.unavailable(reason: "native_wait_gone").json
+            }
             if !acceptingWork {
                 return ApprovalWaitOutcome.unavailable(reason: "daemon is shutting down").json
             }
@@ -587,7 +666,7 @@ public actor DaemonCore {
             switch record.projection.resolution {
             case .pending:
                 markWaiting(requestID, capability: binding.capability, isWaiting: true, until: record.spec.expiresAt.date)
-                try await Task.sleep(nanoseconds: UInt64(ApprovalPolicy.minimumPollInterval * 1_000_000_000))
+                try await Task.sleep(nanoseconds: UInt64(configuration.pollInterval * 1_000_000_000))
                 continue
             case .rejected:
                 markWaiting(requestID, capability: binding.capability, isWaiting: false)
@@ -699,6 +778,7 @@ public actor DaemonCore {
     /// launch would cost the broker a presence write every interval.
     public func heartbeatOnce() async {
         pruneRuns()
+        await endDeadAgentSessions()
         let live = runs.values.filter { !$0.waiting.isEmpty }.sorted { $0.runID.rawValue < $1.runID.rawValue }
         let liveIDs = Set(live.map(\.runID))
         let drained = drainedRuns.subtracting(liveIDs)
@@ -780,7 +860,7 @@ public actor DaemonCore {
 
     /// Read-modify-write on the live binding, never on a copy captured before
     /// an `await`.
-    private func markWaiting(_ requestID: ControlID, capability: String, isWaiting: Bool, until expiry: Date? = nil) {
+    func markWaiting(_ requestID: ControlID, capability: String, isWaiting: Bool, until expiry: Date? = nil) {
         guard var binding = runs[capability] else { return }
         if isWaiting {
             binding.waiting[requestID] = expiry

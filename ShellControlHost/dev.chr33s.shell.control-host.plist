@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>dev.chr33s.shell.control-host</string>
+  <key>BundleProgram</key>
+  <string>Contents/Library/LaunchAgents/ShellControlHost.app/Contents/MacOS/ShellControlHost</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>MachServices</key>
+  <dict>
+    <key>group.dev.chr33s.shell.control.host</key>
+    <true/>
+  </dict>
+</dict>
+</plist>
