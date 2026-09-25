@@ -7,7 +7,7 @@
 //  The iPhone registers the same `SHELL_APPROVAL_V1` category as the Watch, and
 //  Review is first and foreground so a notification opened here launches a
 //  native review flow rather than authorizing anything from its payload
-//  (spec.watch.md section 6).
+//  (docs/specs/control-protocol.md section 11.2).
 //
 
 import Foundation
@@ -98,7 +98,7 @@ enum ControlNotifications {
     ///
     /// OSC 9 / OSC 777 text is program output: it is shown locally and never
     /// becomes a signed host claim or a permission request
-    /// (spec.watch.md sections 2 and 14).
+    /// (docs/specs/control-protocol.md sections 20.2 and 12).
     static func postLocalTerminalAlert(title: String?, body: String?) {
         let content = UNMutableNotificationContent()
         content.title = DisplaySanitizer.sanitize(title ?? String(localized: "Terminal"), maxScalars: 120).text

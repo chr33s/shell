@@ -2,7 +2,7 @@ import Foundation
 
 /// Address checks shared by the HTTP transport and the Mac CLI. Which Mac a
 /// device talks to is decided by the pinned origin key, never by a URL
-/// (spec.iphone-gateway.md section 7); these only keep plain HTTP to loopback.
+/// (docs/specs/control-protocol.md section 4.2); these only keep plain HTTP to loopback.
 public enum ControlBrokerAddress {
     /// The placeholder a build without a configured host carries. Clients
     /// must not dial it.

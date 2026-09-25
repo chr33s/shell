@@ -5,7 +5,7 @@
 //  The bundled, sandboxed Control host: a background-only app-like wrapper
 //  registered by the Catalyst app as a per-user LaunchAgent through
 //  SMAppService, with launchd as its only supervisor
-//  (spec.agent-relay.md sections 3.1, 19.2, and 19.3).
+//  (docs/specs/agent-relay.md sections 2.1, 18.2, and 18.3).
 //
 //  It composes the broker and daemon libraries in one process, publishes the
 //  owned UI's XPC service, and otherwise sleeps in dispatchMain: every idle

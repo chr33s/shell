@@ -38,7 +38,7 @@ public struct TailnetStatus: Sendable, Equatable {
 /// The part of Tailscale Serve's configuration Shell verifies: HTTPS 443 on
 /// this node's name proxying to the loopback broker, and never Funnel. It also
 /// inventories what else is served, so Shell never replaces another app's
-/// handler (spec.control-companion-setup.md section 7.3).
+/// handler (docs/specs/control-setup.md section 4.3).
 public struct ServeState: Sendable, Equatable {
     public var proxies: [String: String]
     public var funnel: Set<String>
@@ -181,7 +181,7 @@ public struct LiveTailnetRuntime: TailnetRuntime {
 
     public func configureServe(tailscale: String, port: Int) async throws {
         // Success is judged by the resulting Serve state, not this exit code:
-        // the CLI syntax may evolve (spec.iphone-gateway.md section 4.4).
+        // the CLI syntax may evolve (docs/specs/control-protocol.md section 2.3).
         let result = try await runner.run(tailscale, ["serve", "--bg", "--https=443", "http://127.0.0.1:\(port)"], timeout: 30)
         if result.status != 0 {
             let detail = result.stderrString.prefix(500)
@@ -219,7 +219,7 @@ public enum TailscaleTools {
         throw ManagementError.unavailable("Tailscale is required on this Mac: install it from https://tailscale.com/download/mac, sign in, then rerun setup")
     }
 
-    /// The prerequisites of spec.iphone-gateway.md section 6.1, reported
+    /// The prerequisites of docs/specs/control-protocol.md section 4.1, reported
     /// precisely rather than assumed.
     public static func requireReady(_ status: TailnetStatus) throws -> String {
         guard status.isConnected else {

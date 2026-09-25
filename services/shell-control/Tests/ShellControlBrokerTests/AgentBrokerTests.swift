@@ -4,7 +4,7 @@ import ShellControlProtocol
 import ShellControlSecurity
 @testable import ShellControlBroker
 
-/// Broker rules for `shell-agent/1` (spec.agent-relay.md section 22).
+/// Broker rules for `shell-agent/1` (docs/specs/agent-relay.md section 20).
 final class AgentBrokerTests: XCTestCase {
     private let hex = String(repeating: "b", count: 64)
 

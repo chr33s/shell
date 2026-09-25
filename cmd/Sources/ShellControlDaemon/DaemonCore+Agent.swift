@@ -5,7 +5,7 @@ import ShellControlHostSupport
 
 /// `shell-agent/1` IPC: agent session registration, typed inputs with
 /// one-time consume, detailed delivery receipts, and informational events
-/// (spec.agent-relay.md sections 5.2, 9, and 15.4).
+/// (docs/specs/agent-relay.md sections 4.2, 8, and 14.4).
 ///
 /// The adapter owns provider parsing and the native response; the daemon
 /// owns authenticated registration, publication, waiting, and consume
@@ -322,7 +322,7 @@ extension DaemonCore {
     /// `session.command.wait`: the managed adapter's long wait for its
     /// session's next signed command. The command is claimed for the named
     /// connection before it is returned, and the permit is checked against
-    /// that connection and session (spec.agent-relay.md section 16).
+    /// that connection and session (docs/specs/agent-relay.md section 15).
     func handleSessionCommandWait(_ request: IPCRequest) async throws -> JSONValue {
         let binding = try binding(for: request)
         let session = try sessionBinding(binding)
@@ -362,7 +362,7 @@ extension DaemonCore {
 
     /// `agent.receipt`: forwards correlated delivery evidence. The adapter
     /// reports `dispatch_started` before its first write to the provider and
-    /// the strongest justified state after it (spec.agent-relay.md 9.1).
+    /// the strongest justified state after it (docs/specs/agent-relay.md 8.1).
     func handleAgentReceipt(_ request: IPCRequest) async throws -> JSONValue {
         let binding = try binding(for: request)
         var reader = try JSONReader(request.body)
@@ -454,7 +454,7 @@ extension DaemonCore {
     /// Queues the recovery an interrupted input needs: withdrawal of one
     /// whose waiting adapter died with the old process, or an `unknown`
     /// receipt for one claimed without a terminal delivery. Nothing is ever
-    /// re-dispatched (spec.agent-relay.md 9.3).
+    /// re-dispatched (docs/specs/agent-relay.md 8.3).
     func queueInputRecovery(at frontier: [DispatchJournal.Entry]) throws -> Int {
         let recovery = journal.recoverInputs(at: frontier)
         let queued = Set(try journal.pendingRecoveries().map(\.requestID))

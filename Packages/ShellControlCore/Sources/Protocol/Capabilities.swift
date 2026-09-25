@@ -1,7 +1,7 @@
 import Foundation
 
 /// `GET /v1/capabilities`. Discovery is not itself authorization
-/// (spec.watch.md section 8).
+/// (docs/specs/control-protocol.md section 6).
 public struct ServiceCapabilities: Sendable, Hashable {
     public static let protocolName = "shell-control/1"
 

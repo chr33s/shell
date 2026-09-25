@@ -4,7 +4,7 @@ import ShellControlSecurity
 import Synchronization
 
 /// Which Watch this iPhone gateways for. Changing it is an explicit re-binding
-/// (spec.iphone-gateway.md section 10.5).
+/// (docs/specs/control-protocol.md section 5.4).
 public protocol WatchBindingStore: Sendable {
     func loadBoundWatch() throws -> WatchReviewerStatus?
     func storeBoundWatch(_ status: WatchReviewerStatus?) throws
@@ -30,7 +30,7 @@ public final class InMemoryWatchBindingStore: WatchBindingStore, Sendable {
 /// authenticated Tailscale session. It never manufactures a Watch JWS, never
 /// rewrites one, and never holds a Watch command for later: anything that
 /// arrives outside the interactive channel is refused
-/// (spec.iphone-gateway.md sections 11 and 13).
+/// (docs/specs/control-protocol.md sections 10.1 and 10.4).
 public actor WatchGatewayRouter {
     /// Returns an authenticated client whose route has been verified against
     /// the pinned origin key.
@@ -71,7 +71,7 @@ public actor WatchGatewayRouter {
     /// Handles one `sendMessageData` payload and returns the reply payload.
     public func handle(_ data: Data) async -> Data {
         // The agent extension is routed by its explicit protocol
-        // discriminator to its own strict decoder (spec.agent-relay.md 15.5).
+        // discriminator to its own strict decoder (docs/specs/agent-relay.md 14.5).
         let messageID: ControlID
         let perform: @Sendable (isolated WatchGatewayRouter) async throws -> JSONValue
         do {

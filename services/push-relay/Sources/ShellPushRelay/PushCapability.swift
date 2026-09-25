@@ -7,7 +7,7 @@ import ShellControlSecurity
 ///
 /// The relay keeps no user or device registry: everything it needs to send is
 /// inside the capability, and its signature is checked on every use
-/// (spec.iphone-gateway.md section 16.1). The capability is not
+/// (docs/specs/control-protocol.md section 12.2). The capability is not
 /// authentication, and it authorizes nothing but one generic hint.
 public struct PushCapability: Sendable, Hashable {
     public static let prefix = "pc1"

@@ -3,7 +3,7 @@
 An adapter integrates a tool's **documented, blocking pre-execution hook** or an
 explicit command wrapper with `shell-controld`. A tool without a safe
 request/response hook gets notifications and a link to review elsewhere — never
-a synthetic approval implementation (spec.watch.md section 3).
+a synthetic approval implementation (docs/specs/control-protocol.md section 2).
 
 Every adapter owes three things:
 
@@ -33,7 +33,7 @@ PTY as a control channel.
 ## Agent adapters
 
 `shell-control agent hook claude-code|codex` is the native adapter of
-[`../spec.agent-relay.md`](../spec.agent-relay.md). It is compiled into the CLI
+[`docs/specs/agent-relay.md`](../docs/specs/agent-relay.md). It is compiled into the CLI
 (`cmd/Sources/ShellControlAgentAdapter`); these directories hold what release
 engineering maintains beside it:
 

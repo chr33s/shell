@@ -7,7 +7,7 @@ import ShellControlBroker
 @testable import ShellControlAgentAdapter
 
 /// The experimental managed Codex profile against a scripted app-server and
-/// the real in-process broker and daemon (spec.agent-relay.md sections 11.2,
+/// the real in-process broker and daemon (docs/specs/agent-relay.md sections 10.2,
 /// 11.3, 16; A15, A16, A35, A36).
 final class ManagedCodexTests: XCTestCase {
     /// A scripted `codex app-server`: answers our requests as the documented

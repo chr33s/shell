@@ -14,7 +14,7 @@ bin/shell-control setup --mode loopback --no-watch   # local development with th
 ```
 
 Tailscale is the only way a phone reaches the Mac. The default `tailscale` mode is the iPhone-gateway profile of
-[`spec.iphone-gateway.md`](../spec.iphone-gateway.md): it checks that Tailscale is
+[`docs/specs/control-protocol.md`](../docs/specs/control-protocol.md): it checks that Tailscale is
 installed, connected, and has MagicDNS; keeps the broker on `127.0.0.1`; points
 Tailscale Serve's HTTPS 443 at it; verifies the resulting Serve state (and refuses
 Funnel); creates the Mac's origin signing key under `credentials/`; and prints a
@@ -76,7 +76,7 @@ no APNs credential.
 ## Control companion setup
 
 `setup --guided` is the interactive path of
-[`spec.control-companion-setup.md`](../spec.control-companion-setup.md): it
+[`docs/specs/control-setup.md`](../docs/specs/control-setup.md): it
 explains the companion, runs read-only preflight checks (release bundle,
 installation state, Tailscale, MagicDNS, and Serve ownership), reconciles the
 services through the same lifecycle as `setup`, offers **Start at login**, shows a
@@ -119,7 +119,7 @@ Adapter stdout is JSON. Permission authority remains the structured `shell-contr
 ## Agent relay
 
 `agent` implements the hook profile of
-[`spec.agent-relay.md`](../spec.agent-relay.md): Claude Code `PermissionRequest`
+[`docs/specs/agent-relay.md`](../docs/specs/agent-relay.md): Claude Code `PermissionRequest`
 (Bash; Edit/Write with `--include-file-changes`, iPhone review only) and
 `PreToolUse` `AskUserQuestion`, and Codex `PermissionRequest` (Bash).
 
@@ -156,7 +156,7 @@ before the hook runs is not reviewed by Shell.
 
 `agent install codex --enable-managed` enables the managed app-server routes, and
 `agent launch codex --managed` then runs `codex app-server` over stdio, owned by
-that command (spec.agent-relay.md sections 11.2, 11.3, and 16). There is no Codex
+that command (docs/specs/agent-relay.md sections 10.2, 10.3, and 15). There is no Codex
 TUI in this mode: agent text streams to the terminal, and typed lines start a turn
 or steer the active one (`/interrupt`, `/approve N`, `/deny N`, `/answer N a || b`,
 `/quit`). Command and file-change approvals and `requestUserInput` questions go to
@@ -177,7 +177,7 @@ covered by a tested range.
 
 ## Bundled Control host (TestFlight profile)
 
-Section 19 of [`spec.agent-relay.md`](../spec.agent-relay.md) adds a second
+Section 18 of [`docs/specs/agent-relay.md`](../docs/specs/agent-relay.md) adds a second
 distribution profile: the Control host packaged **inside the Mac Catalyst
 app** as the sandboxed `ShellControlHost.app` LaunchAgent (see
 [`../ShellControlHost`](../ShellControlHost/README.md)). It is separate from
@@ -217,7 +217,7 @@ builds, and a manual run of the unsigned host binary. What remains a release
 gate, and is not claimed: signing and provisioning of both bundle IDs with the
 App Group, TestFlight processing and install on a clean Mac, sandbox
 enforcement with a real provider hook, the background-item consent prompts,
-quit/logout/sleep behaviour, and scenarios A37–A52 of spec section 22.
+quit/logout/sleep behaviour, and scenarios A37–A52 of agent-relay spec section 20.
 
 ## Development and release
 

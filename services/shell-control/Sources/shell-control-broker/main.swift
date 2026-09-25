@@ -87,7 +87,7 @@ let cursorSecret = cursorSecretText.map { Data($0.utf8) }
     ?? Data((0..<32).map { _ in UInt8.random(in: 0...255) })
 // The Mac-local authority signs origin proofs with the origin key; the key
 // file is written by `shell-control setup` and never leaves the Mac
-// (spec.iphone-gateway.md section 7.1).
+// (docs/specs/control-protocol.md section 4.2).
 var originSigner: OriginSigner?
 if let originIDText = optional("origin_id", from: fileConfig, env: "SHELL_CONTROL_ORIGIN_ID"),
    let keyPath = optional("origin_key_file", from: fileConfig, env: "SHELL_CONTROL_ORIGIN_KEY_FILE") {

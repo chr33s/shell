@@ -5,7 +5,7 @@ import ShellControlSecurity
 public enum PairingRenderer {
     /// The setup QR for the iPhone-gateway profile: bootstrap material only,
     /// shown next to the origin fingerprint for comparison on the phone
-    /// (spec.iphone-gateway.md sections 9.1 and 25.1).
+    /// (docs/specs/control-protocol.md sections 5.2 and 16).
     public static func invitationOutput(_ invitation: PairingInvitation, terminal: Bool) throws -> String {
         let link = try invitation.link().absoluteString
         var result = """
@@ -22,7 +22,7 @@ public enum PairingRenderer {
     }
 
     /// The route-only QR. Scanning it updates routing and never changes trust
-    /// (spec.iphone-gateway.md sections 24 and 25.3).
+    /// (docs/specs/control-protocol.md sections 4.5 and 16).
     public static func routeOutput(_ update: OriginRouteUpdate, fingerprint: String, terminal: Bool) throws -> String {
         let link = try update.link().absoluteString
         var result = """

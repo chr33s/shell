@@ -23,7 +23,7 @@
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.developer-tools</string>
 	<!-- A background-only wrapper: no Dock icon, no menu bar, no windows
-	     (spec.agent-relay.md section 19.2). -->
+	     (docs/specs/agent-relay.md section 18.2). -->
 	<key>LSBackgroundOnly</key>
 	<true/>
 	<key>LSUIElement</key>

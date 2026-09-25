@@ -2,7 +2,7 @@
 //  SSHConnectionView.swift
 //  shell
 //
-//  The launch / connection screen (spec section 13):
+//  The launch / connection screen (docs/specs/shell.md §12):
 //
 //      +--------------------------+
 //      | New Local Terminal       |

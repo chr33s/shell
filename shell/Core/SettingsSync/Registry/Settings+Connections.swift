@@ -41,7 +41,7 @@ nonisolated extension Settings {
             title: String(localized: "Auto Reconnect", comment: "Setting title"))
         /// Attempts in one rapid recovery **burst**, not over the session's
         /// lifetime. Exhausting the burst keeps the intent and drops to the
-        /// low-rate cooldown policy (spec.connectivity.md §7.2, §14). The
+        /// low-rate cooldown policy (docs/specs/mobile-connectivity.md §6.2, §14). The
         /// stored key is unchanged so existing values survive.
         static let autoReconnectMaxAttempts = SettingKey(
             "autoReconnectMaxAttempts", default: 5, group: .connections, configKey: "auto-reconnect-max-attempts",
@@ -70,7 +70,7 @@ nonisolated extension Settings {
         ]
     }
 
-    /// tmux settings — the fork's only multiplexer (spec section 12).
+    /// tmux settings — the fork's only multiplexer (docs/specs/shell.md §11.3).
     enum Tmux {
         static let defaultMode = SettingKey(
             "tmuxDefaultMode", default: TmuxMode.off, group: .tmux, configKey: "tmux-default-mode",

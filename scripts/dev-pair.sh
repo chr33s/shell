@@ -6,7 +6,7 @@
 #
 # The invitation pins the dev broker's origin key and a loopback route, the
 # same shape `shell-control setup` prints for a Tailscale route
-# (spec.iphone-gateway.md section 9.1). Paste the link into Settings → Control
+# (docs/specs/control-protocol.md section 5.2). Paste the link into Settings → Control
 # in the simulator, then confirm the code with ./scripts/dev-confirm.sh.
 set -euo pipefail
 

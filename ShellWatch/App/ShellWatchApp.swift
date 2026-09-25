@@ -7,7 +7,7 @@ import ShellControlClient
 /// Shell Watch: a review and signing client behind its paired iPhone. Its
 /// critical path is Watch → WatchConnectivity → iPhone → Tailscale → Mac; the
 /// Watch never talks to the Mac or the network itself
-/// (spec.iphone-gateway.md section 1).
+/// (docs/specs/control-protocol.md section 1.1).
 @main
 struct ShellWatchApp: App {
     @WKApplicationDelegateAdaptor(WatchAppDelegate.self) private var delegate
@@ -62,7 +62,7 @@ struct ShellWatchApp: App {
 }
 
 /// Build-time configuration. There is deliberately no broker URL: the Watch
-/// has no route of its own (spec.iphone-gateway.md section 4.6).
+/// has no route of its own (docs/specs/control-protocol.md section 2.5).
 enum ShellWatchConfiguration {
     static var keychainAccessGroup: String? {
         Bundle.main.object(forInfoDictionaryKey: "SHELLWatchKeychainAccessGroup") as? String

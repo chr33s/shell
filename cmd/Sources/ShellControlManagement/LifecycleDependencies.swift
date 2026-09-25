@@ -29,7 +29,7 @@ public struct LivePairingAdministration: PairingAdministration {
 }
 
 /// The origin signing key on disk: PEM, owner-only, never copied off the Mac
-/// (spec.iphone-gateway.md section 7.1).
+/// (docs/specs/control-protocol.md section 4.2).
 public enum OriginKeyFile {
     public static func load(_ url: URL) throws -> OriginSigningKey {
         try SecureFileSystem.validateOwnedPath(url.path, type: .typeRegular)

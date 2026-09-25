@@ -6,7 +6,7 @@ import ShellControlClient
 /// is fetched live through the iPhone before any control is enabled; cached
 /// details stay readable, marked stale, and cannot be answered. Dictated or
 /// scribbled text is a draft until the final screen confirms it exactly
-/// (spec.agent-relay.md section 13.2).
+/// (docs/specs/agent-relay.md section 12.2).
 struct InputReviewView: View {
     @Environment(ControlSession.self) private var session
     let requestID: ControlID
@@ -119,7 +119,7 @@ struct InputReviewView: View {
                     Label(AgentSubmissionLabel.reviewOnIPhone(reason), systemImage: "iphone.and.arrow.forward")
                         .font(.caption2)
                 case .iPhoneUnavailable:
-                    // Nothing is queued for later (spec.agent-relay.md 13.2).
+                    // Nothing is queued for later (docs/specs/agent-relay.md 12.2).
                     Text(String(localized: "iPhone unavailable — no answer is queued"))
                         .font(.caption2)
                         .foregroundStyle(.secondary)

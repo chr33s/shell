@@ -170,7 +170,7 @@ final class CitadelSSHSession: SSHTerminalSession {
 
     /// Fires when a keepalive round trip passes its deadline. The round trip
     /// is unverified — NOT proof that the remote process is gone
-    /// (spec.connectivity.md §8.3). The recovery coordinator decides what to
+    /// (docs/specs/mobile-connectivity.md §7.3). The recovery coordinator decides what to
     /// do with that, which depends on the session's intent.
     var onProbeDeadlineExpired: (() -> Void)?
 
@@ -831,7 +831,7 @@ final class CitadelSSHSession: SSHTerminalSession {
         let filtered = escapeFilter.filter(data)
         guard !filtered.isEmpty else { return }
 
-        // Bounded producer backpressure (spec.connectivity.md §10). Every
+        // Bounded producer backpressure (docs/specs/mobile-connectivity.md §9). Every
         // input path funnels through here — hardware and software keyboard,
         // paste, accessibility actions, macros, terminal-generated replies,
         // and tmux command routing — so this is the one place the budget can

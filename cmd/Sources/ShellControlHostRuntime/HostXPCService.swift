@@ -7,7 +7,7 @@ import XPC
 /// The production check is ``CodeSigningPeerAuthorizer``: the system evaluates
 /// a code-signing requirement against the sender's audit token, per message,
 /// so a PID race cannot substitute another process. An App Group is not
-/// authorization (spec.agent-relay.md section 19.6, A45). Tests inject their
+/// authorization (docs/specs/agent-relay.md section 18.6, A45). Tests inject their
 /// own authorizer; the library ships no bypass.
 public protocol HostPeerAuthorizer: Sendable {
     func authorize(_ message: XPCReceivedMessage) -> Bool

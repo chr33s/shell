@@ -5,7 +5,7 @@
 //  The phone's unified agent view: agent approvals, typed questions, and
 //  recent outcomes. Every item keeps the trusted host identity apart from
 //  agent-supplied text, and every detail renders the exact operation or
-//  question rather than a friendly summary (spec.agent-relay.md sections
+//  question rather than a friendly summary (docs/specs/agent-relay.md sections
 //  13.1 and 17.2).
 //
 
@@ -164,7 +164,7 @@ struct ControlAgentContextLine: View {
 }
 
 /// Agent-supplied text: sanitized, quoted, and labelled as coming from the
-/// agent, so it cannot pass for Shell's own words (spec.agent-relay.md 17.2).
+/// agent, so it cannot pass for Shell's own words (docs/specs/agent-relay.md 16.2).
 struct ControlAgentSuppliedText: View {
     let text: String
     var maxScalars = 200
@@ -231,7 +231,7 @@ struct ControlAgentTrustedHostSection: View {
 
 /// Provider and session as the Mac registered them, plus where the agent's
 /// terminal was last seen. The location is navigation text only: Shell sends
-/// no keystrokes to it (spec.agent-relay.md section 14.1).
+/// no keystrokes to it (docs/specs/agent-relay.md section 13.1).
 struct ControlAgentSessionSection: View {
     let provider: String
     let providerBuild: String
@@ -269,7 +269,7 @@ struct ControlAgentSessionSection: View {
 /// The exact `agent.tool.v1` operation. Shell commands show the exact
 /// command string (or true argv), working directory, options, scope, and
 /// what the adapter could not observe; file changes show every path, change
-/// kind, and the complete diff (spec.agent-relay.md section 6.3).
+/// kind, and the complete diff (docs/specs/agent-relay.md section 5.3).
 struct ControlAgentOperationSections: View {
     let operation: AgentToolOperation
 
@@ -367,7 +367,7 @@ struct ControlAgentOperationSections: View {
 
 /// Reviews and answers one typed question. The exact question is fetched
 /// live; the answer is shown in full on a confirmation screen before this
-/// iPhone signs it (spec.agent-relay.md sections 7, 8.2, and 13.1).
+/// iPhone signs it (docs/specs/agent-relay.md sections 6, 7.2, and 12.1).
 struct ControlAgentInputView: View {
     let companion: ControlCompanion
     let requestID: ControlID
@@ -624,7 +624,7 @@ struct ControlAgentQuestionSection: View {
 
 /// The final confirmation: the exact answer that will be signed, with text
 /// shown byte for byte (escapes visible) and its size
-/// (spec.agent-relay.md sections 7.3 and 13.1).
+/// (docs/specs/agent-relay.md sections 6.3 and 12.1).
 struct ControlAgentAnswerConfirmation: View {
     let spec: InputSpec
     let response: InputResponse

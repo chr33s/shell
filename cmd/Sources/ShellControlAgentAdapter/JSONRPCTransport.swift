@@ -3,7 +3,7 @@ import ShellControlProtocol
 
 /// One JSON-RPC peer, framed as newline-delimited JSON without the
 /// `"jsonrpc"` member, as the Codex app-server speaks it over stdio
-/// (spec.agent-relay.md section 11.2).
+/// (docs/specs/agent-relay.md section 10.2).
 public protocol JSONRPCTransport: Sendable {
     func send(_ message: JSONValue) async throws
     /// Every message the peer sends, in order. Finishes when the peer closes.

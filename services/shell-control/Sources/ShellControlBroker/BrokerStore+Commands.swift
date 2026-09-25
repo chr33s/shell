@@ -7,7 +7,7 @@ extension BrokerStore {
     /// `POST /v1/review-challenges`: a one-use, device-bound challenge for an
     /// exact target, action, hash, and versions. The broker rejects stale
     /// preconditions rather than issuing a challenge against a moved target
-    /// (spec.watch.md section 11).
+    /// (docs/specs/control-protocol.md section 9.2).
     public func createChallenge(principal: Principal, request: ReviewChallengeRequest) throws -> ReviewChallenge {
         sweepExpired()
         guard let deviceID = principal.deviceID else {
@@ -75,7 +75,7 @@ extension BrokerStore {
 
     /// `POST /v1/commands`: verify, then look for an already-recorded result,
     /// and only then evaluate preconditions for a new operation
-    /// (spec.watch.md section 8).
+    /// (docs/specs/control-protocol.md section 6).
     public func submitCommand(
         principal: Principal,
         signedCommand: String,
@@ -115,7 +115,7 @@ extension BrokerStore {
         }
 
         // The broker is authoritative for deadline checks: device clock skew
-        // cannot extend authorization (spec.watch.md section 16).
+        // cannot extend authorization (docs/specs/control-protocol.md section 14).
         let now = timestamp
         guard now < envelope.notAfter else {
             throw ControlError(code: .challengeExpired, message: "command deadline passed")
@@ -186,7 +186,7 @@ extension BrokerStore {
             throw ControlError(code: .staleVersion, message: "challenge does not match this command")
         }
         // Exactly one pending-resolution transition: a racing second device
-        // sees the recorded decision instead (spec.watch.md section 19).
+        // sees the recorded decision instead (docs/specs/control-protocol.md section 19).
         guard entry.projection.resolution == .pending else {
             throw ControlError(code: .alreadyResolved, message: "already resolved", currentProjection: entry.record.json)
         }
@@ -208,14 +208,14 @@ extension BrokerStore {
         if command.decision == .approve {
             // An agent operation this build cannot render — an unknown kind
             // or a scope wider than one native gate — is never approvable,
-            // whichever client sent the command (spec.agent-relay.md 6.1).
+            // whichever client sent the command (docs/specs/agent-relay.md 5.1).
             if entry.spec.operation.schema == AgentToolOperation.schema, !entry.spec.operation.isRecognized {
                 throw ControlError(code: .unsupportedOperation, message: "this agent operation cannot be approved remotely")
             }
             // A request that needs fuller review is approvable only from an
             // enrolled full-review client. The device kind comes from the
             // broker's own registration, never from the command
-            // (spec.watch.md section 6).
+            // (docs/specs/control-protocol.md section 11.2).
             let fullReview = principal.deviceID.flatMap { devices[$0] }?.isFullReviewClient ?? false
             guard fullReview || (entry.spec.permitsWatchApproval && entry.projection.watchReviewAllowed) else {
                 throw ControlError(code: .fullReviewRequired, message: "this request needs fuller review")
@@ -285,7 +285,7 @@ extension BrokerStore {
     }
 
     /// Cancellation is marked requested and pending/unconsumed approvals are
-    /// invalidated in the same transaction (spec.watch.md section 13).
+    /// invalidated in the same transaction (docs/specs/control-protocol.md section 9.7).
     private func recordJobCancellation(_ command: JobCancelCommand, principal: Principal) throws -> CommandResult {
         try principal.requireGrant(.jobsCancel)
         sweepExpired()

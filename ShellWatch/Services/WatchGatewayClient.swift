@@ -5,7 +5,7 @@ import ShellControlClient
 
 /// The Watch's only transport: WatchConnectivity to its paired iPhone, which
 /// reaches the Mac over Tailscale. The Watch has no URL, no Tailscale session,
-/// and no network credential of its own (spec.iphone-gateway.md sections 4.6
+/// and no network credential of its own (docs/specs/control-protocol.md sections 2.5
 /// and 11).
 @MainActor
 @Observable

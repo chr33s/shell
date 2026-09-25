@@ -3,7 +3,7 @@
 //  shell
 //
 //  The whole Settings surface: Terminal, SSH, tmux, Sync, and the optional
-//  Control companion. Spec section 12 is four sections; spec.watch.md adds
+//  Control companion. docs/specs/shell.md §11 is four sections; docs/specs/control-protocol.md adds
 //  Control as the one allowed extra.
 //
 

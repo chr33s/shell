@@ -2,7 +2,7 @@
 //  CloudKitSyncable.swift
 //  shell
 //
-//  Fork-specific CloudKit record schema (spec section 6). Four record types
+//  Fork-specific CloudKit record schema (docs/specs/shell.md §6.1). Four record types
 //  live in the private database: SSH profiles, public SSH identity metadata,
 //  known hosts, and app settings.
 //

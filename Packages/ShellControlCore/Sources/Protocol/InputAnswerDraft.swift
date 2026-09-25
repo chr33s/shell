@@ -3,7 +3,7 @@ import Foundation
 /// The answer a reviewer is composing for one input, shared by every client
 /// so the signed response is built one way only: answers sorted by question
 /// ID, multi-choice IDs in the committed choice order, never tap order, and
-/// validated against the spec before return (spec.agent-relay.md 8.1).
+/// validated against the spec before return (docs/specs/agent-relay.md 7.1).
 public struct InputAnswerDraft: Sendable, Hashable {
     /// Selected choice IDs per question, in the order they were tapped.
     public private(set) var selections: [String: [String]] = [:]

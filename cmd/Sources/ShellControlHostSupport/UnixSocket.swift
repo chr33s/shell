@@ -9,7 +9,7 @@ import Synchronization
 
 /// A per-user Unix-domain socket under a private state directory: directory
 /// mode 0700, socket mode 0600, peer identity verified where supported
-/// (spec.watch.md section 17).
+/// (docs/specs/control-protocol.md section 15).
 public struct UnixSocketServer: Sendable {
     public enum SocketError: Error, Sendable {
         case pathTooLong
@@ -63,7 +63,7 @@ public struct UnixSocketServer: Sendable {
         guard bound == 0 else { throw SocketError.bind(errno) }
         // File modes prevent accidental cross-process routing and access by
         // other users; they do not make a malicious same-user process trusted
-        // (spec.watch.md section 4).
+        // (docs/specs/control-protocol.md section 3.1).
         chmod(path, 0o600)
         guard listen(descriptor, 32) == 0 else { throw SocketError.listen(errno) }
         return descriptor
@@ -134,7 +134,7 @@ public struct UnixSocketClient: Sendable {
             pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
                 // Qualified so the call is not shadowed by this method, and
                 // spelled per-platform because the daemon runs on macOS or
-                // Linux (spec.watch.md section 3).
+                // Linux (docs/specs/control-protocol.md section 2).
                 #if canImport(Glibc)
                 return Glibc.connect(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
                 #else

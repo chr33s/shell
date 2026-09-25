@@ -10,7 +10,7 @@ import Synchronization
 ///
 /// It speaks plain HTTP and is intended to run on loopback behind a
 /// TLS-terminating proxy: Tailscale Serve for the Mac-local broker
-/// (spec.iphone-gateway.md section 4.4), or the relay's hosting front end.
+/// (docs/specs/control-protocol.md section 2.3), or the relay's hosting front end.
 public final class HTTPServer: Sendable {
     public struct Request: Sendable {
         public let method: String

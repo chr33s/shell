@@ -2,11 +2,11 @@ import Foundation
 
 /// The separate agent command union. It reuses the envelope fields and the
 /// signing scheme of `shell-control/1` but never broadens the legacy
-/// decoder's accepted types (spec.agent-relay.md section 8.1).
+/// decoder's accepted types (docs/specs/agent-relay.md section 7.1).
 public enum AgentCommandType: String, Sendable, Hashable, CaseIterable {
     case inputRespond = "input.respond"
     /// Managed-session commands: separately granted, opt-in, and only for a
-    /// managed session that negotiated them (spec.agent-relay.md section 16).
+    /// managed session that negotiated them (docs/specs/agent-relay.md section 15).
     case agentMessage = "agent.message"
     case turnCancel = "agent.turn.cancel"
 
@@ -85,7 +85,7 @@ public struct AgentCommandEnvelope: Sendable, Hashable {
 }
 
 /// `input.respond`: binds the exact request digest, the observed versions,
-/// the review challenge, and the actual answer (spec.agent-relay.md 8.1).
+/// the review challenge, and the actual answer (docs/specs/agent-relay.md 7.1).
 public struct InputRespondCommand: Sendable, Hashable {
     public let envelope: AgentCommandEnvelope
     public let requestID: ControlID
@@ -201,7 +201,7 @@ public enum AgentCommand: Sendable, Hashable {
 /// What the device says it is about to do: answer an exact input, or send
 /// an exact session action, bound to the versions it saw. A session command
 /// targets mutable state, so its action digest is committed here, before
-/// signing (spec.agent-relay.md sections 8.2 and 16.1).
+/// signing (docs/specs/agent-relay.md sections 7.2 and 15.1).
 public struct AgentReviewChallengeRequest: Sendable, Hashable {
     public enum Target: Sendable, Hashable {
         case input(requestID: ControlID, requestHash: String, expectedStateVersion: Int64, policyVersion: Int64)

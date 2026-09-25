@@ -2,7 +2,7 @@
 //  TerminalReadinessGate.swift
 //  shell
 //
-//  One-shot terminal-readiness rendezvous (spec.connectivity.md §9.5).
+//  One-shot terminal-readiness rendezvous (docs/specs/mobile-connectivity.md §8.5).
 //
 //  Recovery must not report a restored session when all it has is a TCP
 //  connection and a completed SSH handshake (CON-03). For an ordinary SSH

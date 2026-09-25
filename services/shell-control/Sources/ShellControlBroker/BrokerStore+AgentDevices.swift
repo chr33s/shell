@@ -4,7 +4,7 @@ import ShellControlSecurity
 
 /// `shell-agent/1` device-side reads and signed responses. Authorization
 /// filtering is identical for snapshots, changes, and direct fetches
-/// (spec.agent-relay.md section 15.2).
+/// (docs/specs/agent-relay.md section 14.2).
 extension BrokerStore {
     // MARK: Visibility
 
@@ -217,7 +217,7 @@ extension BrokerStore {
     }
 
     /// A session a device may command: same account, active, managed, and
-    /// offering the command's feature (spec.agent-relay.md 16).
+    /// offering the command's feature (docs/specs/agent-relay.md 15).
     func commandableSession(_ sessionID: ControlID, principal: Principal, action: AgentCommandType) throws -> AgentSessionEntry {
         guard let session = agent.sessions[sessionID], session.accountID == principal.accountID else {
             throw ControlError(code: .notFound, message: "no such agent session")
@@ -233,7 +233,7 @@ extension BrokerStore {
 
     /// `POST /v1/agent/commands`: authenticate and verify first, then look up
     /// an already-recorded result, and only then evaluate a new response. The
-    /// first valid response wins (spec.agent-relay.md 8.3).
+    /// first valid response wins (docs/specs/agent-relay.md 7.3).
     public func submitAgentCommand(principal: Principal, signedCommand: String, idempotencyKey: ControlID) throws -> (result: AgentCommandResult, isReplay: Bool) {
         guard let deviceID = principal.deviceID else {
             throw ControlError(code: .notAuthorized, message: "only devices submit commands")
@@ -386,7 +386,7 @@ extension BrokerStore {
 extension CursorCodec {
     /// The agent feed has its own cursor namespace and tag domain, so a base
     /// cursor never reads the agent feed and an agent cursor never reads the
-    /// base feed (spec.agent-relay.md 15.6).
+    /// base feed (docs/specs/agent-relay.md 14.6).
     static func encodeAgentCursor(sequence: LogSequence, principal: Principal, secret: Data) -> ChangeCursor {
         let base = encodeCursor(sequence: sequence, principal: principal, secret: agentSecret(secret))
         return ChangeCursor("a1" + base.rawValue.dropFirst(2))

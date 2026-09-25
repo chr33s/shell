@@ -11,7 +11,7 @@ import ShellControlProtocol
 extension AgentProvider: ExpressibleByArgument {}
 
 /// `shell-control agent …`: native Claude Code and Codex integrations
-/// (spec.agent-relay.md section 19.7). These are the standalone CLI profile's
+/// (docs/specs/agent-relay.md section 18.7). These are the standalone CLI profile's
 /// commands; nothing here installs executables anywhere.
 struct AgentCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
@@ -128,7 +128,7 @@ struct AgentUninstallCommand: AsyncParsableCommand {
 }
 
 /// `agent doctor`: honest, per-provider readiness. Documentation alone is
-/// never "Ready" (spec.agent-relay.md sections 4.3 and 19.9).
+/// never "Ready" (docs/specs/agent-relay.md sections 3.3 and 18.9).
 struct AgentDoctorCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(commandName: "doctor", abstract: "Report agent integration readiness (read-only).")
     @ParentCommand var parent: AgentCommand
@@ -225,7 +225,7 @@ enum AgentDoctor {
 /// `agent hook claude-code|codex`: invoked by the provider with the native
 /// event on stdin. Its stdout is reserved for the provider's response format;
 /// diagnostics go to stderr. It always exits 0: an exit status is never
-/// authorization (spec.agent-relay.md sections 10.1 and 15.4).
+/// authorization (docs/specs/agent-relay.md sections 9.1 and 14.4).
 struct AgentHookCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(commandName: "hook", abstract: "Run as a provider hook (reads the event on stdin).")
     @ParentCommand var parent: AgentCommand
@@ -274,7 +274,7 @@ struct AgentHookCommand: AsyncParsableCommand {
 
 /// `agent test`: the safe end-to-end fixture. It exercises publication,
 /// review, signature, claim, native-response encoding, and receipts without
-/// executing anything and without a provider (spec.agent-relay.md 19.9).
+/// executing anything and without a provider (docs/specs/agent-relay.md 18.9).
 struct AgentTestCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(commandName: "test", abstract: "Run the safe agent relay fixture through a real reviewer.")
     @ParentCommand var parent: AgentCommand

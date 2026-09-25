@@ -53,7 +53,7 @@ public struct DeviceJWK: Sendable, Hashable {
     }
 
     /// RFC 7638 thumbprint, shown on the enrollment confirmation page as the
-    /// key fingerprint (spec.watch.md section 5).
+    /// key fingerprint (docs/specs/control-protocol.md section 5.1).
     public func thumbprint() throws -> String {
         let canonical = try JSONCanonicalization.canonicalize(.object([
             "crv": "P-256",
@@ -76,7 +76,7 @@ public struct DeviceJWK: Sendable, Hashable {
 
 /// A device signing key. The private material never leaves its store, so the
 /// protocol works with a device-local software key and a hardware-backed store
-/// is a drop-in enhancement (spec.watch.md section 5).
+/// is a drop-in enhancement (docs/specs/control-protocol.md section 5.1).
 public protocol DeviceSigningKey: Sendable {
     var publicJWK: DeviceJWK { get }
     /// Returns the 64-byte `R || S` ES256 signature over `data`.

@@ -76,7 +76,7 @@ public struct ReviewChallengeRequest: Sendable, Hashable {
 }
 
 /// A one-use, device-bound challenge. TTL is at most 60 seconds and never
-/// exceeds the approval deadline (spec.watch.md section 11).
+/// exceeds the approval deadline (docs/specs/control-protocol.md section 9.2).
 public struct ReviewChallenge: Sendable, Hashable {
     public let challengeID: String
     public let deviceID: ControlID
@@ -115,7 +115,7 @@ public struct ReviewChallenge: Sendable, Hashable {
 
 /// The recorded outcome of a submitted command. `recorded` is about durable
 /// commit at the broker, never about the originating program resuming
-/// (spec.watch.md section 11).
+/// (docs/specs/control-protocol.md section 9.2).
 public struct CommandResult: Sendable, Hashable {
     public let recorded: Bool
     public let commandID: ControlID

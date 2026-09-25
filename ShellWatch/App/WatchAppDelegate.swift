@@ -6,7 +6,7 @@ import ShellControlProtocol
 /// Registers the notification categories early and turns a notification
 /// response into a review intent. The Watch has no APNs registration of its
 /// own: approval hints go to the iPhone and the system mirrors them here
-/// (spec.iphone-gateway.md section 16.4).
+/// (docs/specs/control-protocol.md section 12.4).
 final class WatchAppDelegate: NSObject, WKApplicationDelegate, UNUserNotificationCenterDelegate {
     var session: ControlSession?
 

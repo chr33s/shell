@@ -2,7 +2,7 @@
 //  SettingsSyncSection.swift
 //  shell
 //
-//  Sync settings (spec section 12). Only public, non-secret data goes to
+//  Sync settings (docs/specs/shell.md §11.4). Only public, non-secret data goes to
 //  CloudKit; passwords and synchronizable software private keys live in the
 //  iCloud Keychain, and Secure Enclave private keys never leave the device
 //  that created them.

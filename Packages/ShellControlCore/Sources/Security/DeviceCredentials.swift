@@ -5,7 +5,7 @@ import Synchronization
 /// The device-scoped session a completed enrollment returns.
 ///
 /// Access tokens are short (10 minutes) and refresh tokens rotate with a 30-day
-/// idle lifetime (spec.watch.md section 5).
+/// idle lifetime (docs/specs/control-protocol.md section 5.1).
 public struct DeviceSession: Sendable, Hashable {
     public let deviceID: ControlID
     public let accountID: ControlID
@@ -61,7 +61,7 @@ public struct DeviceSession: Sendable, Hashable {
     }
 }
 
-/// Watch grants are scoped by origin and action (spec.watch.md section 4).
+/// Watch grants are scoped by origin and action (docs/specs/control-protocol.md section 3.1).
 public enum DeviceGrant: String, Sendable, Hashable, CaseIterable {
     case requestsRead = "requests.read"
     case approvalsDecide = "approvals.decide"
@@ -70,11 +70,11 @@ public enum DeviceGrant: String, Sendable, Hashable, CaseIterable {
     /// Optional; job cancellation is capability-gated.
     case jobsCancel = "jobs.cancel"
     /// A Watch reviewer reads only through its bound iPhone gateway; it holds
-    /// no standalone network credential (spec.iphone-gateway.md section 10.4).
+    /// no standalone network credential (docs/specs/control-protocol.md section 5.3).
     case requestsReadViaGateway = "requests.read-via-gateway"
     case notificationsReadViaGateway = "notifications.read-via-gateway"
     /// `shell-agent/1` grants, each separately revocable and never part of a
-    /// default set (spec.agent-relay.md section 17.1).
+    /// default set (docs/specs/agent-relay.md section 16.1).
     case agentSessionsRead = "agent.sessions.read"
     case agentInputsRead = "agent.inputs.read"
     case agentInputsRespond = "agent.inputs.respond"
@@ -96,7 +96,7 @@ public enum DeviceGrant: String, Sendable, Hashable, CaseIterable {
     ]
 
     /// What `shell-control agent grant` adds to an iPhone, and to a Watch
-    /// reviewer (spec.agent-relay.md section 17.1).
+    /// reviewer (docs/specs/agent-relay.md section 16.1).
     public static let agentPhone: Set<DeviceGrant> = [.agentSessionsRead, .agentInputsRead, .agentInputsRespond]
     public static let agentWatchReviewer: Set<DeviceGrant> = [.agentInputsReadViaGateway, .agentInputsRespond]
     /// Every agent grant, for revocation.
@@ -110,7 +110,7 @@ public protocol DeviceCredentialStore: Sendable {
     func loadSession() throws -> DeviceSession?
     func storeSession(_ session: DeviceSession) throws
     /// Account logout revokes the device session and removes local credentials
-    /// (spec.watch.md section 5).
+    /// (docs/specs/control-protocol.md section 5.1).
     func removeAll() throws
 }
 

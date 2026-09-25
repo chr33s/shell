@@ -46,7 +46,7 @@ struct ConnectionHealthPopover: View {
                 metricRow(
                     // Not "packet loss": these are SSH keepalive round trips
                     // that went unanswered. Shell cannot see IP datagrams
-                    // (spec.connectivity.md §8.1).
+                    // (docs/specs/mobile-connectivity.md §7.1).
                     Text("Unanswered probes"),
                     value: Text(String(format: "%.1f%%", health.probeFailurePercent)),
                     // The indicator turns red at 2-of-3 poor samples; call out

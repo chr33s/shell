@@ -3,7 +3,7 @@ import CryptoKit
 import ShellControlProtocol
 
 /// Snapshot tokens and change cursors are authenticated and bound to the
-/// account and permission scope (spec.watch.md section 15).
+/// account and permission scope (docs/specs/control-protocol.md section 13.1).
 enum CursorCodec {
     private static func tag(for principal: Principal, sequence: LogSequence, secret: Data) -> String {
         var material = Data(principal.accountID.rawValue.utf8)

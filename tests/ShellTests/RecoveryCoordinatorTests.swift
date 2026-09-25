@@ -2,7 +2,7 @@
 //  RecoveryCoordinatorTests.swift
 //  ShellTests
 //
-//  The deterministic half of spec.connectivity.md §17.1. Test names carry
+//  The deterministic half of docs/specs/mobile-connectivity.md §16.1. Test names carry
 //  their acceptance-criterion id so a failure points straight at the clause
 //  it violates.
 //

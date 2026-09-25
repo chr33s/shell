@@ -1,6 +1,6 @@
 import Foundation
 
-/// How an adapter reaches the provider (spec.agent-relay.md section 4.1).
+/// How an adapter reaches the provider (docs/specs/agent-relay.md section 3.1).
 public enum AgentIntegrationProfile: String, Sendable, Hashable, CaseIterable {
     /// The ordinary provider CLI with a synchronous native hook. Its safety
     /// claim is limited to responses delivered through that hook.
@@ -12,7 +12,7 @@ public enum AgentIntegrationProfile: String, Sendable, Hashable, CaseIterable {
 }
 
 /// How strong the compatibility evidence for a provider build is. Setup never
-/// reports "Ready" from `documented` alone (spec.agent-relay.md 4.3).
+/// reports "Ready" from `documented` alone (docs/specs/agent-relay.md 3.3).
 public enum AgentCompatibilityEvidence: String, Sendable, Hashable, CaseIterable, Comparable {
     case none
     case documented
@@ -39,7 +39,7 @@ public enum AgentCompatibilityEvidence: String, Sendable, Hashable, CaseIterable
 
 /// Non-authorizing navigation metadata: where the agent's terminal was last
 /// seen. It is never a substitute for native wait identity and never a
-/// remote command endpoint (spec.agent-relay.md section 14.1).
+/// remote command endpoint (docs/specs/agent-relay.md section 13.1).
 public struct TerminalLocation: Sendable, Hashable {
     /// A digest identifying the tmux server instance (socket and server
     /// process), never the socket path itself.
@@ -89,7 +89,7 @@ public struct TerminalLocation: Sendable, Hashable {
 }
 
 /// `POST /v1/agent/sessions`: idempotent registration of one provider
-/// session instance, bound to a registered run (spec.agent-relay.md 5.2).
+/// session instance, bound to a registered run (docs/specs/agent-relay.md 4.2).
 ///
 /// The run capability and the owned process identity stay on the host; only
 /// what a reviewer needs is published.

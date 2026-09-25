@@ -5,7 +5,7 @@
 //  The iPhone as network gateway for its paired Watch. Live Watch requests
 //  are relayed to the Mac over this iPhone's own Tailscale session; the
 //  Watch's decisions stay signed by the Watch's key, and nothing the Watch
-//  asks for is ever held for later (spec.iphone-gateway.md sections 11-13).
+//  asks for is ever held for later (docs/specs/control-protocol.md sections 10.1-10.4).
 //
 
 import Foundation

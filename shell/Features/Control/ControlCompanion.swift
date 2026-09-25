@@ -5,7 +5,7 @@
 //  The phone's half of the iPhone-gateway profile: a full review client for
 //  its Mac, reached privately over Tailscale, and the gateway its Watch
 //  reaches that Mac through. Pairing pins the Mac's Shell origin key; the
-//  Tailscale URL is only a route (spec.iphone-gateway.md sections 4.5 and 7).
+//  Tailscale URL is only a route (docs/specs/control-protocol.md sections 2.4 and 4.2).
 //
 
 import Foundation
@@ -50,13 +50,13 @@ final class ControlCompanion {
     private(set) var pairingProgress: ControlPairingProgress?
     private(set) var isPairing = false
     /// A scanned or linked setup QR waiting for the user's explicit yes.
-    /// Nothing is contacted or trusted before that (spec.iphone-gateway.md
+    /// Nothing is contacted or trusted before that (docs/specs/control-protocol.md
     /// sections 9.2 and 24).
     private(set) var pendingPairing: PendingPairing?
     /// This iPhone's device record on the Mac, for the setup-test command.
     private(set) var deviceID: ControlID?
     /// The remote-alert choice for this Mac and this iPhone, and whether the
-    /// Mac has acknowledged it (spec.control-companion-setup.md section 10).
+    /// Mac has acknowledged it (docs/specs/control-setup.md section 7).
     private(set) var alertPolicy: RemoteAlertPolicy?
     private(set) var notificationsDenied = false
     /// The last explicit diagnostic pass from this iPhone's vantage.
@@ -67,10 +67,10 @@ final class ControlCompanion {
     /// The most recent setup-test request this iPhone has seen.
     private(set) var latestSetupTest: ApprovalRecord?
     /// Recently decided agent approvals, newest first, for the agent view's
-    /// outcomes (spec.agent-relay.md section 13.1).
+    /// outcomes (docs/specs/agent-relay.md section 12.1).
     private(set) var agentApprovalOutcomes: [ApprovalRecord] = []
     /// The optional agent integration: questions, sessions, and detailed
-    /// delivery, kept apart from the base inbox (spec.agent-relay.md 12.2).
+    /// delivery, kept apart from the base inbox (docs/specs/agent-relay.md 11.2).
     let agent = ControlAgentCenter()
 
     struct PendingPairing: Equatable {
@@ -153,7 +153,7 @@ final class ControlCompanion {
 
     /// A setup QR is staged for confirmation; a route QR only moves routing
     /// and is verified against the pinned key. The two are labelled
-    /// differently everywhere (spec.iphone-gateway.md section 24).
+    /// differently everywhere (docs/specs/control-protocol.md section 4.5).
     @discardableResult
     func handleScanned(_ text: String, fromLink: Bool = false) async -> Bool {
         switch ControlScannedPayload(text) {
@@ -426,7 +426,7 @@ final class ControlCompanion {
     }
 
     /// The phone is a full-review client: it may approve requests whose
-    /// `minimum_review` is `full` (spec.watch.md section 6). The review
+    /// `minimum_review` is `full` (docs/specs/control-protocol.md section 11.2). The review
     /// screen gates its Approve button on the same level.
     nonisolated static let review: MinimumReview = .full
 
@@ -479,7 +479,7 @@ final class ControlCompanion {
 
     /// Ambiguous outcomes are reconciled by their original command ID; a
     /// replacement decision is never minted. Agent answers are asked about
-    /// only through the agent endpoints (spec.agent-relay.md section 8.3).
+    /// only through the agent endpoints (docs/specs/agent-relay.md section 7.3).
     private func reconcileJournal(client: ControlAPIClient) async {
         guard let journal = commandJournal(), let material = await gateway.signingMaterial() else { return }
         let coordinator = DecisionCoordinator(
@@ -515,7 +515,7 @@ final class ControlCompanion {
 
     /// A notification or link names a request without saying which kind: an
     /// approval is tried first and, only on `not_found`, a typed question
-    /// (spec.agent-relay.md section 12.3). Always a live fetch.
+    /// (docs/specs/agent-relay.md section 11.3). Always a live fetch.
     func lookup(_ requestID: ControlID) async throws -> ControlRequestLookup.Found {
         let client: ControlAPIClient
         do {
@@ -554,7 +554,7 @@ final class ControlCompanion {
 
     /// Signs and sends one typed answer or decline with this iPhone's key,
     /// through the same review → challenge → sign → journal → submit
-    /// sequence as a decision (spec.agent-relay.md section 8.2).
+    /// sequence as a decision (docs/specs/agent-relay.md section 7.2).
     func respond(_ response: InputResponse, to record: InputRecord) async {
         let requestID = record.spec.requestID
         guard let journal = commandJournal() else {
@@ -602,7 +602,7 @@ final class ControlCompanion {
 
     /// Signs and sends exactly the confirmed action, built from the session
     /// as reviewed. A moved session is reported and refetched for a fresh
-    /// review; nothing is resent or retargeted (spec.agent-relay.md 16).
+    /// review; nothing is resent or retargeted (docs/specs/agent-relay.md 15).
     func sendSessionCommand(_ proposal: AgentSessionProposal) async {
         let sessionID = proposal.action.agentSessionID
         guard let journal = commandJournal() else {
@@ -1016,7 +1016,7 @@ final class ControlCompanion {
 
     /// A handoff hint carries identity and expiry only. It cannot force a
     /// device to open, cannot authorize work, and no execution adapter accepts
-    /// it (spec.watch.md section 13).
+    /// it (docs/specs/control-protocol.md section 9.7).
     func handoffHint(for record: ApprovalRecord) -> JSONValue {
         .object([
             "v": 1,

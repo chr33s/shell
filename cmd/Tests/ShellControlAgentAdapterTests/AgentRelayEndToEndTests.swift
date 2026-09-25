@@ -8,7 +8,7 @@ import ShellControlBroker
 
 /// The whole relay in one process: a real broker, the real daemon, the real
 /// hook runner, and a device that reviews, signs, and submits
-/// (spec.agent-relay.md section 22: A01, A02, A08, A12, A13, A14, A18, A31).
+/// (docs/specs/agent-relay.md section 20: A01, A02, A08, A12, A13, A14, A18, A31).
 /// The native side is the fixture input and the hook's stdout; no provider
 /// runs and nothing executes.
 final class AgentRelayEndToEndTests: XCTestCase {

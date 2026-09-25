@@ -4,7 +4,7 @@ import ShellControlProtocol
 /// Everything the broker records for `shell-agent/1`. It lives beside the base
 /// ledger, under the same single writer and commit, so an agent request and
 /// its change event commit atomically; it is not a second authority
-/// (spec.agent-relay.md sections 12.2 and 15.1).
+/// (docs/specs/agent-relay.md sections 11.2 and 14.1).
 struct AgentLedger: Sendable {
     var sessions: [ControlID: AgentSessionEntry] = [:]
     var inputs: [ControlID: InputEntry] = [:]
@@ -56,7 +56,7 @@ struct InputEntry: Sendable {
 }
 
 /// A signed `agent.message` or `agent.turn.cancel`, recorded once and
-/// claimed at most once by the session's origin (spec.agent-relay.md 16).
+/// claimed at most once by the session's origin (docs/specs/agent-relay.md 15).
 struct SessionCommandEntry: Sendable {
     let accountID: ControlID
     let originID: ControlID

@@ -6,7 +6,7 @@ import ShellControlClient
 ///
 /// Written with complete file protection so it is unreadable while the device
 /// is locked, and cleared on logout or account change
-/// (spec.watch.md section 7).
+/// (docs/specs/control-protocol.md section 11.5).
 final class ProtectedInboxCache: InboxCacheStore, Sendable {
     private let url: URL
 

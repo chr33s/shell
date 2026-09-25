@@ -7,7 +7,7 @@ import ShellControlHostSupport
 /// pending requests, polls the broker, validates decisions against the
 /// still-blocked operation, consumes authorization, and hands the answer back
 /// through the program's native permission mechanism
-/// (spec.watch.md section 3).
+/// (docs/specs/control-protocol.md section 2).
 public actor DaemonCore {
     public struct Configuration: Sendable {
         public var brokerURL: URL
@@ -67,7 +67,7 @@ public actor DaemonCore {
 
     /// A registered provider session instance, keyed on the host by its
     /// provider identity and owning process. Continuity is never inferred
-    /// from a pane, a title, or a display name (spec.agent-relay.md 5.1).
+    /// from a pane, a title, or a display name (docs/specs/agent-relay.md 4.1).
     struct AgentSessionBinding: Sendable {
         let agentSessionID: ControlID
         let registration: AgentSessionRegistration
@@ -259,7 +259,7 @@ public actor DaemonCore {
 
     /// Re-runs the consume under the journaled ID. The broker returns the
     /// permit it already granted to that ID, so a claim whose reply was lost
-    /// is found instead of stranded (spec.watch.md section 12).
+    /// is found instead of stranded (docs/specs/control-protocol.md section 9.4).
     private func reclaim(_ requestID: ControlID, record: ApprovalRecord, consumeID: ControlID) async -> Reclaim {
         // Our consume never committed if the request is not approved: a claim
         // would have left it approved.
@@ -403,7 +403,7 @@ public actor DaemonCore {
         inFlight += 1
         defer { inFlight = max(0, inFlight - 1) }
         // Retransmission uses the same message ID and body hash; a reused ID
-        // with a different body is a conflict (spec.watch.md section 17).
+        // with a different body is a conflict (docs/specs/control-protocol.md section 15).
         if let previous = handled[request.messageID] {
             guard let hash = try? request.bodyHash(), hash == previous.bodyHash else {
                 return Self.reusedMessageID(request)
@@ -585,7 +585,7 @@ public actor DaemonCore {
         var requiredFeatures = [operation.schema, ControlFeature.consume]
         if case .agentTool(let agentOperation) = operation {
             // An agent operation belongs to the agent session registered on
-            // this run, and requires its kind token (spec.agent-relay.md 6.4).
+            // this run, and requires its kind token (docs/specs/agent-relay.md 5.4).
             guard let sessionID = binding.agentSessionID, sessionID == agentOperation.agentSessionID else {
                 throw ControlError(code: .invalidPayload, message: "agent operation does not belong to this run's agent session")
             }
@@ -619,7 +619,7 @@ public actor DaemonCore {
 
     /// `approval.wait` names the exact persisted request and returns its
     /// resolution and permit, or a terminal failure
-    /// (spec.watch.md section 17).
+    /// (docs/specs/control-protocol.md section 15).
     private func handleApprovalWait(_ request: IPCRequest) async throws -> JSONValue {
         let binding = try binding(for: request)
         var reader = try JSONReader(request.body)
@@ -635,7 +635,7 @@ public actor DaemonCore {
             return try await waitForApproval(requestID, requestHash: requestHash, binding: binding, deadline: deadline)
         } catch where Task.isCancelled {
             // The adapter went away: its native wait is gone. The request is
-            // withdrawn rather than left answerable (spec.agent-relay.md 5.2).
+            // withdrawn rather than left answerable (docs/specs/agent-relay.md 4.2).
             markWaiting(requestID, capability: binding.capability, isWaiting: false)
             if binding.agentSessionID != nil {
                 await withdrawOutsideCancellation(requestID, runID: binding.runID, requestHash: requestHash)
@@ -687,7 +687,7 @@ public actor DaemonCore {
                 }
                 try journal.append(.decisionObserved(requestID: requestID, decisionID: decisionID, resolution: .approved))
                 // The origin validates the waiting run, request hash, and local
-                // context before claiming (spec.watch.md section 12). The
+                // context before claiming (docs/specs/control-protocol.md section 9.4). The
                 // consume ID is journaled first, so a lost reply is retried
                 // under the same ID, here or by restart recovery.
                 let consumeID = try journaledConsumeID(for: requestID, decisionID: decisionID, capability: binding.capability)

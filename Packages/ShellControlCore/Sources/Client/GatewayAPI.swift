@@ -3,7 +3,7 @@ import ShellControlProtocol
 import ShellControlSecurity
 
 /// What a pairing claim returns: the ordinary enrollment challenge plus the
-/// device grant the Mac confirms locally (spec.iphone-gateway.md section 9).
+/// device grant the Mac confirms locally (docs/specs/control-protocol.md section 5.2).
 public struct PairingClaim: Sendable {
     public let enrollmentID: ControlID
     public let challenge: String
@@ -27,7 +27,7 @@ extension ControlAPIClient {
 
     /// `GET /v1/origin/proof`: the endpoint signs our nonce with the origin key.
     /// Reachability alone proves nothing; this does
-    /// (spec.iphone-gateway.md sections 7.4 and 24).
+    /// (docs/specs/control-protocol.md sections 4.4 and 4.5).
     public func originProof(nonce: String) async throws -> OriginProof {
         try OriginProof(unverified: try await get("/v1/origin/proof", query: [("nonce", nonce)], timeout: 8))
     }
@@ -73,7 +73,7 @@ extension ControlAPIClient {
     // MARK: Push capability
 
     /// Hands the Mac the relay-signed push capability. It is a delivery
-    /// address, never authentication (spec.iphone-gateway.md section 16.1).
+    /// address, never authentication (docs/specs/control-protocol.md section 12.2).
     public func registerPushCapability(_ capability: String) async throws {
         _ = try await send(method: "PUT", path: "/v1/devices/me/push-capability", body: .object([
             "capability": .string(capability)
@@ -92,7 +92,7 @@ extension ControlAPIClient {
 
     /// Proxied reads and mutations for a Watch bound to this gateway. The
     /// broker derives the gateway from this client's credential and checks
-    /// the binding on every call (spec.iphone-gateway.md section 13).
+    /// the binding on every call (docs/specs/control-protocol.md section 10.4).
     public func gatewaySnapshot(watch watchID: ControlID, pageToken: String? = nil, limit: Int) async throws -> JSONValue {
         var query = [("limit", String(max(1, min(limit, SnapshotPage.maximumItems))))]
         if let pageToken { query.append(("page", pageToken)) }

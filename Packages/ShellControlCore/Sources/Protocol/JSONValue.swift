@@ -7,7 +7,7 @@ import Foundation
 /// names and re-encode numbers in ways that would change a signed digest.
 /// `JSONValue` is parsed by ``JSONValue/parse(_:limits:)`` which fails closed on
 /// duplicate names, invalid Unicode, and oversized or overly nested documents
-/// (spec.watch.md sections 8 and 9).
+/// (docs/specs/control-protocol.md sections 6 and 7).
 public enum JSONValue: Sendable, Hashable {
     case null
     case bool(Bool)
@@ -20,7 +20,7 @@ public enum JSONValue: Sendable, Hashable {
 /// A JSON number restricted to the interoperable range the protocol allows.
 ///
 /// Counters used as JSON numbers stay inside the IEEE-754 safe-integer range
-/// (spec.watch.md section 8), so integers are carried exactly and doubles are
+/// (docs/specs/control-protocol.md section 6), so integers are carried exactly and doubles are
 /// only used for values a peer actually sent as fractional.
 public enum JSONNumber: Sendable, Hashable {
     case int(Int64)
@@ -37,7 +37,7 @@ public enum JSONNumber: Sendable, Hashable {
 }
 
 /// Structural limits applied while parsing, so a hostile peer cannot exhaust
-/// memory before validation runs (spec.watch.md section 8).
+/// memory before validation runs (docs/specs/control-protocol.md section 6).
 public struct JSONLimits: Sendable, Hashable {
     /// Maximum control/request document size.
     public static let maxDocumentBytes = 64 * 1024
@@ -202,7 +202,7 @@ private struct StrictJSONParser {
             guard current == "\"" else { throw JSONError.syntax("object name must be a string") }
             let name = try parseString()
             // RFC 8785 signing requires that a duplicate name never silently
-            // wins: mutations fail closed instead (spec.watch.md section 8).
+            // wins: mutations fail closed instead (docs/specs/control-protocol.md section 6).
             guard object[name] == nil else { throw JSONError.duplicateName(name) }
             skipWhitespace()
             guard current == ":" else { throw JSONError.syntax("expected ':'") }

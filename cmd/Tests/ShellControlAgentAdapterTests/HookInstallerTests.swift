@@ -4,7 +4,7 @@ import ShellControlProtocol
 @testable import ShellControlDaemon
 
 /// Setup merges only Shell's stanzas and keeps a backup; uninstall removes
-/// only Shell's stanzas (spec.agent-relay.md sections 10.1 and 19.7). Restart
+/// only Shell's stanzas (docs/specs/agent-relay.md sections 9.1 and 18.7). Restart
 /// recovery never replays an input response (section 9.3).
 final class HookInstallerTests: XCTestCase {
     private func temporary() throws -> URL {

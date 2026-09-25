@@ -704,7 +704,7 @@ extension Ghostty {
 
         /// Native recovery status for this terminal, rendered by
         /// `RecoveryStatusStrip` above the surface. Recovery status never
-        /// enters the terminal byte stream (spec.connectivity.md §12).
+        /// enters the terminal byte stream (docs/specs/mobile-connectivity.md §11).
         @Published var recoveryStatus: RecoveryStatusPresentation?
 
         /// Whether this terminal shows a reconnection overlay
@@ -4518,7 +4518,7 @@ extension Ghostty.TerminalView: GhosttyActionDelegate {
         // OSC 9 / OSC 777 text is program output. It may feed an informational
         // local alert and nothing else: it never mints approval authority, and
         // it never becomes a signed host claim or a permission request
-        // (spec.watch.md sections 2 and 14).
+        // (docs/specs/control-protocol.md sections 20.2 and 12).
         Ghostty.logger.debug("Terminal desktop notification: title=\(title ?? "nil")")
         ControlNotifications.postLocalTerminalAlert(title: title, body: body)
     }

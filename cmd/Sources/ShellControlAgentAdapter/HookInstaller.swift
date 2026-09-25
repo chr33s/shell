@@ -4,7 +4,7 @@ import ShellControlHostSupport
 
 /// Merges only Shell's own hook stanzas into a provider's hook settings,
 /// preserving every other hook and setting, writing atomically, and keeping a
-/// recoverable backup (spec.agent-relay.md sections 10.1 and 19.7).
+/// recoverable backup (docs/specs/agent-relay.md sections 9.1 and 18.7).
 public struct HookInstaller: Sendable {
     public let provider: AgentProvider
     /// The file the provider reads hooks from.

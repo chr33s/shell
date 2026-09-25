@@ -3,7 +3,7 @@
 //  shell
 //
 //  Connection health metrics for SSH sessions: round-trip time and probe
-//  failure rate (spec.connectivity.md §8.1). Not packet loss — the SSH layer
+//  failure rate (docs/specs/mobile-connectivity.md §7.1). Not packet loss — the SSH layer
 //  cannot observe IP datagrams.
 //
 
@@ -18,7 +18,7 @@ struct PingSample: Equatable, Sendable {
     /// Deliberately NOT "packet loss": an SSH global request that goes
     /// unanswered tells us the round trip was not confirmed. It says nothing
     /// about IP datagrams, and the SSH layer cannot observe them
-    /// (spec.connectivity.md §8.1).
+    /// (docs/specs/mobile-connectivity.md §7.1).
     let rttMilliseconds: Double?
 
     /// Cancelled and intentionally-suspended samples are excluded from the

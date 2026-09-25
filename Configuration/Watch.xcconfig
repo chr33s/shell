@@ -3,7 +3,7 @@
 // This file deliberately does NOT include Base.xcconfig. The base
 // configuration carries iOS/visionOS platforms, the iOS bridging header,
 // Ghostty linker settings, and the Shell bundle identity, none of which a
-// watchOS target may inherit (spec.watch.md sections 1 and 18).
+// watchOS target may inherit (docs/specs/control-protocol.md sections 1.1 and 20).
 
 // Development Team
 DEVELOPMENT_TEAM = 72KB9YQR7B
@@ -30,7 +30,7 @@ SUPPORTS_MACCATALYST = NO
 // the installer rejects an embedded watch app whose short version differs from
 // its host. Embedding is only how it ships — WKRunsIndependentlyOfCompanionApp
 // in ShellWatch/Info.plist is what keeps it usable with the phone app absent
-// (spec.watch.md section 1).
+// (docs/specs/control-protocol.md section 1.1).
 PRODUCT_NAME = ShellWatch
 PRODUCT_BUNDLE_IDENTIFIER = dev.chr33s.shell.watchkitapp
 INFOPLIST_KEY_CFBundleDisplayName = Shell
@@ -41,7 +41,7 @@ GENERATE_INFOPLIST_FILE = YES
 SHELL_WATCH_KEYCHAIN_ACCESS_GROUP = $(AppIdentifierPrefix)dev.chr33s.shell.watchkitapp
 
 // There is deliberately no broker URL: the Watch reaches its Mac only through
-// the paired iPhone over WatchConnectivity (spec.iphone-gateway.md 4.6).
+// the paired iPhone over WatchConnectivity (docs/specs/control-protocol.md 2.5).
 // App icon. The phone and Mac apps use AppIcon.icon (Icon Composer), whose
 // square artwork loses its corners under the Watch's circular mask, so the
 // Watch gets its own asset catalog built from the same icon.svg by

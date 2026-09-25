@@ -5,7 +5,7 @@ import Synchronization
 /// A command this device signed and whose outcome it has not yet confirmed.
 ///
 /// Persisted separately from the projection cache, so a snapshot refresh cannot
-/// erase an ambiguous submitted decision (spec.watch.md section 15).
+/// erase an ambiguous submitted decision (docs/specs/control-protocol.md section 13.1).
 public struct PendingCommand: Sendable, Hashable {
     public enum Status: String, Sendable, Hashable {
         case sending
@@ -18,7 +18,7 @@ public struct PendingCommand: Sendable, Hashable {
     /// The base command type, or nil for a `shell-agent/1` command.
     public let type: ControlCommandType?
     /// The agent command type; reconciled only through the agent endpoints
-    /// (spec.agent-relay.md section 8.3).
+    /// (docs/specs/agent-relay.md section 7.3).
     public let agentType: AgentCommandType?
     public let targetID: ControlID
     public let notAfter: ControlTimestamp
@@ -62,7 +62,7 @@ public struct PendingCommand: Sendable, Hashable {
 
     /// The identical command may be retried while its challenge and lifetime
     /// remain valid; a fresh signature is never generated automatically
-    /// (spec.watch.md section 15).
+    /// (docs/specs/control-protocol.md section 13.1).
     public func isRetryable(at now: ControlTimestamp) -> Bool { now < notAfter }
 
     public var json: JSONValue {

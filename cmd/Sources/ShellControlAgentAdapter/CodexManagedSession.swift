@@ -3,7 +3,7 @@ import ShellControlProtocol
 
 /// The local terminal of a managed session: agent output is written here and
 /// typed lines are read from here. It is the managed profile's own console,
-/// not a PTY Shell controls (spec.agent-relay.md sections 11.3 and 14.2).
+/// not a PTY Shell controls (docs/specs/agent-relay.md sections 10.3 and 13.2).
 public protocol ManagedTerminal: Sendable {
     func write(_ text: String)
     var lines: AsyncStream<String> { get }
@@ -52,7 +52,7 @@ public struct ManagedEnvironment: Sendable {
 
 /// The experimental managed Codex profile: this adapter owns the only
 /// `codex app-server` connection and therefore the request-routing path
-/// (spec.agent-relay.md sections 4.1, 11.2, 11.3, and 16).
+/// (docs/specs/agent-relay.md sections 3.1, 10.2, 10.3, and 15).
 ///
 /// Native approval and input requests are published to Shell with their
 /// exact JSON-RPC identity and connection epoch, and answered at most once —
@@ -131,7 +131,7 @@ public actor CodexManagedSession {
 
     /// Initializes the app-server, starts or resumes the thread, and
     /// registers the managed session. It refuses to start when a required
-    /// capability is unavailable (spec.agent-relay.md 4.1).
+    /// capability is unavailable (docs/specs/agent-relay.md 3.1).
     public func start() async throws {
         await connection.start { [weak self] inbound in await self?.handle(inbound) }
         _ = try await connection.request("initialize", .object([
@@ -222,7 +222,7 @@ public actor CodexManagedSession {
             await event(status == "completed" ? .turnCompleted : .turnFailed, turn: turn, summary: "Turn \(status)")
         case "item/agentMessage/delta":
             // Streamed text is shown locally only; it is never pushed or
-            // persisted token by token (spec.agent-relay.md 12.2).
+            // persisted token by token (docs/specs/agent-relay.md 11.2).
             if let delta = params["delta"]?.stringValue { terminal.write(delta) }
         case "serverRequest/resolved":
             // It names the request only; who answered it is not included.
@@ -295,7 +295,7 @@ public actor CodexManagedSession {
     /// the exact native identity and epoch. A member this adapter does not
     /// understand, or one that widens the scope (network, stdin to a running
     /// terminal, another environment, a directory grant), keeps it local
-    /// (spec.agent-relay.md sections 6.3 and 11.2).
+    /// (docs/specs/agent-relay.md sections 5.3 and 10.2).
     func approvalOperation(id: NativeIdentifier, method: String, params: JSONValue) throws -> (AgentToolOperation, String, String) {
         guard let members = params.objectValue, let threadID, members["threadId"]?.stringValue == threadID else {
             throw AdapterRefusal("native_context_changed", "request is not for this thread")
@@ -499,7 +499,7 @@ public actor CodexManagedSession {
     /// `item/tool/requestUserInput`, as the Codex 0.156.1 schema defines it:
     /// a question with options becomes a single choice over those exact
     /// labels, one without becomes text. Secret entry stays local, and an
-    /// auto-resolution interval shortens the deadline (spec.agent-relay.md
+    /// auto-resolution interval shortens the deadline (docs/specs/agent-relay.md
     /// sections 7.1 and 11.2).
     func inputQuestions(_ params: JSONValue) throws -> ([InputQuestion], [QuestionBinding], TimeInterval) {
         guard let members = params.objectValue, members["threadId"]?.stringValue == threadID else {

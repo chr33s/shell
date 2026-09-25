@@ -2,7 +2,7 @@ import XCTest
 @testable import ShellControlProtocol
 
 final class ApprovalSpecTests: XCTestCase {
-    /// The worked example from spec.watch.md section 9.
+    /// The worked example from docs/specs/control-protocol.md section 7.
     static let specJSON = """
     {
       "v": 1,

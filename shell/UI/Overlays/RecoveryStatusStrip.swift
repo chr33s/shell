@@ -2,7 +2,7 @@
 //  RecoveryStatusStrip.swift
 //  shell
 //
-//  Native recovery status strip (spec.connectivity.md §12).
+//  Native recovery status strip (docs/specs/mobile-connectivity.md §11).
 //
 //  Recovery status lives here, not in the terminal stream. Writing a spinner,
 //  a countdown, a "✓ Reconnected!" line, or an error into Ghostty corrupts

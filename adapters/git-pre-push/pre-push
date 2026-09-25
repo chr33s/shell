@@ -3,7 +3,7 @@
 #
 # Git calls this hook before any object is transferred and aborts the push on a
 # nonzero exit, which is exactly the documented blocking pre-execution hook the
-# protocol requires (spec.watch.md section 3).
+# protocol requires (docs/specs/control-protocol.md section 2).
 #
 # Install: copy to .git/hooks/pre-push and make it executable.
 set -eu

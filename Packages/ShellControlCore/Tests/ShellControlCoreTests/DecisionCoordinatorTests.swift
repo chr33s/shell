@@ -4,7 +4,7 @@ import XCTest
 @testable import ShellControlClient
 
 /// Review capability and submission-outcome classification in the
-/// coordinator (spec.watch.md sections 6, 15 and 16).
+/// coordinator (docs/specs/control-protocol.md sections 11.2, 13.1 and 14).
 final class DecisionCoordinatorTests: XCTestCase {
     private let phoneGrants = DeviceGrant.watchDefault
     private let watchGrants = DeviceGrant.watchReviewerDefault

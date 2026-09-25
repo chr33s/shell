@@ -213,7 +213,7 @@ public actor LifecycleCoordinator {
 
     /// Sends approval hints through the stateless Shell Push Relay. The Mac
     /// holds no APNs credential in this configuration
-    /// (spec.iphone-gateway.md section 16).
+    /// (docs/specs/control-protocol.md section 12).
     public func configurePushRelay(url: String) async throws {
         guard let parsed = URL(string: url), parsed.scheme == "https", parsed.host != nil,
               parsed.user == nil, parsed.query == nil, parsed.fragment == nil else {
@@ -377,7 +377,7 @@ public actor LifecycleCoordinator {
 
     /// The origin ID and its signing key exist before the broker starts, so
     /// the broker can prove the identity the setup QR pins
-    /// (spec.iphone-gateway.md section 7.1). A key that disappears after it
+    /// (docs/specs/control-protocol.md section 4.2). A key that disappears after it
     /// was recorded is never silently regenerated.
     private func ensureOriginIdentity(_ loaded: inout LoadedInstallation) throws {
         if loaded.secrets.originID == nil {
@@ -425,7 +425,7 @@ public actor LifecycleCoordinator {
     }
 
     /// Re-reads this Mac's MagicDNS name. A changed name is a route change,
-    /// never a trust change (spec.iphone-gateway.md sections 7.5 and 24).
+    /// never a trust change (docs/specs/control-protocol.md sections 4.3 and 4.5).
     private func refreshTailnetRoute(_ loaded: inout LoadedInstallation) async throws {
         let path = try tailscalePath(loaded.installation)
         note("Checking Tailscale...\n")
@@ -443,7 +443,7 @@ public actor LifecycleCoordinator {
 
     /// Configures Tailscale Serve and then validates the resulting state
     /// rather than trusting the CLI's exit status
-    /// (spec.iphone-gateway.md section 4.4).
+    /// (docs/specs/control-protocol.md section 2.3).
     private func configureServe(_ loaded: inout LoadedInstallation) async throws {
         let path = try tailscalePath(loaded.installation)
         guard let host = loaded.installation.publicURL.flatMap({ URL(string: $0)?.host }) else {
@@ -455,7 +455,7 @@ public actor LifecycleCoordinator {
         }
         if case .conflict(let reason) = state.ownership(host: host, ownedPorts: loaded.installation.ownedServePorts) {
             // Another application owns the endpoint: stop before replacing it
-            // (spec.control-companion-setup.md section 7.3).
+            // (docs/specs/control-setup.md section 4.3).
             throw ManagementError.unavailable("serve_conflict: \(reason); Shell did not change it — move that handler or free HTTPS 443, then rerun setup")
         }
         if !state.servesBroker(host: host, port: loaded.installation.port) {
@@ -549,7 +549,7 @@ public actor LifecycleCoordinator {
         )
         let localReady = broker.state == "ready" && daemon.state == "ready"
         // In tailscale mode readiness is the validated Serve state plus a
-        // connected tailnet (spec.iphone-gateway.md 4.4); the Mac's HTTPS probe
+        // connected tailnet (docs/specs/control-protocol.md 2.3); the Mac's HTTPS probe
         // of its own Serve name is reported but can fail on some Tailscale
         // clients without the phone's route being affected.
         let routeReady = loaded.installation.addressMode == .loopback
@@ -622,7 +622,7 @@ public actor LifecycleCoordinator {
     }
 
     /// Mints a one-use pairing on the running broker and builds the setup QR
-    /// payload around the pinned origin identity (spec.iphone-gateway.md 9.1).
+    /// payload around the pinned origin identity (docs/specs/control-protocol.md 5.2).
     public func pairingInvitation(admin: any PairingAdministration = LivePairingAdministration()) async throws -> PairingInvitation {
         let loaded = try store.load()
         guard let routeText = loaded.installation.publicURL else {
@@ -636,7 +636,7 @@ public actor LifecycleCoordinator {
     }
 
     /// The origin-signed route update for the current route. It changes no
-    /// trust state (spec.iphone-gateway.md section 25.3).
+    /// trust state (docs/specs/control-protocol.md section 16).
     public func routeUpdate() throws -> OriginRouteUpdate {
         let loaded = try store.load()
         guard let routeText = loaded.installation.publicURL else {

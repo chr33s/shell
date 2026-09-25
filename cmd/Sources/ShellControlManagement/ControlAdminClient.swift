@@ -92,7 +92,7 @@ public struct OriginSummary: Codable, Sendable, Equatable {
 }
 
 /// Enrolled devices by role, as `shell-control status` reports them
-/// (spec.iphone-gateway.md section 25.2).
+/// (docs/specs/control-protocol.md section 16).
 public struct EnrollmentSummary: Codable, Sendable, Equatable {
     public struct Device: Codable, Sendable, Equatable {
         public var deviceID: String

@@ -97,7 +97,7 @@ enum GuidedSetupCommand {
     }
 
     /// Cancellation stops the guide only: pairings, keys, and services stay.
-    /// Say what is still running (spec.control-companion-setup.md 7.4).
+    /// Say what is still running (docs/specs/control-setup.md 4.4).
     private static func reportLeftRunning(_ manager: LifecycleCoordinator) async {
         let status = await Task.detached { await manager.status() }.value
         stderr("\nGuide cancelled. Nothing already set up was undone.")

@@ -4,7 +4,7 @@ import ShellControlHostSupport
 
 /// The adapter's view of `shell-controld`: authenticated per-user IPC and a
 /// per-run capability that never leaves this process — not in tmux options,
-/// arguments, hook configuration, or logs (spec.agent-relay.md 5.2).
+/// arguments, hook configuration, or logs (docs/specs/agent-relay.md 4.2).
 public protocol AdapterDaemon: Sendable {
     func exchange(_ type: IPCMessageType, capability: String?, body: JSONValue, timeout: TimeInterval) async throws -> JSONValue
 }

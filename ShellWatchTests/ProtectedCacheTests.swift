@@ -4,7 +4,7 @@ import ShellControlClient
 
 @testable import ShellWatch
 
-/// The Watch's small protected cache (spec.watch.md section 7).
+/// The Watch's small protected cache (docs/specs/control-protocol.md section 11.5).
 final class ProtectedCacheTests: XCTestCase {
     private let now = ControlTimestamp(Date(timeIntervalSince1970: 1_788_000_000))
 

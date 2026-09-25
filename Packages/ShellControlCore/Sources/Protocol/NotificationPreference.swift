@@ -2,7 +2,7 @@ import Foundation
 
 /// One iPhone's remote-alert preference as the Mac holds it:
 /// `GET`/`PUT /v1/devices/me/notification-preference`
-/// (spec.control-companion-setup.md section 10.3).
+/// (docs/specs/control-setup.md section 7.3).
 ///
 /// It changes notification delivery only, never reviewer authorization. A
 /// record with no stored preference reports version 0 with its legacy

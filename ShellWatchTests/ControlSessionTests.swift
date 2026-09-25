@@ -7,7 +7,7 @@ import ShellControlClient
 
 /// The Watch session behind the iPhone gateway: enrollment through the
 /// iPhone, live-only decisions, stale cache, and command reconciliation
-/// (spec.iphone-gateway.md sections 10, 11, 14, 15, and 18).
+/// (docs/specs/control-protocol.md sections 5.3, 10.1, 10.5, 10.6, and 11.5).
 @MainActor
 final class ControlSessionTests: XCTestCase {
     private let now = ControlTimestamp(Date(timeIntervalSince1970: 1_788_000_000))

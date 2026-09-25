@@ -4,7 +4,7 @@ import Foundation
 /// followed by one UTF-8 JSON document, maximum 64 KiB.
 ///
 /// This avoids newline parsing of terminal data, and the PTY is never reused as
-/// the control channel (spec.watch.md section 17).
+/// the control channel (docs/specs/control-protocol.md section 15).
 public enum IPCFraming {
     public static let maxFrameBytes = JSONLimits.maxDocumentBytes
 
@@ -38,7 +38,7 @@ public enum IPCFraming {
     }
 }
 
-/// The mandatory local IPC messages (spec.watch.md section 17).
+/// The mandatory local IPC messages (docs/specs/control-protocol.md section 15).
 public enum IPCMessageType: String, Sendable, Hashable, CaseIterable {
     case hello
     case notify
@@ -47,7 +47,7 @@ public enum IPCMessageType: String, Sendable, Hashable, CaseIterable {
     case approvalWithdraw = "approval.withdraw"
     case receipt
     // `shell-agent/1` messages, negotiated by an agent adapter
-    // (spec.agent-relay.md section 15.4). Existing approval messages remain
+    // (docs/specs/agent-relay.md section 14.4). Existing approval messages remain
     // the approval path.
     case agentRegister = "agent.register"
     case agentEvent = "agent.event"
@@ -56,12 +56,12 @@ public enum IPCMessageType: String, Sendable, Hashable, CaseIterable {
     case inputWithdraw = "input.withdraw"
     case agentReceipt = "agent.receipt"
     /// A managed adapter waits for its session's next signed command and
-    /// receives it claimed for its connection (spec.agent-relay.md 16).
+    /// receives it claimed for its connection (docs/specs/agent-relay.md 15).
     case sessionCommandWait = "session.command.wait"
 }
 
 /// Every IPC request carries a message ID and the per-run local capability;
-/// retransmission uses the same ID and body hash (spec.watch.md section 17).
+/// retransmission uses the same ID and body hash (docs/specs/control-protocol.md section 15).
 public struct IPCRequest: Sendable, Hashable {
     public let messageID: ControlID
     public let type: IPCMessageType
@@ -138,7 +138,7 @@ public struct IPCResponse: Sendable, Hashable {
     }
 }
 
-/// The CLI exit convention (spec.watch.md section 17). A nonzero status never
+/// The CLI exit convention (docs/specs/control-protocol.md section 15). A nonzero status never
 /// authorizes, and the caller must still validate the structured result.
 public enum ControlExitCode: Int32, Sendable, CaseIterable {
     case approved = 0

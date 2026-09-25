@@ -24,7 +24,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         // Control-companion notification categories and the response handler are
         // installed before any scene or view is constructed, so a notification
         // that arrives during a background launch still has its actions and a
-        // delegate to route them (spec.watch.md section 2). This runs outside
+        // delegate to route them (docs/specs/control-protocol.md section 20.2). This runs outside
         // the protected-data gate because it touches no UserDefaults and no
         // Keychain item, and it does not disturb the CloudKit push path below.
         ControlNotifications.registerCategories()
@@ -34,7 +34,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         // can launch this app in the background while the phone is locked. The
         // session is activated here, before the protected-data gate and before
         // any network work, so that message gets its live reply
-        // (spec.iphone-gateway.md section 11.1). Everything a Watch message
+        // (docs/specs/control-protocol.md section 10.1). Everything a Watch message
         // reads — the binding, pinned origin, and session — is in the Keychain
         // after first unlock; before first unlock those reads fail and the
         // Watch is told the gateway is unavailable, never that it is unbound.
@@ -93,7 +93,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     }
 
     /// The APNs token becomes a relay push capability for the Mac. A token is
-    /// a delivery address, never authentication (spec.iphone-gateway.md 16).
+    /// a delivery address, never authentication (docs/specs/control-protocol.md 12).
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
         Task { @MainActor in
             await ControlCompanion.shared.didRegisterForRemoteNotifications(deviceToken: deviceToken)
@@ -154,7 +154,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 
     /// Routes a notification response into the review flow. The response
     /// selects an intent; it never authorizes anything from the payload
-    /// (spec.watch.md section 6).
+    /// (docs/specs/control-protocol.md section 11.2).
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse,

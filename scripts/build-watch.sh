@@ -6,7 +6,7 @@
 #
 # The Watch target is built separately from the iOS target on purpose: it does
 # not share the iOS bridging header, bundle identity, or Ghostty linker flags
-# (spec.watch.md section 18).
+# (docs/specs/control-protocol.md section 20).
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

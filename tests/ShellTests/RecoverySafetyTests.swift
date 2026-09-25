@@ -2,7 +2,7 @@
 //  RecoverySafetyTests.swift
 //  ShellTests
 //
-//  The rest of spec.connectivity.md §17.1: tmux continuity (AC-11, AC-12),
+//  The rest of docs/specs/mobile-connectivity.md §16.1: tmux continuity (AC-11, AC-12),
 //  input safety and backpressure (AC-14, AC-19), descriptor migration
 //  (AC-22), honest health reporting (AC-24), the recovery UI's copy and its
 //  absence from the terminal stream (AC-16, AC-18), and the deadline

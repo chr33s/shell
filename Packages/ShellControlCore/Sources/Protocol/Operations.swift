@@ -5,10 +5,10 @@ import Foundation
 /// Only negotiated schemas are approvable on the Watch; an unknown schema is
 /// carried opaquely so the client can display "review on another device"
 /// without ever rendering it as something it understands
-/// (spec.watch.md section 9).
+/// (docs/specs/control-protocol.md section 7).
 public enum ControlOperation: Sendable, Hashable {
     case exec(ExecOperation)
-    /// `agent.tool.v1` (spec.agent-relay.md section 6).
+    /// `agent.tool.v1` (docs/specs/agent-relay.md section 5).
     case agentTool(AgentToolOperation)
     case unknown(schema: String, raw: JSONValue)
 
@@ -22,7 +22,7 @@ public enum ControlOperation: Sendable, Hashable {
 
     /// Recognized means this build renders the operation. An agent operation
     /// of an unknown kind or scope is carried but never recognized, so a
-    /// full-size screen cannot make it approvable (spec.agent-relay.md 6.1).
+    /// full-size screen cannot make it approvable (docs/specs/agent-relay.md 5.1).
     public var isRecognized: Bool {
         switch self {
         case .exec: return true
@@ -63,7 +63,7 @@ public enum ControlOperation: Sendable, Hashable {
 ///
 /// Requires a nonempty argument array, an absolute executable path, an absolute
 /// working directory, and an adapter-produced context commitment
-/// (spec.watch.md section 9).
+/// (docs/specs/control-protocol.md section 7).
 public struct ExecOperation: Sendable, Hashable {
     public static let schema = "exec.v1"
 

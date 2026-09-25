@@ -2,7 +2,7 @@ import XCTest
 @testable import ShellControlProtocol
 @testable import ShellControlSecurity
 
-/// `shell-agent/1` protocol rules (spec.agent-relay.md sections 6–9, 15).
+/// `shell-agent/1` protocol rules (docs/specs/agent-relay.md sections 5–8, 14).
 final class AgentProtocolTests: XCTestCase {
     private let hex = String(repeating: "a", count: 64)
     private let now = ControlTimestamp(Date(timeIntervalSince1970: 1_790_000_000))

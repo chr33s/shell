@@ -1,6 +1,6 @@
 import Foundation
 
-/// Informational event kinds in v1 (spec.watch.md section 14).
+/// Informational event kinds in v1 (docs/specs/control-protocol.md section 12).
 public enum NotificationKind: String, Sendable, Hashable, CaseIterable {
     case jobCompleted = "job.completed"
     case jobFailed = "job.failed"
@@ -15,7 +15,7 @@ public enum NotificationSeverity: String, Sendable, Hashable, CaseIterable {
 
 /// An origin-authored informational event. It is never a permission request:
 /// terminal OSC events observed in the phone client may drive the same local
-/// UI, but never become signed host claims (spec.watch.md section 14).
+/// UI, but never become signed host claims (docs/specs/control-protocol.md section 12).
 public struct InformationalEvent: Sendable, Hashable {
     public let eventID: ControlID
     public let originID: ControlID
@@ -107,7 +107,7 @@ public struct InformationalEvent: Sendable, Hashable {
     }
 
     /// Body-hash idempotency: the same event ID with a different body is a
-    /// conflict, not an update (spec.watch.md section 10).
+    /// conflict, not an update (docs/specs/control-protocol.md section 8.1).
     public func bodyHash() throws -> String {
         try ContentDigest.digest(ofCanonical: .object([
             "kind": .string(kind.rawValue),
@@ -128,7 +128,7 @@ public enum PushCategory {
     /// Actions in order. Review is first and `.foreground`, because Apple
     /// invokes the first nondestructive action for Double Tap and runs
     /// foreground actions on the device where they were selected
-    /// (spec.watch.md section 6).
+    /// (docs/specs/control-protocol.md section 11.2).
     public enum Action: String, Sendable, CaseIterable {
         case review = "SHELL_REVIEW"
         case approve = "SHELL_APPROVE_INTENT"
@@ -138,7 +138,7 @@ public enum PushCategory {
 
 /// Builds the alert payload. It carries identifiers and minimal display
 /// metadata only: never a reusable credential, private key, callback URL, or a
-/// command to execute (spec.watch.md section 14).
+/// command to execute (docs/specs/control-protocol.md section 12).
 public struct ApprovalPushPayload: Sendable, Hashable {
     public static let maximumBytes = 4096
 
@@ -185,12 +185,12 @@ public struct ApprovalPushPayload: Sendable, Hashable {
     }
 
     /// Request-scoped collapse identifier. Collapsing coalesces pushes; it does
-    /// not implement the protocol's deduplication (spec.watch.md section 14).
+    /// not implement the protocol's deduplication (docs/specs/control-protocol.md section 12).
     public var collapseID: String { "approval.\(requestID.rawValue)" }
 }
 
 /// Provider headers for one push. `apns-expiration` never outlives the request
-/// deadline (spec.watch.md section 14).
+/// deadline (docs/specs/control-protocol.md section 12).
 public struct APNsRequestHeaders: Sendable, Hashable {
     public let topic: String
     public let pushType = "alert"
@@ -216,7 +216,7 @@ public struct APNsRequestHeaders: Sendable, Hashable {
 }
 
 /// A registered delivery address. A push token is not authentication
-/// (spec.watch.md section 5).
+/// (docs/specs/control-protocol.md section 5.1).
 public struct PushRegistration: Sendable, Hashable {
     public enum Platform: String, Sendable, Hashable, CaseIterable {
         case watchOS

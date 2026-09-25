@@ -2,7 +2,7 @@
 //  ProfileEditorSheet.swift
 //  shell
 //
-//  The profile edit screen (spec section 13): name, host, port, username,
+//  The profile edit screen (docs/specs/shell.md §12): name, host, port, username,
 //  authentication / identity, jump host, TERM, and tmux. Nothing else.
 //
 
@@ -259,7 +259,7 @@ struct ProfileEditorSheet: View {
         return keyManager.findKey(id: id)
     }
 
-    /// "Ed25519", "P-256 · Secure Enclave · Certificate", … (spec section 13).
+    /// "Ed25519", "P-256 · Secure Enclave · Certificate", … (docs/specs/shell.md §12).
     static func identityLabel(_ key: SSHKey) -> String {
         var parts: [String] = [key.keyType == .secureEnclaveP256 ? "P-256" : key.keyType.rawValue]
         if key.secureEnclaveInfo != nil { parts.append("Secure Enclave") }

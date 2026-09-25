@@ -8,12 +8,12 @@ import ShellControlProtocol
 import Synchronization
 
 /// The accept loop for per-user framed IPC, shared by `shell-controld` and the
-/// bundled Control host (spec.agent-relay.md sections 3.1 and 19.2).
+/// bundled Control host (docs/specs/agent-relay.md sections 2.1 and 18.2).
 ///
 /// Every peer is checked to run as this user before a frame is read. Each
 /// connection is served on its own queue item; a request whose adapter
 /// disconnects mid-wait is cancelled, because the native wait left with it
-/// (spec.agent-relay.md sections 5.2 and 10.2).
+/// (docs/specs/agent-relay.md sections 4.2 and 9.2).
 public final class FramedIPCServer: Sendable {
     public typealias Handler = @Sendable (IPCRequest) async -> IPCResponse
 

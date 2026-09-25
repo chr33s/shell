@@ -5,7 +5,7 @@ import ShellControlSecurity
 /// Independent setup over OAuth device authorization (RFC 8628), confirmed in
 /// an authenticated browser on any suitable device — not necessarily the paired
 /// iPhone, and never requiring the Shell iPhone app
-/// (spec.watch.md section 5).
+/// (docs/specs/control-protocol.md section 5.1).
 public struct DeviceAuthorization: Sendable, Hashable {
     public let deviceCode: String
     public let userCode: String
@@ -36,7 +36,7 @@ public enum EnrollmentError: Error, Sendable, Equatable {
     case server(String)
 }
 
-/// Runs the enrollment sequence of spec.watch.md section 5.
+/// Runs the enrollment sequence of docs/specs/control-protocol.md section 5.1.
 ///
 /// The key is generated locally and only its public half ever leaves the
 /// device; the enrollment is one-use and grants no control authority until it
@@ -129,7 +129,7 @@ public actor EnrollmentCoordinator {
     }
 
     /// Refresh with a rotating refresh token. Refresh endpoints verify
-    /// revocation (spec.watch.md section 5).
+    /// revocation (docs/specs/control-protocol.md section 5.1).
     public func refresh(session: DeviceSession) async throws -> DeviceSession {
         let value = try await postFormJSON("/v1/oauth/token", fields: [
             "grant_type": "refresh_token",
@@ -166,7 +166,7 @@ public actor EnrollmentCoordinator {
             // A refresh that fails because the device was revoked must reach
             // the caller as `device_revoked`, not as an opaque server string:
             // one means re-enrol, the other means retry later
-            // (spec.watch.md section 16).
+            // (docs/specs/control-protocol.md section 14).
             if let error = try? ControlError(json: value) { throw error }
             throw EnrollmentError.server(value["error"]?.stringValue ?? "HTTP \(response.status)")
         }

@@ -6,7 +6,7 @@ import ShellControlHostSupport
 ///
 /// The immutable question is persisted before it is published, and dispatch
 /// intent is recorded before the native permission gate is answered, so a crash
-/// is recoverable rather than ambiguous (spec.watch.md sections 12 and 17).
+/// is recoverable rather than ambiguous (docs/specs/control-protocol.md sections 9.4 and 15).
 public struct DispatchJournal: Sendable {
     public enum Entry: Sendable, Hashable {
         case runStarted(runID: ControlID, jobID: ControlID)
@@ -33,7 +33,7 @@ public struct DispatchJournal: Sendable {
         /// before it is published, the consume mutation ID before the claim,
         /// and every delivery state the adapter reports, so a crash leaves a
         /// withdrawal or an `unknown` receipt to send — never a replay
-        /// (spec.agent-relay.md section 9.3).
+        /// (docs/specs/agent-relay.md section 8.3).
         case inputPersisted(requestID: ControlID, requestHash: String, runID: ControlID)
         case inputResolved(requestID: ControlID, resolution: String)
         case inputConsumeIntent(requestID: ControlID, mutationID: ControlID, commandID: ControlID)
@@ -231,7 +231,7 @@ public struct DispatchJournal: Sendable {
     /// An unterminated, unparseable final record is an `append` torn by a
     /// crash: that append never returned, so nothing acted on it, and it is not
     /// a record. Corruption anywhere else still fails closed; only
-    /// `repairAtStartup` may set it aside (spec.cli.md section 10.2).
+    /// `repairAtStartup` may set it aside (docs/specs/control-cli.md section 9.2).
     public func load() throws -> [Entry] {
         let scan = Self.scan(try Data(contentsOf: url))
         if let line = scan.corruptLines.first {

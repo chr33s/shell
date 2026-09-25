@@ -5,7 +5,7 @@ import ShellControlProtocol
 /// JWS, persisted before sending and separately from any inbox cache. After an
 /// ambiguous failure the device asks about that command ID and may resend the
 /// identical JWS while it is still valid; it never signs a replacement
-/// (spec.iphone-gateway.md section 15).
+/// (docs/specs/control-protocol.md section 10.6).
 public final class FileCommandJournalStore: CommandJournalStore, Sendable {
     private let url: URL
     private let protection: Data.WritingOptions

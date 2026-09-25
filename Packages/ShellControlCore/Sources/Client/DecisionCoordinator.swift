@@ -4,7 +4,7 @@ import ShellControlSecurity
 
 /// What the UI shows after a submission. These are distinct states: a recorded
 /// decision does not mean the host applied it, and an unknown outcome is not a
-/// failure to decide (spec.watch.md section 6).
+/// failure to decide (docs/specs/control-protocol.md section 11.2).
 public enum SubmissionState: Sendable, Hashable {
     case sending
     case decisionRecorded(CommandResult)
@@ -27,7 +27,7 @@ public enum SubmissionState: Sendable, Hashable {
 
 /// The four calls a decision needs. The iPhone reaches the Mac directly; the
 /// Watch reaches it through the iPhone gateway. Either way the signed command
-/// is the only authority (spec.iphone-gateway.md section 13).
+/// is the only authority (docs/specs/control-protocol.md section 10.4).
 public protocol ControlDecisionService: Sendable {
     func approval(_ requestID: ControlID) async throws -> ApprovalRecord
     func reviewChallenge(_ request: ReviewChallengeRequest) async throws -> ReviewChallenge
@@ -59,7 +59,7 @@ public struct SignerIdentity: Sendable, Hashable {
 ///
 /// Every step re-fetches: the request is fetched before a decision is enabled,
 /// the challenge binds the exact hash and versions, and the signed payload is
-/// the only authority the broker accepts (spec.watch.md sections 6 and 11).
+/// the only authority the broker accepts (docs/specs/control-protocol.md sections 11.2 and 9.2).
 public actor DecisionCoordinator {
     public enum CoordinatorError: Error, Sendable, Equatable {
         /// This device may not approve the request; review it elsewhere. On a
@@ -77,7 +77,7 @@ public actor DecisionCoordinator {
     private let session: SignerIdentity
     private let now: @Sendable () -> Date
     /// The review this device provides. Only a full-review client may approve
-    /// a `minimum_review: full` request (spec.watch.md section 6); the broker
+    /// a `minimum_review: full` request (docs/specs/control-protocol.md section 11.2); the broker
     /// enforces the same rule from its own device registration.
     public nonisolated let review: MinimumReview
 
@@ -194,7 +194,7 @@ public actor DecisionCoordinator {
     }
 
     /// Acknowledging is not approving, and needs no review challenge
-    /// (spec.watch.md section 13).
+    /// (docs/specs/control-protocol.md section 9.7).
     public func acknowledge(notification: InformationalEvent) async throws -> SubmissionState {
         guard session.grants.contains(.notificationsAck) else { throw CoordinatorError.missingGrant(.notificationsAck) }
         let commandID = ControlID.random()
@@ -222,7 +222,7 @@ public actor DecisionCoordinator {
     }
 
     /// Cooperative cancellation. The Watch shows "Cancellation requested" until
-    /// an origin confirms (spec.watch.md section 13).
+    /// an origin confirms (docs/specs/control-protocol.md section 9.7).
     public func cancelJob(jobID: ControlID, runID: ControlID, expectedJobVersion: Int64) async throws -> SubmissionState {
         guard session.grants.contains(.jobsCancel) else { throw CoordinatorError.missingGrant(.jobsCancel) }
         let challenge = try await client.reviewChallenge(
@@ -291,11 +291,11 @@ public actor DecisionCoordinator {
 
     /// Reconciles one journalled command on reconnection. After expiry it can
     /// still retrieve status, but never creates a new decision
-    /// (spec.watch.md section 15).
+    /// (docs/specs/control-protocol.md section 13.1).
     public func reconcile(_ pending: PendingCommand) async throws -> SubmissionState {
         // An agent command is reconciled only through the agent endpoints;
         // the base endpoint would never find it, and resending it there
-        // would be refused (spec.agent-relay.md section 8.1).
+        // would be refused (docs/specs/agent-relay.md section 7.1).
         guard !pending.isAgentCommand else {
             return .outcomeUnknown(commandID: pending.commandID, reason: "reconciled by the agent coordinator")
         }

@@ -5,7 +5,7 @@ import Synchronization
 
 /// The Watch's only way out: an immediate WatchConnectivity round trip to its
 /// paired iPhone. There is no URL, no Tailscale session, and no bearer token
-/// on this side (spec.iphone-gateway.md sections 4.6 and 11.1).
+/// on this side (docs/specs/control-protocol.md sections 2.5 and 10.1).
 public protocol WatchGatewayLink: Sendable {
     /// `WCSession.isReachable`, checked before any decision is enabled.
     func isReachable() async -> Bool

@@ -1,11 +1,11 @@
 # shell-control (broker)
 
-The durable broker described in [`../../spec.watch.md`](../../spec.watch.md)
-section 3: enrollment, authorization policy, immutable request documents,
+The durable broker described in [`docs/specs/control-protocol.md`](../../docs/specs/control-protocol.md)
+section 2: enrollment, authorization policy, immutable request documents,
 resolution and dispatch records, the ordered change log, idempotency records,
 and the push outbox.
 
-Under [`../../spec.iphone-gateway.md`](../../spec.iphone-gateway.md) it runs on
+Under [`docs/specs/control-protocol.md`](../../docs/specs/control-protocol.md) it runs on
 the execution Mac as the sole authority, on loopback, published only inside the
 tailnet by Tailscale Serve. Given an origin identity (`origin_id` plus
 `origin_key_file`) it additionally:
@@ -33,7 +33,7 @@ tailnet by Tailscale Serve. Given an origin identity (`origin_id` plus
   and is advertised as `notification.preference.v1` in `/v1/capabilities`.
 
 It also serves the optional `shell-agent/1` extension of
-[`../../spec.agent-relay.md`](../../spec.agent-relay.md) under `/v1/agent/*`:
+[`docs/specs/agent-relay.md`](../../docs/specs/agent-relay.md) under `/v1/agent/*`:
 agent session registration, immutable typed inputs, signed `input.respond`
 commands (first valid response wins), one-time input consume permits bound to
 the exact native wait, detailed `agent.delivery.v1` receipts, informational

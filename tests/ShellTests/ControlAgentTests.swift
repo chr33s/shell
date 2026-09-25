@@ -5,7 +5,7 @@
 //  The phone's agent view model: discovery that hides the section on a Mac
 //  without the extension, opt-in grants, snapshot-then-changes, the
 //  approval-then-input lookup for notification hints, and the exact typed
-//  answer (spec.agent-relay.md sections 7.3, 12, 13.1, and 15).
+//  answer (docs/specs/agent-relay.md sections 6.3, 11, 12.1, and 14).
 //
 
 import XCTest

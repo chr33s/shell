@@ -6,12 +6,12 @@
 //  stateless Shell Push Relay for a signed push capability and hands that to
 //  its Mac over Tailscale. A push is only ever a hint; without a relay the
 //  Mac's ledger is simply discovered on the next refresh
-//  (spec.iphone-gateway.md section 16).
+//  (docs/specs/control-protocol.md section 12).
 //
 //  Registration runs only under an explicit local "configured" choice for
 //  this origin and device: a build-configured relay URL is availability, not
 //  consent. Every attempt runs under a policy generation, and a result from
-//  an older generation is discarded (spec.control-companion-setup.md 10).
+//  an older generation is discarded (docs/specs/control-setup.md 7).
 //
 
 import Foundation

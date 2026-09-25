@@ -2,7 +2,7 @@ import Foundation
 
 /// Whether a session is between turns or running one. Only managed sessions
 /// report it, from the provider's own turn events
-/// (spec.agent-relay.md section 16).
+/// (docs/specs/agent-relay.md section 15).
 public enum AgentTurnState: String, Sendable, Hashable {
     case idle
     case active
@@ -18,7 +18,7 @@ public enum AgentMessageMode: String, Sendable, Hashable {
 /// The exact action a session command performs. Its digest is committed in
 /// the review challenge before signing and again in the signed command, so a
 /// command targeting mutable session state is still bound to exactly what the
-/// user confirmed (spec.agent-relay.md section 16.1).
+/// user confirmed (docs/specs/agent-relay.md section 15.1).
 public enum AgentSessionAction: Sendable, Hashable {
     case message(agentSessionID: ControlID, runID: ControlID, expectedSessionVersion: Int64, mode: AgentMessageMode, expectedTurnID: String?, text: String)
     case cancel(agentSessionID: ControlID, runID: ControlID, expectedSessionVersion: Int64, turnID: String)
@@ -279,7 +279,7 @@ public struct AgentSessionClaimRequest: Sendable, Hashable {
 }
 
 /// A one-time grant to perform one session action on one connection, never
-/// later than the signed deadline (spec.agent-relay.md sections 8.2, 16).
+/// later than the signed deadline (docs/specs/agent-relay.md sections 7.2, 15).
 public struct AgentSessionPermit: Sendable, Hashable {
     public let permitID: ControlID
     public let mutationID: ControlID

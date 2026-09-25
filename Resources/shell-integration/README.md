@@ -6,7 +6,7 @@ supports.
 
 This fork ships integration for Bash and Zsh only; the upstream
 Elvish, Fish and Nushell scripts were removed along with the
-shell presets that offered them (spec.md §2).
+shell presets that offered them (docs/specs/shell.md §2.2).
 
 This README is meant as developer documentation and not as
 user documentation. For user documentation, see the main

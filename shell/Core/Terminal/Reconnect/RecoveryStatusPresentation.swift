@@ -3,7 +3,7 @@
 //  shell
 //
 //  Maps recovery state onto the native status strip's copy and actions
-//  (spec.connectivity.md §12).
+//  (docs/specs/mobile-connectivity.md §11).
 //
 //  This is a pure value mapping with no SwiftUI import, so the wording rules
 //  the spec is specific about are unit-testable:

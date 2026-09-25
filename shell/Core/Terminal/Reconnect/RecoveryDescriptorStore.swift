@@ -3,7 +3,7 @@
 //  shell
 //
 //  Versioned, device-local persistence of recovery intent
-//  (spec.connectivity.md §13, §14, CON-10).
+//  (docs/specs/mobile-connectivity.md §12, §14, CON-10).
 //
 //  What is stored is *intent*, not a connection: no tasks, no channels, no
 //  key material, no Ghostty pointers, and no terminal contents. A cold launch

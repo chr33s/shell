@@ -5,7 +5,7 @@ import ShellControlClient
 
 @testable import ShellWatch
 
-/// Notification handling on the Watch (spec.watch.md section 6).
+/// Notification handling on the Watch (docs/specs/control-protocol.md section 11.2).
 final class NotificationRoutingTests: XCTestCase {
     func testReviewIsFirstAndEveryActionIsForeground() throws {
         let category = ShellNotificationCategories.makeApprovalCategory()
@@ -76,7 +76,7 @@ final class NotificationRoutingTests: XCTestCase {
     }
 
     /// The Watch has no route of its own: no broker URL is baked into it and
-    /// none can be configured (spec.iphone-gateway.md section 4.6).
+    /// none can be configured (docs/specs/control-protocol.md section 2.5).
     func testTheWatchBundleCarriesNoBrokerAddress() {
         XCTAssertNil(Bundle.main.object(forInfoDictionaryKey: "SHELLControlBrokerURL"))
     }

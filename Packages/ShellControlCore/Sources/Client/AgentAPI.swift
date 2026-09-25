@@ -3,7 +3,7 @@ import ShellControlProtocol
 
 /// Typed access to the optional `shell-agent/1` endpoints. A broker without
 /// the extension answers `not_found` on discovery, which clients treat as
-/// "agent integrations unsupported" (spec.agent-relay.md section 15).
+/// "agent integrations unsupported" (docs/specs/agent-relay.md section 14).
 extension ControlAPIClient {
     // MARK: Devices
 
@@ -104,7 +104,7 @@ extension ControlAPIClient {
     // MARK: Gateway: a Watch reviewer's agent calls
 
     /// Proxied through this iPhone; the broker checks the binding, grant, and
-    /// the Watch's own signature on every call (spec.agent-relay.md 15.5).
+    /// the Watch's own signature on every call (docs/specs/agent-relay.md 14.5).
     public func gatewayAgentCapabilities(watch watchID: ControlID) async throws -> JSONValue {
         try await get("\(Self.reviewerPath(watchID))/agent/capabilities")
     }

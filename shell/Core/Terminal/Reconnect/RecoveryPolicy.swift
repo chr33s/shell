@@ -3,7 +3,7 @@
 //  shell
 //
 //  Injectable scheduling policy for connection recovery
-//  (spec.connectivity.md §7.2, §7.3, §8, §10).
+//  (docs/specs/mobile-connectivity.md §6.2, §7.3, §8, §10).
 //
 //  Every number here is a *proposed default*, not a measured optimum, and
 //  none of them is a user-facing tuning knob in the first release (§14). They

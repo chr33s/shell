@@ -70,7 +70,7 @@ struct ShellApp: App {
                         // A setup link is only staged: the user confirms it
                         // before anything is contacted or trusted. A route
                         // link only updates routing, and only if it verifies
-                        // under the pinned key (spec.iphone-gateway.md 9, 24).
+                        // under the pinned key (docs/specs/control-protocol.md 5.2, 4.5).
                         Task { @MainActor in
                             await ControlCompanion.shared.handleScanned(url.absoluteString, fromLink: true)
                             NotificationCenter.default.post(name: .controlPairingReceived, object: nil)
@@ -109,7 +109,7 @@ struct ShellApp: App {
 
                     // Foreground activation is one of the Shell Control
                     // refresh triggers; correctness never depends on it
-                    // (spec.iphone-gateway.md section 17).
+                    // (docs/specs/control-protocol.md section 11.4).
                     Task { @MainActor in await ControlCompanion.shared.refresh() }
 
                     // Save a snapshot of sentinel UserDefaults keys while data is available.

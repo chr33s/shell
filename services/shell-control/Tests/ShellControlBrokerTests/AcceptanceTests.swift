@@ -3,7 +3,7 @@ import ShellControlProtocol
 import ShellControlSecurity
 @testable import ShellControlBroker
 
-/// The acceptance and failure table of spec.watch.md section 19, exercised
+/// The acceptance and failure table of docs/specs/control-protocol.md section 19, exercised
 /// against the broker's state machines.
 final class AcceptanceTests: XCTestCase {
     private func makeHarness() async throws -> (BrokerHarness, ControlID, ControlID) {

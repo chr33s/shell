@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://shell.chr33s.dev/schemas/agent-tool-operation.schema.json",
   "title": "agent.tool.v1",
-  "description": "An agent operation waiting at one native permission gate (spec.agent-relay.md section 6). Unknown kinds and scopes are carried but never approvable.",
+  "description": "An agent operation waiting at one native permission gate (docs/specs/agent-relay.md section 5). Unknown kinds and scopes are carried but never approvable.",
   "type": "object",
   "additionalProperties": false,
   "required": [

@@ -3,7 +3,7 @@
 //  shell
 //
 //  Mac Catalyst only: this Mac as a Control host. Consent, status in the
-//  readiness words of spec.agent-relay.md section 19.9, the Tailscale route
+//  readiness words of docs/specs/agent-relay.md section 18.9, the Tailscale route
 //  the user configured outside Shell (19.7), pairing, and enrolled devices.
 //  iPhone, iPad, and visionOS never compile it.
 //

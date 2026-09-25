@@ -7,7 +7,7 @@
 //  draft, the exact action a confirmation screen shows before signing, and
 //  the distinct outcome of each command. The action is always built from the
 //  session exactly as the user reviewed it; a session that moved is refused
-//  and reviewed again, never retargeted (spec.agent-relay.md section 16).
+//  and reviewed again, never retargeted (docs/specs/agent-relay.md section 15).
 //
 
 import Foundation
@@ -19,7 +19,7 @@ import ShellControlClient
 
 /// What the session screen may offer. Every control needs its own grant and
 /// the session's own negotiated feature; nothing falls back to typing into a
-/// terminal (spec.agent-relay.md sections 14.1 and 16).
+/// terminal (docs/specs/agent-relay.md sections 13.1 and 15).
 struct AgentSessionControls: Equatable {
     /// The session may be shown at all.
     let canRead: Bool
@@ -63,7 +63,7 @@ struct AgentSessionControls: Equatable {
 
 /// The user's in-progress instruction. It never signs anything: it produces
 /// the exact action the confirmation screen shows, from the session as it
-/// was reviewed (spec.agent-relay.md 16.1).
+/// was reviewed (docs/specs/agent-relay.md 15.1).
 struct AgentMessageDraft: Equatable {
     enum DraftError: Error, Equatable {
         case empty
@@ -158,7 +158,7 @@ struct AgentSessionProposal: Equatable, Identifiable {
 
 /// The distinct states of one session command. A recorded command is not
 /// agent acceptance, and acceptance is not proof the turn did anything
-/// (spec.agent-relay.md sections 13.1 and 16.2).
+/// (docs/specs/agent-relay.md sections 12.1 and 15.2).
 enum AgentSessionOutcome: Equatable {
     case sending
     case recorded
@@ -275,7 +275,7 @@ struct AgentLocalSessionCommand: Equatable {
 // MARK: - Sending
 
 /// Why a session command was not sent. Nothing is resent or retargeted: the
-/// user reviews the session again (spec.agent-relay.md 16.1).
+/// user reviews the session again (docs/specs/agent-relay.md 15.1).
 enum AgentSessionSendFailure: Error, Equatable {
     case sessionChanged
     case missingGrant(DeviceGrant)

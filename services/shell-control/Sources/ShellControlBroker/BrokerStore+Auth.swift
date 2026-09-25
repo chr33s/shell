@@ -4,7 +4,7 @@ import ShellControlProtocol
 import ShellControlSecurity
 
 /// A pending enrollment. It grants no control authority until it completes, and
-/// it is one-use (spec.watch.md section 5).
+/// it is one-use (docs/specs/control-protocol.md section 5.1).
 struct EnrollmentRecord: Sendable {
     let enrollmentID: ControlID
     let publicJWK: DeviceJWK
@@ -133,7 +133,7 @@ extension BrokerStore {
 
     /// What the authenticated confirmation page displays: requested origin
     /// permissions, platform, device label, and key fingerprint
-    /// (spec.watch.md section 5).
+    /// (docs/specs/control-protocol.md section 5.1).
     public func describeUserCode(_ userCode: String) throws -> JSONValue {
         if let reviewer = reviewerRequest(userCode: userCode) { return try describeReviewer(reviewer) }
         guard let record = deviceAuthorizations.values.first(where: { $0.userCode == userCode }),
@@ -306,7 +306,7 @@ extension BrokerStore {
         let access = accessToken ?? Base64URL.encode(BrokerStore.randomBytes(32))
         let refresh = refreshToken ?? Base64URL.encode(BrokerStore.randomBytes(32))
         // Access tokens last ten minutes; refresh tokens rotate with a 30-day
-        // idle lifetime (spec.watch.md section 5).
+        // idle lifetime (docs/specs/control-protocol.md section 5.1).
         let accessExpiry = timestamp.adding(10 * 60)
         accessTokens[BrokerStore.verifier(for: access)] = TokenRecord(
             verifier: BrokerStore.verifier(for: access),
@@ -339,7 +339,7 @@ extension BrokerStore {
     /// How long a just-rotated refresh token may be presented again. A lost
     /// refresh response would otherwise leave the client holding only a spent
     /// token, and a spent token sends the iPhone back to pairing
-    /// (spec.iphone-gateway.md, decisions).
+    /// (docs/specs/control-protocol.md, decisions).
     static let refreshReplayGrace: TimeInterval = 60
 
     /// Rotating refresh: the presented token is spent, and revocation is
@@ -419,7 +419,7 @@ extension BrokerStore {
     }
 
     /// Account logout: the device session is revoked here, and the Watch
-    /// removes its local credentials (spec.watch.md section 5).
+    /// removes its local credentials (docs/specs/control-protocol.md section 5.1).
     public func revokeSessions(deviceID: ControlID) throws {
         for (key, record) in accessTokens where record.deviceID == deviceID { accessTokens[key]?.revoked = true; _ = record }
         for (key, record) in refreshTokens where record.deviceID == deviceID { refreshTokens[key]?.revoked = true; _ = record }

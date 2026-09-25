@@ -4,7 +4,7 @@ import ShellControlSecurity
 
 /// `shell-agent/1` origin-side mutations: sessions, typed inputs, withdrawal,
 /// one-time consume, delivery receipts, and informational events
-/// (spec.agent-relay.md sections 5, 7, 9, 12, and 15).
+/// (docs/specs/agent-relay.md sections 4, 6, 8, 11, and 14).
 extension BrokerStore {
     // MARK: Capabilities
 
@@ -50,7 +50,7 @@ extension BrokerStore {
     /// `POST /v1/agent/sessions`: an idempotent upsert of one provider session
     /// instance. Its identity fields are immutable; a later hook invocation of
     /// the same session rebinds only its current run and location
-    /// (spec.agent-relay.md 5.2).
+    /// (docs/specs/agent-relay.md 4.2).
     public func registerAgentSession(principal: Principal, registration: AgentSessionRegistration) throws -> AgentSessionProjection {
         guard let originID = principal.originID else {
             throw ControlError(code: .notAuthorized, message: "only origins register agent sessions")
@@ -121,7 +121,7 @@ extension BrokerStore {
     /// Checks an `agent.tool.v1` approval against its registered session
     /// before the base approval is created: the session must be active, belong
     /// to this origin, and have negotiated the operation kind; the approval
-    /// must require the kind's feature token (spec.agent-relay.md 6.4).
+    /// must require the kind's feature token (docs/specs/agent-relay.md 5.4).
     func validateAgentApproval(_ operation: AgentToolOperation, spec: ApprovalSpec, originID: ControlID) throws {
         guard let session = agent.sessions[operation.agentSessionID], session.originID == originID else {
             throw ControlError(code: .invalidPayload, message: "agent session is not registered for this origin")
@@ -326,7 +326,7 @@ extension BrokerStore {
 
     /// `POST /v1/agent/inputs/{id}/consume`: claim the winning response once
     /// for the exact live wait. The same mutation returns the same permit; it
-    /// never mints a fresh deadline (spec.agent-relay.md 15.3).
+    /// never mints a fresh deadline (docs/specs/agent-relay.md 14.3).
     public func consumeInput(principal: Principal, requestID: ControlID, request: InputConsumeRequest) throws -> InputConsumePermit {
         guard let originID = principal.originID else {
             throw ControlError(code: .notAuthorized, message: "only origins consume inputs")
@@ -393,7 +393,7 @@ extension BrokerStore {
 
     /// `POST /v1/agent/receipts`: correlated, idempotent delivery evidence.
     /// Transitions are forward-only; the legacy approval dispatch is derived
-    /// conservatively (spec.agent-relay.md 9.2).
+    /// conservatively (docs/specs/agent-relay.md 8.2).
     public func recordAgentReceipt(principal: Principal, receipt: AgentDeliveryReceipt) throws {
         guard let originID = principal.originID else {
             throw ControlError(code: .notAuthorized, message: "only origins report receipts")
@@ -512,7 +512,7 @@ extension BrokerStore {
 
     /// `POST /v1/agent/events`: informational, idempotent by event ID. A
     /// session end or turn end withdraws that session's pending requests; no
-    /// event can resolve a request as answered (spec.agent-relay.md 12.1).
+    /// event can resolve a request as answered (docs/specs/agent-relay.md 11.1).
     public func recordAgentEvent(principal: Principal, event: AgentEvent) throws {
         guard let originID = principal.originID, event.originID == originID else {
             throw ControlError(code: .notAuthorized, message: "origins report only their own events")
@@ -670,7 +670,7 @@ extension BrokerStore {
     // MARK: Push
 
     /// A generic attention hint for a new input: opaque IDs only; opening it
-    /// fetches current state (spec.agent-relay.md 12.3).
+    /// fetches current state (docs/specs/agent-relay.md 11.3).
     private func enqueueInputRelayPushes(accountID: ControlID, spec: InputSpec) {
         for device in devices.values where device.accountID == accountID && !device.isRevoked && !device.alertsSuppressed {
             guard let capability = device.pushCapability,
@@ -690,7 +690,7 @@ extension BrokerStore {
 
     /// Adds or removes the agent grants of one enrolled device. Grants are
     /// separately revocable and never part of a pairing default
-    /// (spec.agent-relay.md 17.1).
+    /// (docs/specs/agent-relay.md 16.1).
     public func setAgentGrants(deviceID: ControlID, enabled: Bool, messages: Bool = false, cancel: Bool = false, principal: Principal) throws -> Set<DeviceGrant> {
         guard case .admin(let accountID) = principal else {
             throw ControlError(code: .notAuthorized, message: "grant changes require account administration")

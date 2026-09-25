@@ -5,7 +5,7 @@ import ShellControlSecurity
 /// `shell-watch-agent-gateway/1`: the negotiated Watch transport extension for
 /// agent inputs. It shares the WCSession with `shell-watch-gateway/1` but is
 /// routed by its explicit protocol discriminator to a separate strict decoder
-/// (spec.agent-relay.md section 15.5).
+/// (docs/specs/agent-relay.md section 14.5).
 public enum WatchAgentGatewayProtocol {
     public static let name = "shell-watch-agent-gateway/1"
 }

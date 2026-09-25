@@ -27,7 +27,7 @@ public struct HookEnvironment: Sendable {
     public var terminalLocation: @Sendable () async -> TerminalLocation?
     public var fileSystem: any AdapterFileSystem
     /// Monotonic elapsed time since the hook started; a wall-clock jump can
-    /// never lengthen the local deadline (spec.agent-relay.md section 18).
+    /// never lengthen the local deadline (docs/specs/agent-relay.md section 17).
     public var elapsed: @Sendable () -> TimeInterval
     public var now: @Sendable () -> ControlTimestamp
     public var log: @Sendable (String) -> Void
@@ -64,7 +64,7 @@ public struct HookEnvironment: Sendable {
 }
 
 /// `shell-control agent hook claude-code|codex`: one synchronous native hook
-/// invocation (spec.agent-relay.md sections 10 and 11).
+/// invocation (docs/specs/agent-relay.md sections 9 and 10).
 ///
 /// Before publication, anything unsupported or unavailable hands the prompt
 /// back to the terminal. After publication, failure produces a native denial
@@ -75,7 +75,7 @@ public struct HookRunner: Sendable {
 
     /// Review is at most 300 s, the hook stops waiting by 330 s after entry,
     /// and the tested outer timeout is 360 s. Setup time is subtracted, never
-    /// added (spec.agent-relay.md 10.2).
+    /// added (docs/specs/agent-relay.md 9.2).
     public static let reviewWindow: TimeInterval = AgentPolicy.defaultLifetime
     public static let internalDeadline: TimeInterval = AgentPolicy.hookInternalDeadline
     /// Time kept back after the wait for recheck, write, and receipts.
@@ -266,7 +266,7 @@ public struct HookRunner: Sendable {
     }
 
     /// An adapter-generated denial: labelled a system outcome, never a user
-    /// rejection (spec.agent-relay.md 9.1).
+    /// rejection (docs/specs/agent-relay.md 8.1).
     private func systemDenial(run: AdapterRun, published: (requestID: ControlID, requestHash: String), waitID: ControlID,
                               evidence: String, message: String) async -> HookOutcome {
         _ = try? await run.send(.approvalWithdraw, .object([
@@ -310,7 +310,7 @@ public struct HookRunner: Sendable {
                 "summary": .string(Self.questionSummary(mapping, provider: env.provider)),
                 "questions": .array(mapping.questions.map(\.json)),
                 // No tested native decline mapping: only answers are offered,
-                // and expiry never invents one (spec.agent-relay.md 7.3).
+                // and expiry never invents one (docs/specs/agent-relay.md 6.3).
                 "allowed_responses": JSONValue(strings: [InputAllowedResponse.answer.rawValue]),
                 "minimum_review": .string((watchSized ? MinimumReview.watch : .full).rawValue),
                 "lifetime_seconds": .number(.int(Int64(window))),
@@ -480,7 +480,7 @@ public struct HookRunner: Sendable {
 
     /// The native `PermissionRequest` decision. No permission updates, rules,
     /// modified arguments, or mode changes are ever included: they would alter
-    /// what the reviewer approved (spec.agent-relay.md 10.1, 11.1).
+    /// what the reviewer approved (docs/specs/agent-relay.md 9.1, 10.1).
     public static func permissionResponse(allow: Bool, message: String?, provider: AgentProvider) -> Data {
         var decision: [String: JSONValue] = ["behavior": .string(allow ? "allow" : "deny")]
         if !allow, let message { decision["message"] = .string(String(message.prefix(200))) }

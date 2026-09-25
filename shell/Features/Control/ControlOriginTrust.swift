@@ -5,7 +5,7 @@
 //  Pairing and route updates. The Shell origin key is identity; the
 //  Tailscale URL is routing. A scanned setup QR pins the origin, a scanned
 //  route QR only moves routing, and neither ever copies a private key
-//  (spec.iphone-gateway.md sections 7, 9, and 24).
+//  (docs/specs/control-protocol.md sections 4.2, 5.2, and 4.5).
 //
 
 import Foundation
@@ -46,7 +46,7 @@ struct ControlPairingProgress: Equatable {
     var replacesOrigin: Bool
 }
 
-/// The iPhone half of spec.iphone-gateway.md section 9.2.
+/// The iPhone half of docs/specs/control-protocol.md section 5.2.
 struct ControlPairingFlow {
     enum FlowError: Error, CustomStringConvertible {
         case expired

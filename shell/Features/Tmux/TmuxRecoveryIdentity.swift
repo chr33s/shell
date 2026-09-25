@@ -3,7 +3,7 @@
 //  shell
 //
 //  Verified tmux session continuity for the recovery path
-//  (spec.connectivity.md §9.1, CON-05).
+//  (docs/specs/mobile-connectivity.md §8.1, CON-05).
 //
 //  The rule this file exists to enforce: on a recovery path Shell attaches to
 //  an *exact existing session* and never uses create-or-attach. The connect

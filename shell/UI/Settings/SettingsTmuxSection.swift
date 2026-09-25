@@ -3,7 +3,7 @@
 //  shell
 //
 //  tmux settings: default mode, default session name, new-tab action,
-//  close-window behavior (spec section 12).
+//  close-window behavior (docs/specs/shell.md §11.3).
 //
 
 import SwiftUI

@@ -5,7 +5,7 @@ import ShellControlClient
 /// Whether this Watch may answer a typed question right now, and if not,
 /// why. Only a narrow question — at most two questions, four choices each,
 /// or short explicitly permitted text — that was fetched live through a
-/// reachable iPhone can be answered here (spec.agent-relay.md section 13.2).
+/// reachable iPhone can be answered here (docs/specs/agent-relay.md section 12.2).
 enum WatchInputEligibility: Equatable {
     case answerable
     /// The question itself needs the iPhone or Mac: too complex, full review,
@@ -53,7 +53,7 @@ enum WatchInputEligibility: Equatable {
 /// user's confirmation. Dictated or scribbled text is only ever a draft:
 /// nothing can be signed until the user has confirmed the exact response on
 /// the final screen, and any later edit withdraws that confirmation
-/// (spec.agent-relay.md sections 7.3 and 13.2).
+/// (docs/specs/agent-relay.md sections 6.3 and 12.2).
 struct WatchAnswerDraft: Equatable {
     /// Selections and draft text, as dictation or Scribble produced it.
     private(set) var answers = InputAnswerDraft()
@@ -99,7 +99,7 @@ struct WatchAnswerDraft: Equatable {
 }
 
 /// Words for agent answer states, each distinct: recorded is not accepted,
-/// and accepted is not task completion (spec.agent-relay.md 13.1).
+/// and accepted is not task completion (docs/specs/agent-relay.md 12.1).
 enum AgentSubmissionLabel {
     static func text(_ state: AgentSubmissionState) -> String {
         switch state {

@@ -6,7 +6,7 @@
 //  Prepare Mac → Pair iPhone → Test review → Done, with Apple Watch and
 //  remote alerts as optional sections. Every status names what was observed
 //  and when; what this app cannot observe is labelled unknown
-//  (spec.control-companion-setup.md sections 8-12).
+//  (docs/specs/control-setup.md sections 5-9).
 //
 
 import SwiftUI

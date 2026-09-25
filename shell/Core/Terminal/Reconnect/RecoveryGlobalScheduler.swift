@@ -3,7 +3,7 @@
 //  shell
 //
 //  App-wide admission control for automatic recovery attempts
-//  (spec.connectivity.md §7.2).
+//  (docs/specs/mobile-connectivity.md §6.2).
 //
 //  Without this, twenty tmux panes and three SSH tabs coming back from a
 //  tunnel outage dial the same host twenty-three times at once. The limits

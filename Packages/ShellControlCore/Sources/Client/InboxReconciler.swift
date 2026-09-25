@@ -8,7 +8,7 @@ public struct InboxState: Sendable, Hashable {
     public var notifications: [ControlID: InformationalEvent] = [:]
     public var cursor: ChangeCursor?
     /// When the projection was last confirmed against the server. Cached data
-    /// must visibly say when it was last refreshed (spec.watch.md section 6).
+    /// must visibly say when it was last refreshed (docs/specs/control-protocol.md section 11.2).
     public var lastRefreshedAt: ControlTimestamp?
     /// Event IDs already applied, for at-least-once deduplication.
     public var seenEventIDs: Set<ControlID> = []
@@ -35,7 +35,7 @@ public struct InboxState: Sendable, Hashable {
 }
 
 /// Where the client persists its cache. Cache mutations and cursor advancement
-/// commit atomically (spec.watch.md section 15).
+/// commit atomically (docs/specs/control-protocol.md section 13.1).
 public protocol InboxCacheStore: Sendable {
     func load() throws -> InboxState?
     func commit(_ state: InboxState) throws
@@ -64,7 +64,7 @@ public final class InMemoryInboxCache: InboxCacheStore, Sendable {
 ///
 /// A completed snapshot is applied atomically before deltas after its cursor
 /// are consumed; deltas are deduplicated by event ID and stale resource
-/// versions are ignored (spec.watch.md section 15).
+/// versions are ignored (docs/specs/control-protocol.md section 13.1).
 public struct InboxReconciler: Sendable {
     public private(set) var state: InboxState
     /// Highest applied version per resource, so an out-of-order redelivery
@@ -113,7 +113,7 @@ public struct InboxReconciler: Sendable {
     ///
     /// A permissions change may require this reset so stale unauthorized
     /// objects are removed; unresolved local command IDs are kept elsewhere and
-    /// are unaffected (spec.watch.md section 15).
+    /// are unaffected (docs/specs/control-protocol.md section 13.1).
     public mutating func applyCompletedSnapshot(_ accumulator: SnapshotAccumulator, at serverTime: ControlTimestamp) throws {
         guard accumulator.isComplete else { throw ReconcileError.snapshotIncomplete }
         var next = InboxState()

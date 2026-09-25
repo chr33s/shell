@@ -2,7 +2,7 @@ import Foundation
 
 /// The fixed, harmless request `shell-control test-review` publishes through
 /// the ordinary review, signed-decision, consume, and receipt pipeline
-/// (spec.control-companion-setup.md section 11).
+/// (docs/specs/control-setup.md section 8).
 ///
 /// Nothing about it is caller-supplied: no executable, argument, path,
 /// environment, terminal target, or network action. The host never runs the

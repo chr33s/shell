@@ -24,7 +24,7 @@
 		<string>CloudKit</string>
 	</array>
 	<!-- Mac Catalyst only: the App Group shared with the bundled Control host,
-	     whose Mach service lives in its namespace (spec.agent-relay.md 19.5).
+	     whose Mach service lives in its namespace (docs/specs/agent-relay.md 18.5).
 	     iOS, iPadOS, and visionOS keep Shell.entitlements unchanged. -->
 	<key>com.apple.security.application-groups</key>
 	<array>

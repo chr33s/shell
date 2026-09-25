@@ -4,7 +4,7 @@ import ShellControlClient
 @testable import ShellControlDaemon
 
 /// A scripted broker: enough of the origin-facing surface to drive the daemon
-/// end to end without a network (spec.watch.md section 20).
+/// end to end without a network (docs/specs/control-protocol.md section 19.5).
 actor FakeBroker: ControlHTTPTransport {
     var approvals: [ControlID: ApprovalRecord] = [:]
     var receipts: [Receipt] = []

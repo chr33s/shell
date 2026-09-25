@@ -2,7 +2,7 @@ import Foundation
 import ShellControlProtocol
 
 // Portable diagnostic models shared by the Mac CLI and the iPhone and Watch
-// presentation layers (spec.control-companion-setup.md section 12).
+// presentation layers (docs/specs/control-setup.md section 9).
 //
 // A diagnostic snapshot is evidence for display, never authorization: a
 // green check does not let anything decide, and a stale or failed one does
@@ -189,7 +189,7 @@ public struct DiagnosticCheck: Sendable, Hashable, Identifiable {
     }
 
     /// Connectivity evidence older than this is shown as "Last checked"
-    /// rather than as current (spec.control-companion-setup.md 12.3).
+    /// rather than as current (docs/specs/control-setup.md 9.3).
     public static let freshness: TimeInterval = 30
 
     public func isFresh(at now: Date, maxAge: TimeInterval = DiagnosticCheck.freshness) -> Bool {
@@ -306,7 +306,7 @@ public struct DiagnosticReport: Sendable, Hashable {
 // MARK: - Export
 
 /// Removes secrets, content, and identifying names from diagnostic text
-/// before it leaves the device (spec.control-companion-setup.md section 13).
+/// before it leaves the device (docs/specs/control-setup.md section 10).
 ///
 /// It is deliberately aggressive: a redacted export that loses a detail is
 /// fine, a leaked token is not. Identifiers are pseudonymised consistently
@@ -378,7 +378,7 @@ public final class DiagnosticRedactor: @unchecked Sendable {
 }
 
 /// An explicit, local diagnostic export: allowlisted structured fields only,
-/// no raw logs, and nothing is uploaded (spec.control-companion-setup.md 13).
+/// no raw logs, and nothing is uploaded (docs/specs/control-setup.md 10).
 public enum DiagnosticExport {
     public static let schema = "shell-control-diagnostics-export/1"
 
@@ -429,7 +429,7 @@ public enum DiagnosticExport {
 
 /// Runs one diagnostic pass at a time: a second request while one is in
 /// flight joins it instead of starting duplicate probes, and the whole pass
-/// is bounded (spec.control-companion-setup.md section 12.3). There is no
+/// is bounded (docs/specs/control-setup.md section 9.3). There is no
 /// loop here; passes run on screen open, explicit refresh, and after setup
 /// steps only.
 public actor DiagnosticPassCoordinator {

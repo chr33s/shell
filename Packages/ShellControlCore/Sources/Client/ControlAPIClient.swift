@@ -4,12 +4,12 @@ import ShellControlSecurity
 
 /// Credentials the client presents. The account/tenant is always derived by the
 /// server from these, never from a caller-supplied account ID
-/// (spec.watch.md section 4).
+/// (docs/specs/control-protocol.md section 3.1).
 public enum ControlCredential: Sendable {
     /// A device-scoped bearer access token.
     case device(String)
     /// A per-origin, separately provisioned high-entropy credential. It is
-    /// never distributed to watchOS clients (spec.watch.md section 10).
+    /// never distributed to watchOS clients (docs/specs/control-protocol.md section 8.1).
     case origin(originID: ControlID, secret: String)
     case none
 
@@ -23,7 +23,7 @@ public enum ControlCredential: Sendable {
     }
 }
 
-/// Typed access to the `/v1` runtime endpoints (spec.watch.md section 10).
+/// Typed access to the `/v1` runtime endpoints (docs/specs/control-protocol.md section 8.1).
 public actor ControlAPIClient {
     public let baseURL: URL
     private let transport: any ControlHTTPTransport
@@ -79,7 +79,7 @@ public actor ControlAPIClient {
 
     /// Submits a signed mutation. `Idempotency-Key` equals the command ID, so a
     /// retry retrieves the recorded result instead of deciding twice
-    /// (spec.watch.md section 11).
+    /// (docs/specs/control-protocol.md section 9.2).
     public func submit(signedCommand: String, commandID: ControlID) async throws -> CommandResult {
         let value = try await send(
             method: "POST",

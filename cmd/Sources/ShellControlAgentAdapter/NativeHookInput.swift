@@ -36,7 +36,7 @@ public struct NativeHookInput: Sendable, Hashable {
     /// commitment and the response.
     public let raw: JSONValue
 
-    /// SHA-256 over the canonical native input (spec.agent-relay.md 6.2).
+    /// SHA-256 over the canonical native input (docs/specs/agent-relay.md 5.2).
     public var nativeRequestSHA256: String {
         ContentDigest.sha256Hex((try? JSONCanonicalization.canonicalize(raw)) ?? Data())
     }
@@ -52,7 +52,7 @@ public struct NativeHookInput: Sendable, Hashable {
 
     /// Decodes one provider's hook input. Each provider has its own decoder:
     /// they share normalized types, not assumptions about field coverage
-    /// (spec.agent-relay.md 11.1).
+    /// (docs/specs/agent-relay.md 10.1).
     public static func decode(_ data: Data, provider: AgentProvider) throws -> NativeHookInput {
         guard data.count <= AgentPolicy.maximumNativeInputBytes else {
             throw AdapterRefusal("limit_exceeded", "native input exceeds \(AgentPolicy.maximumNativeInputBytes) bytes")

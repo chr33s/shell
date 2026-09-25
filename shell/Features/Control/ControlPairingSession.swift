@@ -6,7 +6,7 @@
 //  `shell-watch-gateway/1` profile. Interactive Watch requests arrive as
 //  `sendMessageData` and are answered from a live Mac round trip; background
 //  channels carry only stale-tolerant context out, and nothing they deliver
-//  in is acted on (spec.iphone-gateway.md section 11).
+//  in is acted on (docs/specs/control-protocol.md section 10.1).
 //
 
 import Foundation
@@ -101,7 +101,7 @@ final class ControlPairingSession: NSObject, WCSessionDelegate {
     }
 
     /// Queued delivery never authorizes: a Watch command that arrives this way
-    /// is dropped, not deferred (spec.iphone-gateway.md section 11.3).
+    /// is dropped, not deferred (docs/specs/control-protocol.md section 10.2).
     nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any]) {
         _ = WatchGatewayRouter.refusesBackground(userInfo)
     }

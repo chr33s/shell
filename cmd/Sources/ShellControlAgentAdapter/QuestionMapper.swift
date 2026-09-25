@@ -5,7 +5,7 @@ import ShellControlProtocol
 /// preserved exactly, Shell assigns stable IDs, and typed answers map back to
 /// the provider's question-text keys and option labels through a committed
 /// mapping — never by a lossy or truncated display label
-/// (spec.agent-relay.md sections 7 and 10.3).
+/// (docs/specs/agent-relay.md sections 6 and 9.3).
 public struct QuestionMapping: Sendable, Hashable {
     public let questions: [InputQuestion]
     public let mapping: InputAnswerMapping

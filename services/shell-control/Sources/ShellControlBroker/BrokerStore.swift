@@ -8,7 +8,7 @@ import ShellControlSecurity
 /// It is a single logical writer: one actor serialises all mutations, which is
 /// what preserves per-request and per-job ordering. A horizontally scaled
 /// implementation must preserve that serialisation
-/// (spec.watch.md sections 3 and 12).
+/// (docs/specs/control-protocol.md sections 2 and 9.4).
 public actor BrokerStore {
     // MARK: State
 
@@ -22,7 +22,7 @@ public actor BrokerStore {
     var idempotency: [String: IdempotencyRecord] = [:]
     var originMutations: [String: OriginMutationRecord] = [:]
     /// Receipt IDs already applied, with when, so they age out with the other
-    /// command records (spec.watch.md section 15).
+    /// command records (docs/specs/control-protocol.md section 13.1).
     var receipts: [ControlID: ControlTimestamp] = [:]
     var tombstones: [ControlID: Tombstone] = [:]
     var changeLog: [ChangeEvent] = []
@@ -88,7 +88,7 @@ public actor BrokerStore {
     let now: @Sendable () -> Date
     var persistence: (any BrokerPersistence)?
     /// The Mac's origin identity and signing key, when this broker is the
-    /// Mac-local authority (spec.iphone-gateway.md section 7.1).
+    /// Mac-local authority (docs/specs/control-protocol.md section 4.2).
     let originSigner: OriginSigner?
 
     public init(
@@ -111,7 +111,7 @@ public actor BrokerStore {
     /// resets must rotate the service identity and invalidate old credentials;
     /// a restore never resurrects authority that was already consumed, because
     /// tombstones and idempotency records come back with everything else
-    /// (spec.watch.md section 15).
+    /// (docs/specs/control-protocol.md section 13.1).
     public func restore() throws {
         defer { storeLoaded = true }
         guard let snapshot = try persistence?.load() else { return }
@@ -271,7 +271,7 @@ public actor BrokerStore {
 
     /// Revocation invalidates future commands and unconsumed grants. It cannot
     /// retract an action already dispatched at an origin
-    /// (spec.watch.md section 5).
+    /// (docs/specs/control-protocol.md section 5.1).
     public func revokeDevice(_ deviceID: ControlID) throws {
         guard var device = devices[deviceID] else { return }
         device.revokedAt = timestamp
@@ -280,7 +280,7 @@ public actor BrokerStore {
     }
 
     /// Mints an origin credential. The secret is returned once; only its
-    /// verifier is stored (spec.watch.md section 10).
+    /// verifier is stored (docs/specs/control-protocol.md section 8.1).
     public func provisionOrigin(accountID: ControlID, label: String) throws -> (originID: ControlID, secret: String) {
         let secret = Base64URL.encode(BrokerStore.randomBytes(32))
         let originID = try enrollOrigin(accountID: accountID, label: label, secret: secret)
@@ -330,7 +330,7 @@ public actor BrokerStore {
         return originID
     }
 
-    /// Only the verifier is stored server-side (spec.watch.md section 10).
+    /// Only the verifier is stored server-side (docs/specs/control-protocol.md section 8.1).
     static func verifier(for secret: String) -> String {
         ContentDigest.digest(of: Data(secret.utf8))
     }
@@ -375,7 +375,7 @@ public actor BrokerStore {
     }
 
     /// Tightening effective policy changes `policy_version`, which invalidates
-    /// outstanding review challenges (spec.watch.md section 9).
+    /// outstanding review challenges (docs/specs/control-protocol.md section 7).
     public func bumpPolicyVersion() throws {
         policyVersion += 1
         for (id, var entry) in approvals where entry.projection.resolution == .pending {
@@ -421,11 +421,11 @@ public actor BrokerStore {
     var scopes: [ControlID: EventScope] = [:]
     /// The log sequence at which each snapshot item came into existence, so a
     /// paginated snapshot can be taken as of one anchor even while new items
-    /// arrive (spec.watch.md section 15).
+    /// arrive (docs/specs/control-protocol.md section 13.1).
     var itemSequences: [ControlID: UInt64] = [:]
 
     /// Ordered deltas are retained for at least seven days
-    /// (spec.watch.md section 15). This can empty the log; sequence numbers
+    /// (docs/specs/control-protocol.md section 13.1). This can empty the log; sequence numbers
     /// come from ``nextSequence``, never from the log's contents.
     func trimChangeLog() {
         let cutoff = timestamp.adding(-ApprovalPolicy.changeLogRetention)
@@ -450,7 +450,7 @@ public actor BrokerStore {
         purgeRetainedIfDue()
         guard let persistence else { return }
         // Never return a success response before durable commit
-        // (spec.watch.md section 11).
+        // (docs/specs/control-protocol.md section 9.2).
         try persistence.persist(snapshot: BrokerSnapshotCodec.encode(self))
     }
 
@@ -458,7 +458,7 @@ public actor BrokerStore {
 
     /// Applies deadline-driven transitions before any read or mutation, so an
     /// expired request can never be authorized even if a stale UI still shows a
-    /// button (spec.watch.md section 19).
+    /// button (docs/specs/control-protocol.md section 19).
     func sweepExpired() {
         let now = timestamp
         for (id, var entry) in approvals {

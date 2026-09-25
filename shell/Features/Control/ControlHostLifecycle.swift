@@ -5,7 +5,7 @@
 //  Mac Catalyst only: the lifecycle of the bundled Control host — explicit
 //  consent, SMAppService registration, persisted user intent, reconciliation
 //  on foreground activation, and the authenticated XPC client
-//  (spec.agent-relay.md sections 19.4, 19.6, and 19.9).
+//  (docs/specs/agent-relay.md sections 18.4, 18.6, and 18.9).
 //
 //  `.enabled` registration is eligibility to run, never health: the readiness
 //  shown to the user combines intent, registration, and what the host itself

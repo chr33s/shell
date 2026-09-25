@@ -3,7 +3,7 @@ import ShellControlHostSupport
 
 /// Which daemon socket an adapter talks to: the standalone installation's, or
 /// the bundled Control host's ingress in the shared App Group container
-/// (spec.agent-relay.md sections 19.1 and 19.6).
+/// (docs/specs/agent-relay.md sections 18.1 and 18.6).
 ///
 /// The App Group socket is a *candidate* external ingress: whether a provider
 /// hook launched from a terminal may connect to it under the distributed

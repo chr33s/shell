@@ -4,7 +4,7 @@
 //
 //  Device-local record of which tmux session each connection was attached to,
 //  and the evidence that proves it is that same session later
-//  (spec.connectivity.md §9.1, §14).
+//  (docs/specs/mobile-connectivity.md §8.1, §14).
 //
 //  `TmuxGatewaySessionStore` already remembers a session *name* per
 //  connection. A name is a fine convenience for choosing what to attach to on

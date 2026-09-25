@@ -2,7 +2,7 @@
 //  RecoveryTestSupport.swift
 //  ShellTests
 //
-//  Deterministic time for the recovery suite (spec.connectivity.md §17.1).
+//  Deterministic time for the recovery suite (docs/specs/mobile-connectivity.md §16.1).
 //
 //  The acceptance criteria describe schedules measured in minutes. Sleeping
 //  through them would make the suite unrunnable, and sleeping through a

@@ -4,7 +4,7 @@
 # Runs one command only after a Watch approval for that exact argument vector.
 # The wrapper owns the full dispatch journal and the precondition check; it
 # never treats an exit code as permanent permission
-# (spec.watch.md section 17).
+# (docs/specs/control-protocol.md section 15).
 set -eu
 
 [ $# -ge 1 ] || { echo "usage: shell-control-run /absolute/path [args...]" >&2; exit 64; }

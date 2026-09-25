@@ -113,7 +113,7 @@ final class SSHKeyManager: ObservableObject {
     /// Publishes the *public* half of every local identity so other devices can
     /// see which identities exist. No private key material enters this store:
     /// software keys travel through the iCloud Keychain and Secure Enclave keys
-    /// never leave the device that created them (spec §7).
+    /// never leave the device that created them (docs/specs/shell.md §7).
     ///
     /// `reconcile` tombstones only the records this device itself published, so
     /// another device's identities — which are absent from `savedKeys` by

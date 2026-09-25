@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://shell.chr33s.dev/schemas/agent-command.schema.json",
   "title": "shell-agent/1 signed commands",
-  "description": "Signed JWS payloads of the agent command union (spec.agent-relay.md sections 8.1 and 16). action_digest is sha256 over the JCS encoding of {type, agent_session_id, run_id, expected_session_version, mode, expected_turn_id?, text} or {type, agent_session_id, run_id, expected_session_version, turn_id}.",
+  "description": "Signed JWS payloads of the agent command union (docs/specs/agent-relay.md sections 7.1 and 15). action_digest is sha256 over the JCS encoding of {type, agent_session_id, run_id, expected_session_version, mode, expected_turn_id?, text} or {type, agent_session_id, run_id, expected_session_version, turn_id}.",
   "oneOf": [
     {
       "type": "object",

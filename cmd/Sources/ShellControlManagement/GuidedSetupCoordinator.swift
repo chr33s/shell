@@ -4,7 +4,7 @@ import ShellControlHostSupport
 import ShellControlProtocol
 import ShellControlSecurity
 
-/// `shell-control setup --guided` (spec.control-companion-setup.md section 7).
+/// `shell-control setup --guided` (docs/specs/control-setup.md section 4).
 ///
 /// The complete primary workflow is Mac + iPhone: services, pairing, and a
 /// live setup test. Apple Watch and remote alerts are optional stages that
@@ -478,7 +478,7 @@ public struct GuidedSetupCoordinator: Sendable {
 
 extension LifecycleCoordinator {
     /// Read-only checks before guided setup changes anything
-    /// (spec.control-companion-setup.md section 7.2).
+    /// (docs/specs/control-setup.md section 4.2).
     public func preflight(_ options: SetupOptions) async -> [DiagnosticCheck] {
         let now = ControlTimestamp(Date())
         func check(_ id: String, _ code: DiagnosticCode, _ state: DiagnosticState, required: Bool = true,

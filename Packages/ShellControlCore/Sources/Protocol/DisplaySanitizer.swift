@@ -4,7 +4,7 @@ import Foundation
 ///
 /// Control characters and bidirectional formatting controls are escaped
 /// visibly, and authorization-relevant arguments are never silently truncated
-/// (spec.watch.md section 6).
+/// (docs/specs/control-protocol.md section 11.2).
 public enum DisplaySanitizer {
     /// Unicode bidi controls, which can otherwise reorder a rendered argument
     /// so it reads differently from what would execute.

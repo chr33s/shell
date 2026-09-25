@@ -13,7 +13,7 @@ public protocol AgentSessionService: Sendable {
 extension ControlAPIClient: AgentSessionService {}
 
 /// New instructions, steering, and cancellation for an opt-in managed
-/// session (spec.agent-relay.md section 16). The exact action — text, mode,
+/// session (docs/specs/agent-relay.md section 15). The exact action — text, mode,
 /// and the turn it targets — is digested into the challenge before signing;
 /// a moved session is refused, never retargeted or queued.
 public actor AgentSessionCoordinator {

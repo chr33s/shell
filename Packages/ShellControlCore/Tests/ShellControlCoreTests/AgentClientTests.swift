@@ -5,7 +5,7 @@ import Synchronization
 @testable import ShellControlClient
 
 /// Client-side review → challenge → sign → submit for typed answers, the
-/// journal, and the Watch agent gateway (spec.agent-relay.md 8, 13, 15.5).
+/// journal, and the Watch agent gateway (docs/specs/agent-relay.md 7, 12, 14.5).
 final class AgentClientTests: XCTestCase {
     private let hex = String(repeating: "d", count: 64)
     private let now = ControlTimestamp(Date(timeIntervalSince1970: 1_790_000_000))

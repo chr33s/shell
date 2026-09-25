@@ -1,7 +1,7 @@
 import Foundation
 import ShellControlHostSupport
 
-/// Where the bundled host keeps its state (spec.agent-relay.md section 19.5).
+/// Where the bundled host keeps its state (docs/specs/agent-relay.md section 18.5).
 ///
 /// The authoritative ledger, journal, and secrets live in the host's private,
 /// sandbox-protected container; the App Group container holds only the

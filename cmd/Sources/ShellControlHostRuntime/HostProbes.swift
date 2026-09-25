@@ -41,7 +41,7 @@ public struct URLSessionHostProbe: HostHTTPProbe {
 // MARK: - Legacy standalone installation
 
 /// A standalone Developer ID/CLI installation that already owns the port,
-/// origin, or ledger (spec.agent-relay.md sections 19.1 and 19.8).
+/// origin, or ledger (docs/specs/agent-relay.md sections 18.1 and 18.8).
 public struct LegacyConflict: Sendable, Equatable, CustomStringConvertible {
     public enum Evidence: String, Sendable, Equatable {
         /// `~/.local/state/shell-control` holds a live daemon socket.

@@ -1,6 +1,6 @@
 import Foundation
 
-/// Ordered change-log event types (spec.watch.md section 15).
+/// Ordered change-log event types (docs/specs/control-protocol.md section 13.1).
 public enum ChangeEventType: String, Sendable, Hashable, CaseIterable {
     case approvalCreated = "approval.created"
     case approvalResolved = "approval.resolved"
@@ -13,7 +13,7 @@ public enum ChangeEventType: String, Sendable, Hashable, CaseIterable {
 
 /// One delta. Delivery is at least once: clients deduplicate by event ID and
 /// ignore stale resource versions. A scoped stream may have sequence gaps
-/// because of filtering, which is not data loss (spec.watch.md section 15).
+/// because of filtering, which is not data loss (docs/specs/control-protocol.md section 13.1).
 public struct ChangeEvent: Sendable, Hashable {
     public let version: Int
     public let eventID: ControlID
@@ -80,7 +80,7 @@ public struct ChangeEvent: Sendable, Hashable {
 }
 
 /// A cursor is opaque to the client and scoped to the authenticated principal
-/// (spec.watch.md section 8).
+/// (docs/specs/control-protocol.md section 6).
 public struct ChangeCursor: Sendable, Hashable, CustomStringConvertible {
     public let rawValue: String
     public init(_ rawValue: String) { self.rawValue = rawValue }
@@ -122,7 +122,7 @@ public struct ChangePage: Sendable, Hashable {
 
 /// One page of the initial projection. Pages share a snapshot token and expire
 /// together; the completed snapshot is applied atomically before deltas are
-/// consumed (spec.watch.md section 15).
+/// consumed (docs/specs/control-protocol.md section 13.1).
 public struct SnapshotPage: Sendable, Hashable {
     public static let maximumItems = 50
 
@@ -184,7 +184,7 @@ public struct SnapshotPage: Sendable, Hashable {
 ///
 /// A process restart creates a new run unless the adapter can prove durable
 /// continuation; a transport reconnect alone does not
-/// (spec.watch.md section 9).
+/// (docs/specs/control-protocol.md section 7).
 public struct RunRegistration: Sendable, Hashable {
     public let runID: ControlID
     public let jobID: ControlID

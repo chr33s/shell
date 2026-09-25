@@ -4,7 +4,7 @@
 <dict>
 	<!-- Its own sandbox, not inherited: launchd starts this helper, not the
 	     Shell app, so com.apple.security.inherit must never be set
-	     (spec.agent-relay.md section 19.5). -->
+	     (docs/specs/agent-relay.md section 18.5). -->
 	<key>com.apple.security.app-sandbox</key>
 	<true/>
 	<!-- The shared group both executables claim: the Mach service name and

@@ -6,7 +6,7 @@ import ShellControlClient
 /// The Watch's reviewer identity as the Mac reported it through the iPhone:
 /// device ID, account audience, gateway binding, and grants. None of it is a
 /// credential; the only secret is the signing key, kept in the Keychain
-/// (spec.iphone-gateway.md sections 4.6 and 10).
+/// (docs/specs/control-protocol.md sections 2.5 and 5.3).
 protocol WatchReviewerStore: Sendable {
     func load() -> WatchReviewerStatus?
     func store(_ status: WatchReviewerStatus) throws
@@ -48,7 +48,7 @@ final class InMemoryWatchReviewerStore: WatchReviewerStore, @unchecked Sendable 
 
 /// The stale-tolerant inbox the Watch may show without its iPhone. Cached
 /// material is always marked stale in the UI and never enables a decision
-/// (spec.iphone-gateway.md section 11.4); the protected file is
+/// (docs/specs/control-protocol.md section 10.2); the protected file is
 /// ``ProtectedInboxCache``.
 enum GatewayCache {
     /// Whether cached content may be shown as current.

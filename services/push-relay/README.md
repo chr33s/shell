@@ -1,7 +1,7 @@
 # push-relay (Shell Push Relay)
 
 The optional, stateless APNs sender of
-[`../../spec.iphone-gateway.md`](../../spec.iphone-gateway.md) section 16. It is
+[`docs/specs/control-protocol.md`](../../docs/specs/control-protocol.md) section 12. It is
 not a control broker: it stores and decides nothing — no approvals, decisions,
 consumes, receipts, jobs, run state, origin presence, or terminal data — and it
 depends only on the portable protocol and signing code, never on approval-state

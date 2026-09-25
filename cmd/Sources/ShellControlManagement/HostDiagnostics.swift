@@ -5,7 +5,7 @@ import ShellControlProtocol
 import ShellControlSecurity
 
 /// `shell-control doctor`: read-only evidence about this Mac's side of Shell
-/// Control (spec.control-companion-setup.md sections 12 and 13).
+/// Control (docs/specs/control-setup.md sections 9 and 10).
 ///
 /// The Mac observes installation, local services, and Serve configuration.
 /// It never claims an iPhone or Watch can reach it: enrolled is not reachable,

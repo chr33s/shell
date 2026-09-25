@@ -4,7 +4,7 @@ import ShellControlProtocol
 
 // Remote Control alerts on the iPhone: an explicit, local, per-origin and
 // per-device choice, separate from review readiness
-// (spec.control-companion-setup.md section 10).
+// (docs/specs/control-setup.md section 7).
 //
 // "Off" (no-relay mode) is not a transport and not offline operation: review
 // continues through foreground refresh. A build-configured relay URL is
@@ -146,7 +146,7 @@ public struct RemoteAlertPolicy: Sendable, Hashable, Codable {
             : RemoteAlertPolicy(choice: .off, host: .acknowledged, hostVersion: 0, needsChoice: relayAvailable)
     }
 
-    /// The state shown for remote alerts (spec.control-companion-setup.md 6).
+    /// The state shown for remote alerts (docs/specs/control-setup.md 3).
     public var displayState: RemoteAlertDisplayState {
         switch choice {
         case .off:
@@ -222,7 +222,7 @@ public final class InMemoryRemoteAlertPolicyStore: RemoteAlertPolicyStore {
 /// the Mac is contacted. Only the latest persisted intent is ever reconciled
 /// with the Mac, and a registration that finishes under an older generation
 /// is discarded — so a late result can never restore delivery after the user
-/// chose off (spec.control-companion-setup.md sections 10.3 and 10.4).
+/// chose off (docs/specs/control-setup.md sections 7.3 and 7.4).
 public actor RemoteAlertCoordinator {
     public nonisolated let originID: String
     public nonisolated let deviceID: String

@@ -12,7 +12,7 @@ public struct AdapterConfiguration: Codable, Sendable, Equatable {
     /// Routes the user enabled. A route still needs build evidence.
     public var routes: [NativeRoute]
     /// Opt-in narrow Watch policy for short single-line shell commands; off
-    /// by default (spec.agent-relay.md section 6.3).
+    /// by default (docs/specs/agent-relay.md section 5.3).
     public var watchShellApproval: Bool
     /// Builds the user explicitly allowed without contract evidence. Shown as
     /// `user_attested`, never "Ready".
@@ -62,7 +62,7 @@ public struct AdapterConfiguration: Codable, Sendable, Equatable {
 /// Detects the installed provider build by running its version command with
 /// a short timeout, cached by executable identity so a hook invocation does
 /// not pay for it every time. A build that cannot be read is `nil`, and an
-/// unknown build is informational only (spec.agent-relay.md 4.3).
+/// unknown build is informational only (docs/specs/agent-relay.md 3.3).
 public struct ProviderBuildDetector: Sendable {
     public let root: URL
     public let runner: any ProcessRunning
@@ -130,7 +130,7 @@ public struct ProviderBuildDetector: Sendable {
 
 /// The observable provider permission policy: a digest of the settings files
 /// the provider reads for permission rules and hooks, so a policy change
-/// between review and dispatch is detected (spec.agent-relay.md 6.2).
+/// between review and dispatch is detected (docs/specs/agent-relay.md 5.2).
 public enum PolicyFingerprint {
     public static func files(for provider: AgentProvider, cwd: String, environment: [String: String] = ProcessInfo.processInfo.environment) -> [String] {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
@@ -163,7 +163,7 @@ public enum PolicyFingerprint {
 
 /// Non-authorizing tmux navigation metadata, read from the pane the agent
 /// runs in. The socket path is hashed, never published
-/// (spec.agent-relay.md section 14.1).
+/// (docs/specs/agent-relay.md section 13.1).
 public enum TerminalLocator {
     public static func locate(
         environment: [String: String] = ProcessInfo.processInfo.environment,

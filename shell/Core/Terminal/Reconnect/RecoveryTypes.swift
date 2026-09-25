@@ -2,7 +2,7 @@
 //  RecoveryTypes.swift
 //  shell
 //
-//  Typed vocabulary for connection recovery (spec.connectivity.md §5-§7).
+//  Typed vocabulary for connection recovery (docs/specs/mobile-connectivity.md §4-§7).
 //
 //  Everything here is a value type with no UIKit, Ghostty, or network
 //  dependency, so `RecoveryCoordinator` policy can be exercised in a unit

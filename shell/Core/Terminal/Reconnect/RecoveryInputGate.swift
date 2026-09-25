@@ -3,7 +3,7 @@
 //  shell
 //
 //  Input safety and backpressure for a recovering connection
-//  (spec.connectivity.md §10).
+//  (docs/specs/mobile-connectivity.md §9).
 //
 //  Two rules drive everything here:
 //

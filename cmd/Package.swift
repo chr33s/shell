@@ -9,7 +9,7 @@ let package = Package(
         .library(name: "ShellControlManagement", targets: ["ShellControlManagement"]),
         .library(name: "ShellControlDaemon", targets: ["ShellControlDaemon"]),
         .library(name: "ShellControlAgentAdapter", targets: ["ShellControlAgentAdapter"]),
-        // The bundled, sandboxed macOS Control host (spec.agent-relay.md 19.2),
+        // The bundled, sandboxed macOS Control host (docs/specs/agent-relay.md 18.2),
         // linked by the ShellControlHost app target in shell.xcodeproj.
         .library(name: "ShellControlHostRuntime", targets: ["ShellControlHostRuntime"]),
         .executable(name: "shell-controld", targets: ["shell-controld"]),
@@ -46,7 +46,7 @@ let package = Package(
             ]
         ),
         // Claude Code and Codex adapters. They depend on no provider SDK,
-        // Ghostty, terminal, SSH, or tmux-parsing code (spec.agent-relay.md 3).
+        // Ghostty, terminal, SSH, or tmux-parsing code (docs/specs/agent-relay.md 2).
         .target(
             name: "ShellControlAgentAdapter",
             dependencies: [
@@ -56,7 +56,7 @@ let package = Package(
         ),
         // Broker and daemon in one process. It must never depend on
         // ShellControlManagement: the TestFlight profile cannot reach the
-        // legacy installer or launchd management (spec.agent-relay.md 19.2).
+        // legacy installer or launchd management (docs/specs/agent-relay.md 18.2).
         .target(
             name: "ShellControlHostRuntime",
             dependencies: [

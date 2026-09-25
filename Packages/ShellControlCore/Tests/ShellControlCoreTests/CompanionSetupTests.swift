@@ -5,7 +5,7 @@ import ShellControlSecurity
 
 /// Portable rules of Control companion setup: the diagnostic contract, its
 /// redacted export, the fixed setup-test request, and the remote-alert policy
-/// (spec.control-companion-setup.md).
+/// (docs/specs/control-setup.md).
 final class CompanionSetupTests: XCTestCase {
     private let stamp = ControlTimestamp(Date(timeIntervalSince1970: 1_790_000_000))
 

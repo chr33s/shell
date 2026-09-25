@@ -5,7 +5,7 @@ import Darwin
 
 /// A process identified by its PID *and* start time, so a recycled PID is
 /// never mistaken for the process that owned a native wait
-/// (spec.agent-relay.md sections 5.1 and 14.3).
+/// (docs/specs/agent-relay.md sections 4.1 and 13.3).
 public struct ProcessIdentity: Sendable, Hashable, Codable {
     public let pid: Int32
     /// Microseconds since the epoch at which the process started.

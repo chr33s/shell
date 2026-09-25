@@ -1,7 +1,7 @@
 import Foundation
 
 /// An origin's claim on one recorded approval, for the exact still-waiting
-/// operation (spec.watch.md section 12).
+/// operation (docs/specs/control-protocol.md section 9.4).
 public struct ConsumeRequest: Sendable, Hashable {
     public let consumeID: ControlID
     public let decisionID: ControlID
@@ -36,7 +36,7 @@ public struct ConsumeRequest: Sendable, Hashable {
 
 /// The one-use grant. It can never be renewed silently, and failing to apply
 /// before `applyBefore` means no authorization to run
-/// (spec.watch.md section 12).
+/// (docs/specs/control-protocol.md section 9.4).
 public struct ConsumePermit: Sendable, Hashable {
     public let consumeID: ControlID
     public let decisionID: ControlID
@@ -100,7 +100,7 @@ public struct ConsumePermit: Sendable, Hashable {
     }
 
     /// A conservative deadline check: uncertain time validity fails closed
-    /// (spec.watch.md section 12).
+    /// (docs/specs/control-protocol.md section 9.4).
     public func isApplicable(at now: ControlTimestamp, clockUncertainty: TimeInterval = 2) -> Bool {
         now.date.addingTimeInterval(clockUncertainty) < applyBefore.date
     }
@@ -111,7 +111,7 @@ public enum ReceiptResult: String, Sendable, Hashable, CaseIterable {
     case applied
     case notApplied = "not_applied"
     /// The host cannot safely determine whether dispatch happened; never
-    /// blindly rerun (spec.watch.md section 12).
+    /// blindly rerun (docs/specs/control-protocol.md section 9.4).
     case unknown
 }
 
@@ -119,7 +119,7 @@ public struct Receipt: Sendable, Hashable {
     public let receiptID: ControlID
     public let decisionID: ControlID?
     /// A rejection receipt carries no consume ID, because rejection grants no
-    /// execution permission (spec.watch.md section 12).
+    /// execution permission (docs/specs/control-protocol.md section 9.4).
     public let consumeID: ControlID?
     public let commandID: ControlID?
     public let requestHash: String?

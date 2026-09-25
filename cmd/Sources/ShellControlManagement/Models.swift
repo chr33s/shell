@@ -2,7 +2,7 @@ import Foundation
 
 /// How the iPhone reaches the broker. `tailscale` is the iPhone-gateway
 /// profile: the broker stays on loopback and Tailscale Serve publishes it
-/// inside the tailnet only (spec.iphone-gateway.md). `loopback` is local
+/// inside the tailnet only (docs/specs/control-protocol.md). `loopback` is local
 /// development with the simulator.
 public enum AddressMode: String, Codable, CaseIterable, Sendable {
     case tailscale, loopback
@@ -24,7 +24,7 @@ public struct PushConfiguration: Codable, Equatable, Sendable {
     public var keyPath: String?
     public var topics: [String]
     /// The stateless Shell Push Relay. With it, the broker sends event hints
-    /// and holds no APNs credentials (spec.iphone-gateway.md section 16).
+    /// and holds no APNs credentials (docs/specs/control-protocol.md section 12).
     public var relayURL: String?
     public init(enabled: Bool = false, keyID: String? = nil, teamID: String? = nil,
                 keyPath: String? = nil, topics: [String] = [], relayURL: String? = nil) {
@@ -89,7 +89,7 @@ public struct InstallationSecrets: Codable, Equatable, Sendable {
     public var originProvisioned: Bool?
     /// The origin signing key's fingerprint as first created. A missing key
     /// with a recorded fingerprint is never silently regenerated: replacing
-    /// the origin key is a new trust relationship (spec.iphone-gateway.md 23).
+    /// the origin key is a new trust relationship (docs/specs/control-protocol.md 3.3).
     public var originKeyFingerprint: String?
 
     enum CodingKeys: String, CodingKey {
@@ -144,7 +144,7 @@ public struct InstallationPaths: Sendable {
     public var journal: URL { root.appendingPathComponent("dispatch-journal.ndjson") }
     public var controlSocket: URL { root.appendingPathComponent("control.sock") }
     public var healthSocket: URL { root.appendingPathComponent("health.sock") }
-    /// Non-secret guided-setup checkpoints (spec.control-companion-setup.md 7.4).
+    /// Non-secret guided-setup checkpoints (docs/specs/control-setup.md 4.4).
     public var guidedSetup: URL { root.appendingPathComponent("guided-setup.json") }
     public init(root: URL) { self.root = root }
 }

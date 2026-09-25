@@ -24,7 +24,7 @@ struct PairCommand: AsyncParsableCommand {
 }
 
 /// Prints the origin-signed route-update QR for the current Tailscale route.
-/// It changes no trust state (spec.iphone-gateway.md section 25.3).
+/// It changes no trust state (docs/specs/control-protocol.md section 16).
 struct RouteCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "route",
@@ -67,7 +67,7 @@ struct RevokeCommand: AsyncParsableCommand {
 }
 
 enum PairingOutput {
-    /// Pairing is by origin-pinned invitation (spec.iphone-gateway.md 9.1).
+    /// Pairing is by origin-pinned invitation (docs/specs/control-protocol.md 5.2).
     static func write(manager: LifecycleCoordinator) async throws {
         let invitation = try await manager.pairingInvitation()
         let text = try PairingRenderer.invitationOutput(invitation, terminal: terminal(STDOUT_FILENO))

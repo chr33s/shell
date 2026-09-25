@@ -4,7 +4,7 @@ import ShellControlSecurity
 
 /// What the UI shows for an agent response. Each is distinct: a recorded
 /// response is not agent acceptance, and acceptance is not task completion
-/// (spec.agent-relay.md section 13.1).
+/// (docs/specs/agent-relay.md section 12.1).
 public enum AgentSubmissionState: Sendable, Hashable {
     case sending
     case responseRecorded(AgentCommandResult)
@@ -42,7 +42,7 @@ extension ControlAPIClient: AgentInputService {}
 
 /// Drives review → challenge → signature → submission for one typed answer,
 /// with the same fetch-before-sign, exact-hash, and no-replacement rules as a
-/// decision (spec.agent-relay.md section 8.2).
+/// decision (docs/specs/agent-relay.md section 7.2).
 public actor AgentInputCoordinator {
     public enum CoordinatorError: Error, Sendable, Equatable {
         case notAnswerableHere(WatchApprovability.Reason)

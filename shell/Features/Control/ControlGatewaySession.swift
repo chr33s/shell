@@ -5,7 +5,7 @@
 //  The iPhone's own authenticated session with its Mac: pinned origin,
 //  device key and tokens, and a route verified against the pinned key. Both
 //  the phone's review UI and the Watch gateway draw clients from here
-//  (spec.iphone-gateway.md sections 13 and 24).
+//  (docs/specs/control-protocol.md sections 10.4 and 4.5).
 //
 
 import Foundation

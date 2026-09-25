@@ -4,7 +4,7 @@ import ShellControlProtocol
 extension BrokerStore {
     /// `GET /v1/snapshot`: a consistent, paginated projection plus a high-water
     /// cursor. Pages share a snapshot token and expire together
-    /// (spec.watch.md section 15).
+    /// (docs/specs/control-protocol.md section 13.1).
     public func snapshot(
         principal: Principal,
         pageToken: String? = nil,
@@ -122,7 +122,7 @@ extension BrokerStore {
         }
         let limit = max(1, min(limit, ChangePage.maximumEvents))
         // A scoped stream may have sequence gaps because of filtering; that is
-        // not data loss (spec.watch.md section 15).
+        // not data loss (docs/specs/control-protocol.md section 13.1).
         let events = changeLog[firstLogIndex(after: sequence)...]
             .lazy
             .filter { self.isVisible($0, to: principal) }
@@ -137,7 +137,7 @@ extension BrokerStore {
 
     /// `GET /v1/approvals/{request_id}`. Object-level authorization is enforced
     /// on every fetch: another account guessing an ID learns nothing
-    /// (spec.watch.md sections 4 and 19).
+    /// (docs/specs/control-protocol.md sections 3.1 and 19).
     public func approval(_ requestID: ControlID, principal: Principal) throws -> ApprovalRecord {
         sweepExpired()
         guard var entry = approvals[requestID], isVisible(approval: entry, to: principal) else {

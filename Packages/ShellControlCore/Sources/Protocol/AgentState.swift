@@ -1,7 +1,7 @@
 import Foundation
 
 /// Input request resolution. A non-pending resolution is immutable
-/// (spec.agent-relay.md section 9.2).
+/// (docs/specs/agent-relay.md section 8.2).
 public enum InputResolution: String, Sendable, Hashable, CaseIterable {
     case pending
     case answered
@@ -14,7 +14,7 @@ public enum InputResolution: String, Sendable, Hashable, CaseIterable {
 
 /// Response dispatch, the detailed `agent.delivery.v1` dimension. It is never
 /// serialized into the legacy `dispatch` field without negotiation
-/// (spec.agent-relay.md section 9.2).
+/// (docs/specs/agent-relay.md section 8.2).
 ///
 /// `native_response_written` proves only that bytes reached the local
 /// transport; `accepted` needs correlated native evidence.
@@ -57,7 +57,7 @@ public enum AgentDispatch: String, Sendable, Hashable, CaseIterable {
 
     /// The legacy receipt result this detailed state justifies, if any:
     /// `applied` only with acceptance evidence, `not_applied` only with
-    /// positive evidence, otherwise `unknown` (spec.agent-relay.md 9.2).
+    /// positive evidence, otherwise `unknown` (docs/specs/agent-relay.md 8.2).
     public var legacyReceiptResult: ReceiptResult? {
         switch self {
         case .accepted: return .applied
@@ -216,7 +216,7 @@ public struct InputRecord: Sendable, Hashable {
     }
 
     /// Why this device cannot answer right now, if it cannot. Everything but
-    /// the review level applies to every client (spec.agent-relay.md 8.2).
+    /// the review level applies to every client (docs/specs/agent-relay.md 7.2).
     public func answerability(
         at now: ControlTimestamp,
         review: MinimumReview,

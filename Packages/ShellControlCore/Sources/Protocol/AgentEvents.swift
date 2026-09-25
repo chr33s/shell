@@ -1,6 +1,6 @@
 import Foundation
 
-/// The normalized agent event vocabulary (spec.agent-relay.md section 12.1).
+/// The normalized agent event vocabulary (docs/specs/agent-relay.md section 11.1).
 /// An unknown type from a newer peer is carried and ignored, never guessed.
 public enum AgentEventType: Sendable, Hashable {
     case sessionStarted
@@ -53,7 +53,7 @@ public enum AgentEventType: Sendable, Hashable {
 
 /// An informational event from an origin. It carries no executable
 /// authority, cannot mutate an immutable request, and its provider time never
-/// controls authorization expiry (spec.agent-relay.md 12.1).
+/// controls authorization expiry (docs/specs/agent-relay.md 11.1).
 public struct AgentEvent: Sendable, Hashable {
     public let eventID: ControlID
     public let type: AgentEventType
@@ -197,7 +197,7 @@ public struct AgentApprovalReference: Sendable, Hashable {
 
 /// An input as it appears in a page: parsed when this build understands it,
 /// otherwise carried as unsupported so one newer record cannot make the whole
-/// page unreadable — and can never be answered (spec.agent-relay.md 15.6).
+/// page unreadable — and can never be answered (docs/specs/agent-relay.md 14.6).
 public enum AgentInputItem: Sendable, Hashable {
     case supported(InputRecord)
     case unsupported(requestID: ControlID?, raw: JSONValue)
@@ -228,7 +228,7 @@ public enum AgentInputItem: Sendable, Hashable {
 
 /// One delta of the agent change feed. Its cursor namespace is separate from
 /// the base feed, so neither cursor is accepted by the other's endpoint
-/// (spec.agent-relay.md 15.6).
+/// (docs/specs/agent-relay.md 14.6).
 public struct AgentChangeEvent: Sendable, Hashable {
     public let eventID: ControlID
     public let sequence: LogSequence
@@ -310,7 +310,7 @@ public struct AgentChangePage: Sendable, Hashable {
 }
 
 /// One page of the agent projection at a consistent sequence cut. Changes
-/// start after that cut (spec.agent-relay.md 12.2).
+/// start after that cut (docs/specs/agent-relay.md 11.2).
 public struct AgentSnapshotPage: Sendable, Hashable {
     public static let maximumItems = 50
 

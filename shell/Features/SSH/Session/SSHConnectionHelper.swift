@@ -311,7 +311,7 @@ enum SSHConnectionHelper {
     ///
     /// Host trust is known-hosts only: the presented key either matches a stored
     /// entry or the user is prompted. Host certificate authorities are out of
-    /// scope for this fork (see spec.md §3.1), so no CA keys are supplied and the
+    /// scope for this fork (see docs/specs/shell.md §3.1), so no CA keys are supplied and the
     /// delegate never takes its certificate path. This is unrelated to OpenSSH
     /// *user* certificates, which are supported and live in `Features/SSH/Keys`.
     static func buildHostKeyValidator(
@@ -330,7 +330,7 @@ enum SSHConnectionHelper {
     }
 
     /// Protocol options for a client connection. Always empty: host certificate
-    /// authorities are out of scope (see spec.md §3.1), so we never advertise
+    /// authorities are out of scope (see docs/specs/shell.md §3.1), so we never advertise
     /// OpenSSH host-certificate algorithms and host-key negotiation is left
     /// exactly as it was. Kept as the single call site every connection assigns
     /// from, so the behaviour is stated once rather than at six settings sites.

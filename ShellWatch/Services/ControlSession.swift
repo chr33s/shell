@@ -7,7 +7,7 @@ import ShellControlClient
 /// The Watch's single owner of protocol state: its signing key, reviewer
 /// identity, cache, refreshes, and submissions — all through the paired
 /// iPhone gateway. Only the published projection is main-actor state
-/// (spec.iphone-gateway.md sections 4.6, 11, and 18).
+/// (docs/specs/control-protocol.md sections 2.5, 10.1, and 11.5).
 @MainActor
 @Observable
 final class ControlSession {
@@ -37,7 +37,7 @@ final class ControlSession {
 
     /// Whether the iPhone and Mac offer `shell-agent/1` to this Watch. An old
     /// iPhone or Mac is `unsupported`, never an error loop
-    /// (spec.agent-relay.md section 15.5).
+    /// (docs/specs/agent-relay.md section 14.5).
     enum AgentAvailability: Equatable {
         case unknown
         case unsupported
@@ -173,7 +173,7 @@ final class ControlSession {
 
     /// Generates this Watch's own key and asks the Mac, through the iPhone,
     /// to enroll it as a reviewer bound to that iPhone. The private key never
-    /// leaves the Watch (spec.iphone-gateway.md section 10).
+    /// leaves the Watch (docs/specs/control-protocol.md section 5.3).
     func enroll(label: String) async {
         enrollmentMessage = nil
         do {
@@ -307,7 +307,7 @@ final class ControlSession {
     }
 
     /// Only while a relevant screen is visible does the Watch ask its iPhone
-    /// for updates; otherwise it stays idle (spec.iphone-gateway.md 18).
+    /// for updates; otherwise it stays idle (docs/specs/control-protocol.md 11.5).
     func startPolling() {
         screenNeedsData = true
         startPollingIfNeeded()
@@ -351,7 +351,7 @@ final class ControlSession {
     // MARK: Review and decisions
 
     /// Always fetched live through the iPhone before review: a cached copy is
-    /// not a decision basis (spec.iphone-gateway.md section 14.3).
+    /// not a decision basis (docs/specs/control-protocol.md section 10.5).
     func fetchForReview(_ requestID: ControlID) async throws -> ApprovalRecord {
         do {
             let record = try await client.approval(requestID)
@@ -503,7 +503,7 @@ final class ControlSession {
     /// Signs the answer the user confirmed on the final screen with this
     /// Watch's own key and sends it live through the iPhone. A draft that
     /// was never confirmed, or changed after confirmation, is not sent
-    /// (spec.agent-relay.md sections 8.1 and 13.2).
+    /// (docs/specs/agent-relay.md sections 7.1 and 12.2).
     func respond(with draft: WatchAnswerDraft, to record: InputRecord) async {
         guard let response = draft.confirmedResponse(for: record.spec) else {
             agentProblems[record.spec.requestID] = String(localized: "Confirm the exact answer before sending")
@@ -622,7 +622,7 @@ final class ControlSession {
 
     /// On reconnection, ask about every command whose outcome is unresolved,
     /// by its original command ID. Agent answers are asked about only through
-    /// the agent extension (spec.agent-relay.md section 8.3).
+    /// the agent extension (docs/specs/agent-relay.md section 7.3).
     func reconcilePendingCommands() async {
         guard let coordinator = await makeCoordinator() else { return }
         let answers = makeAgentCoordinator()

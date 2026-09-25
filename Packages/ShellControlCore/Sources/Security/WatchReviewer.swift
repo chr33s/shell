@@ -5,7 +5,7 @@ import ShellControlProtocol
 /// What the Watch hands its iPhone over WatchConnectivity to ask for reviewer
 /// enrollment: public key, label, and a Watch-generated nonce, signed by the
 /// Watch key. No private key ever leaves the Watch
-/// (spec.iphone-gateway.md sections 10.1 and 10.2).
+/// (docs/specs/control-protocol.md sections 5.3 and 5.3).
 public struct WatchEnrollmentRequest: Sendable, Hashable {
     public static let type = "shell-control.watch-enrollment"
 

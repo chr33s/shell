@@ -1,7 +1,7 @@
 import Foundation
 
 /// The protocol's error codes and the client action each implies
-/// (spec.watch.md section 16).
+/// (docs/specs/control-protocol.md section 14).
 public enum ControlErrorCode: String, Sendable, Hashable, CaseIterable {
     case invalidPayload = "invalid_payload"
     case unsupportedCommand = "unsupported_command"
@@ -25,10 +25,10 @@ public enum ControlErrorCode: String, Sendable, Hashable, CaseIterable {
     case temporarilyUnavailable = "temporarily_unavailable"
     /// A Watch reviewer is not bound to the iPhone gateway that carried the
     /// request: set the Watch up again through this iPhone, keeping its key,
-    /// which the Mac confirms as a re-binding (spec.iphone-gateway.md 10.5).
+    /// which the Mac confirms as a re-binding (docs/specs/control-protocol.md 5.4).
     case reviewerNotBound = "reviewer_not_bound"
 
-    // `shell-agent/1` failures (spec.agent-relay.md section 18). They are
+    // `shell-agent/1` failures (docs/specs/agent-relay.md section 17). They are
     // emitted only by extension endpoints and local IPC, never on a base
     // endpoint an older client decodes.
     case unsupportedProviderVersion = "unsupported_provider_version"
@@ -156,7 +156,7 @@ public struct ControlError: Error, Sendable, Hashable {
     public let retryable: Bool
     public let serverTime: ControlTimestamp?
     /// An authorized current projection may accompany an error; it never
-    /// discloses another account's object (spec.watch.md section 16).
+    /// discloses another account's object (docs/specs/control-protocol.md section 14).
     public let currentProjection: JSONValue?
 
     public init(

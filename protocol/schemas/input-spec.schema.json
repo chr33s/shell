@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://shell.chr33s.dev/schemas/input-spec.schema.json",
   "title": "input.request",
-  "description": "An immutable typed question (spec.agent-relay.md section 7). Byte limits (prompt 2048, label 256, description 1024, spec 16 KiB) are UTF-8 and checked by implementations.",
+  "description": "An immutable typed question (docs/specs/agent-relay.md section 6). Byte limits (prompt 2048, label 256, description 1024, spec 16 KiB) are UTF-8 and checked by implementations.",
   "type": "object",
   "additionalProperties": false,
   "required": [

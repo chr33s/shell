@@ -3,7 +3,7 @@
 //  shell
 //
 //  Bounded in-memory diagnostic ring for one recovery coordinator
-//  (spec.connectivity.md §15).
+//  (docs/specs/mobile-connectivity.md §14).
 //
 //  What is deliberately absent is the point of this file: no commands, no
 //  terminal text, no draft input, no credentials, no authentication answers,

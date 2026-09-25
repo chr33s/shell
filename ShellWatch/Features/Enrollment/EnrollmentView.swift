@@ -6,7 +6,7 @@ import ShellControlClient
 /// Watch setup behind the iPhone gateway: the Watch makes its own key, the
 /// iPhone carries the public half to the Mac, and the Mac confirms it
 /// locally. No key or token is ever copied between devices
-/// (spec.iphone-gateway.md section 10).
+/// (docs/specs/control-protocol.md section 5.3).
 struct EnrollmentView: View {
     @Environment(ControlSession.self) private var session
     @Environment(WatchConnectivityGateway.self) private var gateway

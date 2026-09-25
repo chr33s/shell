@@ -7,7 +7,7 @@
 //  session and this iPhone's grants allow it, a new instruction or steering
 //  message and turn interruption — each shown exactly on a final
 //  confirmation screen before this iPhone signs it. There is no terminal
-//  keystroke fallback (spec.agent-relay.md sections 13.1, 14.1, and 16).
+//  keystroke fallback (docs/specs/agent-relay.md sections 12.1, 13.1, and 15).
 //
 
 import SwiftUI
@@ -223,7 +223,7 @@ struct ControlAgentSessionView: View {
 
 /// The final screen before signing: the exact text, byte for byte with
 /// escapes visible, and whether it starts a new turn or steers or interrupts
-/// a named turn (spec.agent-relay.md sections 16.1 and 16.2).
+/// a named turn (docs/specs/agent-relay.md sections 15.1 and 15.2).
 struct ControlAgentSessionConfirmation: View {
     let proposal: AgentSessionProposal
     let confirm: () -> Void

@@ -1,7 +1,7 @@
 import Foundation
 
 /// Whether a user decision has been recorded. A non-pending resolution is
-/// immutable (spec.watch.md section 12).
+/// immutable (docs/specs/control-protocol.md section 9.4).
 public enum Resolution: String, Sendable, Hashable, CaseIterable {
     case pending
     case approved
@@ -19,7 +19,7 @@ public enum Resolution: String, Sendable, Hashable, CaseIterable {
 /// Whether the decision reached the exact waiting permission gate.
 ///
 /// `applied` never means the resulting command succeeded, and `unknown` is what
-/// an origin reports when it cannot safely tell (spec.watch.md section 12).
+/// an origin reports when it cannot safely tell (docs/specs/control-protocol.md section 9.4).
 public enum Dispatch: String, Sendable, Hashable, CaseIterable {
     case none
     case awaitingOrigin = "awaiting_origin"
@@ -41,7 +41,7 @@ public enum Dispatch: String, Sendable, Hashable, CaseIterable {
             return true
         // A rejection written to a native gate whose acceptance the adapter
         // cannot observe is reported honestly as unknown
-        // (spec.agent-relay.md section 9.2).
+        // (docs/specs/agent-relay.md section 8.2).
         case (.awaitingOrigin, .unknown):
             return true
         case (.awaitingOrigin, .claimed):
@@ -63,7 +63,7 @@ public enum Dispatch: String, Sendable, Hashable, CaseIterable {
 }
 
 /// Liveness of the run that is actually blocked on the request. Presence is a
-/// hint, never proof that an operation may execute (spec.watch.md section 15).
+/// hint, never proof that an operation may execute (docs/specs/control-protocol.md section 13.1).
 public struct SourcePresence: Sendable, Hashable {
     public let lastSeenAt: ControlTimestamp?
     public let isWaiting: Bool
@@ -221,7 +221,7 @@ extension ApprovalRecord {
     /// A request is Watch-approvable only when the device understands its
     /// operation schema and all required features, the effective policy permits
     /// Watch review, and the source run has a fresh presence lease
-    /// (spec.watch.md section 6).
+    /// (docs/specs/control-protocol.md section 11.2).
     public func watchApprovability(
         at now: ControlTimestamp,
         supportedFeatures: Set<String> = ControlFeature.supported
@@ -235,7 +235,7 @@ extension ApprovalRecord {
     /// request and one whose policy withholds Watch review; everything else —
     /// schema, features, deadline, presence — applies to every client. The
     /// broker makes the same distinction from its own device registration
-    /// (spec.watch.md section 6).
+    /// (docs/specs/control-protocol.md section 11.2).
     public func approvability(
         at now: ControlTimestamp,
         review: MinimumReview,
@@ -255,7 +255,7 @@ extension ApprovalRecord {
     }
 
     /// Reject can be recorded while the origin is offline, as long as the
-    /// request is still pending (spec.watch.md section 15).
+    /// request is still pending (docs/specs/control-protocol.md section 13.1).
     public func canReject(at now: ControlTimestamp) -> Bool {
         !projection.resolution.isTerminal && !spec.isExpired(at: now)
             && spec.allowedDecisions.contains(.reject)

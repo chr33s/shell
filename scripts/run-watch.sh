@@ -4,7 +4,7 @@
 # Usage: ./scripts/run-watch.sh [simulator-name]
 #
 # The Watch has no broker URL: it reaches the Mac only through its paired
-# iPhone over WatchConnectivity (spec.iphone-gateway.md). Run the phone app on
+# iPhone over WatchConnectivity (docs/specs/control-protocol.md). Run the phone app on
 # the paired iPhone simulator and pair it with `shell-control setup
 # --mode loopback` for an end-to-end simulator loop.
 set -uo pipefail

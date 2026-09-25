@@ -2,7 +2,7 @@
 //  ControlCompanionWiringTests.swift
 //  ShellTests
 //
-//  The phone side of the control companion (spec.watch.md section 2).
+//  The phone side of the control companion (docs/specs/control-protocol.md section 20.2).
 //
 //  The protocol itself is tested in `Packages/ShellControlCore`; these cover
 //  the two integration points that live in this app: notification-response
@@ -203,7 +203,7 @@ final class ControlCompanionWiringTests: XCTestCase {
     }
 
     /// A route change signed by the pinned key moves routing only: the
-    /// session, key, and pin all survive (spec.iphone-gateway.md 7.3, 24).
+    /// session, key, and pin all survive (docs/specs/control-protocol.md 4.3, 4.5).
     func testSignedRouteUpdateKeepsShellCredentials() async throws {
         let key = OriginSigningKey()
         let credentials = try enrolledCredentials()
@@ -236,7 +236,7 @@ final class ControlCompanionWiringTests: XCTestCase {
     }
 
     /// Tailscale being off is a connectivity state, never a reason to drop
-    /// Shell enrollment (spec.iphone-gateway.md section 28).
+    /// Shell enrollment (docs/specs/control-protocol.md section 17).
     func testUnreachableRouteKeepsCredentials() async throws {
         let key = OriginSigningKey()
         let credentials = try enrolledCredentials()
@@ -351,7 +351,7 @@ final class ControlCompanionWiringTests: XCTestCase {
         XCTAssertTrue(source.contains("didReceiveMessageData"), "the Watch gateway answers interactive messages")
     }
 
-    // MARK: - Control companion setup (spec.control-companion-setup.md)
+    // MARK: - Control companion setup (docs/specs/control-setup.md)
 
     /// A pairing without a recorded alert choice starts with remote alerts
     /// off, and nothing registers with a relay or the Mac.

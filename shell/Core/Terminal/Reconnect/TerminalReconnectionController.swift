@@ -3,7 +3,7 @@
 //  shell
 //
 //  Binds one terminal to its `ReconnectionManager` and publishes recovery
-//  status to the native strip (spec.connectivity.md §12).
+//  status to the native strip (docs/specs/mobile-connectivity.md §11).
 //
 //  This file used to write recovery UI into Ghostty: a spinner animated at
 //  0.08s, a 0.1s countdown timer rewriting a status line, a centred error

@@ -3,7 +3,7 @@
 //  shell
 //
 //  Session-facing façade over `RecoveryCoordinator`
-//  (spec.connectivity.md §3, §7.1, §16).
+//  (docs/specs/mobile-connectivity.md §15, §7.1, §16).
 //
 //  This type used to *be* the retry loop. It no longer is. The coordinator
 //  owns recovery policy — attempt accounting, backoff, cooldown, path

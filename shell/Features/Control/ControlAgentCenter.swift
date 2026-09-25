@@ -6,7 +6,7 @@
 //  offers `shell-agent/1` and this iPhone may use it, the reconciled agent
 //  projection, and the local state of each typed answer. A Mac without the
 //  extension answers `not_found` on discovery; that hides the section rather
-//  than reporting an error (spec.agent-relay.md sections 13.1 and 15.1).
+//  than reporting an error (docs/specs/agent-relay.md sections 12.1 and 14.1).
 //
 
 import Foundation
@@ -71,10 +71,10 @@ final class ControlAgentCenter {
     }
 
     /// Answers need their own grant, separately revocable from reads
-    /// (spec.agent-relay.md section 17.1).
+    /// (docs/specs/agent-relay.md section 16.1).
     var canRespond: Bool { grants.contains(.agentInputsRespond) }
 
-    /// Managed sessions this iPhone may see (spec.agent-relay.md 16).
+    /// Managed sessions this iPhone may see (docs/specs/agent-relay.md 15).
     var managedSessions: [AgentSessionProjection] {
         AgentSessionControls.visibleSessions(inbox.sessions.values, grants: grants)
     }

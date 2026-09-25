@@ -9,7 +9,7 @@ import ShellControlSecurity
 ///
 /// Created once, on first start, in the private container. It survives
 /// compatible updates and is never regenerated because registration, a route,
-/// or a bundle path changed (spec.agent-relay.md section 19.5). If the key
+/// or a bundle path changed (docs/specs/agent-relay.md section 18.5). If the key
 /// disappears after the identity was committed, startup stops instead of
 /// minting a new one: every paired device would silently stop trusting it.
 public struct HostIdentity: Sendable, Equatable {

@@ -1,11 +1,11 @@
 import Foundation
 
 /// The `shell-agent/1` extension: native Claude Code and Codex integrations on
-/// top of `shell-control/1` (spec.agent-relay.md).
+/// top of `shell-control/1` (docs/specs/agent-relay.md).
 ///
 /// Absence of the extension's discovery endpoint means the extension is
 /// unsupported; nothing here changes the meaning of a base-protocol record
-/// (spec.agent-relay.md section 15.1).
+/// (docs/specs/agent-relay.md section 14.1).
 public enum AgentProtocol {
     public static let name = "shell-agent/1"
 
@@ -36,20 +36,20 @@ public enum AgentProtocol {
 
 /// Feature tokens of the extension. Each kind of agent operation is its own
 /// token: support for the `agent.tool.v1` wrapper never implies support for a
-/// kind (spec.agent-relay.md section 6.1).
+/// kind (docs/specs/agent-relay.md section 5.1).
 public enum AgentFeature {
     public static let tool = "agent.tool.v1"
     public static let shell = "agent.shell.v1"
     public static let fileChange = "agent.file_change.v1"
     /// Reserved: disabled until a specific renderer/adapter pair is approved
-    /// (spec.agent-relay.md section 6.3).
+    /// (docs/specs/agent-relay.md section 5.3).
     public static let toolCall = "agent.tool_call.v1"
     public static let input = "agent.input.v1"
     public static let inputConsume = "agent.input.consume.v1"
     public static let delivery = "agent.delivery.v1"
     /// Managed-session capabilities, disabled by default: a session offers
     /// them only when an opt-in managed adapter negotiated them, and a device
-    /// uses them only with the separate grants (spec.agent-relay.md 16).
+    /// uses them only with the separate grants (docs/specs/agent-relay.md 15).
     public static let messages = "agent.messages.v1"
     public static let turnCancel = "agent.turn.cancel.v1"
 
@@ -68,7 +68,7 @@ public enum AgentFeature {
 }
 
 /// Product defaults of the extension. Negotiated lower limits and native
-/// deadlines always take precedence (spec.agent-relay.md section 18).
+/// deadlines always take precedence (docs/specs/agent-relay.md section 17).
 public enum AgentPolicy {
     /// Permission/question review lifetime; never beyond native expiry.
     public static let defaultLifetime: TimeInterval = 300
@@ -90,7 +90,7 @@ public enum AgentPolicy {
     public static let maximumDescriptionBytes = 1024
     public static let maximumTextAnswerBytes = 4096
     public static let maximumIdentifierLength = 64
-    /// Watch question policy (spec.agent-relay.md section 13.2).
+    /// Watch question policy (docs/specs/agent-relay.md section 12.2).
     public static let watchMaximumQuestions = 2
     public static let watchMaximumChoices = 4
     public static let watchMaximumTextBytes = 512
@@ -127,7 +127,7 @@ extension String {
 }
 
 /// A provider's native identifier with its JSON type preserved: a numeric
-/// JSON-RPC ID `23` is not the string `"23"` (spec.agent-relay.md section 5.1).
+/// JSON-RPC ID `23` is not the string `"23"` (docs/specs/agent-relay.md section 4.1).
 public enum NativeIdentifier: Sendable, Hashable {
     case string(String)
     case integer(Int64)

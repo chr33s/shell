@@ -2,7 +2,7 @@ import Foundation
 import ShellControlProtocol
 
 /// Managed-session commands: new instructions, steering, and cancellation
-/// (spec.agent-relay.md section 16). Each is signed against the exact action
+/// (docs/specs/agent-relay.md section 15). Each is signed against the exact action
 /// digest the device committed in its challenge, recorded once, and claimed at
 /// most once by the session's origin; a stale session version, a busy or idle
 /// mismatch, or a changed turn refuses it rather than queueing it.

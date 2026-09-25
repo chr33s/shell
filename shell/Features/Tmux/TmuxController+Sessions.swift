@@ -130,7 +130,7 @@ extension TmuxController {
             // Capture continuity evidence now, while the session is provably
             // this one. Gathering it after a drop would answer a different
             // question: "what is on the server now", not "is this the same
-            // session I was attached to" (spec.connectivity.md §9.1).
+            // session I was attached to" (docs/specs/mobile-connectivity.md §8.1).
             Task { @MainActor [weak self] in
                 await self?.captureContinuityEvidence()
             }

@@ -4,7 +4,7 @@ import ShellControlProtocol
 import ShellControlSecurity
 
 /// The Mac's origin identity plus its private signing key. The key never
-/// leaves the Mac (spec.iphone-gateway.md section 7.1).
+/// leaves the Mac (docs/specs/control-protocol.md section 4.2).
 public struct OriginSigner: Sendable {
     public let identity: OriginIdentity
     let key: OriginSigningKey
@@ -27,7 +27,7 @@ extension BrokerStore {
     // MARK: Origin identity
 
     /// `GET /v1/origin/proof`: signs the caller's nonce so a route can prove it
-    /// reaches the pinned origin key (spec.iphone-gateway.md section 7.4).
+    /// reaches the pinned origin key (docs/specs/control-protocol.md section 4.4).
     public func originProof(nonce: String) throws -> OriginProof {
         guard let originSigner else {
             throw ControlError(code: .notFound, message: "this broker has no origin identity")
@@ -63,7 +63,7 @@ extension BrokerStore {
 
     /// `POST /v1/pairings/{id}/claim`: spends the pairing and starts an
     /// ordinary enrollment that still needs explicit Mac-local confirmation
-    /// (spec.iphone-gateway.md sections 9.2 and 9.3).
+    /// (docs/specs/control-protocol.md sections 5.2 and 5.2).
     public func claimPairing(
         pairingID: ControlID,
         publicJWK: DeviceJWK,
@@ -118,7 +118,7 @@ extension BrokerStore {
             throw ControlError(code: .notAuthorized, message: "only an iPhone registers a push capability")
         }
         // Registration never resets an explicit off: the iPhone opts in
-        // through the preference first (spec.control-companion-setup.md 10.3).
+        // through the preference first (docs/specs/control-setup.md 7.3).
         guard !device.alertsSuppressed else {
             throw ControlError(code: .notAuthorized, message: "remote alerts are off for this device")
         }
@@ -144,7 +144,7 @@ extension BrokerStore {
     /// on `expected_version`. Off durably suppresses relay and direct-APNs
     /// delivery to this device and removes its stored delivery material; it
     /// changes delivery only, never reviewer authorization
-    /// (spec.control-companion-setup.md section 10.3).
+    /// (docs/specs/control-setup.md section 7.3).
     public func setNotificationPreference(principal: Principal, update: NotificationPreferenceUpdate) throws -> NotificationPreference {
         var device = try preferenceDevice(principal)
         let current = device.effectiveNotificationPreference
@@ -194,7 +194,7 @@ extension BrokerStore {
         }
         // A Watch key already enrolled keeps its device ID. If it is bound to
         // another iPhone, confirming this request is the explicit re-binding
-        // (spec.iphone-gateway.md section 10.5).
+        // (docs/specs/control-protocol.md section 5.4).
         let existingWatch = devices.values.first {
             $0.isWatchReviewer && !$0.isRevoked && $0.accountID == gateway.accountID && (try? $0.publicJWK.thumbprint()) == thumbprint
         }
@@ -232,7 +232,7 @@ extension BrokerStore {
 
     /// Resolves the Watch principal a proxied call acts as, checking the
     /// gateway-to-Watch binding, revocation, and the grant every time
-    /// (spec.iphone-gateway.md sections 13 and 29).
+    /// (docs/specs/control-protocol.md sections 10.4 and 18.1).
     public func gatewayPrincipal(_ principal: Principal, watchID: ControlID, requiring grant: DeviceGrant?) throws -> Principal {
         let gateway = try gatewayDevice(principal)
         guard let watch = devices[watchID], watch.gatewayDeviceID == gateway.deviceID,
@@ -384,7 +384,7 @@ extension BrokerStore {
 
     /// Revoking an iPhone gateway disables transport for every Watch bound to
     /// it until re-bound; revoking a Watch leaves its iPhone usable
-    /// (spec.iphone-gateway.md section 28).
+    /// (docs/specs/control-protocol.md section 17).
     public func revoke(deviceID: ControlID, principal: Principal) throws {
         guard case .admin(let accountID) = principal else {
             throw ControlError(code: .notAuthorized, message: "revocation requires account administration")

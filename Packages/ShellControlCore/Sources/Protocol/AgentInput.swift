@@ -2,7 +2,7 @@ import Foundation
 
 /// What answering an input actually does. v1 answers questions only; an
 /// input that grants tool or permission authority is an approval, and an
-/// unknown effect is not remotely answerable (spec.agent-relay.md 7.1).
+/// unknown effect is not remotely answerable (docs/specs/agent-relay.md 6.1).
 public enum InputEffect {
     public static let answerQuestion = "answer_question"
 }
@@ -14,7 +14,7 @@ public enum InputAllowedResponse: String, Sendable, Hashable, CaseIterable {
 }
 
 /// One offered choice. The ID is stable and adapter-assigned; the label is
-/// display text and is never used to match an answer (spec.agent-relay.md 7.3).
+/// display text and is never used to match an answer (docs/specs/agent-relay.md 6.3).
 public struct InputChoice: Sendable, Hashable {
     public let id: String
     public let label: String
@@ -54,7 +54,7 @@ public struct InputChoice: Sendable, Hashable {
 }
 
 /// One question. No arbitrary schema, validator, upload, URL action, secret
-/// entry, or executable template exists in v1 (spec.agent-relay.md 7.1).
+/// entry, or executable template exists in v1 (docs/specs/agent-relay.md 6.1).
 public struct InputQuestion: Sendable, Hashable {
     public enum Kind: Sendable, Hashable {
         case singleChoice(choices: [InputChoice])
@@ -150,7 +150,7 @@ public struct InputQuestion: Sendable, Hashable {
             throw ValidationError.unsupported("question kind \(kindText)")
         }
         // An unknown constraint disables remote reply rather than being
-        // ignored (spec.agent-relay.md 7.1).
+        // ignored (docs/specs/agent-relay.md 6.1).
         try reader.rejectUnknownMembers()
         try self.init(id: id, prompt: prompt, kind: kind, required: required)
     }
@@ -179,7 +179,7 @@ public struct InputQuestion: Sendable, Hashable {
 
 /// Where the question came from, bound into the request hash: tested builds,
 /// the native request and context digests, the exact answer mapping, and the
-/// native wait (spec.agent-relay.md 7.1).
+/// native wait (docs/specs/agent-relay.md 6.1).
 public struct InputSource: Sendable, Hashable {
     public let provider: String
     public let providerBuild: String
@@ -276,7 +276,7 @@ public struct InputSource: Sendable, Hashable {
 
 /// The immutable `input.request`, defined independently of
 /// `approval.request`: no `reply` is ever added to the approve/reject enum
-/// (spec.agent-relay.md 7.1).
+/// (docs/specs/agent-relay.md 6.1).
 public struct InputSpec: Sendable, Hashable {
     public static let type = "input.request"
 
@@ -410,7 +410,7 @@ public struct InputSpec: Sendable, Hashable {
     }
 
     /// Over the complete canonical spec: source, labels, descriptions,
-    /// constraints, and expiry (spec.agent-relay.md 7.2).
+    /// constraints, and expiry (docs/specs/agent-relay.md 6.2).
     public func requestHash() throws -> String { try ContentDigest.digest(ofCanonical: json) }
 
     public func isExpired(at now: ControlTimestamp) -> Bool { now >= expiresAt }
@@ -420,7 +420,7 @@ public struct InputSpec: Sendable, Hashable {
     public func question(_ id: String) -> InputQuestion? { questions.first { $0.id == id } }
 
     /// The Watch question policy: at most two questions, four choices each,
-    /// and short explicitly permitted text (spec.agent-relay.md 13.2).
+    /// and short explicitly permitted text (docs/specs/agent-relay.md 12.2).
     public var permitsWatchReview: Bool {
         guard minimumReview == .watch, questions.count <= AgentPolicy.watchMaximumQuestions else { return false }
         return questions.allSatisfy { question in
@@ -435,7 +435,7 @@ public struct InputSpec: Sendable, Hashable {
 }
 
 /// One typed answer. The signed command carries the answer itself, never
-/// only its digest (spec.agent-relay.md 7.3).
+/// only its digest (docs/specs/agent-relay.md 6.3).
 public enum InputAnswer: Sendable, Hashable {
     case singleChoice(questionID: String, choiceID: String)
     case multiChoice(questionID: String, choiceIDs: [String])
@@ -503,7 +503,7 @@ public enum InputResponse: Sendable, Hashable {
     }
 
     /// The single deterministic representation: answers sorted by question
-    /// ID (spec.agent-relay.md 8.1).
+    /// ID (docs/specs/agent-relay.md 7.1).
     public var json: JSONValue {
         switch self {
         case .answer(let answers):
@@ -541,7 +541,7 @@ public enum InputResponse: Sendable, Hashable {
     /// Validates the response against the committed spec. Missing required
     /// answers, duplicates, unknown IDs, extra questions, bad cardinality,
     /// non-canonical order, and over-limit text are all rejected before any
-    /// claim or dispatch (spec.agent-relay.md 7.3; A21).
+    /// claim or dispatch (docs/specs/agent-relay.md 6.3; A21).
     public func validate(against spec: InputSpec) throws {
         guard spec.allowedResponses.contains(action) else {
             throw AgentResponseError.invalid("\(action.rawValue) is not allowed for this request")
@@ -602,7 +602,7 @@ public enum AgentResponseError: Error, Equatable, Sendable, CustomStringConverti
 /// The adapter's committed mapping from Shell question/choice IDs to the
 /// provider's native answer fields and values. The host keeps it locally,
 /// commits its digest in the spec, and rechecks it before dispatch
-/// (spec.agent-relay.md 7.1).
+/// (docs/specs/agent-relay.md 6.1).
 public struct InputAnswerMapping: Sendable, Hashable {
     public struct Question: Sendable, Hashable {
         /// The native key the answer is written under (for Claude Code, the

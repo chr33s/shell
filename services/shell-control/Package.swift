@@ -3,7 +3,7 @@ import PackageDescription
 
 // The Shell Control broker: enrollment, authorization policy, immutable request
 // documents, resolution/dispatch records, the ordered change log, idempotency
-// records, audit data, and the APNs outbox (spec.watch.md section 3).
+// records, audit data, and the APNs outbox (docs/specs/control-protocol.md section 2).
 let package = Package(
     name: "shell-control",
     platforms: [.macOS(.v26)],

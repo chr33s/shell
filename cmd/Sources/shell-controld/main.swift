@@ -11,7 +11,7 @@ import Synchronization
 
 // shell-controld runs on the actual execution host as a per-user service.
 // Its socket is local only: no SSH and no unauthenticated control socket is
-// exposed to the internet (spec.watch.md section 3).
+// exposed to the internet (docs/specs/control-protocol.md section 2).
 let arguments = Array(CommandLine.arguments.dropFirst())
 let environment = ProcessInfo.processInfo.environment
 
@@ -104,7 +104,7 @@ func log(_ message: String) {
 }
 
 // The startup frontier must be captured before any IPC work is admitted
-// (spec.cli.md section 10.1). A torn or corrupt journal is repaired in place;
+// (docs/specs/control-cli.md section 9.1). A torn or corrupt journal is repaired in place;
 // anything else that stops discovery (an unreadable file, a full disk) is
 // retried here with backoff rather than by exiting into a launchd crash loop.
 var discoveryDelay: UInt64 = 1
@@ -141,7 +141,7 @@ do {
 FileHandle.standardError.write(Data("shell-controld: listening on \(socketPath)\n".utf8))
 
 // The accept loops live in ShellControlHostSupport so the bundled Control host
-// serves adapters exactly as this daemon does (spec.agent-relay.md 19.2).
+// serves adapters exactly as this daemon does (docs/specs/agent-relay.md 18.2).
 let queue = DispatchQueue(label: "dev.chr33s.shell.controld", attributes: .concurrent)
 let controlLoop = FramedIPCServer(listener: listener, queue: queue) { request in
     await core.handle(request)
@@ -207,7 +207,7 @@ let intSource = shutdown.makeSignalSource(SIGINT)
 
 // A waiting adapter that disappears — killed at its provider's timeout, or
 // exited — takes its native wait with it; FramedIPCServer cancels the wait
-// rather than keep it alive in a healthy daemon (spec.agent-relay.md 5.2, 10.2).
+// rather than keep it alive in a healthy daemon (docs/specs/agent-relay.md 4.2, 9.2).
 controlLoop.acceptLoop()
 
 termSource.cancel()

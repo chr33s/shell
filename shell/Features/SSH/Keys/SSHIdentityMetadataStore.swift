@@ -6,7 +6,7 @@
 //  devices can see which keys exist, their fingerprints and any attached
 //  OpenSSH user certificate. Private key material never reaches this store —
 //  software keys sync through the iCloud Keychain, and Secure Enclave keys
-//  never leave the device that created them (spec §7).
+//  never leave the device that created them (docs/specs/shell.md §7).
 //
 
 import Foundation
@@ -92,7 +92,7 @@ final class SSHIdentityMetadataStore {
     /// The sweep is deliberately scoped by owner. `applyRemoteChanges` writes
     /// other devices' records into this same store, and an identity that lives
     /// on another device — a Secure Enclave key above all, which by definition
-    /// can never be here (spec §7) — is *expected* to be absent from this
+    /// can never be here (docs/specs/shell.md §7) — is *expected* to be absent from this
     /// device's key list. Sweeping on absence alone would tombstone it and push
     /// that deletion to every device, destroying the metadata account-wide.
     /// A record this device did not publish is therefore never soft-deleted

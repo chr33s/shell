@@ -4,7 +4,7 @@ import ShellControlProtocol
 
 /// JWS Compact Serialization restricted to what the control protocol allows:
 /// `alg=ES256`, `kid=<device_id>`, `typ=shell-control+jws`, and a JCS-encoded
-/// payload (spec.watch.md section 11).
+/// payload (docs/specs/control-protocol.md section 9.2).
 public enum ControlJWS {
     public static let type = "shell-control+jws"
     public static let algorithm = "ES256"
@@ -60,7 +60,7 @@ public enum ControlJWS {
         public let command: ControlCommand
         public let compactSerialization: String
         /// Canonical payload hash, so retries that differ only in signature
-        /// bytes are still the same logical command (spec.watch.md section 11).
+        /// bytes are still the same logical command (docs/specs/control-protocol.md section 9.2).
         public let payloadHash: String
     }
 
@@ -93,7 +93,7 @@ public enum ControlJWS {
 
     /// The same signature checks, decoded by the separate agent command
     /// union: an agent command is never accepted by the base decoder, nor a
-    /// base command by this one (spec.agent-relay.md section 8.1).
+    /// base command by this one (docs/specs/agent-relay.md section 7.1).
     public static func verifyAgent(
         compactSerialization: String,
         resolveKey: (ControlID) throws -> DeviceJWK?

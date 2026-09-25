@@ -6,7 +6,7 @@ import ShellControlSecurity
 
 /// A broker with a controllable clock, one account, one origin, and enrolled
 /// devices — the fake origin the delivery sequence calls for
-/// (spec.watch.md section 20).
+/// (docs/specs/control-protocol.md section 19.5).
 final class BrokerHarness {
     final class Clock: @unchecked Sendable {
         private let lock = NSLock()

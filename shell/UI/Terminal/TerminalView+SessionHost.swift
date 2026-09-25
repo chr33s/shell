@@ -195,7 +195,7 @@ extension Ghostty.TerminalView {
         case .openNewShell:
             // A new tab, not a silent replacement of this one: the old
             // display stays as separately identifiable read-only history
-            // (spec.connectivity.md §9.3).
+            // (docs/specs/mobile-connectivity.md §8.3).
             NotificationCenter.default.post(name: .newTab, object: self)
 
         case .reviewDraft:

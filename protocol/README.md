@@ -1,7 +1,7 @@
 # shell-control/1
 
 The published wire contract for the Shell Watch companion, as specified in
-[`../spec.watch.md`](../spec.watch.md). This is a Shell-specific application
+[`docs/specs/control-protocol.md`](../docs/specs/control-protocol.md). This is a Shell-specific application
 protocol; it is not SSH, tmux control mode, or any existing "Shell protocol".
 
 ## Invariant
@@ -49,7 +49,7 @@ and the RFC 8628 pair `POST /v1/oauth/device_authorization` and
 
 ## The iPhone-gateway profile
 
-[`../spec.iphone-gateway.md`](../spec.iphone-gateway.md) runs the same protocol
+[`docs/specs/control-protocol.md`](../docs/specs/control-protocol.md) runs the same protocol
 on a Mac-local broker reached over Tailscale, and adds:
 
 | Endpoint | Caller |
@@ -107,7 +107,7 @@ never a command.
 
 ## The `shell-agent/1` extension
 
-[`../spec.agent-relay.md`](../spec.agent-relay.md) adds native Claude Code and
+[`docs/specs/agent-relay.md`](../docs/specs/agent-relay.md) adds native Claude Code and
 Codex integrations. Absence of `GET /v1/agent/capabilities` means the extension
 is unsupported. Agent **approvals** use the base approval endpoints with the
 `agent.tool.v1` operation schema (`schemas/agent-tool-operation.schema.json`),

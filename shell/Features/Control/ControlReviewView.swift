@@ -5,9 +5,9 @@
 //  The phone's larger review surface. A request whose `minimum_review` is
 //  `full` can only be completed here or on another enrolled full-review
 //  client; until one exists it stays unapproved or expires
-//  (spec.watch.md section 6). A request ID that names an agent question
+//  (docs/specs/control-protocol.md section 11.2). A request ID that names an agent question
 //  rather than an approval opens the question review instead
-//  (spec.agent-relay.md section 12.3).
+//  (docs/specs/agent-relay.md section 11.3).
 //
 
 import SwiftUI
@@ -114,7 +114,7 @@ struct ControlReviewView: View {
                         .foregroundStyle(.secondary)
                 } else if Self.hidesContent(record) {
                     // Hidden or truncated authorization-relevant content
-                    // prevents confirmation (spec.agent-relay.md 13.1).
+                    // prevents confirmation (docs/specs/agent-relay.md 12.1).
                     Text(String(localized: "Review on Mac: this operation is too large to show in full here."))
                         .font(.footnote)
                         .foregroundStyle(.secondary)
@@ -185,8 +185,8 @@ struct ControlReviewView: View {
 
 /// Settings → Control: evidence-based status, the requests waiting on this
 /// iPhone, and the entry to guided setup. Private keys never leave the device
-/// that made them (spec.iphone-gateway.md sections 9, 10, and 24;
-/// spec.control-companion-setup.md section 8).
+/// that made them (docs/specs/control-protocol.md sections 5.2, 5.3, and 4.5;
+/// docs/specs/control-setup.md section 5).
 struct ControlSetupView: View {
     let companion: ControlCompanion
 
@@ -196,7 +196,7 @@ struct ControlSetupView: View {
     var body: some View {
         List {
             #if targetEnvironment(macCatalyst)
-            // This Mac as the bundled Control host (spec.agent-relay.md 19.4).
+            // This Mac as the bundled Control host (docs/specs/agent-relay.md 18.4).
             ControlHostEntrySection(lifecycle: .shared)
             #endif
             if companion.phase == .notConfigured {

@@ -3,7 +3,7 @@ import Foundation
 /// Typed, fail-closed accessors over a parsed JSON object.
 ///
 /// Missing or mistyped authorization-relevant fields are errors; there is no
-/// defaulting and no silent coercion (spec.watch.md section 8).
+/// defaulting and no silent coercion (docs/specs/control-protocol.md section 6).
 public struct JSONReader: Sendable {
     public enum ReadError: Error, Equatable, Sendable {
         case notAnObject
@@ -130,7 +130,7 @@ public struct JSONReader: Sendable {
     ///
     /// Unknown command or operation types fail closed for mutations; only
     /// members explicitly specified as non-authorizing extension data may be
-    /// ignored (spec.watch.md section 8).
+    /// ignored (docs/specs/control-protocol.md section 6).
     public func rejectUnknownMembers(allowing extensions: Set<String> = []) throws {
         let unknown = Set(members.keys).subtracting(consumed).subtracting(extensions)
         guard unknown.isEmpty else { throw ReadError.unknownMembers(unknown.sorted()) }

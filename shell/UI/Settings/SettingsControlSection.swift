@@ -4,7 +4,7 @@
 //
 //  Optional control companion: phone-first enrollment against the baked-in
 //  broker, Safari confirmation, and Watch setup assistance
-//  (spec.watch.md sections 1 and 5).
+//  (docs/specs/control-protocol.md sections 1.1 and 5.1).
 //
 
 import SwiftUI

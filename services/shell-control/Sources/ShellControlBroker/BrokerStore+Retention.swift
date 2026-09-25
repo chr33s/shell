@@ -16,7 +16,7 @@ extension BrokerStore {
     /// stays bounded. Command, receipt, and notification records are kept for
     /// 30 days; a purged request leaves a compact tombstone so its ID can never
     /// be reused; mutation IDs are kept for the origin enrollment's lifetime
-    /// (spec.watch.md section 15).
+    /// (docs/specs/control-protocol.md section 13.1).
     func purgeRetained() {
         let now = timestamp
         // Trimmed here as well as on append, so an idle ledger ages out too.
@@ -84,7 +84,7 @@ extension BrokerStore {
 extension BrokerStore {
     /// The agent ledger ages out on the base floors: seven days of change
     /// history and thirty days of command evidence. A purged input leaves a
-    /// tombstone so its ID is never reused (spec.agent-relay.md section 18).
+    /// tombstone so its ID is never reused (docs/specs/agent-relay.md section 17).
     func purgeAgentRetained(cutoff: ControlTimestamp) {
         trimAgentChangeLog()
         for (id, entry) in agent.inputs where entry.spec.expiresAt < cutoff {

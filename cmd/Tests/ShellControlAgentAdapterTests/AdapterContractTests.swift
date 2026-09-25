@@ -3,7 +3,7 @@ import ShellControlProtocol
 @testable import ShellControlAgentAdapter
 
 /// Native contract fixtures for the Claude Code and Codex hook adapters
-/// (spec.agent-relay.md sections 4.3, 6, 7, 10, 11). The fixtures under
+/// (docs/specs/agent-relay.md sections 3.3, 5, 6, 9, 10). The fixtures under
 /// `adapters/<provider>/fixtures` follow the providers' documented shapes;
 /// they are not captured from a provider binary, so they back `documented`
 /// evidence only.

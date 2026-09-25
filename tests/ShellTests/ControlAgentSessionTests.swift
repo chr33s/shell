@@ -7,7 +7,7 @@
 //  when running), invalid text is refused before signing, missing grants
 //  hide the controls, session-command delivery events are carried by the
 //  agent feed without breaking it, and a moved session is reported for a
-//  fresh review without resending (spec.agent-relay.md section 16).
+//  fresh review without resending (docs/specs/agent-relay.md section 15).
 //
 
 import XCTest

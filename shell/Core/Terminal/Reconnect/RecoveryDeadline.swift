@@ -3,7 +3,7 @@
 //  shell
 //
 //  Owned operation deadlines for recovery stages and keepalive probes
-//  (spec.connectivity.md §7.3, §8.3).
+//  (docs/specs/mobile-connectivity.md §6.3, §8.3).
 //
 //  `withTimeout` in Core/Foundation solves half of this: it returns control
 //  to the caller even when the underlying future ignores cancellation. What

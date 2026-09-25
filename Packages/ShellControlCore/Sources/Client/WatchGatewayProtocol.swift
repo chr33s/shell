@@ -4,7 +4,7 @@ import ShellControlSecurity
 
 /// The `shell-watch-gateway/1` transport profile: strict JSON envelopes of at
 /// most 64 KiB carried by WatchConnectivity `sendMessageData`. It is transport
-/// only, never the ledger (spec.iphone-gateway.md sections 11 and 12).
+/// only, never the ledger (docs/specs/control-protocol.md sections 10.1 and 10.3).
 public enum WatchGatewayProtocol {
     public static let name = "shell-watch-gateway/1"
     public static let maximumMessageBytes = 64 * 1024
@@ -13,7 +13,7 @@ public enum WatchGatewayProtocol {
 }
 
 /// Interactive operations. Every one needs a live iPhone round trip; none of
-/// them may be queued for later delivery (spec.iphone-gateway.md section 11.1).
+/// them may be queued for later delivery (docs/specs/control-protocol.md section 10.1).
 public enum WatchGatewayMessageType: String, Sendable, Hashable, CaseIterable {
     case enrollmentRequest = "enrollment.request"
     case enrollmentStatus = "enrollment.status"
@@ -193,7 +193,7 @@ public enum WatchGatewayError: Error, Sendable, Hashable, CustomStringConvertibl
 /// Stale-tolerant state the iPhone may deliver in the background through
 /// `updateApplicationContext`. It can never carry an executable approval
 /// command: its schema has no place for one, and unknown members are rejected
-/// (spec.iphone-gateway.md sections 11.2 and 11.3).
+/// (docs/specs/control-protocol.md sections 10.1 and 10.2).
 public struct WatchGatewayContext: Sendable, Hashable {
     public static let type = "gateway.context"
     public static let applicationContextKey = "shell-watch-gateway"

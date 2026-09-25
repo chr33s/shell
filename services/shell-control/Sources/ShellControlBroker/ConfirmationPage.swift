@@ -4,7 +4,7 @@ import ShellControlProtocol
 /// The authenticated browser surface a device sends the user to.
 ///
 /// It displays the requested origin permissions, platform, device label, and
-/// key fingerprint before anything is approved (spec.watch.md section 5). A
+/// key fingerprint before anything is approved (docs/specs/control-protocol.md section 5.1). A
 /// real deployment is expected to replace this with its own console and its own
 /// session handling; what must not change is that confirming requires account
 /// administration, and that the user sees what is being granted first.

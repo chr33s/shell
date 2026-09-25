@@ -10,7 +10,7 @@ import ShellControlProtocol
 import ShellControlSecurity
 
 /// The bundled Control host: the broker and daemon libraries composed in one
-/// supervised process (spec.agent-relay.md sections 3.1 and 19.2).
+/// supervised process (docs/specs/agent-relay.md sections 2.1 and 18.2).
 ///
 /// Order of authority: single-writer lock, identity, legacy detection, ledger
 /// restore, loopback broker, journal recovery, and only then adapter ingress
@@ -171,7 +171,7 @@ public actor HostRuntime {
         let service = BrokerService(store: store, configuration: BrokerService.Configuration(
             verificationURI: "https://example.invalid/activate",
             // The bundled host registers no direct-APNs topics; pairing and
-            // review work without push (spec.iphone-gateway.md 16.5).
+            // review work without push (docs/specs/control-protocol.md 12.4).
             allowedAPNsTopics: [],
             adminSecret: identity.adminSecret,
             adminAccountID: identity.accountID
@@ -242,7 +242,7 @@ public actor HostRuntime {
         }
         // The startup frontier is captured before any adapter is admitted;
         // an unreadable journal is retried with bounded backoff rather than
-        // by exiting into a launchd restart loop (spec.cli.md 10.1, spec 19.3).
+        // by exiting into a launchd restart loop (docs/specs/control-cli.md 9.1, spec 19.3).
         var delay: UInt64 = 1
         while true {
             do {

@@ -5,7 +5,7 @@ import ShellControlManagement
 import ShellControlProtocol
 
 /// `shell-control doctor`: read-only host diagnostics
-/// (spec.control-companion-setup.md section 13). It checks this Mac only,
+/// (docs/specs/control-setup.md section 10). It checks this Mac only,
 /// never whether an iPhone or Watch can reach it now.
 struct DoctorCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
@@ -60,7 +60,7 @@ struct DoctorCommand: AsyncParsableCommand {
 
 /// `shell-control test-review`: one explicit live review of the fixed
 /// no-operation setup test through the selected reviewer
-/// (spec.control-companion-setup.md section 11).
+/// (docs/specs/control-setup.md section 8).
 struct TestReviewCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "test-review",

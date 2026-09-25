@@ -3,7 +3,7 @@
 //  shell
 //
 //  The logical session model that survives transport replacement
-//  (spec.connectivity.md §5).
+//  (docs/specs/mobile-connectivity.md §4).
 //
 //  Nothing here holds a Task, a channel, key material, or a Ghostty pointer:
 //  the context outlives every one of those, and a descriptor built from it is

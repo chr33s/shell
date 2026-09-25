@@ -5,7 +5,7 @@ public enum MinimumReview: String, Sendable, Hashable, CaseIterable {
     /// Reviewable on a Watch-sized surface.
     case watch
     /// Needs an enrolled full-review client; the Watch shows "Review on another
-    /// device" and never mints an approval (spec.watch.md section 6).
+    /// device" and never mints an approval (docs/specs/control-protocol.md section 11.2).
     case full
 
     /// The review this build's UI provides: Watch-sized on watchOS, full on
@@ -43,7 +43,7 @@ public enum ControlFeature {
 /// Changing arguments, targets, policy-sensitive context, the review
 /// requirement, or the expiry requires cancellation and a new request ID; a
 /// spec is never updated behind an already-visible approval button
-/// (spec.watch.md section 9).
+/// (docs/specs/control-protocol.md section 7).
 public struct ApprovalSpec: Sendable, Hashable {
     public static let type = "approval.request"
 
@@ -169,7 +169,7 @@ public struct ApprovalSpec: Sendable, Hashable {
     }
 
     /// `sha256:` digest over the JCS encoding of the full spec. Recomputed
-    /// independently by the origin and the Watch (spec.watch.md section 9).
+    /// independently by the origin and the Watch (docs/specs/control-protocol.md section 7).
     public func requestHash() throws -> String {
         try ContentDigest.digest(ofCanonical: json)
     }
@@ -178,7 +178,7 @@ public struct ApprovalSpec: Sendable, Hashable {
 
     /// Whether the spec itself permits a Watch-sized approval: the declared
     /// minimum review, and for an agent operation the narrow Watch policy
-    /// (spec.agent-relay.md section 13.2).
+    /// (docs/specs/agent-relay.md section 12.2).
     public var permitsWatchApproval: Bool {
         guard minimumReview == .watch else { return false }
         if case .agentTool(let operation) = operation { return operation.isWatchEligible }
@@ -188,7 +188,7 @@ public struct ApprovalSpec: Sendable, Hashable {
 
 public enum ApprovalPolicy {
     /// Approval expiry defaults to five minutes, capped at 30
-    /// (spec.watch.md section 15).
+    /// (docs/specs/control-protocol.md section 13.1).
     public static let defaultLifetime: TimeInterval = 5 * 60
     public static let maximumLifetime: TimeInterval = 30 * 60
     /// Origin heartbeat every 15 seconds; presence stale after 45.

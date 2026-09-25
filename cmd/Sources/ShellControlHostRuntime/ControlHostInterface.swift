@@ -1,7 +1,7 @@
 import Foundation
 
 // The owned UI-to-host boundary of the bundled Control host
-// (spec.agent-relay.md sections 3.1, 19.6, and 19.9).
+// (docs/specs/agent-relay.md sections 2.1, 18.6, and 18.9).
 //
 // This one file is compiled into two binaries: the `ShellControlHostRuntime`
 // library (the native macOS host) and, by file reference, the Mac Catalyst

@@ -8,7 +8,7 @@ import ShellControlClient
 ///
 /// Every endpoint enforces authenticated account and object scope; the
 /// enrollment and discovery exceptions are the ones the spec names
-/// (spec.watch.md section 10).
+/// (docs/specs/control-protocol.md section 8.1).
 public struct BrokerService: Sendable {
     public struct Configuration: Sendable {
         public var verificationURI: String
@@ -66,7 +66,7 @@ public struct BrokerService: Sendable {
 
         case ("GET", "/v1/origin/proof"):
             // Unauthenticated by design: it proves which key this endpoint
-            // holds and discloses nothing else (spec.iphone-gateway.md 7.4).
+            // holds and discloses nothing else (docs/specs/control-protocol.md 4.4).
             try await limiter.check(bucket: "origin_proof", limit: 120)
             let proof = try await store.originProof(nonce: request.query["nonce"] ?? "")
             return json(status: 200, proof.document, headers: ["Cache-Control": "no-store"])
@@ -128,7 +128,7 @@ public struct BrokerService: Sendable {
             // The Mac-local authority enrolls an iPhone only through a one-use
             // pairing claim, and a Watch only through its iPhone gateway, so
             // no device ever gets a credential without the setup QR and no
-            // Watch gets a direct HTTPS credential (spec.iphone-gateway.md
+            // Watch gets a direct HTTPS credential (docs/specs/control-protocol.md
             // sections 4.6 and 9).
             if await store.isGatewayProfile {
                 throw ControlError(code: .notAuthorized, message: "pair with the QR from shell-control setup")
@@ -370,7 +370,7 @@ public struct BrokerService: Sendable {
             var page = try await store.changes(principal: principal, cursor: cursor, limit: limit)
             if page.events.isEmpty, wait > 0 {
                 // Long polling for origins: bounded, and it never becomes an
-                // always-open socket for the Watch (spec.watch.md section 7).
+                // always-open socket for the Watch (docs/specs/control-protocol.md section 11.5).
                 let deadline = Date().addingTimeInterval(TimeInterval(wait))
                 while page.events.isEmpty, Date() < deadline {
                     try await Task.sleep(nanoseconds: 500_000_000)
@@ -393,7 +393,7 @@ public struct BrokerService: Sendable {
             try reader.rejectUnknownMembers()
             let outcome = try await store.submitCommand(principal: principal, signedCommand: signed, idempotencyKey: key)
             // A first record is 201; an identical retry returns 200 with the
-            // original recorded result (spec.watch.md section 11).
+            // original recorded result (docs/specs/control-protocol.md section 9.2).
             return json(status: outcome.isReplay ? 200 : 201, outcome.result.json)
 
         case ("POST", "/v1/origins/me/heartbeat"):
@@ -487,7 +487,7 @@ public struct BrokerService: Sendable {
 
     /// Proxied Watch operations. The gateway is the authenticated iPhone; the
     /// Watch binding, revocation, and grant are checked on every call before
-    /// the ordinary handler runs as the Watch (spec.iphone-gateway.md 13, 19).
+    /// the ordinary handler runs as the Watch (docs/specs/control-protocol.md 10.4, 8).
     private func routeGateway(_ request: HTTPServer.Request, principal: Principal) async throws -> HTTPServer.Response {
         let parts = request.path.dropFirst(BrokerService.reviewerPrefix.count).split(separator: "/", omittingEmptySubsequences: false).map(String.init)
         guard let first = parts.first, let watchID = ControlID(first) else {
@@ -698,7 +698,7 @@ public struct BrokerService: Sendable {
 }
 
 /// A coarse per-bucket limiter. The enrollment and token endpoints rate-limit
-/// attempts (spec.watch.md section 5).
+/// attempts (docs/specs/control-protocol.md section 5.1).
 actor RateLimiter {
     private var counters: [String: (windowStart: Date, count: Int)] = [:]
 

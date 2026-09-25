@@ -6,7 +6,7 @@ import ShellControlProtocol
 ///
 /// The origin key is identity; a Tailscale URL is only routing. Pairing pins
 /// `origin_id` plus this public key, so a route change never becomes a trust
-/// change (spec.iphone-gateway.md sections 7 and 35).
+/// change (docs/specs/control-protocol.md sections 4.2 and 18.2).
 public struct OriginIdentity: Sendable, Hashable {
     public let originID: ControlID
     public let publicJWK: DeviceJWK

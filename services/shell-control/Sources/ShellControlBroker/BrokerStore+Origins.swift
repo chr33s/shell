@@ -3,7 +3,7 @@ import ShellControlProtocol
 
 extension BrokerStore {
     /// `PUT /v1/origins/me/runs/{run_id}`: exact replacement semantics for a
-    /// run registration (spec.watch.md section 10).
+    /// run registration (docs/specs/control-protocol.md section 8.1).
     public func registerRun(principal: Principal, registration: RunRegistration) throws {
         guard let originID = principal.originID else {
             throw ControlError(code: .notAuthorized, message: "only origins register runs")
@@ -37,7 +37,7 @@ extension BrokerStore {
     }
 
     /// `POST /v1/origins/me/heartbeat`: replaceable presence observations, not
-    /// authorizations (spec.watch.md section 10).
+    /// authorizations (docs/specs/control-protocol.md section 8.1).
     ///
     /// A heartbeat that only extends a lease is kept in memory: presence is
     /// read live from `last_seen_at` whenever a projection is served, and a
@@ -82,7 +82,7 @@ extension BrokerStore {
     }
 
     /// `POST /v1/notifications`: idempotent by event ID and body hash
-    /// (spec.watch.md section 10).
+    /// (docs/specs/control-protocol.md section 8.1).
     public func createNotification(principal: Principal, event: InformationalEvent) throws -> InformationalEvent {
         guard let originID = principal.originID, event.originID == originID else {
             throw ControlError(code: .notAuthorized, message: "origins create only their own events")
@@ -120,7 +120,7 @@ extension BrokerStore {
     }
 
     /// `POST /v1/approvals`: the same request ID and hash returns the existing
-    /// record; a different hash conflicts (spec.watch.md section 10).
+    /// record; a different hash conflicts (docs/specs/control-protocol.md section 8.1).
     public func createApproval(principal: Principal, spec: ApprovalSpec) throws -> ApprovalRecord {
         guard let originID = principal.originID, spec.originID == originID else {
             throw ControlError(code: .notAuthorized, message: "origins create only their own requests")
@@ -183,7 +183,7 @@ extension BrokerStore {
     /// The spec only caps `expires_at - created_at`; the broker is
     /// authoritative for deadlines, so both ends are also checked against its
     /// own clock. The spec is immutable and hashed, so an out-of-range value is
-    /// rejected rather than clamped (spec.watch.md sections 15 and 16).
+    /// rejected rather than clamped (docs/specs/control-protocol.md sections 13.1 and 14).
     private func validateLifetime(of spec: ApprovalSpec) throws {
         let now = timestamp
         guard spec.createdAt <= now.adding(BrokerStore.originClockSkew) else {
@@ -205,7 +205,7 @@ extension BrokerStore {
     /// Withdrawal after approval preserves the historic `approved` resolution
     /// but marks an unconsumed dispatch `not_applied`; if consumption already
     /// won the race it reports `already_claimed`
-    /// (spec.watch.md section 12).
+    /// (docs/specs/control-protocol.md section 9.4).
     public func withdrawApproval(
         principal: Principal,
         requestID: ControlID,
@@ -266,7 +266,7 @@ extension BrokerStore {
     ///
     /// Only one consume ID may claim an approved request; retrying the same ID
     /// returns the same permit and deadline, and a new ID cannot obtain a
-    /// second grant (spec.watch.md section 12).
+    /// second grant (docs/specs/control-protocol.md section 9.4).
     public func consumeApproval(principal: Principal, requestID: ControlID, request: ConsumeRequest) throws -> ConsumePermit {
         guard let originID = principal.originID else {
             throw ControlError(code: .notAuthorized, message: "only origins consume approvals")
@@ -297,7 +297,7 @@ extension BrokerStore {
             throw ControlError(code: .alreadyResolved, message: "job cancellation was requested")
         }
         // A device revoked after the decision but before consumption cannot
-        // have its grant consumed (spec.watch.md section 19).
+        // have its grant consumed (docs/specs/control-protocol.md section 19).
         if let deciding = entry.projection.decidedByDeviceID, devices[deciding]?.isRevoked ?? true {
             throw ControlError(code: .deviceRevoked, message: "the deciding device was revoked")
         }
@@ -343,7 +343,7 @@ extension BrokerStore {
     }
 
     /// `POST /v1/receipts`: validated transitions, applied once, and rejected
-    /// if they describe another run or hash (spec.watch.md section 12).
+    /// if they describe another run or hash (docs/specs/control-protocol.md section 9.4).
     public func recordReceipt(principal: Principal, receipt: Receipt) throws {
         guard let originID = principal.originID else {
             throw ControlError(code: .notAuthorized, message: "only origins report receipts")
@@ -436,14 +436,14 @@ extension BrokerStore {
     // MARK: Push outbox
 
     /// `PUT /v1/devices/me/push`. The server validates the topic against its
-    /// configured app IDs (spec.watch.md section 10).
+    /// configured app IDs (docs/specs/control-protocol.md section 8.1).
     public func registerPush(principal: Principal, registration: PushRegistration, allowedTopics: Set<String>) throws {
         guard let deviceID = principal.deviceID, var device = devices[deviceID] else {
             throw ControlError(code: .notAuthorized, message: "only devices register push tokens")
         }
         // Fails closed: with no configured app IDs there is no topic a device
         // may claim, so the operator's provider key can never be used to push
-        // to an arbitrary topic (spec.watch.md section 10).
+        // to an arbitrary topic (docs/specs/control-protocol.md section 8.1).
         guard allowedTopics.contains(registration.topic) else {
             throw ControlError(
                 code: .notAuthorized,
@@ -464,7 +464,7 @@ extension BrokerStore {
     }
 
     /// Sends to every installed destination for the account, so the system can
-    /// choose the appropriate presentation (spec.watch.md section 14).
+    /// choose the appropriate presentation (docs/specs/control-protocol.md section 12).
     private func enqueueApprovalPushes(accountID: ControlID, spec: ApprovalSpec) {
         let payload = ApprovalPushPayload(eventID: .random(), requestID: spec.requestID)
         guard let body = try? payload.encoded() else { return }

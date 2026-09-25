@@ -8,7 +8,7 @@ public struct ControlHTTPRequest: Sendable {
     public var headers: [String: String]
     public var body: Data?
     /// Long-polling reads use a longer timeout than short foreground control
-    /// requests (spec.watch.md section 7).
+    /// requests (docs/specs/control-protocol.md section 11.5).
     public var timeout: TimeInterval
 
     public init(
@@ -55,7 +55,7 @@ public enum TransportError: Error, Sendable, Equatable {
 
 /// `URLSession` HTTPS for reads and short, foreground control requests. There
 /// is no always-open socket and no background polling loop
-/// (spec.watch.md section 7).
+/// (docs/specs/control-protocol.md section 11.5).
 private final class NoRedirectSessionDelegate: NSObject, URLSessionTaskDelegate, Sendable {
     static let shared = NoRedirectSessionDelegate()
     func urlSession(_ session: URLSession, task: URLSessionTask,

@@ -2,7 +2,7 @@ import Foundation
 
 /// `POST /v1/agent/inputs/{id}/consume`: the origin's one-time claim on the
 /// winning response, for the exact live native wait. The origin comes from
-/// authentication, never from the body (spec.agent-relay.md 15.3).
+/// authentication, never from the body (docs/specs/agent-relay.md 14.3).
 public struct InputConsumeRequest: Sendable, Hashable {
     public let mutationID: ControlID
     public let runID: ControlID
@@ -45,7 +45,7 @@ public struct InputConsumeRequest: Sendable, Hashable {
 
 /// The one-time grant to write one response to one native wait. Repeating the
 /// same consume returns this same permit and deadline; it is never renewed
-/// (spec.agent-relay.md 15.3).
+/// (docs/specs/agent-relay.md 14.3).
 public struct InputConsumePermit: Sendable, Hashable {
     public let permitID: ControlID
     public let mutationID: ControlID
@@ -135,7 +135,7 @@ public struct InputConsumePermit: Sendable, Hashable {
     }
 
     /// Every binding the host must compare before writing to the provider
-    /// (spec.agent-relay.md 15.3). The response must also hash to what was
+    /// (docs/specs/agent-relay.md 14.3). The response must also hash to what was
     /// claimed, and the signed command must carry exactly this response.
     public func validate(
         request: InputConsumeRequest,
@@ -190,7 +190,7 @@ public enum AgentRequestKind: String, Sendable, Hashable {
 
 /// Correlated, idempotent `agent.delivery.v1` evidence. It never changes the
 /// meaning of a legacy receipt field; the broker derives the conservative
-/// legacy result from it (spec.agent-relay.md 9.2).
+/// legacy result from it (docs/specs/agent-relay.md 8.2).
 public struct AgentDeliveryReceipt: Sendable, Hashable {
     public let receiptID: ControlID
     public let requestKind: AgentRequestKind

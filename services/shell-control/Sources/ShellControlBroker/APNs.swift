@@ -6,7 +6,7 @@ import ShellControlSecurity
 /// Delivers alerts to APNs.
 ///
 /// Provider credentials live only in the broker, never on the Watch, the
-/// iPhone, or a job host (spec.watch.md section 3).
+/// iPhone, or a job host (docs/specs/control-protocol.md section 2).
 public protocol PushSender: Sendable {
     func send(_ entry: OutboxEntry) async throws
 }
@@ -111,7 +111,7 @@ public actor RecordingPushSender: PushSender {
 
 /// Hands approval hints to the stateless Shell Push Relay. The relay owns no
 /// approval state and builds the APNs payload itself; a relay outage only
-/// loses a hint (spec.iphone-gateway.md section 16).
+/// loses a hint (docs/specs/control-protocol.md section 12).
 public protocol RelaySender: Sendable {
     func send(_ entry: RelayPushEntry) async throws
 }
@@ -146,7 +146,7 @@ public actor RecordingRelaySender: RelaySender {
 
 /// Drains the outbox. A failed push is dropped rather than retried forever:
 /// push is a hint, and the client reconciles from the change stream
-/// (spec.watch.md section 14).
+/// (docs/specs/control-protocol.md section 12).
 public struct OutboxWorker: Sendable {
     let store: BrokerStore
     let sender: any PushSender

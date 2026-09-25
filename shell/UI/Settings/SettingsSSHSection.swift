@@ -2,7 +2,7 @@
 //  SettingsSSHSection.swift
 //  shell
 //
-//  SSH settings: profiles, identities, known hosts (spec section 12).
+//  SSH settings: profiles, identities, known hosts (docs/specs/shell.md §11.2).
 //
 
 import SwiftUI

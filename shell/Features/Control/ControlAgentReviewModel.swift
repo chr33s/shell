@@ -6,7 +6,7 @@
 //  operation as display lines and the words for every delivery state (the
 //  typed-answer draft is Core's `InputAnswerDraft`). Everything
 //  agent-supplied is untrusted text and is sanitized before display
-//  (spec.agent-relay.md sections 6.3, 7, 13.1, 17.2).
+//  (docs/specs/agent-relay.md sections 5.3, 6, 12.1, 16.2).
 //
 
 import Foundation
@@ -18,7 +18,7 @@ import ShellControlClient
 /// The exact `agent.tool.v1` operation as the review screen shows it. If any
 /// authorization-relevant field would not fit, `isTruncated` is set and
 /// approval must be refused here in favour of native review on the Mac
-/// (spec.agent-relay.md sections 13.1 and 17.2).
+/// (docs/specs/agent-relay.md sections 12.1 and 16.2).
 struct AgentOperationDisplay: Equatable {
     struct Option: Equatable {
         let name: String
@@ -104,7 +104,7 @@ struct AgentOperationDisplay: Equatable {
 
 /// Words for agent state, so nothing depends on color. Each delivery state is
 /// distinct: a recorded response is not agent acceptance, and acceptance is
-/// not task completion (spec.agent-relay.md 13.1).
+/// not task completion (docs/specs/agent-relay.md 12.1).
 enum ControlAgentText {
     static func submission(_ state: AgentSubmissionState) -> String {
         switch state {
@@ -210,7 +210,7 @@ enum ControlAgentText {
     }
 
     /// Where to look on the Mac. Navigation text only: Shell never sends
-    /// keystrokes to the pane (spec.agent-relay.md section 14.1).
+    /// keystrokes to the pane (docs/specs/agent-relay.md section 13.1).
     static func terminal(_ location: TerminalLocation) -> String {
         String(localized: "tmux session \(location.sessionID), window \(location.windowID), pane \(location.paneID)")
     }

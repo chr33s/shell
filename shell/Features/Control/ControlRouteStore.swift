@@ -5,7 +5,7 @@
 //  Where the iPhone keeps the pinned Shell origin (identity plus cached
 //  routes) and the Watch it gateways for. Routes change freely; the pinned
 //  origin key changes only through an explicit new pairing
-//  (spec.iphone-gateway.md sections 7.3 and 10.5).
+//  (docs/specs/control-protocol.md sections 4.3 and 5.4).
 //
 
 import Foundation

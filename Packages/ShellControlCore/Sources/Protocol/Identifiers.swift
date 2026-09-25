@@ -1,10 +1,10 @@
 import Foundation
 
-/// A canonical lowercase UUID string (spec.watch.md section 8).
+/// A canonical lowercase UUID string (docs/specs/control-protocol.md section 6).
 ///
 /// The distinct wrappers exist so a view UUID, surface pointer, tab selection,
 /// tmux pane number, or terminal title can never be passed where an
-/// authorization identifier is required (spec.watch.md section 2).
+/// authorization identifier is required (docs/specs/control-protocol.md section 20.2).
 public struct ControlID: Sendable, Hashable, CustomStringConvertible, Codable {
     public let rawValue: String
 
@@ -178,7 +178,7 @@ enum RFC3339 {
 }
 
 /// The ordered change-log sequence, carried as a decimal string so a large
-/// value never loses precision in a JSON number (spec.watch.md section 8).
+/// value never loses precision in a JSON number (docs/specs/control-protocol.md section 6).
 public struct LogSequence: Sendable, Hashable, Comparable, CustomStringConvertible {
     public let value: UInt64
 

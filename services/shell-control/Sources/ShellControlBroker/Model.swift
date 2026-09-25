@@ -3,7 +3,7 @@ import ShellControlProtocol
 import ShellControlSecurity
 
 /// An enrolled control device. Every device has a separate identity and
-/// revocable grants (spec.watch.md section 4).
+/// revocable grants (docs/specs/control-protocol.md section 3.1).
 struct DeviceRecord: Sendable {
     let deviceID: ControlID
     let accountID: ControlID
@@ -15,14 +15,14 @@ struct DeviceRecord: Sendable {
     var push: PushRegistration?
     /// Set for a Watch reviewer: the one iPhone gateway it may be reached
     /// through. Such a device has no standalone network credential
-    /// (spec.iphone-gateway.md section 10).
+    /// (docs/specs/control-protocol.md section 5.3).
     var gatewayDeviceID: ControlID?
     /// A relay-signed push capability an iPhone handed over. It is a delivery
-    /// address only (spec.iphone-gateway.md section 16.1).
+    /// address only (docs/specs/control-protocol.md section 12.2).
     var pushCapability: String?
     /// The iPhone's explicit remote-alert choice. Absent on records that
     /// predate it, which keep their legacy eligibility at version 0
-    /// (spec.control-companion-setup.md section 10.3).
+    /// (docs/specs/control-setup.md section 7.3).
     var notificationPreference: NotificationPreference? = nil
 
     var isRevoked: Bool { revokedAt != nil }
@@ -35,14 +35,14 @@ struct DeviceRecord: Sendable {
     var isWatchReviewer: Bool { gatewayDeviceID != nil }
     /// The iPhone is a full-review client; a Watch, standalone or behind a
     /// gateway, is a glance-sized surface that never approves a request
-    /// demanding fuller review (spec.iphone-gateway.md section 4.5,
-    /// spec.watch.md section 6).
+    /// demanding fuller review (docs/specs/control-protocol.md section 2.4,
+    /// docs/specs/control-protocol.md section 11.2).
     var isFullReviewClient: Bool { platform == .iOS && !isWatchReviewer }
 }
 
 /// A one-use, short-lived pairing the Mac minted for its setup QR. The secret
 /// is bootstrap material, not an origin credential
-/// (spec.iphone-gateway.md section 9.1).
+/// (docs/specs/control-protocol.md section 5.2).
 struct PairingRecord: Sendable {
     let pairingID: ControlID
     let accountID: ControlID
@@ -53,7 +53,7 @@ struct PairingRecord: Sendable {
 }
 
 /// A Watch reviewer enrollment an iPhone gateway requested, awaiting explicit
-/// confirmation on the Mac (spec.iphone-gateway.md section 10.3).
+/// confirmation on the Mac (docs/specs/control-protocol.md section 5.3).
 struct WatchReviewerRequestRecord: Sendable {
     let watchDeviceID: ControlID
     let accountID: ControlID
@@ -69,7 +69,7 @@ struct WatchReviewerRequestRecord: Sendable {
 
 /// A push the broker asks the stateless relay to deliver. It names the event
 /// only; the relay builds the APNs payload itself
-/// (spec.iphone-gateway.md section 16.2).
+/// (docs/specs/control-protocol.md section 12.3).
 public struct RelayPushEntry: Sendable, Hashable {
     public let capability: String
     public let event: String
@@ -92,7 +92,7 @@ public struct RelayPushEntry: Sendable, Hashable {
 
 /// An enrolled origin. Its credential is stored only as a verifier, is
 /// rotatable, and is never distributed to watchOS clients
-/// (spec.watch.md section 10).
+/// (docs/specs/control-protocol.md section 8.1).
 struct OriginRecord: Sendable {
     let originID: ControlID
     let accountID: ControlID
@@ -143,7 +143,7 @@ struct ApprovalRecordEntry: Sendable {
 }
 
 /// A one-use review challenge bound to a device, target, action, and versions
-/// (spec.watch.md section 11).
+/// (docs/specs/control-protocol.md section 9.2).
 struct ChallengeRecord: Sendable {
     let challengeID: String
     let accountID: ControlID
@@ -155,7 +155,7 @@ struct ChallengeRecord: Sendable {
 }
 
 /// The recorded result of a command, keyed by `(account, device_id,
-/// command_id)` with a canonical payload hash (spec.watch.md section 11).
+/// command_id)` with a canonical payload hash (docs/specs/control-protocol.md section 9.2).
 struct IdempotencyRecord: Sendable {
     let accountID: ControlID
     let deviceID: ControlID
@@ -186,7 +186,7 @@ struct OriginMutationRecord: Sendable {
 }
 
 /// A queued alert. The push is a hint; the ledger is the change stream
-/// (spec.watch.md section 14).
+/// (docs/specs/control-protocol.md section 12).
 public struct OutboxEntry: Sendable {
     public let payload: Data
     public let headers: APNsRequestHeaders
@@ -196,7 +196,7 @@ public struct OutboxEntry: Sendable {
 }
 
 /// A compact tombstone kept after detailed content is purged, so a mutation or
-/// request ID cannot be reused (spec.watch.md section 15).
+/// request ID cannot be reused (docs/specs/control-protocol.md section 13.1).
 struct Tombstone: Sendable {
     let requestID: ControlID
     let requestHash: String

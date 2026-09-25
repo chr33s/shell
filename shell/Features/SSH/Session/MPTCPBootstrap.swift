@@ -10,7 +10,7 @@
 //  peer wake-up. The "MPTCP" name is retained for historical continuity;
 //  Multipath TCP itself is not used, because it requires the `multipath`
 //  entitlement that the minimal entitlement set deliberately drops
-//  (spec section 8).
+//  (docs/specs/shell.md §8).
 //
 
 import Foundation

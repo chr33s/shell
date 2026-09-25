@@ -5,9 +5,9 @@ import ShellControlClient
 /// The review screen. It fetches the current request live through the iPhone
 /// before enabling any decision, shows the exact argument vector and working directory, escapes
 /// control and bidi characters, and never silently truncates an
-/// authorization-relevant argument (spec.watch.md section 6). A request ID
+/// authorization-relevant argument (docs/specs/control-protocol.md section 11.2). A request ID
 /// that names an agent question instead opens question review
-/// (spec.agent-relay.md section 12.3).
+/// (docs/specs/agent-relay.md section 11.3).
 struct ApprovalReviewView: View {
     @Environment(ControlSession.self) private var session
     let requestID: ControlID
@@ -60,7 +60,7 @@ struct ApprovalReviewView: View {
             Section {
                 if SetupTestFixture.matches(record.spec) {
                     // A label only: the decision is still this Watch's own
-                    // signed, live decision (spec.control-companion-setup.md 11).
+                    // signed, live decision (docs/specs/control-setup.md 8).
                     Label(String(localized: "Setup test — nothing will run"), systemImage: "checkmark.shield")
                         .font(.caption)
                 }
@@ -144,7 +144,7 @@ struct ApprovalReviewView: View {
                 }
                 if !session.isGatewayReachable {
                     // Decisions need a live iPhone round trip; nothing is
-                    // queued for later (spec.iphone-gateway.md 11.3).
+                    // queued for later (docs/specs/control-protocol.md 10.2).
                     Text(String(localized: "iPhone unavailable — no decision is queued"))
                         .font(.caption2)
                         .foregroundStyle(.secondary)
@@ -216,7 +216,7 @@ enum SubmissionLabel {
 /// The exact `agent.tool.v1` shell request: the command string as sent (or
 /// one line per argument), the working directory, and every option, escaped
 /// visibly. Other kinds are shown by kind only; the approvability check
-/// already sends them to the iPhone (spec.agent-relay.md sections 6.3 and
+/// already sends them to the iPhone (docs/specs/agent-relay.md sections 5.3 and
 /// 13.2).
 struct AgentOperationRows: View {
     struct Option {

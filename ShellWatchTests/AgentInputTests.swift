@@ -7,7 +7,7 @@ import ShellControlClient
 
 /// Agent questions on the Watch: narrow eligibility, drafts that need an
 /// explicit final confirmation, live-only submission, and answers signed by
-/// the Watch's own key (spec.agent-relay.md sections 8.1, 13.2, and 15.5).
+/// the Watch's own key (docs/specs/agent-relay.md sections 7.1, 12.2, and 14.5).
 @MainActor
 final class AgentInputTests: XCTestCase {
     private let now = ControlTimestamp(Date(timeIntervalSince1970: 1_790_000_000))

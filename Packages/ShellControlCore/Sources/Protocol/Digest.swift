@@ -4,7 +4,7 @@ import CryptoKit
 /// `sha256:<lowercase hex>` digests over JCS-encoded documents.
 ///
 /// The origin and the Watch each recompute this from the full spec; neither
-/// substitutes an advertised hash for the computation (spec.watch.md section 9).
+/// substitutes an advertised hash for the computation (docs/specs/control-protocol.md section 7).
 public enum ContentDigest {
     public static let prefix = "sha256:"
 

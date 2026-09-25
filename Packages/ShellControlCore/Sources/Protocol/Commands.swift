@@ -3,7 +3,7 @@ import Foundation
 /// The control commands a device may sign.
 ///
 /// `approval.decide` is mandatory; `notification.ack` is not an approval, and
-/// `job.cancel` is capability-gated (spec.watch.md section 13).
+/// `job.cancel` is capability-gated (docs/specs/control-protocol.md section 9.7).
 public enum ControlCommandType: String, Sendable, Hashable, CaseIterable {
     case approvalDecide = "approval.decide"
     case notificationAck = "notification.ack"
@@ -11,7 +11,7 @@ public enum ControlCommandType: String, Sendable, Hashable, CaseIterable {
     case handoffRequest = "handoff.request"
 
     /// A handoff hint authorizes nothing and is never accepted by an execution
-    /// adapter (spec.watch.md section 13).
+    /// adapter (docs/specs/control-protocol.md section 9.7).
     public var isAuthorizing: Bool { self != .handoffRequest }
 
     /// Only decisions bind a request digest and therefore need a challenge.
@@ -58,7 +58,7 @@ public struct ControlCommandEnvelope: Sendable, Hashable {
 
 /// A signed control command payload. The signed payload is authoritative; the
 /// broker never accepts a second unsigned copy of these fields
-/// (spec.watch.md section 11).
+/// (docs/specs/control-protocol.md section 9.2).
 public enum ControlCommand: Sendable, Hashable {
     case approvalDecide(ApprovalDecideCommand)
     case notificationAck(NotificationAckCommand)
@@ -83,7 +83,7 @@ public enum ControlCommand: Sendable, Hashable {
         }
     }
 
-    /// Fails closed on an unknown command type (spec.watch.md section 8).
+    /// Fails closed on an unknown command type (docs/specs/control-protocol.md section 6).
     public static func decode(_ value: JSONValue) throws -> ControlCommand {
         var reader = try JSONReader(value)
         let typeText = try reader.string("type", maxLength: 64)
@@ -127,7 +127,7 @@ private func envelopeMembers(_ envelope: ControlCommandEnvelope) -> [String: JSO
 }
 
 /// Commits to the exact spec digest and the observed projection versions
-/// (spec.watch.md section 9).
+/// (docs/specs/control-protocol.md section 7).
 public struct ApprovalDecideCommand: Sendable, Hashable {
     public let envelope: ControlCommandEnvelope
     public let requestID: ControlID
@@ -201,7 +201,7 @@ public struct ApprovalDecideCommand: Sendable, Hashable {
 }
 
 /// Marks one informational notification acknowledged. Acknowledging is not
-/// approving (spec.watch.md section 6).
+/// approving (docs/specs/control-protocol.md section 11.2).
 public struct NotificationAckCommand: Sendable, Hashable {
     public let envelope: ControlCommandEnvelope
     public let notificationID: ControlID
@@ -293,7 +293,7 @@ public struct JobCancelCommand: Sendable, Hashable {
     }
 }
 
-/// A non-authorizing UI hint (spec.watch.md section 13).
+/// A non-authorizing UI hint (docs/specs/control-protocol.md section 9.7).
 public struct HandoffRequestCommand: Sendable, Hashable {
     public let envelope: ControlCommandEnvelope
     public let requestID: ControlID?

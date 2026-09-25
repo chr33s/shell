@@ -3,7 +3,7 @@ import ShellControlProtocol
 import ShellControlSecurity
 
 /// `/v1/agent/*` routes and their gateway counterparts
-/// (spec.agent-relay.md section 15.2). The signed command is the only
+/// (docs/specs/agent-relay.md section 14.2). The signed command is the only
 /// authoritative mutation payload; a user-supplied origin or device ID never
 /// determines authorization.
 extension BrokerService {
@@ -112,7 +112,7 @@ extension BrokerService {
     /// Proxied agent calls for a Watch bound to this iPhone. The allowlist is
     /// the extension's: capability, snapshot/changes, input fetch, review
     /// challenge, signed submit, and command query — nothing else
-    /// (spec.agent-relay.md section 15.5).
+    /// (docs/specs/agent-relay.md section 14.5).
     func routeGatewayAgent(_ request: HTTPServer.Request, principal: Principal, watchID: ControlID, rest: [String]) async throws -> HTTPServer.Response {
         switch (request.method, rest.first, rest.count) {
         case ("GET", "capabilities", 1):

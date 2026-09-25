@@ -9,7 +9,7 @@ import ShellControlSecurity
 import ShellControlHTTPServer
 
 // The relay executable. Configuration is environment only; the relay has no
-// durable state to configure (spec.iphone-gateway.md section 16).
+// durable state to configure (docs/specs/control-protocol.md section 12).
 let environment = ProcessInfo.processInfo.environment
 
 func fail(_ message: String) -> Never {

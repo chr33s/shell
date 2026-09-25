@@ -5,7 +5,7 @@ import Foundation
 /// This is the real JCS, not an ad hoc sorted-key encoder: object names are
 /// ordered by their UTF-16 code units, strings keep their exact scalars with
 /// minimal escaping, and numbers use the ECMAScript `Number::toString`
-/// representation (spec.watch.md section 9).
+/// representation (docs/specs/control-protocol.md section 7).
 public enum JSONCanonicalization {
     public static func canonicalize(_ value: JSONValue) throws -> Data {
         var output = String()

@@ -2,7 +2,7 @@
 //  ConnectionHealthMonitor.swift
 //  shell
 //
-//  Liveness evidence for an SSH connection (spec.connectivity.md §8).
+//  Liveness evidence for an SSH connection (docs/specs/mobile-connectivity.md §7).
 //
 //  Three things changed here from the original implementation, each of them
 //  a correctness requirement rather than a tuning choice:

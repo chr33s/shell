@@ -3,7 +3,7 @@ import ShellControlProtocol
 
 /// What the adapter observed about the local context, committed into
 /// `context_sha256` and rechecked before the native gate is answered
-/// (spec.agent-relay.md section 6.2).
+/// (docs/specs/agent-relay.md section 5.2).
 public struct AdapterContext: Sendable, Hashable {
     public var providerBuild: String
     public var agentSessionID: ControlID
@@ -53,7 +53,7 @@ public struct AdapterContext: Sendable, Hashable {
 /// Maps a native permission request onto `agent.tool.v1`, or refuses it. A
 /// command string is never split into argv, a missing shell identity is named
 /// rather than invented, and any authorization-relevant field the adapter does
-/// not understand refuses remote approval (spec.agent-relay.md 6.1–6.3).
+/// not understand refuses remote approval (docs/specs/agent-relay.md 5.1–5.3).
 public enum OperationMapper {
     /// Tool-input members each provider's shell tool may carry. Anything else
     /// could widen what the reviewer approves.

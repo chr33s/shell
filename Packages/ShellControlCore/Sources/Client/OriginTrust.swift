@@ -7,7 +7,7 @@ import Synchronization
 ///
 /// Routes are an ordered cache; changing them never touches the device
 /// enrollment, the Watch reviewer, signing keys, or grants
-/// (spec.iphone-gateway.md section 7.3).
+/// (docs/specs/control-protocol.md section 4.3).
 public struct PinnedOrigin: Sendable, Hashable {
     public static let maximumRoutes = 8
 
@@ -80,7 +80,7 @@ public final class InMemoryPinnedOriginStore: PinnedOriginStore, Sendable {
 
 /// Trust decisions. The origin key is identity; the Tailscale URL is routing,
 /// and changing routing must never silently become changing trust
-/// (spec.iphone-gateway.md section 35).
+/// (docs/specs/control-protocol.md section 18.2).
 public enum OriginTrust {
     public enum Assessment: Sendable, Equatable {
         /// Nothing pinned yet: a normal first pairing.
@@ -110,7 +110,7 @@ public enum OriginTrust {
 }
 
 /// Finds a working route to the pinned origin in the order of
-/// spec.iphone-gateway.md section 24: the last known route, then every other
+/// docs/specs/control-protocol.md section 4.5: the last known route, then every other
 /// previously signed route. Every candidate must prove it holds the pinned
 /// origin key; reachability alone is never enough. Failure leaves local
 /// credentials untouched.
@@ -154,7 +154,7 @@ public struct OriginRouteResolver: Sendable {
     }
 
     /// Adopts a signed route update only after the new endpoint proves
-    /// possession of the same origin key (spec.iphone-gateway.md section 7.4).
+    /// possession of the same origin key (docs/specs/control-protocol.md section 4.4).
     public func adopt(_ update: OriginRouteUpdate, into pinned: PinnedOrigin) async throws -> PinnedOrigin {
         let next = try OriginTrust.apply(update, to: pinned)
         try await makeClient(update.route.url).verifyOrigin(pinned.origin)

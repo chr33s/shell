@@ -4,7 +4,7 @@
 //
 //  ANSI helpers and the local shell's prompt.
 //
-//  spec.md §2 keeps one default theme and no configurable prompt system, so
+//  docs/specs/shell.md §2 keeps one default theme and no configurable prompt system, so
 //  this is deliberately a single fixed style: a two-line prompt showing the
 //  working directory above a chevron that turns red when the last command
 //  failed.

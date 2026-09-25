@@ -7,7 +7,7 @@ import ShellControlSecurity
 /// V1 uses transactional durable storage with a single logical writer. This
 /// file-backed implementation writes the whole state atomically and fsyncs
 /// before a mutation is reported as recorded; PostgreSQL is the scale path
-/// (spec.watch.md section 3).
+/// (docs/specs/control-protocol.md section 2).
 public protocol BrokerPersistence: Sendable {
     func persist(snapshot: JSONValue) throws
     func load() throws -> JSONValue?

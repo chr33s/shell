@@ -2,7 +2,7 @@
 //  ConnectionProfile.swift
 //  shell
 //
-//  The saved SSH profile model (spec section 3). `ConnectionProfile` is kept
+//  The saved SSH profile model (docs/specs/shell.md §3.2). `ConnectionProfile` is kept
 //  as an alias so existing call sites read naturally; `SSHProfile` is the
 //  spec name and the one to prefer in new code.
 //

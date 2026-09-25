@@ -3,7 +3,7 @@ import XCTest
 
 /// Checks this implementation against the published fixtures in `protocol/`,
 /// which are generated independently of the Swift code
-/// (spec.watch.md section 18).
+/// (docs/specs/control-protocol.md section 20).
 final class InteroperabilityFixtureTests: XCTestCase {
     private static var fixturesURL: URL {
         // Tests/ShellControlCoreTests/… → repository root → protocol/fixtures

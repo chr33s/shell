@@ -9,7 +9,7 @@
 //  session), so switching re-attaches this gateway; to SHOW two sessions at
 //  once, open a second gateway tab to the same host.
 //
-//  Deliberately plain: spec.md §5 removes session previews, thumbnails,
+//  Deliberately plain: docs/specs/shell.md §5.4 removes session previews, thumbnails,
 //  hidden-window synchronization, and advanced window administration menus.
 //  What remains is the session switching surface §5 requires.
 //

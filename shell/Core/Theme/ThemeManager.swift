@@ -13,7 +13,7 @@ import os
 final class ThemeManager {
     static let shared = ThemeManager()
 
-    /// The one theme the fork ships as its default (spec section 2.1).
+    /// The one theme the fork ships as its default (docs/specs/shell.md §2.1).
     nonisolated static let defaultThemeName = "Blackboard Dark"
 
     /// Information about a theme.

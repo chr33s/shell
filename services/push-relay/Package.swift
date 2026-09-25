@@ -2,7 +2,7 @@
 import PackageDescription
 
 // The optional Shell Push Relay: a stateless APNs sender for the iPhone
-// gateway profile (spec.iphone-gateway.md section 16). It depends on the
+// gateway profile (docs/specs/control-protocol.md section 12). It depends on the
 // portable protocol and signing code only, never on approval-state storage.
 let package = Package(
     name: "push-relay",

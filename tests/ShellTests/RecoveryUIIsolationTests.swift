@@ -37,7 +37,7 @@ final class RecoveryUIIsolationTests: XCTestCase {
             """
             TerminalReconnectionController writes to the terminal stream again. \
             Recovery status belongs in RecoveryStatusStrip, outside the surface \
-            (spec.connectivity.md §12, AC-18).
+            (docs/specs/mobile-connectivity.md §11, AC-18).
             """
         )
 

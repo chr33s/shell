@@ -18,7 +18,7 @@ final class CloudKitSyncManager {
     /// Shared singleton instance
     static let shared = CloudKitSyncManager()
 
-    /// The fork's own CloudKit container (spec section 8). Read from
+    /// The fork's own CloudKit container (docs/specs/shell.md §8). Read from
     /// `Info.plist` so the value tracks `Configuration/Base.xcconfig`.
     static let containerIdentifier: String = {
         let fromPlist = Bundle.main.object(forInfoDictionaryKey: "ShellCloudKitContainer") as? String

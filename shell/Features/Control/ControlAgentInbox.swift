@@ -6,7 +6,7 @@
 //  sessions, typed questions, detailed delivery of agent approvals and
 //  managed-session commands, and recent turn outcomes. It is kept apart from the base approval inbox and
 //  follows the same snapshot-then-changes pattern with its own cursor
-//  namespace (spec.agent-relay.md sections 12.2 and 15.6).
+//  namespace (docs/specs/agent-relay.md sections 11.2 and 14.6).
 //
 
 import Foundation
@@ -26,22 +26,22 @@ nonisolated protocol ControlAgentService: Sendable {
 nonisolated extension ControlAPIClient: ControlAgentService {}
 
 /// The agent projection as last reconciled. Nothing here is a decision
-/// basis: review always refetches the exact request (spec.agent-relay.md 8.2).
+/// basis: review always refetches the exact request (docs/specs/agent-relay.md 7.2).
 struct ControlAgentInbox: Equatable {
     var sessions: [ControlID: AgentSessionProjection] = [:]
     var inputs: [ControlID: InputRecord] = [:]
     /// Inputs this build cannot parse. Listed so nothing silently vanishes;
-    /// never answerable here (spec.agent-relay.md 15.6).
+    /// never answerable here (docs/specs/agent-relay.md 14.6).
     var unsupportedInputs: Set<ControlID> = []
     /// Session attribution and detailed delivery for agent approvals; the
     /// approvals themselves stay in the base inbox.
     var approvals: [ControlID: AgentApprovalReference] = [:]
     /// Informational turn outcomes, newest first. Agent-attributed text only;
-    /// they can never enable an action (spec.agent-relay.md 12.2).
+    /// they can never enable an action (docs/specs/agent-relay.md 11.2).
     var turnEvents: [AgentEvent] = []
     /// Managed-session commands (new instructions, steering, cancellation)
     /// by command ID, as the broker records their delivery
-    /// (spec.agent-relay.md section 16).
+    /// (docs/specs/agent-relay.md section 15).
     var sessionCommands: [ControlID: AgentSessionCommandRecord] = [:]
     var cursor: ChangeCursor?
     var lastRefreshedAt: ControlTimestamp?
@@ -149,7 +149,7 @@ struct ControlAgentInbox: Equatable {
     }
 
     /// Informational events only annotate a session or list an outcome; they
-    /// never resolve a request (spec.agent-relay.md 12.1). The broker applies
+    /// never resolve a request (docs/specs/agent-relay.md 11.1). The broker applies
     /// the same turn transitions and reports the resulting session version,
     /// so this mirror stays comparable; sending still refetches the session.
     private mutating func apply(_ event: AgentEvent, sessionVersion: Int64) {
@@ -201,7 +201,7 @@ struct ControlAgentInbox: Equatable {
 /// A request ID from a notification or link names either an approval or a
 /// typed question: both reuse the same `approval.created` hint. The approval
 /// is tried first; only its `not_found` sends the lookup to the input
-/// endpoint (spec.agent-relay.md section 12.3).
+/// endpoint (docs/specs/agent-relay.md section 11.3).
 enum ControlRequestLookup {
     enum Found: Equatable {
         case approval(ApprovalRecord)

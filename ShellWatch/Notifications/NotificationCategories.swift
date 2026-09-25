@@ -9,7 +9,7 @@ import ShellControlProtocol
 /// nondestructive action for Double Tap, and foreground actions run on the
 /// device where they were selected — so a forwarded notification launches the
 /// native Watch review flow. A notification action never authorizes from its
-/// embedded payload (spec.watch.md section 6).
+/// embedded payload (docs/specs/control-protocol.md section 11.2).
 public enum ShellNotificationCategories {
     public static func makeApprovalCategory() -> UNNotificationCategory {
         let review = UNNotificationAction(
@@ -30,7 +30,7 @@ public enum ShellNotificationCategories {
             options: [.foreground]
         )
         // The static long-look fallback is the notification's own generic text,
-        // which works without a network fetch (spec.watch.md section 18).
+        // which works without a network fetch (docs/specs/control-protocol.md section 20).
         return UNNotificationCategory(
             identifier: PushCategory.approval,
             actions: [review, approve, reject],

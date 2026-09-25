@@ -2,7 +2,7 @@ import Foundation
 
 /// The initial `agent.tool.v1` variants. Each needs its own feature token and
 /// renderer; an unknown variant is carried but never approvable
-/// (spec.agent-relay.md section 6.1).
+/// (docs/specs/agent-relay.md section 5.1).
 public enum AgentToolKind: Sendable, Hashable {
     case shell
     case fileChange
@@ -30,7 +30,7 @@ public enum AgentToolKind: Sendable, Hashable {
 
 /// The only scope v1 approves remotely: one decision for one native gate. It
 /// is not a promise of one subprocess, network request, or file write
-/// (spec.agent-relay.md section 6.3).
+/// (docs/specs/agent-relay.md section 5.3).
 public enum AgentPermissionScope {
     public static let singleNativeGate = "single_native_gate"
 }
@@ -79,7 +79,7 @@ public enum AgentOptionValue: Sendable, Hashable {
 
 /// The exact shell request. A provider command string is never split into an
 /// argument vector, and a shell the adapter cannot identify is reported as
-/// unavailable rather than invented (spec.agent-relay.md sections 6.1, 6.4).
+/// unavailable rather than invented (docs/specs/agent-relay.md sections 5.1, 5.4).
 public struct AgentShellRequest: Sendable, Hashable {
     public enum Representation: String, Sendable, Hashable {
         case commandString = "command_string"
@@ -154,7 +154,7 @@ public struct AgentShellRequest: Sendable, Hashable {
 
 /// One file the change touches, with the complete relevant diff and the
 /// precondition hash the host rechecks before answering the gate
-/// (spec.agent-relay.md section 6.3).
+/// (docs/specs/agent-relay.md section 5.3).
 public struct AgentFileChange: Sendable, Hashable {
     public enum Change: String, Sendable, Hashable {
         case create
@@ -211,7 +211,7 @@ public struct AgentFileChange: Sendable, Hashable {
 ///
 /// Every authorization-relevant field is inside this committed object, so it
 /// is covered by the enclosing approval's request hash; nothing is appended as
-/// unsigned decoration (spec.agent-relay.md sections 6.2 and 6.4).
+/// unsigned decoration (docs/specs/agent-relay.md sections 5.2 and 5.4).
 public struct AgentToolOperation: Sendable, Hashable {
     public static let schema = "agent.tool.v1"
 
@@ -401,7 +401,7 @@ public struct AgentToolOperation: Sendable, Hashable {
     }
 
     /// The feature tokens an approval of this operation must require: the
-    /// wrapper, the kind, and one-time consume (spec.agent-relay.md 6.4).
+    /// wrapper, the kind, and one-time consume (docs/specs/agent-relay.md 5.4).
     public var requiredFeatures: [String] {
         [Self.schema, AgentFeature.token(for: kind) ?? "agent.\(kind.rawValue).unsupported", ControlFeature.consume]
     }
@@ -419,7 +419,7 @@ public struct AgentToolOperation: Sendable, Hashable {
 
     /// Whether a Watch-sized surface may approve this operation. File changes
     /// and broad scopes need the iPhone; shell commands need an explicitly
-    /// narrow, single-line command (spec.agent-relay.md sections 6.3, 13.2).
+    /// narrow, single-line command (docs/specs/agent-relay.md sections 5.3, 12.2).
     public var isWatchEligible: Bool {
         guard isRenderable, case .shell = kind, let shellRequest else { return false }
         // Options such as `run_in_background` or `timeout` change what runs;

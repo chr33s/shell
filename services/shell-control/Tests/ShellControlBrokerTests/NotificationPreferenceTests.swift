@@ -6,7 +6,7 @@ import ShellControlClient
 @testable import ShellControlBroker
 
 /// The per-device notification preference: an additive API that changes
-/// delivery, never authorization (spec.control-companion-setup.md 10.3).
+/// delivery, never authorization (docs/specs/control-setup.md 7.3).
 final class NotificationPreferenceTests: XCTestCase {
     private func raw(_ fixture: GatewayFixture, _ method: String, token: String?, body: Data?) async throws -> ControlHTTPResponse {
         var headers = ["Content-Type": "application/json"]

@@ -5,7 +5,7 @@ import ShellControlSecurity
 
 /// `shell-control test-review`: one live round trip through the ordinary
 /// publication, review, signed-decision, consume, and receipt pipeline, with
-/// the fixed no-operation fixture (spec.control-companion-setup.md 11).
+/// the fixed no-operation fixture (docs/specs/control-setup.md 8).
 ///
 /// Success is a matching receipt recorded after an approval signed by the
 /// selected reviewer — never just a tap, an accepted decision, or an HTTP

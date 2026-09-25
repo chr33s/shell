@@ -38,7 +38,7 @@ public enum NativeRoute: String, Sendable, CaseIterable, Codable, Hashable {
     /// `PreToolUse` for `AskUserQuestion`, answered with typed answers.
     case askUserQuestion = "pre_tool_use.ask_user_question"
     /// Managed Codex app-server routes: experimental and opt-in
-    /// (spec.agent-relay.md sections 4.2 and 11.2).
+    /// (docs/specs/agent-relay.md sections 3.2 and 10.2).
     case appServerCommandApproval = "app_server.command_execution_approval"
     case appServerFileChangeApproval = "app_server.file_change_approval"
     case appServerUserInput = "app_server.user_input"
@@ -73,7 +73,7 @@ public struct TestedBuildRange: Sendable, Codable, Hashable {
     /// evidence.
     public var fixtures: [String]
     /// The execution modes exercised: `interactive`, `headless`. Support for
-    /// one is never inferred from the other (spec.agent-relay.md 10.3).
+    /// one is never inferred from the other (docs/specs/agent-relay.md 9.3).
     public var modes: [String]
 
     public static let allModes = ["headless", "interactive"]
@@ -129,7 +129,7 @@ public struct BuildVersion: Sendable, Comparable, Hashable {
     public func hash(into hasher: inout Hasher) { hasher.combine(components.reversed().drop { $0 == 0 }.reversed() as [Int]) }
 }
 
-/// The checked-in compatibility manifest (spec.agent-relay.md section 4.3).
+/// The checked-in compatibility manifest (docs/specs/agent-relay.md section 3.3).
 ///
 /// It distinguishes `documented`, `contract_tested`, and `device_validated`;
 /// no minimum provider version is asserted, and an untested build defaults to
@@ -150,7 +150,7 @@ public struct AdapterManifest: Sendable, Codable, Hashable {
     /// it writes for each.
     public var routes: [RouteDescription]
     /// What is deliberately not covered, so no one reads the integration as
-    /// complete permission coverage (spec.agent-relay.md 10.2).
+    /// complete permission coverage (docs/specs/agent-relay.md 9.2).
     public var coverageExclusions: [String]
     public var failureBehavior: [String]
     /// Documentation checked on `documentationCheckedOn`; this alone never

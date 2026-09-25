@@ -30,13 +30,13 @@ PRODUCT_NAME = Shell
 PRODUCT_BUNDLE_IDENTIFIER = dev.chr33s.shell
 INFOPLIST_FILE = shell/Info.plist
 
-// Fork-specific Apple configuration (see spec section 8).
+// Fork-specific Apple configuration (see docs/specs/shell.md §8).
 SHELL_KEYCHAIN_ACCESS_GROUP = $(AppIdentifierPrefix)dev.chr33s.shell
 SHELL_CLOUDKIT_CONTAINER = iCloud.dev.chr33s.shell
 
 // The optional Shell Push Relay the phone trades its APNs token with. The
 // `.invalid` placeholder means "no relay": pairing and approval still work,
-// only prompt remote alerts are missing (spec.iphone-gateway.md 16.5). A real
+// only prompt remote alerts are missing (docs/specs/control-protocol.md 12.4). A real
 // host is supplied by Configuration/Local.xcconfig (untracked) or by the Xcode
 // Cloud SHELL_CONTROL_PUSH_RELAY_URL environment variable. There is no broker
 // URL: the phone pairs with its Mac from the setup QR. The `$()` splits `//`,

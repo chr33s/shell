@@ -5,14 +5,14 @@
 //  HTTPS to the Mac over the user's tailnet. Tailscale provides reachability,
 //  not authorization: every request still carries Shell credentials, and
 //  every route is checked against the pinned origin key
-//  (spec.iphone-gateway.md sections 4.3 and 23).
+//  (docs/specs/control-protocol.md sections 2.3 and 3.3).
 //
 
 import Foundation
 import ShellControlClient
 
 /// The private Mac route could not be reached. This is a connectivity state,
-/// never a reason to clear Shell credentials (spec.iphone-gateway.md 28).
+/// never a reason to clear Shell credentials (docs/specs/control-protocol.md 17).
 nonisolated struct TailnetUnavailable: Error, CustomStringConvertible {
     let reason: String
     var description: String { reason }

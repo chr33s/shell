@@ -3,7 +3,7 @@
 //  shell
 //
 //  The single recovery owner for one logical connection
-//  (spec.connectivity.md §4 CON-01, §6, §7).
+//  (docs/specs/mobile-connectivity.md §3 CON-01, §6, §7).
 //
 //  This type is the whole point of the specification: one coordinator per
 //  logical connection, one active attempt at a time, honest accounting of

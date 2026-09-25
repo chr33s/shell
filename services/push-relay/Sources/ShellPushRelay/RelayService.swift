@@ -23,7 +23,7 @@ public protocol RelayAPNsSending: Sendable {
 /// It stores and decides nothing: no approvals, decisions, consumes, receipts,
 /// jobs, run state, origin presence, or terminal data. It mints signed push
 /// capabilities for iPhones and turns an origin's hint into one generic APNs
-/// alert for the token inside that capability (spec.iphone-gateway.md 4.7, 16).
+/// alert for the token inside that capability (docs/specs/control-protocol.md 2.6, 12).
 public struct RelayService: Sendable {
     public struct Configuration: Sendable {
         public var allowedTopics: Set<String>
@@ -57,7 +57,7 @@ public struct RelayService: Sendable {
     }
 
     public static let approvalEvent = "approval.created"
-    /// A typed agent question is waiting (spec.agent-relay.md section 12.3).
+    /// A typed agent question is waiting (docs/specs/agent-relay.md section 11.3).
     /// Same generic, identifier-only hint; opening it fetches current state.
     public static let inputEvent = "input.created"
 
@@ -202,7 +202,7 @@ public struct RelayService: Sendable {
         return .object(["accepted": true])
     }
 
-    /// The default approval push of spec.iphone-gateway.md section 16.3. It is
+    /// The default approval push of docs/specs/control-protocol.md section 12.3. It is
     /// generic on purpose: no command, argument, or host text leaves the Mac.
     public static func approvalPayload(originID: ControlID, requestID: ControlID) throws -> Data {
         try JSONCanonicalization.canonicalize(.object([
@@ -222,7 +222,7 @@ public struct RelayService: Sendable {
     }
 
     /// The question hint: as generic as the approval hint. No question,
-    /// choice, or answer text leaves the Mac (spec.agent-relay.md 12.3).
+    /// choice, or answer text leaves the Mac (docs/specs/agent-relay.md 11.3).
     public static func inputPayload(originID: ControlID, requestID: ControlID) throws -> Data {
         try JSONCanonicalization.canonicalize(.object([
             "aps": .object([

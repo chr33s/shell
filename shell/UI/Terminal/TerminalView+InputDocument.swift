@@ -5,7 +5,7 @@ import UIKit
 // picture of what it believes the field contains. `correctionContext` owns that
 // committed document; this file keeps it in step with terminal-side events.
 //
-// spec.md §2 removes the writing assistant (autocorrect / QuickType rewriting),
+// docs/specs/shell.md §2.2 removes the writing assistant (autocorrect / QuickType rewriting),
 // so spelling and autocorrection traits stay off and nothing here grants UIKit
 // authority to rewrite committed text. Only the document bookkeeping remains.
 extension Ghostty.TerminalView {

@@ -5,7 +5,7 @@ import ShellControlClient
 /// Pending requests first, then recent notifications and outcomes.
 ///
 /// Cached data says when it was last refreshed through the iPhone, and a local
-/// tap never paints a green success state (spec.watch.md section 6).
+/// tap never paints a green success state (docs/specs/control-protocol.md section 11.2).
 struct InboxView: View {
     @Environment(ControlSession.self) private var session
     @Environment(\.scenePhase) private var scenePhase
@@ -17,7 +17,7 @@ struct InboxView: View {
             List {
                 if !session.isGatewayReachable {
                     // Cached content stays readable, clearly stale; it never
-                    // enables a decision (spec.iphone-gateway.md 11.4).
+                    // enables a decision (docs/specs/control-protocol.md 10.2).
                     Label(String(localized: "iPhone unavailable — showing cached state"), systemImage: "iphone.slash")
                         .foregroundStyle(.secondary)
                         .font(.footnote)
@@ -200,7 +200,7 @@ struct FreshnessFooter: View {
 
 enum ResolutionLabel {
     /// Distinguishes decision from dispatch: a recorded decision does not mean
-    /// the host applied it (spec.watch.md section 6).
+    /// the host applied it (docs/specs/control-protocol.md section 11.2).
     static func text(_ projection: ApprovalProjection) -> String {
         switch (projection.resolution, projection.dispatch) {
         case (.pending, _): return String(localized: "Pending")

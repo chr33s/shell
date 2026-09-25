@@ -106,7 +106,7 @@ struct LogsCommand: AsyncParsableCommand {
     }
 }
 
-/// The summary of spec.iphone-gateway.md section 25.2.
+/// The summary of docs/specs/control-protocol.md section 16.
 enum StatusText {
     static func render(_ status: ManagementStatus) -> String {
         func state(_ name: String) -> String { status.components[name]?.state ?? "n/a" }

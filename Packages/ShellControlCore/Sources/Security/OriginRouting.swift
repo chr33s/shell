@@ -3,7 +3,7 @@ import CryptoKit
 import ShellControlProtocol
 
 /// How the iPhone reaches an origin. A route is never an authorization
-/// identifier (spec.iphone-gateway.md section 7.2).
+/// identifier (docs/specs/control-protocol.md section 4.3).
 public struct OriginRoute: Sendable, Hashable {
     public enum Kind: String, Sendable, Hashable, CaseIterable {
         /// `https://<mac>.<tailnet>.ts.net` through Tailscale Serve.
@@ -105,7 +105,7 @@ public struct OriginRoute: Sendable, Hashable {
 
 /// An origin-signed route update. Accepting one changes routing only: it is
 /// never re-enrollment and never a new trust decision
-/// (spec.iphone-gateway.md sections 7.4 and 24).
+/// (docs/specs/control-protocol.md sections 4.4 and 4.5).
 public struct OriginRouteUpdate: Sendable, Hashable {
     public static let type = "shell-control.route-update"
 
@@ -188,7 +188,7 @@ public struct OriginRouteUpdate: Sendable, Hashable {
 
 /// The setup QR. It carries bootstrap material only: the pairing secret is
 /// random, one use, short lived, and not an origin credential
-/// (spec.iphone-gateway.md section 9.1).
+/// (docs/specs/control-protocol.md section 5.2).
 public struct PairingInvitation: Sendable, Hashable {
     public static let type = "shell-control.pairing"
 
@@ -282,7 +282,7 @@ public struct PairingInvitation: Sendable, Hashable {
 }
 
 /// Proof that the endpoint reached over a route holds the pinned origin key
-/// (spec.iphone-gateway.md sections 7.4 and 9.2).
+/// (docs/specs/control-protocol.md sections 4.4 and 5.2).
 public struct OriginProof: Sendable, Hashable {
     public static let type = "shell-control.origin-proof"
 

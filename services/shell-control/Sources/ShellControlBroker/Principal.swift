@@ -4,7 +4,7 @@ import ShellControlSecurity
 
 /// Who is calling. The account is always derived from the authenticated
 /// credential, never from a caller-supplied account ID
-/// (spec.watch.md section 4).
+/// (docs/specs/control-protocol.md section 3.1).
 public enum Principal: Sendable {
     case device(deviceID: ControlID, accountID: ControlID, grants: Set<DeviceGrant>)
     case origin(originID: ControlID, accountID: ControlID)

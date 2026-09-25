@@ -10,7 +10,7 @@ import Synchronization
 /// `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`, so the key is device-local
 /// and unavailable until the device is unlocked: a locked or freshly restarted
 /// Watch cannot sign, and nothing depends on the phone being unlocked
-/// (spec.watch.md section 5).
+/// (docs/specs/control-protocol.md section 5.1).
 public final class KeychainCredentialStore: DeviceCredentialStore, Sendable {
     public enum KeychainError: Error, Equatable, Sendable {
         case status(OSStatus)
@@ -20,7 +20,7 @@ public final class KeychainCredentialStore: DeviceCredentialStore, Sendable {
     /// When the items can be read. The Watch keeps the default: it signs only
     /// while unlocked and on the wrist. The iPhone gateway needs its session
     /// after first unlock, so it can relay for the Watch from a locked pocket
-    /// (spec.iphone-gateway.md section 4.5).
+    /// (docs/specs/control-protocol.md section 2.4).
     public enum Accessibility: Sendable {
         case whenUnlocked
         case afterFirstUnlock

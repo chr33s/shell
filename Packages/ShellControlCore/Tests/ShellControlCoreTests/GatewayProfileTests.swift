@@ -5,7 +5,7 @@ import ShellControlSecurity
 
 /// The `shell-watch-gateway/1` profile's portable rules: identity versus
 /// route, signed route updates, pairing invitations, and strict gateway
-/// framing (spec.iphone-gateway.md).
+/// framing (docs/specs/control-protocol.md).
 final class GatewayProfileTests: XCTestCase {
     private let originID = ControlID.random()
 

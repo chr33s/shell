@@ -1,7 +1,7 @@
 # ShellControlHost
 
 The bundled, sandboxed Control host of
-[`spec.agent-relay.md`](../spec.agent-relay.md) section 19: a background-only
+[`docs/specs/agent-relay.md`](../docs/specs/agent-relay.md) section 18: a background-only
 macOS app-like wrapper, embedded **only** in the Mac Catalyst build of Shell
 and registered by the app as a per-user LaunchAgent through
 `SMAppService.agent(plistName:)`. iOS, iPadOS, visionOS, and watchOS builds
@@ -47,8 +47,8 @@ drains and exits 0.
 Validated locally: the Catalyst archive layout and the absence of the host
 from iOS builds, the runtime and XPC tests in `cmd`, and the unsigned binary
 above. **Not** validated locally, and release gates before Phase 0A can be
-called done (spec section 21): provisioning and signing both bundle
+called done (agent-relay spec section 20): provisioning and signing both bundle
 identities with the App Group, TestFlight processing and a clean-Mac install,
 the background-item consent prompts, sandbox enforcement of the App Group
 socket for an external provider hook, quit/relogin/sleep behaviour, and the
-A37–A52 scenarios of spec section 22.
+A37–A52 scenarios of agent-relay spec section 20.
