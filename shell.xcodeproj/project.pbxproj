@@ -686,7 +686,6 @@
 			baseConfigurationReference = AB00000000000000000011 /* Debug.xcconfig */;
 			buildSettings = {
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = shell/Entitlements/ShellCatalyst.entitlements;
-				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_TEAM = 72KB9YQR7B;
 				INFOPLIST_KEY_CFBundleDisplayName = Shell;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
@@ -710,7 +709,6 @@
 			baseConfigurationReference = AB00000000000000000012 /* Release.xcconfig */;
 			buildSettings = {
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = shell/Entitlements/ShellCatalyst.entitlements;
-				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_TEAM = 72KB9YQR7B;
 				INFOPLIST_KEY_CFBundleDisplayName = Shell;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
@@ -848,7 +846,6 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = AE00000000000000000011 /* WatchDebug.xcconfig */;
 			buildSettings = {
-				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_TEAM = 72KB9YQR7B;
 			};
 			name = Debug;
@@ -857,7 +854,6 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = AE00000000000000000010 /* Watch.xcconfig */;
 			buildSettings = {
-				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_TEAM = 72KB9YQR7B;
 			};
 			name = Release;
@@ -904,7 +900,6 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "";
 				CODE_SIGN_ENTITLEMENTS = ShellControlHost/ShellControlHost.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_TEAM = 72KB9YQR7B;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -941,7 +936,6 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "";
 				CODE_SIGN_ENTITLEMENTS = ShellControlHost/ShellControlHost.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_TEAM = 72KB9YQR7B;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
