@@ -45,6 +45,16 @@ The trade-off is that compiler diagnostics from the host and its packages
 appear in the phase's log rather than inline in the issue navigator; to see
 them inline, build the `ShellControlHost` target on its own.
 
+Signing follows the environment. Locally the nested build uses the target's
+own automatic signing (the App Groups entitlement needs a profile, so the
+development certificate and profile must be on the Mac), and the copy is
+re-signed with the app's identity keeping Xcode's generated entitlements and
+flags, exactly as the old "Code Sign On Copy" did. Under Xcode Cloud
+(`CI_XCODE_CLOUD` set), or if the signed nested build fails, the nested build
+is unsigned and the copy is signed with the app's identity, the entitlements
+file, and hardened runtime; the distribution step re-signs and provisions the
+nested bundle as it does for any embedded app.
+
 The logic lives in the `ShellControlHostRuntime` library of [`../cmd`](../cmd/README.md)
 ("Bundled Control host"), which composes the broker and daemon libraries in
 one process and never links the legacy installer (`ShellControlManagement`).

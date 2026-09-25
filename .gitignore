@@ -11,5 +11,4 @@ releases
 
 # Local build overrides
 Configuration/Local.xcconfig
-
-node_modules/
+shell.xcodeproj/-Xcc

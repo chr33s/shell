@@ -28,44 +28,100 @@ fi
 HOST_SYMROOT="${BUILD_DIR}/ControlHost"
 HOST_OBJROOT="${OBJROOT}/ControlHost"
 HOST_PRODUCT="${HOST_SYMROOT}/${CONFIGURATION}/ShellControlHost.app"
+HOST_ENTITLEMENTS="${SRCROOT}/ShellControlHost/ShellControlHost.entitlements"
 DESTINATION_DIR="${TARGET_BUILD_DIR}/${CONTENTS_FOLDER_PATH}/Library/LaunchAgents"
 DESTINATION="${DESTINATION_DIR}/ShellControlHost.app"
 
 # env -i keeps the parent build's exported settings (Catalyst SDK and platform,
 # DEPLOYMENT_LOCATION and DSTROOT during archives, signing inputs) from leaking
 # into the nested build. Only the toolchain selection is passed through.
-env -i \
-    PATH="${PATH}" \
-    HOME="${HOME}" \
-    TMPDIR="${TMPDIR:-/tmp}" \
-    ${DEVELOPER_DIR:+DEVELOPER_DIR="${DEVELOPER_DIR}"} \
-    xcodebuild \
-        -project "${PROJECT_FILE_PATH}" \
-        -target ShellControlHost \
-        -configuration "${CONFIGURATION}" \
-        -sdk macosx \
-        SYMROOT="${HOST_SYMROOT}" \
-        OBJROOT="${HOST_OBJROOT}" \
-        -quiet \
-        build
+# The helper is built for the same architectures as the app: the active one in
+# a regular build, every one in an archive. Index data is disabled: Xcode
+# indexes the ShellControlHost target itself, and with no index store
+# directory configured the nested build would write one to a stray "-Xcc"
+# folder inside the project bundle.
+# Extra arguments are xcodebuild setting overrides.
+build_host() {
+    env -i \
+        PATH="${PATH}" \
+        HOME="${HOME}" \
+        TMPDIR="${TMPDIR:-/tmp}" \
+        ${DEVELOPER_DIR:+DEVELOPER_DIR="${DEVELOPER_DIR}"} \
+        xcodebuild \
+            -project "${PROJECT_FILE_PATH}" \
+            -target ShellControlHost \
+            -configuration "${CONFIGURATION}" \
+            -sdk macosx \
+            SYMROOT="${HOST_SYMROOT}" \
+            OBJROOT="${HOST_OBJROOT}" \
+            ARCHS="${ARCHS}" \
+            ONLY_ACTIVE_ARCH=NO \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            -quiet \
+            build \
+            "$@"
+}
+
+# Two signing modes for the nested build:
+#
+#   project   The target's own automatic signing, as the former target
+#             dependency did. Needs the development certificate and a profile
+#             for dev.chr33s.shell.control-host on this Mac (its App Groups
+#             entitlement requires a profile). The copy is then re-signed with
+#             the app's identity while keeping Xcode's generated entitlements
+#             and flags, which is what Copy Files "Code Sign On Copy" does.
+#
+#   explicit  The nested build is left unsigned and the copy is signed here
+#             with the app's identity, the target's entitlements file, and
+#             hardened runtime. Xcode Cloud's cloud-managed signing is not
+#             reachable from a nested xcodebuild, so it always takes this path;
+#             the distribution step re-signs and provisions nested bundles.
+if [ -n "${CI_XCODE_CLOUD:-}" ]; then
+    SIGNING=explicit
+else
+    SIGNING=project
+fi
+
+if [ "${SIGNING}" = project ]; then
+    if ! build_host; then
+        echo "note: ShellControlHost could not be built with its own signing; retrying unsigned and signing the copy explicitly"
+        SIGNING=explicit
+    fi
+fi
+if [ "${SIGNING}" = explicit ]; then
+    build_host CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+fi
 
 mkdir -p "${DESTINATION_DIR}"
 rm -rf "${DESTINATION}"
 ditto "${HOST_PRODUCT}" "${DESTINATION}"
 
-# Mirror the "Code Sign On Copy" behaviour of the Copy Files phase this
-# replaces: the nested bundle is re-signed with the app's identity while
-# keeping its own identifier, entitlements, and hardened-runtime flags.
 if [ "${CODE_SIGNING_ALLOWED:-NO}" = "YES" ] && [ -n "${EXPANDED_CODE_SIGN_IDENTITY:-}" ]; then
     if [ "${ACTION:-build}" = "install" ]; then
         TIMESTAMP_FLAG="--timestamp"
     else
         TIMESTAMP_FLAG="--timestamp=none"
     fi
-    codesign --force \
-        --sign "${EXPANDED_CODE_SIGN_IDENTITY}" \
-        --preserve-metadata=identifier,entitlements,flags \
-        --generate-entitlement-der \
-        "${TIMESTAMP_FLAG}" \
-        "${DESTINATION}"
+    # OTHER_CODE_SIGN_FLAGS is how the build system passes e.g. a keychain to
+    # codesign; it is intentionally unquoted so it splits into arguments.
+    if [ "${SIGNING}" = project ]; then
+        codesign --force \
+            --sign "${EXPANDED_CODE_SIGN_IDENTITY}" \
+            --preserve-metadata=identifier,entitlements,flags \
+            --generate-entitlement-der \
+            "${TIMESTAMP_FLAG}" \
+            ${OTHER_CODE_SIGN_FLAGS:-} \
+            "${DESTINATION}"
+    else
+        codesign --force \
+            --sign "${EXPANDED_CODE_SIGN_IDENTITY}" \
+            --entitlements "${HOST_ENTITLEMENTS}" \
+            --options runtime \
+            --generate-entitlement-der \
+            "${TIMESTAMP_FLAG}" \
+            ${OTHER_CODE_SIGN_FLAGS:-} \
+            "${DESTINATION}"
+    fi
+elif [ "${SIGNING}" = explicit ]; then
+    echo "warning: ShellControlHost.app was embedded unsigned because code signing is disabled for this build"
 fi

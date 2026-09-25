@@ -7,11 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		B1C000000000000000000008 /* ShellControlHost/main.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1C000000000000000000003 /* ShellControlHost/main.swift */; };
-		B1C000000000000000000009 /* ShellControlHostRuntime in Frameworks */ = {isa = PBXBuildFile; productRef = B1C00000000000000000000B /* ShellControlHostRuntime */; };
-		B1C000000000000000000012 /* ShellControlHost.app in Embed Control Host */ = {isa = PBXBuildFile; fileRef = B1C000000000000000000002 /* ShellControlHost.app */; platformFilter = maccatalyst; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
-		B1C000000000000000000013 /* ShellControlHost/dev.chr33s.shell.control-host.plist in Embed Control Host */ = {isa = PBXBuildFile; fileRef = B1C000000000000000000004 /* ShellControlHost/dev.chr33s.shell.control-host.plist */; platformFilter = maccatalyst; };
-		B1C000000000000000000014 /* cmd/Sources/ShellControlHostRuntime/ControlHostInterface.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1C000000000000000000005 /* cmd/Sources/ShellControlHostRuntime/ControlHostInterface.swift */; platformFilter = maccatalyst; };
 		AB00000000000000000020 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = AB00000000000000000013 /* Localizable.xcstrings */; };
 		AB00000000000000000021 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = AB00000000000000000014 /* AppIcon.icon */; };
 		AB00000000000000000022 /* fonts in CopyFiles */ = {isa = PBXBuildFile; fileRef = AB00000000000000000015 /* fonts */; };
@@ -41,16 +36,13 @@
 		AE00000000000000000071 /* ShellControlProtocol in Frameworks */ = {isa = PBXBuildFile; productRef = AE00000000000000000054 /* ShellControlProtocol */; };
 		AE00000000000000000072 /* ShellControlSecurity in Frameworks */ = {isa = PBXBuildFile; productRef = AE00000000000000000055 /* ShellControlSecurity */; };
 		AE00000000000000000073 /* ShellControlClient in Frameworks */ = {isa = PBXBuildFile; productRef = AE00000000000000000056 /* ShellControlClient */; };
+		B1C000000000000000000008 /* ShellControlHost/main.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1C000000000000000000003 /* ShellControlHost/main.swift */; };
+		B1C000000000000000000009 /* ShellControlHostRuntime in Frameworks */ = {isa = PBXBuildFile; productRef = B1C00000000000000000000B /* ShellControlHostRuntime */; };
+		B1C000000000000000000013 /* ShellControlHost/dev.chr33s.shell.control-host.plist in Embed Control Host */ = {isa = PBXBuildFile; fileRef = B1C000000000000000000004 /* ShellControlHost/dev.chr33s.shell.control-host.plist */; platformFilter = maccatalyst; };
+		B1C000000000000000000014 /* cmd/Sources/ShellControlHostRuntime/ControlHostInterface.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1C000000000000000000005 /* cmd/Sources/ShellControlHostRuntime/ControlHostInterface.swift */; platformFilter = maccatalyst; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
-		B1C00000000000000000000F /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = AB00000000000000000001 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = B1C000000000000000000001;
-			remoteInfo = ShellControlHost;
-		};
 		AE00000000000000000023 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = AB00000000000000000001 /* Project object */;
@@ -82,18 +74,6 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
-		B1C000000000000000000011 /* Embed Control Host */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = Contents/Library/LaunchAgents;
-			dstSubfolderSpec = 1;
-			files = (
-				B1C000000000000000000012 /* ShellControlHost.app in Embed Control Host */,
-				B1C000000000000000000013 /* ShellControlHost/dev.chr33s.shell.control-host.plist in Embed Control Host */,
-			);
-			name = "Embed Control Host";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		AB00000000000000000033 /* CopyFiles */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
@@ -129,13 +109,20 @@
 			name = "Embed Watch Content";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B1C000000000000000000011 /* Embed Control Host */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = Contents/Library/LaunchAgents;
+			dstSubfolderSpec = 1;
+			files = (
+				B1C000000000000000000013 /* ShellControlHost/dev.chr33s.shell.control-host.plist in Embed Control Host */,
+			);
+			name = "Embed Control Host";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		B1C000000000000000000002 /* ShellControlHost.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ShellControlHost.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		B1C000000000000000000003 /* ShellControlHost/main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellControlHost/main.swift; sourceTree = SOURCE_ROOT; };
-		B1C000000000000000000004 /* ShellControlHost/dev.chr33s.shell.control-host.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "ShellControlHost/dev.chr33s.shell.control-host.plist"; sourceTree = SOURCE_ROOT; };
-		B1C000000000000000000005 /* cmd/Sources/ShellControlHostRuntime/ControlHostInterface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmd/Sources/ShellControlHostRuntime/ControlHostInterface.swift; sourceTree = SOURCE_ROOT; };
 		AB00000000000000000003 /* Shell.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Shell.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AB00000000000000000010 /* Base.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Base.xcconfig; sourceTree = "<group>"; };
 		AB00000000000000000011 /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
@@ -163,6 +150,10 @@
 		AE00000000000000000010 /* Watch.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Watch.xcconfig; sourceTree = "<group>"; };
 		AE00000000000000000011 /* WatchDebug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = WatchDebug.xcconfig; sourceTree = "<group>"; };
 		AF00000000000000000003 /* ShellWatchTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ShellWatchTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		B1C000000000000000000002 /* ShellControlHost.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ShellControlHost.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B1C000000000000000000003 /* ShellControlHost/main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellControlHost/main.swift; sourceTree = SOURCE_ROOT; };
+		B1C000000000000000000004 /* ShellControlHost/dev.chr33s.shell.control-host.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "ShellControlHost/dev.chr33s.shell.control-host.plist"; sourceTree = SOURCE_ROOT; };
+		B1C000000000000000000005 /* cmd/Sources/ShellControlHostRuntime/ControlHostInterface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmd/Sources/ShellControlHostRuntime/ControlHostInterface.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -212,14 +203,6 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		B1C000000000000000000007 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				B1C000000000000000000009 /* ShellControlHostRuntime in Frameworks */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		AB00000000000000000031 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -256,6 +239,14 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B1C000000000000000000007 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B1C000000000000000000009 /* ShellControlHostRuntime in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -338,25 +329,6 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		B1C000000000000000000001 /* ShellControlHost */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = B1C00000000000000000000C /* Build configuration list for PBXNativeTarget "ShellControlHost" */;
-			buildPhases = (
-				B1C000000000000000000006 /* Sources */,
-				B1C000000000000000000007 /* Frameworks */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			name = ShellControlHost;
-			packageProductDependencies = (
-				B1C00000000000000000000B /* ShellControlHostRuntime */,
-			);
-			productName = ShellControlHost;
-			productReference = B1C000000000000000000002 /* ShellControlHost.app */;
-			productType = "com.apple.product-type.application";
-		};
 		AB00000000000000000002 /* shell */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = AB00000000000000000045 /* Build configuration list for PBXNativeTarget "shell" */;
@@ -367,13 +339,13 @@
 				AB00000000000000000033 /* CopyFiles */,
 				AC00000000000000000020 /* Embed Mac Support */,
 				B1C000000000000000000011 /* Embed Control Host */,
+				DD1B653730661FA300B39550 /* Build Control Host */,
 				AE00000000000000000022 /* Embed Watch Content */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 				AC00000000000000000031 /* PBXTargetDependency */,
-				B1C000000000000000000010 /* PBXTargetDependency */,
 				AE00000000000000000024 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
@@ -472,6 +444,25 @@
 			productReference = AF00000000000000000003 /* ShellWatchTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		B1C000000000000000000001 /* ShellControlHost */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B1C00000000000000000000C /* Build configuration list for PBXNativeTarget "ShellControlHost" */;
+			buildPhases = (
+				B1C000000000000000000006 /* Sources */,
+				B1C000000000000000000007 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = ShellControlHost;
+			packageProductDependencies = (
+				B1C00000000000000000000B /* ShellControlHostRuntime */,
+			);
+			productName = ShellControlHost;
+			productReference = B1C000000000000000000002 /* ShellControlHost.app */;
+			productType = "com.apple.product-type.application";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -482,9 +473,6 @@
 				LastSwiftUpdateCheck = 2660;
 				LastUpgradeCheck = 2660;
 				TargetAttributes = {
-					B1C000000000000000000001 = {
-						CreatedOnToolsVersion = 26.0;
-					};
 					AB00000000000000000002 = {
 						CreatedOnToolsVersion = 26.0;
 					};
@@ -498,6 +486,9 @@
 					AF00000000000000000030 = {
 						CreatedOnToolsVersion = 26.0;
 						TestTargetID = AE00000000000000000030;
+					};
+					B1C000000000000000000001 = {
+						CreatedOnToolsVersion = 26.0;
 					};
 				};
 			};
@@ -551,15 +542,31 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
-/* Begin PBXSourcesBuildPhase section */
-		B1C000000000000000000006 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
+/* Begin PBXShellScriptBuildPhase section */
+		DD1B653730661FA300B39550 /* Build Control Host */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
-				B1C000000000000000000008 /* ShellControlHost/main.swift in Sources */,
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/ShellControlHost/build-control-host.sh",
+			);
+			name = "Build Control Host";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Library/LaunchAgents/ShellControlHost.app",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${SRCROOT}/ShellControlHost/build-control-host.sh\"\n";
 		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
 		AB00000000000000000030 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -606,15 +613,17 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B1C000000000000000000006 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B1C000000000000000000008 /* ShellControlHost/main.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		B1C000000000000000000010 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			platformFilter = maccatalyst;
-			target = B1C000000000000000000001 /* ShellControlHost */;
-			targetProxy = B1C00000000000000000000F /* PBXContainerItemProxy */;
-		};
 		AC00000000000000000031 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			platformFilter = maccatalyst;
@@ -640,80 +649,6 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
-		B1C00000000000000000000D /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = "";
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "";
-				CODE_SIGN_ENTITLEMENTS = ShellControlHost/ShellControlHost.entitlements;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 4;
-				DEVELOPMENT_TEAM = 72KB9YQR7B;
-				ENABLE_APP_SANDBOX = YES;
-				ENABLE_HARDENED_RUNTIME = YES;
-				ENABLE_INCOMING_NETWORK_CONNECTIONS = YES;
-				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
-				ENABLE_PREVIEWS = NO;
-				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = ShellControlHost/Info.plist;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/../Frameworks",
-				);
-				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				OTHER_LDFLAGS = "";
-				PRODUCT_BUNDLE_IDENTIFIER = "dev.chr33s.shell.control-host";
-				PRODUCT_NAME = ShellControlHost;
-				SDKROOT = macosx;
-				SKIP_INSTALL = YES;
-				STRING_CATALOG_GENERATE_SYMBOLS = NO;
-				SUPPORTED_PLATFORMS = macosx;
-				SUPPORTS_MACCATALYST = NO;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_OBJC_BRIDGING_HEADER = "";
-				SWIFT_VERSION = 6.0;
-				TARGETED_DEVICE_FAMILY = "";
-			};
-			name = Debug;
-		};
-		B1C00000000000000000000E /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = "";
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "";
-				CODE_SIGN_ENTITLEMENTS = ShellControlHost/ShellControlHost.entitlements;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 4;
-				DEVELOPMENT_TEAM = 72KB9YQR7B;
-				ENABLE_APP_SANDBOX = YES;
-				ENABLE_HARDENED_RUNTIME = YES;
-				ENABLE_INCOMING_NETWORK_CONNECTIONS = YES;
-				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
-				ENABLE_PREVIEWS = NO;
-				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = ShellControlHost/Info.plist;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/../Frameworks",
-				);
-				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				OTHER_LDFLAGS = "";
-				PRODUCT_BUNDLE_IDENTIFIER = "dev.chr33s.shell.control-host";
-				PRODUCT_NAME = ShellControlHost;
-				SDKROOT = macosx;
-				SKIP_INSTALL = YES;
-				STRING_CATALOG_GENERATE_SYMBOLS = NO;
-				SUPPORTED_PLATFORMS = macosx;
-				SUPPORTS_MACCATALYST = NO;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_OBJC_BRIDGING_HEADER = "";
-				SWIFT_VERSION = 6.0;
-				TARGETED_DEVICE_FAMILY = "";
-			};
-			name = Release;
-		};
 		AB00000000000000000040 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = AB00000000000000000011 /* Debug.xcconfig */;
@@ -962,18 +897,83 @@
 			};
 			name = Release;
 		};
+		B1C00000000000000000000D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "";
+				CODE_SIGN_ENTITLEMENTS = ShellControlHost/ShellControlHost.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 4;
+				DEVELOPMENT_TEAM = 72KB9YQR7B;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_INCOMING_NETWORK_CONNECTIONS = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				ENABLE_PREVIEWS = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = ShellControlHost/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				OTHER_LDFLAGS = "";
+				PRODUCT_BUNDLE_IDENTIFIER = "dev.chr33s.shell.control-host";
+				PRODUCT_NAME = ShellControlHost;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SUPPORTED_PLATFORMS = macosx;
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_OBJC_BRIDGING_HEADER = "";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "";
+			};
+			name = Debug;
+		};
+		B1C00000000000000000000E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = "";
+				CODE_SIGN_ENTITLEMENTS = ShellControlHost/ShellControlHost.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 4;
+				DEVELOPMENT_TEAM = 72KB9YQR7B;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_INCOMING_NETWORK_CONNECTIONS = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				ENABLE_PREVIEWS = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = ShellControlHost/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				OTHER_LDFLAGS = "";
+				PRODUCT_BUNDLE_IDENTIFIER = "dev.chr33s.shell.control-host";
+				PRODUCT_NAME = ShellControlHost;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SUPPORTED_PLATFORMS = macosx;
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_OBJC_BRIDGING_HEADER = "";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		B1C00000000000000000000C /* Build configuration list for PBXNativeTarget "ShellControlHost" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				B1C00000000000000000000D /* Debug */,
-				B1C00000000000000000000E /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
 		AB00000000000000000044 /* Build configuration list for PBXProject "shell" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -1028,13 +1028,18 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		B1C00000000000000000000C /* Build configuration list for PBXNativeTarget "ShellControlHost" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B1C00000000000000000000D /* Debug */,
+				B1C00000000000000000000E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		B1C00000000000000000000A /* XCLocalSwiftPackageReference "cmd" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = cmd;
-		};
 		AB00000000000000000050 /* XCLocalSwiftPackageReference "vendor/ghosttykit-rootshell" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = "vendor/ghosttykit-rootshell";
@@ -1051,14 +1056,13 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/ShellControlCore;
 		};
+		B1C00000000000000000000A /* XCLocalSwiftPackageReference "cmd" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = cmd;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		B1C00000000000000000000B /* ShellControlHostRuntime */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = B1C00000000000000000000A /* XCLocalSwiftPackageReference "cmd" */;
-			productName = ShellControlHostRuntime;
-		};
 		AB00000000000000000053 /* GhosttyKitAppStore */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = AB00000000000000000050 /* XCLocalSwiftPackageReference "vendor/ghosttykit-rootshell" */;
@@ -1097,6 +1101,11 @@
 		AE00000000000000000056 /* ShellControlClient */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = ShellControlClient;
+		};
+		B1C00000000000000000000B /* ShellControlHostRuntime */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B1C00000000000000000000A /* XCLocalSwiftPackageReference "cmd" */;
+			productName = ShellControlHostRuntime;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
