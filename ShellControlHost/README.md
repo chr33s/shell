@@ -21,6 +21,29 @@ Shell.app/Contents/
 | `Info.plist` | `dev.chr33s.shell.control-host`, `LSBackgroundOnly`, `LSUIElement`. |
 | `ShellControlHost.entitlements` | App Sandbox, App Group `group.dev.chr33s.shell.control`, `network.server`, `network.client`. No `com.apple.security.inherit`. |
 | `dev.chr33s.shell.control-host.plist` | The launchd declaration of spec 19.3 (bundle-relative `BundleProgram`, `RunAtLoad`, `KeepAlive`, `MachServices`). |
+| `build-control-host.sh` | Run by the "Build Control Host" phase of the `shell` target: builds the `ShellControlHost` target in a nested `xcodebuild`, copies the `.app` into `Contents/Library/LaunchAgents`, and re-signs it. |
+
+## How it is built and embedded
+
+`ShellControlHost` is a native macOS target in `shell.xcodeproj`, but the
+Catalyst `shell` target does **not** depend on it directly. Instead the
+"Build Control Host" run-script phase invokes `build-control-host.sh`, which
+runs a separate `xcodebuild -target ShellControlHost` with its own
+`SYMROOT`/`OBJROOT` under the app's build directory and copies the product in.
+The phase is a no-op on every platform except Mac Catalyst.
+
+The separate build graph is deliberate. During an archive Xcode places Swift
+package object files in `UninstalledProducts/<PLATFORM_NAME>/`, and
+`PLATFORM_NAME` is `macosx` for both Mac Catalyst and native macOS. Because
+`shell` and `ShellControlHost` both build `ShellControlProtocol`,
+`ShellControlSecurity`, and `ShellControlClient`, a single build graph fails
+with `Multiple commands produce ....o` at archive time (regular builds use
+per-variant product directories and never collide). Building the host in its
+own invocation is the only known workaround
+([Apple forums thread 814686](https://developer.apple.com/forums/thread/814686)).
+The trade-off is that compiler diagnostics from the host and its packages
+appear in the phase's log rather than inline in the issue navigator; to see
+them inline, build the `ShellControlHost` target on its own.
 
 The logic lives in the `ShellControlHostRuntime` library of [`../cmd`](../cmd/README.md)
 ("Bundled Control host"), which composes the broker and daemon libraries in
