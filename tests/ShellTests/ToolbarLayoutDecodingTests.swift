@@ -1,5 +1,6 @@
 import UIKit
-import XCTest
+import Foundation
+import Testing
 
 @testable import Shell
 
@@ -13,62 +14,62 @@ import XCTest
 /// entire customised keyboard toolbar. The fix drops the single unusable slot
 /// and keeps the layout.
 @MainActor
-final class ToolbarLayoutDecodingTests: XCTestCase {
+@Suite
+final class ToolbarLayoutDecodingTests {
     /// THE REGRESSION, main row. Fails if `LenientKeySlot`'s `try?` becomes a
     /// `try`, or the wrapper is removed from the `mainRow` decode — either way
     /// the decode throws and the caller resets to defaults.
+    @Test
     func testARemovedKeyInTheMainRowDropsOneSlotAndKeepsTheLayout() throws {
         let saved = customConfig()
         let data = try encode(saved) { json in
-            var mainRow = try XCTUnwrap(json["mainRow"] as? [[String: Any]])
+            var mainRow = try #require(json["mainRow"] as? [[String: Any]])
             mainRow.insert(try Self.unknownBuiltInSlot(like: mainRow[0]), at: 1)
             json["mainRow"] = mainRow
         }
 
         let decoded = try JSONDecoder().decode(ToolbarLayoutConfig.self, from: data)
 
-        XCTAssertEqual(decoded.mainRow, saved.mainRow, "Only the unusable slot may be dropped")
-        XCTAssertEqual(decoded.drawerRows, saved.drawerRows)
-        XCTAssertEqual(decoded.hiddenKeys, saved.hiddenKeys)
-        XCTAssertNotEqual(
-            decoded,
-            ToolbarLayoutConfig.defaultConfig(for: .phone),
-            "A layout with one removed key must not collapse back to the shipped defaults"
-        )
-        XCTAssertNotEqual(decoded, ToolbarLayoutConfig.defaultConfig(for: .pad))
+        #expect(decoded.mainRow == saved.mainRow, "Only the unusable slot may be dropped")
+        #expect(decoded.drawerRows == saved.drawerRows)
+        #expect(decoded.hiddenKeys == saved.hiddenKeys)
+        #expect(decoded != ToolbarLayoutConfig.defaultConfig(for: .phone), "A layout with one removed key must not collapse back to the shipped defaults")
+        #expect(decoded != ToolbarLayoutConfig.defaultConfig(for: .pad))
     }
 
     /// THE REGRESSION, drawer rows. Covered separately because `drawerRows`
     /// goes through its own `decodeIfPresent` path; a leniency fix applied only
     /// to `mainRow` would leave this one throwing.
+    @Test
     func testARemovedKeyInADrawerRowDropsOneSlotAndKeepsEveryRow() throws {
         let saved = customConfig()
         let data = try encode(saved) { json in
-            var rows = try XCTUnwrap(json["drawerRows"] as? [[[String: Any]]])
+            var rows = try #require(json["drawerRows"] as? [[[String: Any]]])
             rows[1].append(try Self.unknownBuiltInSlot(like: rows[0][0]))
             json["drawerRows"] = rows
         }
 
         let decoded = try JSONDecoder().decode(ToolbarLayoutConfig.self, from: data)
 
-        XCTAssertEqual(decoded.drawerRows, saved.drawerRows)
-        XCTAssertEqual(decoded.mainRow, saved.mainRow)
+        #expect(decoded.drawerRows == saved.drawerRows)
+        #expect(decoded.mainRow == saved.mainRow)
     }
 
     /// A hidden-key entry naming a removed `KeyID` drops without failing the
     /// decode. Fails if the `compactMap(KeyID.init(rawValue:))` becomes a
     /// `map`/`decode` that throws on an unknown raw value.
+    @Test
     func testARemovedHiddenKeyDropsWithoutFailingTheDecode() throws {
         let saved = customConfig()
         let data = try encode(saved) { json in
-            var hidden = try XCTUnwrap(json["hiddenKeys"] as? [String])
+            var hidden = try #require(json["hiddenKeys"] as? [String])
             hidden.append("a_key_removed_in_a_later_build")
             json["hiddenKeys"] = hidden
         }
 
         let decoded = try JSONDecoder().decode(ToolbarLayoutConfig.self, from: data)
 
-        XCTAssertEqual(decoded.hiddenKeys, saved.hiddenKeys)
+        #expect(decoded.hiddenKeys == saved.hiddenKeys)
     }
 
     /// The documented invariant: `drawerRows` is never empty. A layout saved
@@ -77,6 +78,7 @@ final class ToolbarLayoutDecodingTests: XCTestCase {
     /// `drawerRows[0]` unconditionally (`migrate` does too).
     ///
     /// Fails if `?? [[]]` becomes `?? []`.
+    @Test
     func testALayoutSavedWithoutDrawerRowsDecodesToOneEmptyRow() throws {
         let data = try encode(customConfig()) { json in
             json.removeValue(forKey: "drawerRows")
@@ -84,12 +86,13 @@ final class ToolbarLayoutDecodingTests: XCTestCase {
 
         let decoded = try JSONDecoder().decode(ToolbarLayoutConfig.self, from: data)
 
-        XCTAssertEqual(decoded.drawerRows, [[]])
+        #expect(decoded.drawerRows == [[]])
     }
 
     /// Same invariant from the other direction: a persisted empty array is
     /// normalised to one empty row. Fails if the
     /// `rows.isEmpty ? [[]] : rows` normalisation is dropped.
+    @Test
     func testAnEmptyPersistedDrawerRowsArrayDecodesToOneEmptyRow() throws {
         let data = try encode(customConfig()) { json in
             json["drawerRows"] = [[String: Any]]()
@@ -97,17 +100,18 @@ final class ToolbarLayoutDecodingTests: XCTestCase {
 
         let decoded = try JSONDecoder().decode(ToolbarLayoutConfig.self, from: data)
 
-        XCTAssertEqual(decoded.drawerRows, [[]])
+        #expect(decoded.drawerRows == [[]])
     }
 
     /// Nothing valid is lost on the way through the lenient wrapper — the
     /// shipped defaults, the largest real layout there is, round-trip exactly.
     /// Fails if a shape change makes real slots decode to `nil`, which would
     /// otherwise be silent because dropping is the wrapper's whole job.
+    @Test
     func testTheShippedDefaultLayoutsRoundTripUnchanged() throws {
         for config in [ToolbarLayoutConfig.defaultConfig(for: .phone), ToolbarLayoutConfig.defaultConfig(for: .pad)] {
             let data = try JSONEncoder().encode(config)
-            XCTAssertEqual(try JSONDecoder().decode(ToolbarLayoutConfig.self, from: data), config)
+            #expect((try JSONDecoder().decode(ToolbarLayoutConfig.self, from: data)) == config)
         }
     }
 
@@ -118,6 +122,7 @@ final class ToolbarLayoutDecodingTests: XCTestCase {
     ///
     /// `hiddenKeys` is a `Set`, so exactly one entry is used here; more would
     /// encode in an unspecified order.
+    @Test
     func testEncodedLayoutShapeIsUnchanged() throws {
         let config = ToolbarLayoutConfig(
             version: 13,
@@ -130,10 +135,7 @@ final class ToolbarLayoutDecodingTests: XCTestCase {
         encoder.outputFormatting = [.sortedKeys]
         let json = String(decoding: try encoder.encode(config), as: UTF8.self)
 
-        XCTAssertEqual(
-            json,
-            #"{"drawerRows":[[{"builtIn":{"_0":"ctrl"}}]],"hiddenKeys":["paste"],"mainRow":[{"builtIn":{"_0":"esc"}},{"custom":{"_0":"00000000-0000-0000-0000-0000000000CD"}}],"version":13}"#
-        )
+        #expect(json == #"{"drawerRows":[[{"builtIn":{"_0":"ctrl"}}]],"hiddenKeys":["paste"],"mainRow":[{"builtIn":{"_0":"esc"}},{"custom":{"_0":"00000000-0000-0000-0000-0000000000CD"}}],"version":13}"#)
     }
 
     // MARK: - Helpers
@@ -153,7 +155,7 @@ final class ToolbarLayoutDecodingTests: XCTestCase {
     /// copying the shape of a real encoded slot rather than hard-coding it.
     private static func unknownBuiltInSlot(like real: [String: Any]) throws -> [String: Any] {
         var slot = real
-        var payload = try XCTUnwrap(slot["builtIn"] as? [String: Any])
+        var payload = try #require(slot["builtIn"] as? [String: Any])
         payload["_0"] = "a_key_removed_in_a_later_build"
         slot["builtIn"] = payload
         return slot
@@ -164,7 +166,7 @@ final class ToolbarLayoutDecodingTests: XCTestCase {
         corrupt: (inout [String: Any]) throws -> Void
     ) throws -> Data {
         let encoded = try JSONEncoder().encode(config)
-        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        var json = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
         try corrupt(&json)
         return try JSONSerialization.data(withJSONObject: json)
     }

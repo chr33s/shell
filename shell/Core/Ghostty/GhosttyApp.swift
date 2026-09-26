@@ -174,7 +174,7 @@ extension Ghostty {
     /// across many tssh sessions is one of the noisier mutation sources
     /// after resume; allowing it to settle for ~1.5s while still letting
     /// other quiet-window gates expire after ~150ms keeps the UI feeling
-    /// responsive without re-introducing the @Published storm.
+    /// responsive without re-introducing the storm.
     nonisolated static var isInResumeHealthQuietWindowAtomic: Bool {
         let deadline = resumeHealthQuietWindowDeadline.withLock { $0 }
         return Date().timeIntervalSinceReferenceDate < deadline
@@ -194,7 +194,8 @@ extension Ghostty {
     private nonisolated static let resumeHealthQuietWindowDeadline = OSAllocatedUnfairLock<TimeInterval>(initialState: 0)
 
     @MainActor
-    final class App: ObservableObject {
+    @Observable
+    final class App {
         enum Readiness: String {
             case loading, error, ready
         }
@@ -213,10 +214,10 @@ extension Ghostty {
         }
 
         /// The readiness state of the app
-        @Published var readiness: Readiness = .loading
+        var readiness: Readiness = .loading
 
         /// The global app configuration
-        @Published private(set) var config: Config
+        private(set) var config: Config
 
         /// The ghostty app instance
         nonisolated(unsafe) var app: ghostty_app_t?
@@ -1166,7 +1167,7 @@ extension Ghostty {
         /// Get the window ID for a surface
         /// - Parameter surface: The ghostty_surface_t pointer
         /// - Returns: The window ID if registered, nil otherwise
-        func getWindowId(for surface: ghostty_surface_t) -> String? {
+        func windowId(for surface: ghostty_surface_t) -> String? {
             let surfaceId = Int(bitPattern: surface)
             return surfaceWindowMap[surfaceId]
         }
@@ -1194,7 +1195,7 @@ extension Ghostty {
         /// Get the tab ID for a surface
         /// - Parameter surface: The ghostty_surface_t pointer
         /// - Returns: The tab UUID if registered, nil otherwise
-        func getTabId(for surface: ghostty_surface_t) -> UUID? {
+        func tabId(for surface: ghostty_surface_t) -> UUID? {
             let surfaceId = Int(bitPattern: surface)
             return surfaceTabMap[surfaceId]
         }
@@ -1946,7 +1947,7 @@ extension Ghostty {
 
             // Return false if there is no text-like clipboard content so
             // performable paste bindings can pass through to the terminal.
-            guard let text = UIPasteboard.general.getOpinionatedStringContents() else {
+            guard let text = UIPasteboard.general.opinionatedStringContents() else {
                 return false
             }
 

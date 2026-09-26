@@ -51,7 +51,7 @@ final class ControlPairingSession: NSObject, WCSessionDelegate {
         let session = WCSession.default
         session.delegate = self
         session.activate()
-        refreshState(from: session)
+        refreshState(paired: session.isPaired, installed: session.isWatchAppInstalled, reachable: session.isReachable)
     }
 
     func publish(_ context: WatchGatewayContext) {
@@ -62,10 +62,10 @@ final class ControlPairingSession: NSObject, WCSessionDelegate {
         try? WCSession.default.updateApplicationContext(payload)
     }
 
-    private func refreshState(from session: WCSession) {
-        isPaired = session.isPaired
-        isWatchAppInstalled = session.isWatchAppInstalled
-        isReachable = session.isReachable
+    private func refreshState(paired: Bool, installed: Bool, reachable: Bool) {
+        isPaired = paired
+        isWatchAppInstalled = installed
+        isReachable = reachable
     }
 
     nonisolated func session(
@@ -73,7 +73,10 @@ final class ControlPairingSession: NSObject, WCSessionDelegate {
         activationDidCompleteWith activationState: WCSessionActivationState,
         error: (any Error)?
     ) {
-        Task { @MainActor in refreshState(from: session) }
+        let paired = session.isPaired
+        let installed = session.isWatchAppInstalled
+        let reachable = session.isReachable
+        Task { @MainActor in refreshState(paired: paired, installed: installed, reachable: reachable) }
     }
 
     nonisolated func sessionDidBecomeInactive(_ session: WCSession) {}
@@ -83,11 +86,17 @@ final class ControlPairingSession: NSObject, WCSessionDelegate {
     }
 
     nonisolated func sessionWatchStateDidChange(_ session: WCSession) {
-        Task { @MainActor in refreshState(from: session) }
+        let paired = session.isPaired
+        let installed = session.isWatchAppInstalled
+        let reachable = session.isReachable
+        Task { @MainActor in refreshState(paired: paired, installed: installed, reachable: reachable) }
     }
 
     nonisolated func sessionReachabilityDidChange(_ session: WCSession) {
-        Task { @MainActor in refreshState(from: session) }
+        let paired = session.isPaired
+        let installed = session.isWatchAppInstalled
+        let reachable = session.isReachable
+        Task { @MainActor in refreshState(paired: paired, installed: installed, reachable: reachable) }
     }
 
     /// The interactive channel: every Watch read, challenge, and decision

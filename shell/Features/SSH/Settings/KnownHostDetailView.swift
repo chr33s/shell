@@ -5,7 +5,7 @@ struct KnownHostDetailView: View {
     let host: KnownHost
     @Environment(\.dismiss) private var dismiss
     @Environment(\.sheetThemeColors) private var sheetThemeColors
-    @StateObject private var manager = KnownHostsManager.shared
+    @State private var manager = KnownHostsManager.shared
     @State private var showingDeleteAlert = false
     @State private var fingerprintCopied = false
 

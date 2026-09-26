@@ -143,7 +143,7 @@ extension LocalShellSession {
             let exitCode = try interpreter.execute(ast)
 
             // Run EXIT trap if registered
-            if let exitTrap = interpreter.trapRegistry.getHandler(for: TrapRegistry.Signal.exit) {
+            if let exitTrap = interpreter.trapRegistry.handler(for: TrapRegistry.Signal.exit) {
                 // Fresh token so trap can complete
                 let trapToken = CancellationToken()
                 let trapInterp = ShellInterpreter(
@@ -164,8 +164,10 @@ extension LocalShellSession {
                     readLine: { _, _ in nil }
                 )
                 // 5-second timeout
-                let deadline = DispatchTime.now() + 5.0
-                DispatchQueue.global().asyncAfter(deadline: deadline) { trapToken.cancel() }
+                Task {
+                    try? await Task.sleep(for: .seconds(5))
+                    trapToken.cancel()
+                }
                 _ = try? trapInterp.execute(exitTrap)
             }
 
@@ -176,7 +178,7 @@ extension LocalShellSession {
             }
         } catch ShellError.cancelled {
             // Run INT trap if registered
-            if let intTrap = interpreter.trapRegistry.getHandler(for: TrapRegistry.Signal.int) {
+            if let intTrap = interpreter.trapRegistry.handler(for: TrapRegistry.Signal.int) {
                 let trapToken = CancellationToken()
                 let trapInterp = ShellInterpreter(
                     environment: environment,
@@ -195,13 +197,15 @@ extension LocalShellSession {
                     writeOutput: interpreter.writeOutput,
                     readLine: { _, _ in nil }
                 )
-                let deadline = DispatchTime.now() + 5.0
-                DispatchQueue.global().asyncAfter(deadline: deadline) { trapToken.cancel() }
+                Task {
+                    try? await Task.sleep(for: .seconds(5))
+                    trapToken.cancel()
+                }
                 _ = try? trapInterp.execute(intTrap)
             }
 
             // Run EXIT trap
-            if let exitTrap = interpreter.trapRegistry.getHandler(for: TrapRegistry.Signal.exit) {
+            if let exitTrap = interpreter.trapRegistry.handler(for: TrapRegistry.Signal.exit) {
                 let trapToken = CancellationToken()
                 let trapInterp = ShellInterpreter(
                     environment: environment,
@@ -220,8 +224,10 @@ extension LocalShellSession {
                     writeOutput: interpreter.writeOutput,
                     readLine: { _, _ in nil }
                 )
-                let deadline = DispatchTime.now() + 5.0
-                DispatchQueue.global().asyncAfter(deadline: deadline) { trapToken.cancel() }
+                Task {
+                    try? await Task.sleep(for: .seconds(5))
+                    trapToken.cancel()
+                }
                 _ = try? trapInterp.execute(exitTrap)
             }
 
@@ -233,7 +239,7 @@ extension LocalShellSession {
             }
         } catch ShellError.exitSignal(let code) {
             // Run EXIT trap
-            if let exitTrap = interpreter.trapRegistry.getHandler(for: TrapRegistry.Signal.exit) {
+            if let exitTrap = interpreter.trapRegistry.handler(for: TrapRegistry.Signal.exit) {
                 let trapToken = CancellationToken()
                 let trapInterp = ShellInterpreter(
                     environment: environment,
@@ -252,8 +258,10 @@ extension LocalShellSession {
                     writeOutput: interpreter.writeOutput,
                     readLine: { _, _ in nil }
                 )
-                let deadline = DispatchTime.now() + 5.0
-                DispatchQueue.global().asyncAfter(deadline: deadline) { trapToken.cancel() }
+                Task {
+                    try? await Task.sleep(for: .seconds(5))
+                    trapToken.cancel()
+                }
                 _ = try? trapInterp.execute(exitTrap)
             }
 
@@ -778,7 +786,8 @@ extension LocalShellSession {
 
         if let inputProvider {
             writerGroup.enter()
-            DispatchQueue.global(qos: .userInitiated).async {
+            // Dedicated thread: the writer blocks in `write` until the reader drains.
+            Thread.detachNewThread {
                 defer {
                     close(stdinWriteFd)
                     writerGroup.leave()

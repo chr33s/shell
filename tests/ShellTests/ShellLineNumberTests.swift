@@ -1,5 +1,5 @@
 import Foundation
-import XCTest
+import Testing
 
 @testable import Shell
 
@@ -30,26 +30,23 @@ import XCTest
 /// read from a `[[ … ]]` operand, a `case` subject or a `for` word list
 /// reports the previous simple command's line instead. That gap is documented
 /// in `ShellAST.swift`; it is pinned at the bottom of this file with
-/// `XCTExpectFailure`, which asserts the *correct* value and records that it
+/// `withKnownIssue`, which asserts the *correct* value and records that it
 /// currently does not hold — so closing the gap turns those tests into
 /// "unexpectedly passed" rather than leaving a stale assertion behind.
 @MainActor
-final class ShellLineNumberTests: XCTestCase {
+@Suite
+final class ShellLineNumberTests {
 
     // MARK: - Correct behavior
 
     /// Each simple command reports its own line, and two commands sharing a
     /// line both report it — the number tracks token position, not a
     /// per-command counter.
+    @Test
     func testEachSimpleCommandReportsItsOwnSourceLine() throws {
-        XCTAssertEqual(try runShell("echo $LINENO\necho $LINENO\necho $LINENO\n"),
-                       "1\n2\n3\n")
-        XCTAssertEqual(try runShell("echo $LINENO;echo $LINENO\n"),
-                       "1\n1\n",
-                       "two commands on one line both report that line")
-        XCTAssertEqual(try runShell("true\necho ${LINENO}\n"),
-                       "2\n",
-                       "the braced form resolves through the same path")
+        #expect((try runShell("echo $LINENO\necho $LINENO\necho $LINENO\n")) == "1\n2\n3\n")
+        #expect((try runShell("echo $LINENO;echo $LINENO\n")) == "1\n1\n", "two commands on one line both report that line")
+        #expect((try runShell("true\necho ${LINENO}\n")) == "2\n", "the braced form resolves through the same path")
     }
 
     /// Blank lines and comment lines occupy a line number, so a command after
@@ -60,8 +57,9 @@ final class ShellLineNumberTests: XCTestCase {
     /// `line` increments. Skipping a run of blank lines by moving `index`
     /// directly (the obvious "collapse consecutive newlines" optimization in
     /// `readNewline()`) makes this report 3.
+    @Test
     func testBlankAndCommentLinesAreCountedAndDoNotClaimTheNextCommand() throws {
-        XCTAssertEqual(try runShell("true\n\n# a comment\necho $LINENO\n"), "4\n")
+        #expect((try runShell("true\n\n# a comment\necho $LINENO\n")) == "4\n")
     }
 
     /// A line continuation *before* a command moves that command onto the
@@ -71,13 +69,11 @@ final class ShellLineNumberTests: XCTestCase {
     /// The pair brackets where `tokenStartLine` must be assigned: remove the
     /// re-assignment on re-entry and the first case reports 1; assign it after
     /// the token is read instead of before, and the second reports 2.
+    @Test
     func testLineContinuationMovesTheFollowingCommandButNotTheCurrentOne() throws {
-        XCTAssertEqual(try runShell("true; \\\necho $LINENO\n"), "2\n",
-                       "the command after `\\<newline>` lives on the continued line")
-        XCTAssertEqual(try runShell("echo \\\n$LINENO\n"), "1\n",
-                       "a continuation between a command's own words does not move it")
-        XCTAssertEqual(try runShell("true \\\n&& echo $LINENO\n"), "2\n",
-                       "…including across an && operator")
+        #expect((try runShell("true; \\\necho $LINENO\n")) == "2\n", "the command after `\\<newline>` lives on the continued line")
+        #expect((try runShell("echo \\\n$LINENO\n")) == "1\n", "a continuation between a command's own words does not move it")
+        #expect((try runShell("true \\\n&& echo $LINENO\n")) == "2\n", "…including across an && operator")
     }
 
     /// The line is captured from where the command's first token *begins*, not
@@ -88,8 +84,9 @@ final class ShellLineNumberTests: XCTestCase {
     /// `tokenizer.upcomingTokenLine` (1); the scanner's own `currentLine` is
     /// already 2. Swapping `upcomingTokenLine` back to `currentLine` makes this
     /// report 2.
+    @Test
     func testCommandLineComesFromTokenStartNotScannerPosition() throws {
-        XCTAssertEqual(try runShell("X='a\nb' echo $LINENO\n"), "1\n")
+        #expect((try runShell("X='a\nb' echo $LINENO\n")) == "1\n")
     }
 
     /// Newlines inside multi-line tokens are counted, so commands *after* them
@@ -98,15 +95,12 @@ final class ShellLineNumberTests: XCTestCase {
     /// Each case fails with a too-small number if the corresponding scanner
     /// path stops advancing `line`: quoted-string bodies, here-document bodies
     /// (consumed wholesale when the newline token is read), and continuations.
+    @Test
     func testLineCountAdvancesThroughMultiLineTokens() throws {
-        XCTAssertEqual(try runShell("X='a\nb'\necho $LINENO\n"), "3\n",
-                       "single-quoted body")
-        XCTAssertEqual(try runShell("X=\"a\nb\"\necho $LINENO\n"), "3\n",
-                       "double-quoted body")
-        XCTAssertEqual(try runShell("true <<EOF\nx\ny\nEOF\necho $LINENO\n"), "5\n",
-                       "here-document body")
-        XCTAssertEqual(try runShell("echo one \\\n two\necho $LINENO\n"), "one two\n3\n",
-                       "line continuation inside an argument list")
+        #expect((try runShell("X='a\nb'\necho $LINENO\n")) == "3\n", "single-quoted body")
+        #expect((try runShell("X=\"a\nb\"\necho $LINENO\n")) == "3\n", "double-quoted body")
+        #expect((try runShell("true <<EOF\nx\ny\nEOF\necho $LINENO\n")) == "5\n", "here-document body")
+        #expect((try runShell("echo one \\\n two\necho $LINENO\n")) == "one two\n3\n", "line continuation inside an argument list")
     }
 
     /// Commands nested in compound constructs report their own line, and a loop
@@ -115,33 +109,33 @@ final class ShellLineNumberTests: XCTestCase {
     /// Fails if `parseCommand()`'s line capture is applied only to top-level
     /// list elements, or if `publishLineNumber` is hoisted out of
     /// `executeSimple` to fire once per AST node.
+    @Test
     func testCommandsInsideCompoundConstructsReportTheirOwnLine() throws {
-        XCTAssertEqual(try runShell("if true; then\n  echo $LINENO\nfi\n"), "2\n")
-        XCTAssertEqual(try runShell("if true\nthen\n echo $LINENO\nfi\n"), "3\n")
-        XCTAssertEqual(try runShell("while true; do\n echo $LINENO\n break\ndone\n"), "2\n")
-        XCTAssertEqual(try runShell("true\n{\n echo $LINENO\n}\n"), "3\n")
-        XCTAssertEqual(try runShell("f() {\n echo $LINENO\n}\ntrue\nf\n"), "2\n",
-                       "a function body reports where it was defined, not where it was called")
-        XCTAssertEqual(try runShell("for i in a b; do\n echo A$LINENO\n echo B$LINENO\ndone\n"),
-                       "A2\nB3\nA2\nB3\n",
-                       "each iteration re-publishes each body command's line")
+        #expect((try runShell("if true; then\n  echo $LINENO\nfi\n")) == "2\n")
+        #expect((try runShell("if true\nthen\n echo $LINENO\nfi\n")) == "3\n")
+        #expect((try runShell("while true; do\n echo $LINENO\n break\ndone\n")) == "2\n")
+        #expect((try runShell("true\n{\n echo $LINENO\n}\n")) == "3\n")
+        #expect((try runShell("f() {\n echo $LINENO\n}\ntrue\nf\n")) == "2\n", "a function body reports where it was defined, not where it was called")
+        #expect((try runShell("for i in a b; do\n echo A$LINENO\n echo B$LINENO\ndone\n")) == "A2\nB3\nA2\nB3\n", "each iteration re-publishes each body command's line")
     }
 
     /// A `( … )` subshell body is part of the enclosing source unit, so its
     /// commands keep the outer line numbering instead of restarting at 1.
+    @Test
     func testSubshellBodyKeepsTheEnclosingScriptLineNumbering() throws {
-        XCTAssertEqual(try runShell("(\n echo $LINENO\n)\n"), "2\n")
-        XCTAssertEqual(try runShell("true\n(\n true\n echo $LINENO\n)\n"), "4\n")
+        #expect((try runShell("(\n echo $LINENO\n)\n")) == "2\n")
+        #expect((try runShell("true\n(\n true\n echo $LINENO\n)\n")) == "4\n")
     }
 
     /// An isolated environment copy — what a non-final pipeline stage and a
     /// background job run against — starts out holding the parent's `$LINENO`,
     /// matching how `$?` is carried across.
     ///
-    /// Deleting `copy.setCurrentLineNumber(getCurrentLineNumber())` from
+    /// Deleting `copy.setCurrentLineNumber(currentLineNumber())` from
     /// `ShellEnvironment.makeIsolatedCopy()` makes both assertions report 0.
     /// The second goes through `resolveSpecialVariable`, so the test pins the
     /// value users actually see rather than just the backing field.
+    @Test
     func testIsolatedEnvironmentCopyInheritsTheCurrentLineNumber() throws {
         let env = ShellEnvironment(sessionID: UUID(),
                                    allowProcessEnvWrites: false,
@@ -150,8 +144,8 @@ final class ShellLineNumberTests: XCTestCase {
 
         let copy = env.makeIsolatedCopy()
 
-        XCTAssertEqual(copy.getCurrentLineNumber(), 42)
-        XCTAssertEqual(copy.resolveSpecialVariable("LINENO"), "42")
+        #expect(copy.currentLineNumber() == 42)
+        #expect(copy.resolveSpecialVariable("LINENO") == "42")
     }
 
     /// An external command reports its own line — both on its own and as a
@@ -161,14 +155,15 @@ final class ShellLineNumberTests: XCTestCase {
     /// The pipeline case is the one that regressed historically: remove the
     /// `publishLineNumber(cmd)` call from `renderExternalSimpleCommand` and the
     /// rendered string becomes `ext 1 | ext2` — the *previous* command's line.
+    @Test
     func testExternalCommandsAndPipelineStagesReportTheirOwnLine() throws {
         let single = RecordedExternals()
         _ = try runShell("true\next $LINENO\n", externals: single)
-        XCTAssertEqual(single.commands, ["ext 2"])
+        #expect(single.commands == ["ext 2"])
 
         let piped = RecordedExternals()
         _ = try runShell("true\next $LINENO | ext2\n", externals: piped)
-        XCTAssertEqual(piped.commands, ["ext 2 | ext2"])
+        #expect(piped.commands == ["ext 2 | ext2"])
     }
 
     /// Inside an ERR trap, `$LINENO` is the line of the command that *failed*,
@@ -178,9 +173,9 @@ final class ShellLineNumberTests: XCTestCase {
     /// line 1. `publishLineNumber` refuses to publish while `inErrTrap` is set,
     /// which is what preserves bash's semantics. Drop the `!inErrTrap` guard
     /// and this reports `ERR_AT_1`.
+    @Test
     func testErrTrapReportsTheFailingCommandsLineNotTheTrapBodys() throws {
-        XCTAssertEqual(try runShell("trap 'echo ERR_AT_$LINENO' ERR\ntrue\nfalse\n"),
-                       "ERR_AT_3\n")
+        #expect((try runShell("trap 'echo ERR_AT_$LINENO' ERR\ntrue\nfalse\n")) == "ERR_AT_3\n")
     }
 
     // MARK: - Documented gap: non-simple-command operands
@@ -189,28 +184,27 @@ final class ShellLineNumberTests: XCTestCase {
     // the value bash produces; each currently fails because the operand is
     // evaluated before any simple command on its own line has published.
     // Giving `doubleBracket`, `CaseClause` and `ForClause` positions fixes all
-    // three at once — at which point `XCTExpectFailure` reports them as
+    // three at once — at which point `withKnownIssue` reports them as
     // unexpectedly passing and these blocks should be unwrapped.
 
+    @Test
     func testKnownGap_forWordListReportsPreviousCommandsLine() throws {
-        XCTExpectFailure("$LINENO in a `for` word list reports the previous simple command's line (1) because ForClause carries no position") {
-            XCTAssertEqual(try? runShell("true\nfor x in $LINENO; do echo LINE=$x; done\n"),
-                           "LINE=2\n")
+        withKnownIssue("$LINENO in a `for` word list reports the previous simple command's line (1) because ForClause carries no position") {
+            #expect((try? runShell("true\nfor x in $LINENO; do echo LINE=$x; done\n")) == "LINE=2\n")
         }
     }
 
+    @Test
     func testKnownGap_caseSubjectReportsPreviousCommandsLine() throws {
-        XCTExpectFailure("$LINENO in a `case` subject reports the previous simple command's line (1) because CaseClause carries no position") {
-            XCTAssertEqual(
-                try? runShell("true\ncase $LINENO in\n  2) echo OWN_LINE ;;\n  *) echo PREVIOUS_LINE ;;\nesac\n"),
-                "OWN_LINE\n")
+        withKnownIssue("$LINENO in a `case` subject reports the previous simple command's line (1) because CaseClause carries no position") {
+            #expect((try? runShell("true\ncase $LINENO in\n  2) echo OWN_LINE ;;\n  *) echo PREVIOUS_LINE ;;\nesac\n")) == "OWN_LINE\n")
         }
     }
 
+    @Test
     func testKnownGap_doubleBracketOperandReportsPreviousCommandsLine() throws {
-        XCTExpectFailure("$LINENO in a `[[ … ]]` operand reports the previous simple command's line (1) because doubleBracket carries no position") {
-            XCTAssertEqual(try? runShell("true\n[[ $LINENO = 2 ]] && echo OWN_LINE\n"),
-                           "OWN_LINE\n")
+        withKnownIssue("$LINENO in a `[[ … ]]` operand reports the previous simple command's line (1) because doubleBracket carries no position") {
+            #expect((try? runShell("true\n[[ $LINENO = 2 ]] && echo OWN_LINE\n")) == "OWN_LINE\n")
         }
     }
 

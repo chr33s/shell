@@ -112,7 +112,7 @@ final class WindowStateManager {
     /// after restoration would see `unregisterWindow` skip the clear and
     /// resurrect the closed window on the next launch.
     ///
-    /// Deliberately not invoked from `getPendingState`: that runs before
+    /// Deliberately not invoked from `pendingState`: that runs before
     /// restoration can fail (e.g. `buildNode` returning nil for every tab),
     /// and we want a 0-tab restoration to leave the file in place so the next
     /// launch can retry.
@@ -279,16 +279,15 @@ final class WindowStateManager {
         // rejects stale snapshots via its high-water mark. Background transitions
         // use MainViewLifecycle's explicit background task; autosave must not ask
         // UIKit for one during scene updates.
-        Task.detached(priority: .utility) {
-            let didWrite = Self.writeStateToDisk(state)
+        Task(priority: .utility) {
+            let didWrite = await Self.writeStateOffMain(state)
 
             // Only advance the debounce timestamp after a successful write,
             // so a transient I/O failure lets the next save retry immediately
-            // rather than being suppressed for minSaveInterval.
+            // rather than being suppressed for minSaveInterval. This task
+            // inherits the main actor, so the timestamp write is already there.
             if didWrite {
-                await MainActor.run {
-                    Self.shared.lastSaveTime = Date()
-                }
+                Self.shared.lastSaveTime = Date()
             }
         }
     }
@@ -359,9 +358,9 @@ final class WindowStateManager {
     // MARK: - Loading State
 
     /// Idempotently load saved state from disk, sharing the same `hasAttemptedLoad`
-    /// guard `getPendingState` uses so an eager call (e.g. from
+    /// guard `pendingState` uses so an eager call (e.g. from
     /// `didFinishLaunchingWithOptions`, before the first scene connects) does not
-    /// cause `getPendingState` to load a *second* time — a re-load resets
+    /// cause `pendingState` to load a *second* time — a re-load resets
     /// `restoredWindowIds` / the scene bindings and would
     /// wipe in-flight restoration progress. Call this early so `hasPendingRestoration`
     /// is authoritative at `scene(_:willConnectTo:)` time (the Catalyst geometry gate).
@@ -433,7 +432,7 @@ final class WindowStateManager {
     /// A scene the app opened itself for restoration has no stored id, so
     /// `willConnectTo` bound one to it up front; that binding is consumed here in
     /// connect order.
-    func getPendingState(forWindowId windowId: String) -> SerializableWindow? {
+    func pendingState(forWindowId windowId: String) -> SerializableWindow? {
         // Check if session persistence is enabled
         guard Self.isSessionPersistenceEnabled else {
             Self.logger.debug("Session persistence disabled, skipping restoration")
@@ -504,7 +503,7 @@ final class WindowStateManager {
         if restoredWindowIds.count >= state.windows.count {
             pendingRestoration = nil
             // File is preserved — the next successful save replaces it
-            // atomically. See the matching note in `getPendingState`.
+            // atomically. See the matching note in `pendingState`.
             Self.logger.info("All windows restored (marked), cleared pending state (file preserved until next save)")
         }
     }
@@ -746,5 +745,10 @@ extension WindowStateManager {
             return nil
         }
         return attrs[.size] as? Int
+    }
+
+    @concurrent
+    private static func writeStateOffMain(_ state: AppWindowState) async -> Bool {
+        writeStateToDisk(state)
     }
 }

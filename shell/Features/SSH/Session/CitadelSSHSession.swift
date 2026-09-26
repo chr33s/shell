@@ -15,11 +15,24 @@ import NIOTransportServices
 import Crypto
 import os
 
+/// Holds the bootstrap task for a concurrently-running cancel handler.
+/// `Task` is `Sendable`; the box exists so the handler does not share the
+/// binding the main actor awaits.
+nonisolated private final class BootstrapCancelBox: @unchecked Sendable {
+    private let task: Task<SSHClient, Error>
+    init(_ task: Task<SSHClient, Error>) { self.task = task }
+    func cancel() { task.cancel() }
+}
+
 /// SSH session that uses Citadel's high-level API for connections
 /// Supports jump host (ProxyJump) functionality via Citadel's jump() method
 @MainActor
 final class CitadelSSHSession: SSHTerminalSession {
     private nonisolated static let logger = Logger(subsystem: "dev.chr33s.shell", category: "CitadelSSHSession")
+
+    /// Cancellation handler must not be main-actor isolated: it runs concurrently
+    /// with the task it cancels.
+
 
     /// Overall connection timeout for Citadel connections
     /// This is generous (5 minutes) to allow time for host key approval
@@ -400,10 +413,13 @@ final class CitadelSSHSession: SSHTerminalSession {
             // bootstrap keeps running until NIO's connect/login timeouts fire
             // — leaving an orphan SSHClient that hogs the network path and
             // makes the user's next `ssh` feel serialized behind the old one.
+            // The cancel handler is `sending` and runs concurrently, so it
+            // cannot share the `task` binding the main actor awaits.
+            let cancelBox = BootstrapCancelBox(task)
             let finalClient = try await withTaskCancellationHandler {
                 try await task.value
             } onCancel: {
-                task.cancel()
+                cancelBox.cancel()
             }
 
             // Race window: stop() may have flipped userInitiatedStop, or the
@@ -1088,15 +1104,14 @@ final class CitadelSSHSession: SSHTerminalSession {
                 Self.logger.info("PTY session: pty-req sent, awaiting first inbound byte")
 
                 // Use PTY with exec request for remote command/tmux, or plain PTY for interactive shell
+                let session = self
                 if let execCommand = self.config.effectiveExecCommand {
-                    try await client.withPTYExec(ptyRequest, command: execCommand, environment: envVars, agentDelegate: agentDelegate) { [weak self] inbound, outbound in
-                        guard let self = self else { return }
-                        try await self.handlePTYSession(inbound: inbound, outbound: outbound)
+                    try await client.withPTYExec(ptyRequest, command: execCommand, environment: envVars, agentDelegate: agentDelegate) { @concurrent inbound, outbound in
+                        try await session.handlePTYSession(inbound: inbound, outbound: outbound)
                     }
                 } else {
-                    try await client.withPTY(ptyRequest, environment: envVars, agentDelegate: agentDelegate) { [weak self] inbound, outbound in
-                        guard let self = self else { return }
-                        try await self.handlePTYSession(inbound: inbound, outbound: outbound)
+                    try await client.withPTY(ptyRequest, environment: envVars, agentDelegate: agentDelegate) { @concurrent inbound, outbound in
+                        try await session.handlePTYSession(inbound: inbound, outbound: outbound)
                     }
                 }
 
@@ -1773,10 +1788,11 @@ nonisolated final class CitadelHostKeyValidatorDelegate: NIOSSHClientServerAuthe
         let labelCopy = label
         let validationCallback = onValidation
 
+        let boxed = HostKeyTransfer(hostKey)
         Task { @MainActor in
             do {
                 let result = try await performValidation(
-                    hostKey: hostKey,
+                    hostKey: boxed.key,
                     hostname: hostnameCopy,
                     port: portCopy,
                     label: labelCopy,
@@ -1898,14 +1914,14 @@ nonisolated final class CitadelHostKeyValidatorDelegate: NIOSSHClientServerAuthe
 
         // Generate fingerprint and key info
         let fingerprint = generateFingerprint(for: hostKey)
-        let keyType = getKeyType(from: hostKey)
+        let keyType = keyType(from: hostKey)
         let publicKeyData = try serializePublicKey(hostKey)
 
         let labelTag = label ?? "Direct"
         logger.info("[\(labelTag)] Validating host key for \(hostname):\(port) - Type: \(keyType)")
 
         // Check if we have a known host entry
-        if let knownHost = manager.getHost(hostname: hostname, port: port) {
+        if let knownHost = manager.host(hostname: hostname, port: port) {
             let fingerprintsMatch = knownHost.fingerprint == fingerprint
             let publicKeyDataMatches = knownHost.publicKeyData == publicKeyData
 
@@ -2046,7 +2062,7 @@ nonisolated final class CitadelHostKeyValidatorDelegate: NIOSSHClientServerAuthe
     }
 
     /// Get the key type as a string.
-    private func getKeyType(from hostKey: NIOSSHPublicKey) -> String {
+    private func keyType(from hostKey: NIOSSHPublicKey) -> String {
         SSHHostKeyFormatter.keyType(for: hostKey)
     }
 

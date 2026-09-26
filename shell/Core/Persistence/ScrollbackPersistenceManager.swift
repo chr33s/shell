@@ -106,7 +106,7 @@ final class ScrollbackPersistenceManager {
             return nil
         }
         do {
-            return try ScrollbackEncryptionManager.shared.getKey()
+            return try ScrollbackEncryptionManager.shared.encryptionKey()
         } catch {
             // The manager already refuses to rotate on a failed read and
             // rethrows; failing closed here is what keeps that promise at the
@@ -297,7 +297,7 @@ final class ScrollbackPersistenceManager {
         }
 
         // Mark all gathered surfaces as in-flight before the background task starts.
-        // This closes the race window between gathering and the Task.detached running.
+        // This closes the race window between gathering and the background task running.
         // Uses refcounting so overlapping save passes for the same surface are safe.
         for ref in refs {
             Self.retainSurface(ref.surfacePointer)
@@ -424,10 +424,8 @@ final class ScrollbackPersistenceManager {
             Self.clearInFlightSurfaces(refs)
             return
         }
-        Task.detached(priority: .utility) {
-            for ref in refs {
-                Self.saveScrollbackInBackground(ref: ref, encryptionKey: key)
-            }
+        Task(priority: .utility) {
+            await Self.persistScrollbacks(refs, encryptionKey: key)
         }
     }
 
@@ -485,7 +483,7 @@ final class ScrollbackPersistenceManager {
 
         // Change detection: skip save if the content and the at-prompt flag
         // are unchanged since the last *successful* write. The hash is
-        // recorded only after the Task.detached write below completes, so
+        // recorded only after the background write below completes, so
         // encrypt/I-O failures retry on the next tick. We hash the dumped
         // content rather than checking row counts, because operations like
         // CTRL-L change screen layout without changing total rows.
@@ -512,25 +510,19 @@ final class ScrollbackPersistenceManager {
         let fileURL = scrollbackFileURL(for: uuid)
         let atPromptFlagURL = atPromptFlagURL(for: uuid)
 
-        // Write atomically on a utility queue
+        // Write atomically off the main actor. The task's lifetime is the
+        // write, not this call, so it stays unstructured — but it is not detached.
         let directory = scrollbackDirectory
-        Task.detached(priority: .utility) {
-            do {
-                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-                try encryptedData.write(to: fileURL, options: .atomic)
-                // Save or remove encrypted at-prompt flag
-                if let encryptedAtPromptFlag {
-                    try encryptedAtPromptFlag.write(to: atPromptFlagURL, options: .atomic)
-                } else {
-                    try? FileManager.default.removeItem(at: atPromptFlagURL)
-                }
-
-                // Record the hash only after the write succeeds — failures
-                // above must not short-circuit the next save tick.
-                Self.lastSavedHashes.withLock { $0[uuid] = contentHash }
-            } catch {
-                ScrollbackPersistenceManager.logger.warning("Failed to save scrollback for \(uuid.uuidString.prefix(8)): \(error.localizedDescription)")
-            }
+        Task(priority: .utility) {
+            await Self.writeEncryptedScrollback(
+                directory: directory,
+                fileURL: fileURL,
+                atPromptFlagURL: atPromptFlagURL,
+                encryptedData: encryptedData,
+                encryptedAtPromptFlag: encryptedAtPromptFlag,
+                uuid: uuid,
+                contentHash: contentHash
+            )
         }
     }
 
@@ -709,5 +701,36 @@ final class ScrollbackPersistenceManager {
         try? FileManager.default.removeItem(at: scrollbackDirectory)
         Self.lastSavedHashes.withLock { $0.removeAll() }
         Self.logger.info("Removed all scrollback files")
+    }
+
+    @concurrent
+    private static func persistScrollbacks(_ refs: [BackgroundTerminalRef], encryptionKey: SymmetricKey) async {
+        for ref in refs {
+            saveScrollbackInBackground(ref: ref, encryptionKey: encryptionKey)
+        }
+    }
+
+    @concurrent
+    private static func writeEncryptedScrollback(
+        directory: URL,
+        fileURL: URL,
+        atPromptFlagURL: URL,
+        encryptedData: Data,
+        encryptedAtPromptFlag: Data?,
+        uuid: UUID,
+        contentHash: Int
+    ) async {
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try encryptedData.write(to: fileURL, options: .atomic)
+            if let encryptedAtPromptFlag {
+                try encryptedAtPromptFlag.write(to: atPromptFlagURL, options: .atomic)
+            } else {
+                try? FileManager.default.removeItem(at: atPromptFlagURL)
+            }
+            lastSavedHashes.withLock { $0[uuid] = contentHash }
+        } catch {
+            logger.warning("Failed to save scrollback for \(uuid.uuidString.prefix(8)): \(error.localizedDescription)")
+        }
     }
 }

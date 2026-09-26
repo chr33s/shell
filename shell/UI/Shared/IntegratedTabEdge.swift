@@ -62,7 +62,7 @@ struct IntegratedTabEdgePalette: Equatable {
 
 /// Silhouette metrics, shared by the opaque fill (`BrowserTabShape`) and the
 /// hairline outline so the two can never drift.
-struct IntegratedTabGeometry {
+nonisolated struct IntegratedTabGeometry {
     /// Tab body below the narrow strip of frame left visible above the tab.
     let tabRect: CGRect
     /// Wider than tall: a 1:1 corner reads as a sharp hook at Retina scale.
@@ -193,20 +193,20 @@ struct IntegratedActiveTabBoundsPreferenceKey: PreferenceKey {
 
 /// Open path, to be stroked. Not pre-stroked via `strokedPath`: a ribbon's two
 /// antialiased edges interfere at hairline width and speckle the shoulders.
-struct IntegratedTabOutlineShape: Shape {
+nonisolated struct IntegratedTabOutlineShape: Shape {
     var bottomInset: CGFloat
 
-    func path(in rect: CGRect) -> Path {
+    nonisolated func path(in rect: CGRect) -> Path {
         IntegratedTabGeometry(in: rect).outlinePath(bottomInset: bottomInset)
     }
 }
 
 /// The horizontal run along the strip/terminal boundary. Centered on the same
 /// band as `IntegratedTabOutlineShape`'s open ends so the two abut without a step.
-struct IntegratedTabEdgeRule: Shape {
+nonisolated struct IntegratedTabEdgeRule: Shape {
     var lineWidth: CGFloat
 
-    func path(in rect: CGRect) -> Path {
+    nonisolated func path(in rect: CGRect) -> Path {
         Path(CGRect(
             x: rect.minX,
             y: rect.maxY - lineWidth,
@@ -289,7 +289,7 @@ struct IntegratedTabOutlineView: View {
 /// from `MainView`. Core Animation owns the bouncing segment, so no display-link
 /// updates enter SwiftUI's view graph.
 struct IntegratedOSCProgressEdgeHost: View {
-    @ObservedObject var terminalView: Ghostty.TerminalView
+    var terminalView: Ghostty.TerminalView
     let activeTabRect: CGRect
     let rowSize: CGSize
     let selectedTabID: UUID

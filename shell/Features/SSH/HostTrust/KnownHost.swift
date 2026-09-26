@@ -1,7 +1,7 @@
 import Foundation
 
 /// Represents a known SSH host and its trusted public key
-struct KnownHost: Codable, Identifiable, Equatable, Hashable, SyncableRecord {
+nonisolated struct KnownHost: Codable, Identifiable, Equatable, Hashable, SyncableRecord {
     /// Stable unique identifier for sync
     let id: UUID
 

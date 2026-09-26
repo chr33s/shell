@@ -1,4 +1,5 @@
-import XCTest
+import Foundation
+import Testing
 
 @testable import Shell
 
@@ -18,7 +19,8 @@ import XCTest
 /// the `fallbackKeyIDs: nil` line deleted — the asymmetry only becomes visible
 /// once real defaults exist.
 @MainActor
-final class SerializableConnectionConfigTests: XCTestCase {
+@Suite
+final class SerializableConnectionConfigTests {
 
     private let targetKeyID = UUID()
     private let jumpKeyID = UUID()
@@ -55,18 +57,16 @@ final class SerializableConnectionConfigTests: XCTestCase {
     /// Goes red if `toSSHConfig()` starts synthesizing `fallbackKeyIDs` for the
     /// jump host from the default list — the change that would lock a user out
     /// of their bastion on the first hop of a restored session.
-    func testRestoredBastionGetsNoFallbackIdentitiesWhileTargetKeepsItsOwn() {
+    @Test
+    func testRestoredBastionGetsNoFallbackIdentitiesWhileTargetKeepsItsOwn() throws {
         let config = restored(
             targetAuth: .key(targetKeyID),
             jumpAuth: .key(jumpKeyID),
             defaultKeyIDs: [targetKeyID, otherDefaultA, otherDefaultB]
         )
 
-        XCTAssertEqual(config.fallbackKeyIDs, [otherDefaultA, otherDefaultB])
-        XCTAssertNil(
-            config.jumpHost?.fallbackKeyIDs,
-            "a restored bastion must be offered exactly one identity"
-        )
+        #expect(config.fallbackKeyIDs == [otherDefaultA, otherDefaultB])
+        #expect((config.jumpHost?.fallbackKeyIDs) == nil, "a restored bastion must be offered exactly one identity")
     }
 
     /// The bastion gets no fallbacks even when its own key is one of the
@@ -75,14 +75,15 @@ final class SerializableConnectionConfigTests: XCTestCase {
     ///
     /// Goes red if a `defaultKeyIDs.filter { $0 != jumpKeyID }` is copied onto
     /// the jump branch the way it exists on the target branch.
-    func testRestoredBastionGetsNoFallbacksEvenWhenItsKeyIsADefault() {
+    @Test
+    func testRestoredBastionGetsNoFallbacksEvenWhenItsKeyIsADefault() throws {
         let config = restored(
             targetAuth: .key(targetKeyID),
             jumpAuth: .key(jumpKeyID),
             defaultKeyIDs: [jumpKeyID, otherDefaultA, otherDefaultB]
         )
 
-        XCTAssertNil(config.jumpHost?.fallbackKeyIDs)
+        #expect((config.jumpHost?.fallbackKeyIDs) == nil)
     }
 
     // MARK: - Target fallback synthesis, unchanged
@@ -92,14 +93,15 @@ final class SerializableConnectionConfigTests: XCTestCase {
     /// failed.
     ///
     /// Goes red if the `filter { $0 != keyID }` is dropped.
-    func testTargetFallbacksExcludeTheTargetsOwnKey() {
+    @Test
+    func testTargetFallbacksExcludeTheTargetsOwnKey() throws {
         let config = restored(
             targetAuth: .key(targetKeyID),
             jumpAuth: nil,
             defaultKeyIDs: [otherDefaultA, targetKeyID, otherDefaultB]
         )
 
-        XCTAssertEqual(config.fallbackKeyIDs, [otherDefaultA, otherDefaultB])
+        #expect(config.fallbackKeyIDs == [otherDefaultA, otherDefaultB])
     }
 
     /// An empty fallback list normalizes to nil, so "no fallbacks" has exactly
@@ -108,28 +110,30 @@ final class SerializableConnectionConfigTests: XCTestCase {
     /// answer differently depending on which one it met.
     ///
     /// Goes red if the `.isEmpty ? nil : fallbacks` normalization is removed.
-    func testEmptyTargetFallbackListNormalizesToNilRatherThanEmptyArray() {
+    @Test
+    func testEmptyTargetFallbackListNormalizesToNilRatherThanEmptyArray() throws {
         let config = restored(
             targetAuth: .key(targetKeyID),
             jumpAuth: nil,
             defaultKeyIDs: [targetKeyID]
         )
 
-        XCTAssertNil(config.fallbackKeyIDs)
+        #expect((config.fallbackKeyIDs) == nil)
     }
 
     /// Fallbacks are synthesized only for KEY auth. A password-authenticated
     /// target must not silently acquire a list of identities to try.
     ///
     /// Goes red if the `if case .key` guard around the synthesis is widened.
-    func testPasswordAuthenticatedTargetGetsNoSynthesizedFallbacks() {
+    @Test
+    func testPasswordAuthenticatedTargetGetsNoSynthesizedFallbacks() throws {
         let config = restored(
             targetAuth: .password("hunter2"),
             jumpAuth: nil,
             defaultKeyIDs: [otherDefaultA, otherDefaultB]
         )
 
-        XCTAssertNil(config.fallbackKeyIDs)
+        #expect((config.fallbackKeyIDs) == nil)
     }
 
     // MARK: - Secrets never survive the record
@@ -141,15 +145,16 @@ final class SerializableConnectionConfigTests: XCTestCase {
     /// Goes red if `safeAuth`/`liveAuth` start round-tripping a password value,
     /// or if `.savedPassword` is preserved as-is — which would let a restored
     /// session skip the Keychain lookup that proves the password is still there.
-    func testPasswordsAreStrippedOnBothHopsAndComeBackEmpty() {
+    @Test
+    func testPasswordsAreStrippedOnBothHopsAndComeBackEmpty() throws {
         let config = restored(
             targetAuth: .password("target-secret"),
             jumpAuth: .password("bastion-secret"),
             defaultKeyIDs: []
         )
 
-        XCTAssertEqual(config.authMethod, .password(""))
-        XCTAssertEqual(config.jumpHost?.authMethod, .password(""))
+        #expect(config.authMethod == .password(""))
+        #expect(config.jumpHost?.authMethod == .password(""))
     }
 
     /// A saved-password hop restores as "needs a password", not as
@@ -157,15 +162,16 @@ final class SerializableConnectionConfigTests: XCTestCase {
     ///
     /// Goes red if `safeAuth` stops folding `.savedPassword` into
     /// `.passwordRequired`.
-    func testSavedPasswordRestoresAsPasswordRequiredNotAsSavedPassword() {
+    @Test
+    func testSavedPasswordRestoresAsPasswordRequiredNotAsSavedPassword() throws {
         let config = restored(
             targetAuth: .savedPassword,
             jumpAuth: .savedPassword,
             defaultKeyIDs: []
         )
 
-        XCTAssertEqual(config.authMethod, .password(""))
-        XCTAssertEqual(config.jumpHost?.authMethod, .password(""))
+        #expect(config.authMethod == .password(""))
+        #expect(config.jumpHost?.authMethod == .password(""))
     }
 
     /// Key identities and the bastion's own address survive the round trip
@@ -173,19 +179,20 @@ final class SerializableConnectionConfigTests: XCTestCase {
     ///
     /// Goes red if the jump host's host/port/username/key is rebuilt from the
     /// target's values.
-    func testJumpHostIdentityAndAddressSurviveTheRoundTripUnchanged() {
+    @Test
+    func testJumpHostIdentityAndAddressSurviveTheRoundTripUnchanged() throws {
         let config = restored(
             targetAuth: .key(targetKeyID),
             jumpAuth: .key(jumpKeyID),
             defaultKeyIDs: []
         )
 
-        XCTAssertEqual(config.host, "target.example.com")
-        XCTAssertEqual(config.authMethod, .key(targetKeyID))
-        XCTAssertEqual(config.jumpHost?.host, "bastion.example.com")
-        XCTAssertEqual(config.jumpHost?.port, 2200)
-        XCTAssertEqual(config.jumpHost?.username, "admin")
-        XCTAssertEqual(config.jumpHost?.authMethod, .key(jumpKeyID))
+        #expect(config.host == "target.example.com")
+        #expect(config.authMethod == .key(targetKeyID))
+        #expect(config.jumpHost?.host == "bastion.example.com")
+        #expect(config.jumpHost?.port == 2200)
+        #expect(config.jumpHost?.username == "admin")
+        #expect(config.jumpHost?.authMethod == .key(jumpKeyID))
     }
 
     /// The record survives an encode/decode cycle — it is what actually gets
@@ -195,6 +202,7 @@ final class SerializableConnectionConfigTests: XCTestCase {
     /// Goes red if a Codable key is renamed without a migration, which would
     /// drop the jump host (and with it the whole bastion) from every restored
     /// session.
+    @Test
     func testRecordSurvivesJSONRoundTripWithTheJumpHopIntact() throws {
         var live = SSHConfig(host: "target.example.com", port: 22, username: "user")
         live.authMethod = .key(targetKeyID)
@@ -211,12 +219,12 @@ final class SerializableConnectionConfigTests: XCTestCase {
             SerializableConnectionConfig.SSHConfigSafe.self, from: data
         )
 
-        XCTAssertEqual(decoded, safe)
+        #expect(decoded == safe)
 
         let config = decoded.toSSHConfig(defaultKeyIDs: [targetKeyID, otherDefaultA])
-        XCTAssertEqual(config.jumpHost?.authMethod, .key(jumpKeyID))
-        XCTAssertNil(config.jumpHost?.fallbackKeyIDs)
-        XCTAssertEqual(config.fallbackKeyIDs, [otherDefaultA])
+        #expect(config.jumpHost?.authMethod == .key(jumpKeyID))
+        #expect((config.jumpHost?.fallbackKeyIDs) == nil)
+        #expect(config.fallbackKeyIDs == [otherDefaultA])
     }
 
     /// No secret appears anywhere in the encoded bytes. A structural assertion
@@ -224,6 +232,7 @@ final class SerializableConnectionConfigTests: XCTestCase {
     /// leaking in through a newly-added property too.
     ///
     /// Goes red if any hop's real password reaches the on-disk record.
+    @Test
     func testEncodedRecordContainsNoPasswordBytes() throws {
         var live = SSHConfig(host: "target.example.com", port: 22, username: "user")
         live.authMethod = .password("target-secret-9f3a")
@@ -235,9 +244,9 @@ final class SerializableConnectionConfigTests: XCTestCase {
         )
 
         let data = try JSONEncoder().encode(SerializableConnectionConfig.SSHConfigSafe(from: live))
-        let json = try XCTUnwrap(String(data: data, encoding: .utf8))
+        let json = try #require(String(data: data, encoding: .utf8))
 
-        XCTAssertFalse(json.contains("target-secret-9f3a"))
-        XCTAssertFalse(json.contains("bastion-secret-4c1d"))
+        #expect(!(json.contains("target-secret-9f3a")))
+        #expect(!(json.contains("bastion-secret-4c1d")))
     }
 }

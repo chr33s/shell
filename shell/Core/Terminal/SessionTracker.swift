@@ -6,6 +6,7 @@
 //  publishes tab-count changes so window chrome can reconfigure.
 //
 
+import Observation
 import Foundation
 import Combine
 import os.log
@@ -17,7 +18,8 @@ extension Notification.Name {
 
 /// Global tracker that aggregates session counts from all windows
 @MainActor
-final class SessionTracker: ObservableObject {
+@Observable
+final class SessionTracker {
     static let shared = SessionTracker()
 
     private nonisolated static let logger = Logger(subsystem: "dev.chr33s.shell", category: "SessionTracker")

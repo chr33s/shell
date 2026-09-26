@@ -703,10 +703,10 @@ struct TroughWellBackground: View {
 /// Integrated selected-tab silhouette: rounded at the top, with lower
 /// shoulders that widen into the terminal edge. The bottom remains open and
 /// flush, so matching the terminal background reads as one connected surface.
-private struct BrowserTabShape: Shape {
+private nonisolated struct BrowserTabShape: Shape {
     // Metrics live in `IntegratedTabGeometry` so this and the outline drawn
     // over it trace the same curve.
-    func path(in rect: CGRect) -> Path {
+    nonisolated func path(in rect: CGRect) -> Path {
         IntegratedTabGeometry(in: rect).silhouettePath
     }
 }

@@ -186,8 +186,10 @@ extension LocalShellSession {
         // RC file timeout: 30 seconds
         let rcLFNormalizer = LFNormalizer()
         let rcToken = CancellationToken()
-        let deadline = DispatchTime.now() + 30.0
-        DispatchQueue.global().asyncAfter(deadline: deadline) { rcToken.cancel() }
+        Task {
+            try? await Task.sleep(for: .seconds(30))
+            rcToken.cancel()
+        }
 
         let interpreter = ShellInterpreter(
             environment: environment,

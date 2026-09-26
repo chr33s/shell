@@ -36,11 +36,13 @@
 //  saying who listens. Do not widen the regexes to make a real gap disappear.
 //
 
-import XCTest
+import Foundation
+import Testing
 
 @testable import Shell
 
-final class NotificationWiringTests: XCTestCase {
+@Suite
+final class NotificationWiringTests {
 
     /// Names deliberately posted with no in-app observer (external consumers,
     /// system integrations). Empty, and should stay that way.
@@ -159,10 +161,11 @@ final class NotificationWiringTests: XCTestCase {
     /// A notification with no observer is a command that does nothing when the
     /// user invokes it. This is the check that found nine dead command chains
     /// in this codebase when it was run by hand.
+    @Test(.enabled(if: SourceTree.isAvailable, "App sources are not readable from this build"))
     func testEveryPostedNotificationHasAnObserver() throws {
         try SourceTree.requireSources()
         let wiring = scan()
-        XCTAssertGreaterThan(wiring.declared.count, 50, "Scanner found almost no notifications; it has stopped working.")
+        #expect(wiring.declared.count > 50, "Scanner found almost no notifications; it has stopped working.")
 
         let dead = wiring.posted
             .subtracting(wiring.observed)
@@ -170,20 +173,18 @@ final class NotificationWiringTests: XCTestCase {
             .map { "\($0) (\(wiring.declared[$0] ?? "?"))" }
             .sorted()
 
-        XCTAssertEqual(
-            dead, [],
-            """
+        #expect(dead == [], """
             These notifications are posted but nothing observes them. Whatever \
             posts them — a menu item, a keybind, a gesture — now does nothing at \
             all when the user invokes it, and the compiler cannot see it because \
             NotificationCenter matches on names, not types.
-            """
-        )
+            """)
     }
 
     /// The mirror image: an observer for a name nothing sends. Harmless at run
     /// time, but it means the feature it belongs to is already dead and the
     /// next reader will assume otherwise.
+    @Test(.enabled(if: SourceTree.isAvailable, "App sources are not readable from this build"))
     func testEveryObservedNotificationHasAPoster() throws {
         try SourceTree.requireSources()
         let wiring = scan()
@@ -194,14 +195,12 @@ final class NotificationWiringTests: XCTestCase {
             .map { "\($0) (\(wiring.declared[$0] ?? "?"))" }
             .sorted()
 
-        XCTAssertEqual(
-            orphaned, [],
-            "These notifications are observed but never posted; the sender was removed or renamed and the observer is now dead code."
-        )
+        #expect(orphaned == [], "These notifications are observed but never posted; the sender was removed or renamed and the observer is now dead code.")
     }
 
     /// A declared name that is neither posted nor observed is a leftover of a
     /// half-finished removal.
+    @Test(.enabled(if: SourceTree.isAvailable, "App sources are not readable from this build"))
     func testNoNotificationIsDeclaredButUnused() throws {
         try SourceTree.requireSources()
         let wiring = scan()
@@ -211,12 +210,13 @@ final class NotificationWiringTests: XCTestCase {
             .subtracting(wiring.observed)
             .sorted()
 
-        XCTAssertEqual(unused, [], "Declared but neither posted nor observed — delete the declaration or finish the wiring.")
+        #expect(unused == [], "Declared but neither posted nor observed — delete the declaration or finish the wiring.")
     }
 
     /// Names are matched as strings across process and module boundaries, so a
     /// duplicate raw value silently merges two unrelated channels: posting one
     /// fires the other's observers too.
+    @Test(.enabled(if: SourceTree.isAvailable, "App sources are not readable from this build"))
     func testDeclaredNotificationRawValuesAreUnique() throws {
         try SourceTree.requireSources()
         let wiring = scan()
@@ -227,7 +227,7 @@ final class NotificationWiringTests: XCTestCase {
             .map { "\($0.key) declared by \($0.value.sorted().joined(separator: ", "))" }
             .sorted()
 
-        XCTAssertEqual(collisions, [], "Two names share a raw value, so posting either one triggers both sets of observers.")
+        #expect(collisions == [], "Two names share a raw value, so posting either one triggers both sets of observers.")
     }
 
     /// `SettingsRefreshHub.liveApplyNotifications` documents this rule in a
@@ -235,19 +235,14 @@ final class NotificationWiringTests: XCTestCase {
     /// and observed nowhere is a silent no-op" — and nothing enforced it.
     /// These are live-apply settings: with no observer, changing the setting
     /// appears to work and simply never reaches the running terminal.
+    @Test(.enabled(if: SourceTree.isAvailable, "App sources are not readable from this build"))
     func testLiveApplySettingNotificationsAreObserved() throws {
         try SourceTree.requireSources()
         let wiring = scan()
 
         for name in ["forceASCIIKeyboardChanged", "keyboardToolbarHardwareSettingChanged"] {
-            XCTAssertTrue(
-                wiring.declared.keys.contains(name),
-                "\(name) is no longer declared; SettingsRefreshHub's live-apply table has lost an entry."
-            )
-            XCTAssertTrue(
-                wiring.observed.contains(name),
-                "\(name) is posted by SettingsRefreshHub but observed nowhere, so the setting never reaches a live terminal."
-            )
+            #expect(wiring.declared.keys.contains(name), "\(name) is no longer declared; SettingsRefreshHub's live-apply table has lost an entry.")
+            #expect(wiring.observed.contains(name), "\(name) is posted by SettingsRefreshHub but observed nowhere, so the setting never reaches a live terminal.")
         }
     }
 }

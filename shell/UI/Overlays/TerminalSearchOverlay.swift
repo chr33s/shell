@@ -12,7 +12,7 @@ import SwiftUI
 /// moves it with a native pan — a SwiftUI `DragGesture` here stutters and fights
 /// the embedded `TextField`/buttons for touches.
 struct TerminalSearchOverlay: View {
-    @ObservedObject var searchState: Ghostty.SearchState
+    @Bindable var searchState: Ghostty.SearchState
     let onSearch: (String) -> Void
     let onNavigate: (String) -> Void
     let onClose: () -> Void

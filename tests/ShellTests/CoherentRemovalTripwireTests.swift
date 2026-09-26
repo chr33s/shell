@@ -29,16 +29,18 @@
 //  comment so the pair can be read together.
 //
 
-import XCTest
+import Foundation
+import Testing
 
 @testable import Shell
 
-final class CoherentRemovalTripwireTests: XCTestCase {
+@Suite(.enabled(if: SourceTree.isAvailable, "App sources are not readable from this build"))
+final class CoherentRemovalTripwireTests {
 
     private func appSource() throws -> String {
         try SourceTree.requireSources()
         let source = SourceTree.allAppSource()
-        XCTAssertGreaterThan(source.count, 100_000, "Read almost no app source; the tripwires below would pass vacuously.")
+        #expect(source.count > 100_000, "Read almost no app source; the tripwires below would pass vacuously.")
         return source
     }
 
@@ -53,18 +55,16 @@ final class CoherentRemovalTripwireTests: XCTestCase {
     /// `SettingsRegistryInventoryTests` (registration, config key, sync
     /// policy, and that `.current` really reads the store). This tripwire
     /// covers the half that has no runtime handle: that something still *asks*.
+    @Test
     func testTripwireNewTabCommandStillConsultsTheTmuxNewTabPreference() throws {
         let source = try appSource()
 
-        XCTAssertTrue(
-            source.contains("TmuxNewTabAction.current"),
-            """
+        #expect(source.contains("TmuxNewTabAction.current"), """
             Nothing reads TmuxNewTabAction.current any more. The preference is still \
             registered and still syncs, but ⌘T no longer consults it — which is \
             exactly the state this fork was already in once. See \
             shell/UI/Shell/MainView+TabManagement.swift (handleNewTabCommand).
-            """
-        )
+            """)
     }
 
     /// Every case must lead somewhere distinct. `.tmuxTab` and `.ask` are the
@@ -77,11 +77,13 @@ final class CoherentRemovalTripwireTests: XCTestCase {
     /// by other features (the tab bar's context menu, the confirmation sheet),
     /// so a whole-source search would stay green with every arm of this switch
     /// deleted — which is exactly the removal it is supposed to catch.
+    @Test
     func testTripwireEveryTmuxNewTabActionCaseHasItsOwnBranch() throws {
         let source = try appSource()
 
         guard let switchStart = source.range(of: "switch TmuxNewTabAction.current") else {
-            return XCTFail("No `switch TmuxNewTabAction.current` remains; ⌘T no longer branches on the preference at all.")
+            Issue.record("No `switch TmuxNewTabAction.current` remains; ⌘T no longer branches on the preference at all.")
+return
         }
         // The whole switch comfortably fits; enough to span its three arms
         // without running into unrelated code.
@@ -89,14 +91,11 @@ final class CoherentRemovalTripwireTests: XCTestCase {
 
         let missing = ["case .localShell", "case .tmuxTab", "case .ask"].filter { !body.contains($0) }
 
-        XCTAssertEqual(
-            missing, [],
-            """
+        #expect(missing == [], """
             The ⌘T switch no longer handles every TmuxNewTabAction case. A case with no \
             branch of its own means the setting offers the user a choice that does \
             nothing. See shell/UI/Shell/MainView+TabManagement.swift (handleNewTabCommand).
-            """
-        )
+            """)
     }
 
     // MARK: - Checkable menu items
@@ -109,6 +108,7 @@ final class CoherentRemovalTripwireTests: XCTestCase {
     /// The dispatch half is checked at run time in
     /// `MenuCommandChainTests.testTerminalViewImplementsEveryResponderSideCommand`;
     /// this pins that the checkable items themselves still exist.
+    @Test
     func testTripwireAllEightCheckableMenuItemsAreStillInstalled() throws {
         let source = try appSource()
 
@@ -118,19 +118,13 @@ final class CoherentRemovalTripwireTests: XCTestCase {
         ]
         let missing = kinds.filter { !source.contains("MenuToggleItem(kind: .\($0)") }
 
-        XCTAssertEqual(
-            missing, [],
-            """
+        #expect(missing == [], """
             These checkable menu items are no longer installed. If one was reverted to \
             a plain Button the command still works, so nothing else fails — the menu \
             just stops showing whether the thing is currently on. See \
             shell/App/AppCommands.swift.
-            """
-        )
-        XCTAssertEqual(
-            kinds.count, 8,
-            "Update this list deliberately when adding or removing a checkable item."
-        )
+            """)
+        #expect(kinds.count == 8, "Update this list deliberately when adding or removing a checkable item.")
     }
 
     // MARK: - Local-shell pipeline staging
@@ -149,6 +143,7 @@ final class CoherentRemovalTripwireTests: XCTestCase {
     /// ("Nothing this fork intercepts needs that"), so this tripwire protects
     /// the seam, not an active behavior. That is the honest scope: it ensures
     /// the hook is still connected for whoever next needs it.
+    @Test
     func testTripwireLocalShellStillSuppliesItsPipelineStagePredicate() throws {
         let source = try appSource()
 
@@ -160,35 +155,27 @@ final class CoherentRemovalTripwireTests: XCTestCase {
             excludingFilesNamed: ["ShellInterpreter.swift", "ShellJobs.swift"]
         )
 
-        XCTAssertTrue(
-            callers.contains("requiresOwnExternalPipelineStage:"),
-            """
+        #expect(callers.contains("requiresOwnExternalPipelineStage:"), """
             Nothing outside ShellInterpreter/ShellJobs passes \
             requiresOwnExternalPipelineStage any more. The interpreter may still honour \
             the callback, but no production code supplies one, so commands that must be \
             their own pipeline stage are silently bundled with their neighbours into a \
             single `|`-joined argv. See shell/Features/LocalShell/LocalShellSession+Shell.swift.
-            """
-        )
-        XCTAssertTrue(
-            source.contains("func requiresOwnExternalPipelineStage"),
-            "LocalShellSession's predicate itself is gone; the interpreter parameter now has no production implementation."
-        )
+            """)
+        #expect(source.contains("func requiresOwnExternalPipelineStage"), "LocalShellSession's predicate itself is gone; the interpreter parameter now has no production implementation.")
     }
 
     /// `ShellJobs` refuses to background a command that needs its own pipeline
     /// stage. That guard reads the same predicate and is easy to drop when
     /// simplifying the backgrounding path.
+    @Test
     func testTripwireBackgroundingStillRefusesCommandsNeedingTheirOwnStage() throws {
         let source = try appSource()
 
-        XCTAssertTrue(
-            source.contains("requiresOwnExternalPipelineStage?("),
-            """
+        #expect(source.contains("requiresOwnExternalPipelineStage?("), """
             ShellJobs no longer consults requiresOwnExternalPipelineStage before \
             backgrounding. A command that must be its own stage would be sent to the \
             background path that cannot give it one. See shell/Core/Shell/ShellJobs.swift.
-            """
-        )
+            """)
     }
 }

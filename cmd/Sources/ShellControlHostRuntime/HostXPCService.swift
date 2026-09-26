@@ -83,14 +83,14 @@ public final class HostXPCService: Sendable {
         } catch {
             return ControlHostReply.failure(.unsupportedOperation, "unreadable request")
         }
+        // `handoffReply` returns immediately so XPC's delivery queue is not
+        // blocked. The task owns the message from here and replies exactly once;
+        // joining it with a semaphore would block `replyQueue` across the await.
         let pending = PendingReply(message)
         return message.handoffReply(to: replyQueue) { [runtime] in
-            let done = DispatchSemaphore(value: 0)
             Task {
                 pending.send(await HostXPCService.dispatch(request, runtime: runtime))
-                done.signal()
             }
-            done.wait()
         }
     }
 

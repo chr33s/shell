@@ -89,7 +89,8 @@ nonisolated struct ControlHostClient: Sendable {
         let outcome = ResumeOnce()
         return try await withCheckedThrowingContinuation { continuation in
             outcome.install(continuation)
-            DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
+            Task {
+                try? await Task.sleep(for: .seconds(timeout))
                 outcome.resume(.failure(ClientError.timedOut))
                 session.cancel(reason: "timed out")
             }

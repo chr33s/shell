@@ -1,4 +1,5 @@
-import XCTest
+import Foundation
+import Testing
 
 @testable import Shell
 
@@ -22,9 +23,10 @@ import XCTest
 /// Every read goes through an injected throwaway `UserDefaults` suite, so no
 /// test here touches the real sync preferences.
 @MainActor
-final class CloudKitSyncFlagPrecedenceTests: XCTestCase {
+@Suite
+final class CloudKitSyncFlagPrecedenceTests {
     private var suiteName = ""
-    private var defaults: UserDefaults!
+    nonisolated(unsafe) private var defaults: UserDefaults!
 
     private static let allKeys = [
         CloudKitSyncSettings.syncIdentityMetadataKey,
@@ -33,22 +35,20 @@ final class CloudKitSyncFlagPrecedenceTests: XCTestCase {
         CloudKitSyncSettings.syncProfilesKey
     ]
 
-    override func setUpWithError() throws {
-        try super.setUpWithError()
+    init() throws {
         suiteName = "dev.chr33s.shell.tests.sync-flags.\(UUID().uuidString)"
-        defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defaults = try #require(UserDefaults(suiteName: suiteName))
         for key in Self.allKeys {
             // A value leaking in from another domain would make "never chosen"
             // untestable and quietly turn these into passing no-ops.
-            XCTAssertNil(defaults.object(forKey: key), "Test suite must start with no sync preferences at all")
+            #expect((defaults.object(forKey: key)) == nil, "Test suite must start with no sync preferences at all")
         }
     }
 
-    override func tearDown() {
+    deinit {
         defaults?.removePersistentDomain(forName: suiteName)
         UserDefaults.standard.removeSuite(named: suiteName)
         defaults = nil
-        super.tearDown()
     }
 
     // MARK: - "never set" vs "set to false"
@@ -59,17 +59,18 @@ final class CloudKitSyncFlagPrecedenceTests: XCTestCase {
     ///
     /// Fails the moment the `object(forKey:) != nil` presence check is dropped
     /// and `storedChoice` degrades to `bool(forKey:)`.
-    func testAnUnwrittenPreferenceReadsAsNeverChosenNotAsOff() {
+    @Test
+    func testAnUnwrittenPreferenceReadsAsNeverChosenNotAsOff() throws {
         let key = CloudKitSyncSettings.syncProfilesKey
 
-        XCTAssertNil(CloudKitSyncManager.storedChoice(key, defaults: defaults), "Never written must read as nil")
-        XCTAssertFalse(defaults.bool(forKey: key), "…even though bool(forKey:) cannot tell the difference")
+        #expect((CloudKitSyncManager.storedChoice(key, defaults: defaults)) == nil, "Never written must read as nil")
+        #expect(!(defaults.bool(forKey: key)), "…even though bool(forKey:) cannot tell the difference")
 
         defaults.set(false, forKey: key)
-        XCTAssertEqual(CloudKitSyncManager.storedChoice(key, defaults: defaults), false)
+        #expect(CloudKitSyncManager.storedChoice(key, defaults: defaults) == false)
 
         defaults.set(true, forKey: key)
-        XCTAssertEqual(CloudKitSyncManager.storedChoice(key, defaults: defaults), true)
+        #expect(CloudKitSyncManager.storedChoice(key, defaults: defaults) == true)
     }
 
     // MARK: - First enable
@@ -77,12 +78,13 @@ final class CloudKitSyncFlagPrecedenceTests: XCTestCase {
     /// First enable on a device that has never been asked turns all three
     /// classes on. Fails if any `?? true` in `firstEnableFlags` becomes
     /// `?? false`.
-    func testFirstEnableTurnsEveryUnchosenClassOn() {
+    @Test
+    func testFirstEnableTurnsEveryUnchosenClassOn() throws {
         let flags = CloudKitSyncManager.firstEnableFlags(defaults: defaults)
 
-        XCTAssertTrue(flags.identityMetadata)
-        XCTAssertTrue(flags.knownHosts)
-        XCTAssertTrue(flags.profiles)
+        #expect(flags.identityMetadata)
+        #expect(flags.knownHosts)
+        #expect(flags.profiles)
     }
 
     /// THE REGRESSION. An explicit "off" survives the master toggle being
@@ -91,26 +93,28 @@ final class CloudKitSyncFlagPrecedenceTests: XCTestCase {
     /// Fails if `firstEnableFlags` stops consulting the stored choice — e.g.
     /// goes back to assigning `true` outright — because `profiles` would then
     /// come back on and start uploading the user's connection profiles again.
-    func testFirstEnablePreservesAnExplicitOffForThatClassOnly() {
+    @Test
+    func testFirstEnablePreservesAnExplicitOffForThatClassOnly() throws {
         defaults.set(false, forKey: CloudKitSyncSettings.syncProfilesKey)
 
         let flags = CloudKitSyncManager.firstEnableFlags(defaults: defaults)
 
-        XCTAssertFalse(flags.profiles, "An explicit 'off' must survive the master toggle being cycled")
-        XCTAssertTrue(flags.knownHosts, "…and must not drag the classes the user never touched off with it")
-        XCTAssertTrue(flags.identityMetadata)
+        #expect(!(flags.profiles), "An explicit 'off' must survive the master toggle being cycled")
+        #expect(flags.knownHosts, "…and must not drag the classes the user never touched off with it")
+        #expect(flags.identityMetadata)
     }
 
     /// An explicit "on" is honoured as an explicit choice too, not just
     /// coincidentally matched by the default.
-    func testFirstEnableHonoursAnExplicitOnForEveryClass() {
+    @Test
+    func testFirstEnableHonoursAnExplicitOnForEveryClass() throws {
         for key in Self.allKeys { defaults.set(true, forKey: key) }
 
         let flags = CloudKitSyncManager.firstEnableFlags(defaults: defaults)
 
-        XCTAssertTrue(flags.identityMetadata)
-        XCTAssertTrue(flags.knownHosts)
-        XCTAssertTrue(flags.profiles)
+        #expect(flags.identityMetadata)
+        #expect(flags.knownHosts)
+        #expect(flags.profiles)
     }
 
     // MARK: - Launch
@@ -122,37 +126,40 @@ final class CloudKitSyncFlagPrecedenceTests: XCTestCase {
     /// Fails if `launchFlags`' `?? false` is "harmonised" with the enable
     /// path's `?? true` — which would silently start syncing all three classes
     /// on the next launch of any device whose preferences were never written.
-    func testLaunchTreatsAnUnwrittenPreferenceAsOffEvenWithSyncEnabled() {
+    @Test
+    func testLaunchTreatsAnUnwrittenPreferenceAsOffEvenWithSyncEnabled() throws {
         let flags = CloudKitSyncManager.launchFlags(syncEnabled: true, defaults: defaults)
 
-        XCTAssertFalse(flags.identityMetadata)
-        XCTAssertFalse(flags.knownHosts)
-        XCTAssertFalse(flags.profiles)
+        #expect(!(flags.identityMetadata))
+        #expect(!(flags.knownHosts))
+        #expect(!(flags.profiles))
     }
 
     /// Launch restores a stored "on" — otherwise the previous paragraph would
     /// be satisfiable by hard-coding `false`.
-    func testLaunchRestoresStoredOnChoicesWhenSyncIsEnabled() {
+    @Test
+    func testLaunchRestoresStoredOnChoicesWhenSyncIsEnabled() throws {
         defaults.set(true, forKey: CloudKitSyncSettings.syncKnownHostsKey)
         defaults.set(false, forKey: CloudKitSyncSettings.syncProfilesKey)
 
         let flags = CloudKitSyncManager.launchFlags(syncEnabled: true, defaults: defaults)
 
-        XCTAssertTrue(flags.knownHosts)
-        XCTAssertFalse(flags.profiles)
+        #expect(flags.knownHosts)
+        #expect(!(flags.profiles))
     }
 
     /// While the master toggle is off nothing syncs, whatever the per-class
     /// preferences say. Fails if the `syncEnabled &&` gate is dropped from
     /// `launchFlags`.
-    func testLaunchForcesEveryClassOffWhileTheMasterToggleIsOff() {
+    @Test
+    func testLaunchForcesEveryClassOffWhileTheMasterToggleIsOff() throws {
         for key in Self.allKeys { defaults.set(true, forKey: key) }
 
         let flags = CloudKitSyncManager.launchFlags(syncEnabled: false, defaults: defaults)
 
-        XCTAssertFalse(flags.identityMetadata)
-        XCTAssertFalse(flags.knownHosts)
-        XCTAssertFalse(flags.profiles)
+        #expect(!(flags.identityMetadata))
+        #expect(!(flags.knownHosts))
+        #expect(!(flags.profiles))
     }
 
     // MARK: - The identity-metadata key's two names
@@ -164,23 +171,25 @@ final class CloudKitSyncFlagPrecedenceTests: XCTestCase {
     ///
     /// Fails if the legacy fallback in `storedIdentityMetadataChoice` is
     /// removed.
-    func testIdentityMetadataFallsBackToTheLegacyHistoryKey() {
+    @Test
+    func testIdentityMetadataFallsBackToTheLegacyHistoryKey() throws {
         defaults.set(false, forKey: CloudKitSyncSettings.syncHistoryKey)
 
-        XCTAssertEqual(CloudKitSyncManager.storedIdentityMetadataChoice(defaults: defaults), false)
-        XCTAssertFalse(CloudKitSyncManager.firstEnableFlags(defaults: defaults).identityMetadata)
+        #expect(CloudKitSyncManager.storedIdentityMetadataChoice(defaults: defaults) == false)
+        #expect(!(CloudKitSyncManager.firstEnableFlags(defaults: defaults).identityMetadata))
     }
 
     /// When both names are present the UI-facing key wins, in both directions,
     /// so a stale legacy value can never override what the user last chose in
     /// Settings. Fails if the two `??` operands are swapped.
-    func testIdentityMetadataPrefersTheUIKeyOverTheLegacyName() {
+    @Test
+    func testIdentityMetadataPrefersTheUIKeyOverTheLegacyName() throws {
         defaults.set(true, forKey: CloudKitSyncSettings.syncIdentityMetadataKey)
         defaults.set(false, forKey: CloudKitSyncSettings.syncHistoryKey)
-        XCTAssertEqual(CloudKitSyncManager.storedIdentityMetadataChoice(defaults: defaults), true)
+        #expect(CloudKitSyncManager.storedIdentityMetadataChoice(defaults: defaults) == true)
 
         defaults.set(false, forKey: CloudKitSyncSettings.syncIdentityMetadataKey)
         defaults.set(true, forKey: CloudKitSyncSettings.syncHistoryKey)
-        XCTAssertEqual(CloudKitSyncManager.storedIdentityMetadataChoice(defaults: defaults), false)
+        #expect(CloudKitSyncManager.storedIdentityMetadataChoice(defaults: defaults) == false)
     }
 }

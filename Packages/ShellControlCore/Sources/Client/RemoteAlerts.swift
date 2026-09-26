@@ -47,6 +47,13 @@ public protocol NotificationPreferenceService: Sendable {
 
 extension ControlAPIClient: NotificationPreferenceService {}
 
+/// The authenticated Mac endpoint that stores a relay delivery capability.
+public protocol PushCapabilityRegistrationService: Sendable {
+    func registerPushCapability(_ capability: String) async throws
+}
+
+extension ControlAPIClient: PushCapabilityRegistrationService {}
+
 // MARK: - Local policy
 
 /// The user's choice on this iPhone for one paired origin.
@@ -228,15 +235,18 @@ public actor RemoteAlertCoordinator {
     public nonisolated let deviceID: String
     private let store: any RemoteAlertPolicyStore
     private let now: @Sendable () -> Date
+    private var reconciling = false
+    private var reconcileWaiters: [CheckedContinuation<Void, Never>] = []
+    private var registrationTasks: [UUID: Task<Void, Error>] = [:]
 
     public init(originID: String, deviceID: String, store: any RemoteAlertPolicyStore,
-                initial: @autoclosure () -> RemoteAlertPolicy, now: @escaping @Sendable () -> Date = { Date() }) {
+                initial: RemoteAlertPolicy, now: @escaping @Sendable () -> Date = { Date() }) {
         self.originID = originID
         self.deviceID = deviceID
         self.store = store
         self.now = now
         if store.load(originID: originID, deviceID: deviceID) == nil {
-            store.save(initial(), originID: originID, deviceID: deviceID)
+            store.save(initial, originID: originID, deviceID: deviceID)
         }
     }
 
@@ -255,7 +265,7 @@ public actor RemoteAlertCoordinator {
     /// immediately, before anything is sent. Call ``reconcile(with:)`` next.
     @discardableResult
     public func choose(_ choice: RemoteAlertChoice) -> RemoteAlertPolicy {
-        update { policy in
+        let chosen = update { policy in
             policy.choice = choice
             policy.generation += 1
             policy.host = .pending
@@ -263,6 +273,8 @@ public actor RemoteAlertCoordinator {
             policy.lastFailure = nil
             if choice == .off { policy.registration = nil }
         }
+        cancelRegistrations()
+        return chosen
     }
 
     /// Brings the Mac in line with the latest persisted intent — only that
@@ -270,39 +282,51 @@ public actor RemoteAlertCoordinator {
     /// to call on every foreground reconnection.
     @discardableResult
     public func reconcile(with service: any NotificationPreferenceService) async -> RemoteAlertPolicy {
-        let intent = policy
-        guard intent.host != .acknowledged else { return intent }
-        let wanted = intent.choice == .configured
-        do {
-            var current = try await service.notificationPreference()
-            for _ in 0..<3 {
-                // The user may have changed their mind while we waited.
-                guard policy.generation == intent.generation else { return policy }
-                // Already as intended? A never-set record (version 0) is off
-                // only once explicitly written: its legacy value may be on.
-                let asIntended = wanted ? current.enabled : (!current.enabled && current.version > 0)
-                if asIntended { return acknowledge(current, generation: intent.generation) }
-                do {
-                    let written = try await service.setNotificationPreference(
-                        NotificationPreferenceUpdate(enabled: wanted, expectedVersion: current.version)
-                    )
-                    return acknowledge(written, generation: intent.generation)
-                } catch let error as ControlError where error.code == .idempotencyConflict {
-                    // Another write won; read it and try again with the
-                    // latest version, still for our latest intent only.
-                    current = try await service.notificationPreference()
+        // Actor methods may interleave at every await. Keep exactly one host
+        // reconciliation active while choose() remains free to record intent.
+        while reconciling {
+            await withCheckedContinuation { reconcileWaiters.append($0) }
+        }
+        reconciling = true
+        defer {
+            reconciling = false
+            if !reconcileWaiters.isEmpty { reconcileWaiters.removeFirst().resume() }
+        }
+
+        while true {
+            let intent = policy
+            guard intent.host != .acknowledged else { return intent }
+            let wanted = intent.choice == .configured
+            do {
+                var current = try await service.notificationPreference()
+                for _ in 0..<3 {
+                    if policy.generation != intent.generation { break }
+                    // A never-set record (version 0) is off only once
+                    // explicitly written: its legacy value may be on.
+                    let asIntended = wanted ? current.enabled : (!current.enabled && current.version > 0)
+                    if asIntended { return acknowledge(current, generation: intent.generation) }
+                    do {
+                        let written = try await service.setNotificationPreference(
+                            NotificationPreferenceUpdate(enabled: wanted, expectedVersion: current.version)
+                        )
+                        if policy.generation == intent.generation {
+                            return acknowledge(written, generation: intent.generation)
+                        }
+                        break // A newer choice arrived during the host write.
+                    } catch let error as ControlError where error.code == .idempotencyConflict {
+                        current = try await service.notificationPreference()
+                    }
                 }
+                if policy.generation != intent.generation { continue }
+                return policy
+            } catch is NotificationPreferenceUnsupported {
+                if policy.generation != intent.generation { continue }
+                return update { $0.host = .unsupported }
+            } catch {
+                // Offline or timed out: leave the latest intent pending.
+                if policy.generation != intent.generation { continue }
+                return policy
             }
-            return policy
-        } catch is NotificationPreferenceUnsupported {
-            return update { policy in
-                guard policy.generation == intent.generation else { return }
-                policy.host = .unsupported
-            }
-        } catch {
-            // Offline or timed out: the intent stays pending and is retried
-            // on the next foreground reconnection.
-            return policy
         }
     }
 
@@ -320,6 +344,25 @@ public actor RemoteAlertCoordinator {
     public func beginRegistration() -> Int? {
         let current = policy
         return current.permitsRegistration ? current.generation : nil
+    }
+
+    /// Checks consent before starting the upload and cancels outstanding work
+    /// when the user turns alerts off. The host also suppresses delivery after
+    /// an off preference reaches it, including a request already on the wire.
+    public func registerCapability(_ capability: String, generation: Int,
+                                   with service: any PushCapabilityRegistrationService) async throws -> Bool {
+        guard beginRegistration() == generation else { return false }
+        let id = UUID()
+        let task = Task { try await service.registerPushCapability(capability) }
+        registrationTasks[id] = task
+        defer { registrationTasks[id] = nil }
+        try await task.value
+        return beginRegistration() == generation
+    }
+
+    private func cancelRegistrations() {
+        for task in registrationTasks.values { task.cancel() }
+        registrationTasks.removeAll()
     }
 
     /// Whether the cached registration still covers `candidate`.
@@ -353,6 +396,7 @@ public actor RemoteAlertCoordinator {
     /// Drops the cached registration so the next opportunity re-registers:
     /// relay endpoint change, token change, or re-pairing.
     public func invalidateRegistration() {
+        cancelRegistrations()
         _ = update { policy in
             policy.registration = nil
             policy.generation += 1

@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct SSHKeyManagementView: View {
-    @StateObject private var sshKeyManager = SSHKeyManager.shared
+    @State private var sshKeyManager = SSHKeyManager.shared
     @State private var showingImport = false
     @State private var showingCertImportSheet = false
     @State private var showingGenerate = false

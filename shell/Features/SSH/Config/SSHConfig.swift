@@ -45,7 +45,7 @@ nonisolated enum TmuxMode: String, Codable, CaseIterable, Hashable, Sendable {
 /// port, username, auth, optional jump host, `TERM`, and the tmux selection.
 /// Nothing about agent forwarding, port forwarding, cloud labels, or other
 /// transports survives here.
-struct SSHConfig: Codable, Hashable {
+nonisolated struct SSHConfig: Codable, Hashable {
     /// Hostname or IP address to connect to
     var host: String
 
@@ -305,7 +305,7 @@ struct SSHConfig: Codable, Hashable {
         }
 
         /// Validate the jump host configuration
-        var isValid: Bool {
+        @MainActor var isValid: Bool {
             let basicValid = !host.isEmpty && !username.isEmpty && port > 0 && port <= 65535
 
             switch authMethod {
@@ -398,7 +398,7 @@ struct SSHConfig: Codable, Hashable {
     }
 
     /// Validate the configuration
-    var isValid: Bool {
+    @MainActor var isValid: Bool {
         let basicValid = !host.isEmpty && !username.isEmpty && port > 0 && port <= 65535
 
         let targetAuthValid: Bool

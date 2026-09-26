@@ -67,7 +67,7 @@ final class ConnectionProgressPresenter {
     /// per `mode`. Was the `.running`/`.failed`/`.terminated`/`.disconnected`
     /// branches (the empty-string fallback matches those blocks).
     func finish(_ mode: FinishMode) {
-        let cleanup = spinner?.getCleanupSequence() ?? ""
+        let cleanup = spinner?.cleanupSequence() ?? ""
         spinner?.stop()
         spinner = nil
         switch mode {
@@ -81,7 +81,7 @@ final class ConnectionProgressPresenter {
     /// Force-clear the spinner and progress indicator (clear-line fallback when
     /// no spinner ran). Was `clearProgressAndSpinner`.
     func clear() {
-        let cleanup = spinner?.getCleanupSequence() ?? Self.clearLine
+        let cleanup = spinner?.cleanupSequence() ?? Self.clearLine
         spinner?.stop()
         spinner = nil
         host.writeProgressOutput(Self.progressClear + cleanup)
@@ -91,7 +91,7 @@ final class ConnectionProgressPresenter {
     /// WITHOUT writing it, so the caller can compose it into its own output.
     /// Was the spinner half of `handleSessionError`.
     func takeCleanupSequence() -> String {
-        let cleanup = spinner?.getCleanupSequence() ?? Self.clearLine
+        let cleanup = spinner?.cleanupSequence() ?? Self.clearLine
         spinner?.stop()
         spinner = nil
         return cleanup

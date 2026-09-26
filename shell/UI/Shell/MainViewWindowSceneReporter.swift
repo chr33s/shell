@@ -13,6 +13,13 @@ import GhosttyKit
 import os
 import UniformTypeIdentifiers
 
+/// Main-queue notification handoff. `Notification` is not `Sendable`; the
+/// observer is registered on the main queue, so this is a same-thread transfer.
+private nonisolated struct WindowKeyNotification: @unchecked Sendable {
+    let notification: Notification
+    init(_ notification: Notification) { self.notification = notification }
+}
+
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -52,7 +59,7 @@ final class WindowSceneReportingView: UIView {
     private var cachedKeyState: Bool?
     private var lastSceneSnapshot: SceneSnapshot?
     private var lastTopSafeAreaInset: CGFloat?
-    private var safeAreaDebounceWorkItem: DispatchWorkItem?
+    nonisolated(unsafe) private var safeAreaDebounceWorkItem: DispatchWorkItem?
     #if targetEnvironment(macCatalyst)
     private var lastReportedFrame: CGRect?
     #endif
@@ -166,14 +173,22 @@ final class WindowSceneReportingView: UIView {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            self?.handleUIWindowKeyNotification(notification, becameKey: true)
+            // Delivered on the main queue. The notification is not Sendable;
+            // the box is the handoff into the main-actor handler.
+            let boxed = WindowKeyNotification(notification)
+            MainActor.assumeIsolated {
+                self?.handleUIWindowKeyNotification(boxed.notification, becameKey: true)
+            }
         }
         let didResignKey = center.addObserver(
             forName: UIWindow.didResignKeyNotification,
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            self?.handleUIWindowKeyNotification(notification, becameKey: false)
+            let boxed = WindowKeyNotification(notification)
+            MainActor.assumeIsolated {
+                self?.handleUIWindowKeyNotification(boxed.notification, becameKey: false)
+            }
         }
         windowObserverTokens = [didBecomeKey, didResignKey]
 

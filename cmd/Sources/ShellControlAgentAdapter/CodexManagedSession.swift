@@ -627,8 +627,11 @@ public actor CodexManagedSession {
         guard var request = requests[key], !request.answered, case .input = request.pending else { return }
         guard body["outcome"]?.stringValue == "answered", let permitValue = body["permit"], let specValue = body["spec"],
               let permit = try? InputConsumePermit(json: permitValue), let spec = try? InputSpec(json: specValue),
-              permit.nativeWaitID == waitID, permit.runID == run.runID, permit.isApplicable(at: env.now()),
-              spec.source.answerMappingSHA256 == mapping.sha256Hex, (try? permit.response.validate(against: spec)) != nil,
+              (try? InputPermitBinding.validate(
+                  permit, spec: spec, requestID: published.0, requestHash: published.1,
+                  runID: run.runID, nativeWaitID: waitID, answerMappingSHA256: mapping.sha256Hex,
+                  now: env.now(), ownerAlive: env.ownerAlive()
+              )) != nil,
               case .answer(let answers) = permit.response,
               let result = try? Self.nativeAnswers(answers, mapping: mapping) else {
             terminal.write("[shell] #\(request.index) no remote answer; answer here\n")
@@ -738,8 +741,26 @@ public actor CodexManagedSession {
     /// A local decision wins only if the remote request can still be
     /// withdrawn; a remote claim that already happened wins instead.
     private func localAnswer(key: String, request: NativeRequest, command: String, text: String) async {
+        let result: JSONValue
+        switch (request.pending, command) {
+        case (.approval(let approve, _, _), "/approve"):
+            result = .object(["decision": .string(approve)])
+        case (.approval(_, let decline, _), "/deny"):
+            result = .object(["decision": .string(decline)])
+        case (.input(let bindings), "/answer"):
+            let answers = text.components(separatedBy: " || ")
+            guard answers.count == bindings.count else {
+                terminal.write("[shell] give \(bindings.count) answers separated by ' || '\n")
+                return
+            }
+            var native: [String: JSONValue] = [:]
+            for (binding, answer) in zip(bindings, answers) { native[binding.nativeID] = .object(["answers": [.string(answer)]]) }
+            result = .object(["answers": .object(native)])
+        default:
+            terminal.write("[shell] that command does not answer #\(request.index)\n")
+            return
+        }
         if let published = request.published, let run {
-            guard !{ if case .unsupported = request.pending { return true } else { return false } }() else { return }
             let type: IPCMessageType = { if case .approval = request.pending { return .approvalWithdraw } else { return .inputWithdraw } }()
             do {
                 _ = try await run.send(type, .object(["request_id": JSONValue(published.requestID), "request_hash": .string(published.requestHash)]))
@@ -752,27 +773,6 @@ public actor CodexManagedSession {
         current.waitTask?.cancel()
         current.answered = true
         requests[key] = current
-        let result: JSONValue
-        switch (current.pending, command) {
-        case (.approval(let approve, _, _), "/approve"): result = .object(["decision": .string(approve)])
-        case (.approval(_, let decline, _), "/deny"): result = .object(["decision": .string(decline)])
-        case (.input(let bindings), "/answer"):
-            let answers = text.components(separatedBy: " || ")
-            guard answers.count == bindings.count else {
-                terminal.write("[shell] give \(bindings.count) answers separated by ' || '\n")
-                current.answered = false
-                requests[key] = current
-                return
-            }
-            var native: [String: JSONValue] = [:]
-            for (binding, answer) in zip(bindings, answers) { native[binding.nativeID] = .object(["answers": [.string(answer)]]) }
-            result = .object(["answers": .object(native)])
-        default:
-            current.answered = false
-            requests[key] = current
-            terminal.write("[shell] that command does not answer #\(current.index)\n")
-            return
-        }
         try? await connection.respond(to: current.id, result: result)
     }
 

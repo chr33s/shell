@@ -137,7 +137,9 @@ nonisolated extension ShellInterpreter {
 
         let table = environment.jobTable
         let notify = writeOutput
-        DispatchQueue.global(qos: .utility).async {
+        // A real thread, not the cooperative pool: `execute` blocks for the
+        // life of the job and must not pin a Swift concurrency worker.
+        Thread.detachNewThread {
             var code: Int32
             do {
                 code = try jobInterpreter.execute(command)

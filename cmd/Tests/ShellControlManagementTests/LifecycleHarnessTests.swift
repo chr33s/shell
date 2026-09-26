@@ -1,4 +1,5 @@
-import XCTest
+import Foundation
+import Testing
 import CryptoKit
 @testable import ShellControlManagement
 import ShellControlHostSupport
@@ -38,7 +39,8 @@ actor FakeOrigins: OriginProvisioning {
     func callCount() -> Int { calls.count }
 }
 
-final class LifecycleHarnessTests: XCTestCase {
+@Suite
+final class LifecycleHarnessTests {
     private func directory() -> URL {
         URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("shell-lifecycle-harness-\(UUID())")
     }
@@ -83,6 +85,7 @@ final class LifecycleHarnessTests: XCTestCase {
         )
     }
 
+    @Test
     func testLoopbackSetupProvisionsOriginOnceAndStartsOwnedJobs() async throws {
         let root = directory(); defer { try? FileManager.default.removeItem(at: root) }
         let bundle = try makeBundle(in: root)
@@ -90,23 +93,24 @@ final class LifecycleHarnessTests: XCTestCase {
         let manager = coordinator(root: root.appendingPathComponent("state"), installer: bundle.installer, home: bundle.home,
                                   services: services, health: health, origins: origins)
         let loaded = try await manager.setup(SetupOptions(mode: .loopback))
-        XCTAssertEqual(loaded.installation.addressMode, .loopback)
-        XCTAssertEqual(loaded.installation.publicURL, "http://127.0.0.1:8443")
-        XCTAssertNotNil(loaded.secrets.originID)
+        #expect(loaded.installation.addressMode == .loopback)
+        #expect(loaded.installation.publicURL == "http://127.0.0.1:8443")
+        #expect((loaded.secrets.originID) != nil)
         let originCalls = await origins.callCount()
-        XCTAssertEqual(originCalls, 1)
+        #expect(originCalls == 1)
         let calls = await services.calls
-        XCTAssertEqual(calls.filter { $0 == "install:broker" }.count, 1)
-        XCTAssertEqual(calls.filter { $0 == "install:daemon" }.count, 1)
-        XCTAssertFalse(calls.contains(where: { $0.contains("tunnel") }))
+        #expect(calls.filter { $0 == "install:broker" }.count == 1)
+        #expect(calls.filter { $0 == "install:daemon" }.count == 1)
+        #expect(!(calls.contains(where: { $0.contains("tunnel") })))
         let overall = await manager.status().overall
-        XCTAssertEqual(overall, "ready")
+        #expect(overall == "ready")
 
         _ = try await manager.setup(SetupOptions(mode: .loopback))
         let originCallsAfterReuse = await origins.callCount()
-        XCTAssertEqual(originCallsAfterReuse, 1, "existing origin identity must not be regenerated")
+        #expect(originCallsAfterReuse == 1, "existing origin identity must not be regenerated")
     }
 
+    @Test
     func testSetupPreservesStoppedIntent() async throws {
         let root = directory(); defer { try? FileManager.default.removeItem(at: root) }
         let bundle = try makeBundle(in: root)
@@ -118,13 +122,14 @@ final class LifecycleHarnessTests: XCTestCase {
         try await manager.down()
         do {
             _ = try await manager.setup(SetupOptions(mode: .loopback))
-            XCTFail("setup must not override stopped intent")
+            Issue.record("setup must not override stopped intent")
         } catch let error as ManagementError {
-            XCTAssertTrue(error.description.contains("stopped"), error.description)
+            #expect(error.description.contains("stopped"), "\(error.description)")
         }
-        XCTAssertEqual(try InstallationStore(root: state).load().installation.desiredState, .stopped)
+        #expect((try InstallationStore(root: state).load().installation.desiredState) == .stopped)
     }
 
+    @Test
     func testUpAfterDownRestartsOwnedJobs() async throws {
         let root = directory(); defer { try? FileManager.default.removeItem(at: root) }
         let bundle = try makeBundle(in: root)
@@ -134,13 +139,14 @@ final class LifecycleHarnessTests: XCTestCase {
         _ = try await manager.setup(SetupOptions(mode: .loopback))
         try await manager.down()
         let loaded = try await manager.up()
-        XCTAssertEqual(loaded.installation.desiredState, .running)
+        #expect(loaded.installation.desiredState == .running)
         let overall = await manager.status().overall
-        XCTAssertEqual(overall, "ready")
+        #expect(overall == "ready")
         let installs = await services.calls.filter { $0 == "install:broker" }.count
-        XCTAssertGreaterThanOrEqual(installs, 2)
+        #expect(installs >= 2)
     }
 
+    @Test
     func testBrokerHealthFailureRollsBackCreatedJobs() async throws {
         let root = directory(); defer { try? FileManager.default.removeItem(at: root) }
         let bundle = try makeBundle(in: root)
@@ -151,19 +157,19 @@ final class LifecycleHarnessTests: XCTestCase {
                                   deadline: .milliseconds(80))
         do {
             _ = try await manager.setup(SetupOptions(mode: .loopback))
-            XCTFail("setup must fail when the broker never becomes ready")
+            Issue.record("setup must fail when the broker never becomes ready")
         } catch let error as ManagementError {
-            XCTAssertTrue(error.description.contains("readiness deadline"), error.description)
+            #expect(error.description.contains("readiness deadline"), "\(error.description)")
         }
         let originCalls = await origins.callCount()
-        XCTAssertEqual(originCalls, 0)
+        #expect(originCalls == 0)
         let calls = await services.calls
-        XCTAssertTrue(calls.contains("install:broker"))
-        XCTAssertTrue(calls.contains { $0.hasPrefix("disable:") })
-        XCTAssertTrue(calls.contains { $0.hasPrefix("stop:") })
-        XCTAssertFalse(calls.contains("install:daemon"))
+        #expect(calls.contains("install:broker"))
+        #expect(calls.contains { $0.hasPrefix("disable:") })
+        #expect(calls.contains { $0.hasPrefix("stop:") })
+        #expect(!(calls.contains("install:daemon")))
         let runtime = try InstallationStore(root: root.appendingPathComponent("state")).load().runtime
-        XCTAssertNotNil(runtime.operation, "failed start before local commit keeps the incomplete operation")
+        #expect((runtime.operation) != nil, "failed start before local commit keeps the incomplete operation")
     }
 
 }

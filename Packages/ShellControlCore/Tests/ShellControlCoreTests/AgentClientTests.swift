@@ -1,4 +1,5 @@
-import XCTest
+import Foundation
+import Testing
 import Synchronization
 @testable import ShellControlProtocol
 @testable import ShellControlSecurity
@@ -6,7 +7,8 @@ import Synchronization
 
 /// Client-side review → challenge → sign → submit for typed answers, the
 /// journal, and the Watch agent gateway (docs/specs/agent-relay.md 7, 12, 14.5).
-final class AgentClientTests: XCTestCase {
+@Suite
+final class AgentClientTests {
     private let hex = String(repeating: "d", count: 64)
     private let now = ControlTimestamp(Date(timeIntervalSince1970: 1_790_000_000))
 
@@ -69,54 +71,59 @@ final class AgentClientTests: XCTestCase {
         )
     }
 
+    @Test
     func testRespondSignsTheExactAnswerAndJournalsItFirst() async throws {
         let service = StubService(record: try record(), deviceID: .random())
         let journal = CommandJournal(now: { [now] in now.date })
         let state = try await coordinator(service, journal: journal).respond(
             .answer([.singleChoice(questionID: "q", choiceID: "b")]), reviewed: service.record
         )
-        guard case .responseRecorded(let result) = state else { return XCTFail("\(state)") }
-        let payload = try SignedPayloadReader.payload(ofCompactJWS: try XCTUnwrap(service.submitted.first))
+        guard case .responseRecorded(let result) = state else { Issue.record("\(state)")
+return }
+        let payload = try SignedPayloadReader.payload(ofCompactJWS: try #require(service.submitted.first))
         let command = try InputRespondCommand(json: payload)
-        XCTAssertEqual(command.response, .answer([.singleChoice(questionID: "q", choiceID: "b")]))
-        XCTAssertEqual(command.envelope.commandID, result.commandID)
+        #expect(command.response == .answer([.singleChoice(questionID: "q", choiceID: "b")]))
+        #expect(command.envelope.commandID == result.commandID)
         let pending = await journal.command(result.commandID)
-        XCTAssertEqual(pending?.agentType, .inputRespond)
-        XCTAssertNil(pending?.type)
+        #expect(pending?.agentType == .inputRespond)
+        #expect((pending?.type) == nil)
     }
 
+    @Test
     func testChangedRequestIsNeverSigned() async throws {
         let reviewed = try record()
         let service = StubService(record: reviewed, deviceID: .random())
         service.record.projection.stateVersion = 2
         do {
             _ = try await coordinator(service, journal: CommandJournal()).respond(.answer([.singleChoice(questionID: "q", choiceID: "a")]), reviewed: reviewed)
-            XCTFail("expected a changed-request refusal")
+            Issue.record("expected a changed-request refusal")
         } catch AgentInputCoordinator.CoordinatorError.requestChangedDuringReview {}
-        XCTAssertTrue(service.submitted.isEmpty)
+        #expect(service.submitted.isEmpty)
     }
 
+    @Test
     func testWatchCannotAnswerFullReviewButMayDeclineWithoutPresence() async throws {
         let full = StubService(record: try record(review: .full), deviceID: .random())
         do {
             _ = try await coordinator(full, journal: CommandJournal(), grants: DeviceGrant.agentWatchReviewer, review: .watch)
                 .respond(.answer([.singleChoice(questionID: "q", choiceID: "a")]), reviewed: full.record)
-            XCTFail("expected full review")
+            Issue.record("expected full review")
         } catch AgentInputCoordinator.CoordinatorError.notAnswerableHere(let reason) {
-            XCTAssertEqual(reason, .policyRequiresFullReview)
+            #expect(reason == .policyRequiresFullReview)
         }
         let absent = StubService(record: try record(present: false), deviceID: .random())
         let coordinator = coordinator(absent, journal: CommandJournal())
         do {
             _ = try await coordinator.respond(.answer([.singleChoice(questionID: "q", choiceID: "a")]), reviewed: absent.record)
-            XCTFail("expected source not present")
+            Issue.record("expected source not present")
         } catch AgentInputCoordinator.CoordinatorError.notAnswerableHere(let reason) {
-            XCTAssertEqual(reason, .sourceNotPresent)
+            #expect(reason == .sourceNotPresent)
         }
         _ = try await coordinator.respond(.decline, reviewed: absent.record)
-        XCTAssertEqual(absent.submitted.count, 1)
+        #expect(absent.submitted.count == 1)
     }
 
+    @Test
     func testAmbiguousSubmissionIsReconciledByTheSameCommand() async throws {
         // A25: a timeout leaves the journal entry; reconciliation queries the
         // same command ID and never signs again.
@@ -125,52 +132,59 @@ final class AgentClientTests: XCTestCase {
         let journal = CommandJournal(now: { [now] in now.date })
         let coordinator = coordinator(service, journal: journal)
         let state = try await coordinator.respond(.answer([.singleChoice(questionID: "q", choiceID: "a")]), reviewed: service.record)
-        guard case .outcomeUnknown(let commandID, _) = state else { return XCTFail("\(state)") }
+        guard case .outcomeUnknown(let commandID, _) = state else { Issue.record("\(state)")
+return }
         service.dispatch = .nativeResponseWritten
-        let pending = try await XCTUnwrapAsync(await journal.command(commandID))
+        let pending = try await try #require(await journal.command(commandID))
         let reconciled = try await coordinator.reconcile(pending)
-        guard case .deliveredToAgent = reconciled else { return XCTFail("\(reconciled)") }
-        XCTAssertEqual(service.submitted.count, 1)
+        guard case .deliveredToAgent = reconciled else { Issue.record("\(reconciled)")
+return }
+        #expect(service.submitted.count == 1)
         // The decision coordinator leaves agent commands alone.
         let decision = DecisionCoordinator(service: StubDecisions(), journal: journal, key: InMemoryDeviceKey(),
                                            signer: SignerIdentity(deviceID: .random(), audience: "shell-control:x", grants: []))
         let skipped = try await decision.reconcile(pending)
-        guard case .outcomeUnknown = skipped else { return XCTFail("\(skipped)") }
+        guard case .outcomeUnknown = skipped else { Issue.record("\(skipped)")
+return }
     }
 
+    @Test
     func testMissingGrantRefusesBeforeAnyCall() async throws {
         let service = StubService(record: try record(), deviceID: .random())
         do {
             _ = try await coordinator(service, journal: CommandJournal(), grants: DeviceGrant.watchDefault)
                 .respond(.answer([.singleChoice(questionID: "q", choiceID: "a")]), reviewed: service.record)
-            XCTFail("expected missing grant")
+            Issue.record("expected missing grant")
         } catch AgentInputCoordinator.CoordinatorError.missingGrant(let grant) {
-            XCTAssertEqual(grant, .agentInputsRespond)
+            #expect(grant == .agentInputsRespond)
         }
     }
 
+    @Test
     func testJournalRoundTripsAgentCommands() throws {
         let command = PendingCommand(commandID: .random(), signedCommand: "a.b.c", agentType: .inputRespond,
                                      targetID: .random(), notAfter: now)
-        XCTAssertEqual(try PendingCommand(json: command.json), command)
+        #expect((try PendingCommand(json: command.json)) == command)
     }
 
     // MARK: Gateway
 
+    @Test
     func testAgentGatewayRequestIsStrictAndSeparate() throws {
         let request = WatchAgentGatewayRequest(type: .inputFetch, watchDeviceID: .random(), body: .object(["request_id": JSONValue(ControlID.random())]))
         let data = try request.encoded()
-        XCTAssertTrue(WatchAgentGatewayRequest.claims(data))
-        XCTAssertEqual(try WatchAgentGatewayRequest(data: data), request)
-        XCTAssertThrowsError(try WatchGatewayRequest(data: data))
-        var raw = try XCTUnwrap(request.json.objectValue)
+        #expect(WatchAgentGatewayRequest.claims(data))
+        #expect((try WatchAgentGatewayRequest(data: data)) == request)
+        #expect(throws: (any Error).self) { try WatchGatewayRequest(data: data) }
+        var raw = try #require(request.json.objectValue)
         raw["url"] = "https://example.com"
-        XCTAssertThrowsError(try WatchAgentGatewayRequest(data: try JSONCanonicalization.canonicalize(.object(raw))))
+        #expect(throws: (any Error).self) { try WatchAgentGatewayRequest(data: try JSONCanonicalization.canonicalize(.object(raw))) }
         raw.removeValue(forKey: "url")
         raw["type"] = "http.fetch"
-        XCTAssertThrowsError(try WatchAgentGatewayRequest(data: try JSONCanonicalization.canonicalize(.object(raw))))
+        #expect(throws: (any Error).self) { try WatchAgentGatewayRequest(data: try JSONCanonicalization.canonicalize(.object(raw))) }
     }
 
+    @Test
     func testRouterRefusesAnUnboundWatchForAgentCalls() async throws {
         let router = WatchGatewayRouter(
             client: { ControlAPIClient(baseURL: URL(string: "http://127.0.0.1:9")!) },
@@ -178,23 +192,26 @@ final class AgentClientTests: XCTestCase {
         )
         let request = WatchAgentGatewayRequest(type: .capabilitiesFetch, watchDeviceID: .random())
         let reply = try WatchGatewayResponse(data: await router.handle(try request.encoded()))
-        XCTAssertEqual(reply.messageID, request.messageID)
-        guard case .failure(let error) = reply.result else { return XCTFail("\(reply.result)") }
-        XCTAssertEqual(error.code, .reviewerNotBound)
+        #expect(reply.messageID == request.messageID)
+        guard case .failure(let error) = reply.result else { Issue.record("\(reply.result)")
+return }
+        #expect(error.code == .reviewerNotBound)
     }
 
+    @Test
     func testWatchClientFailsClosedWhenTheIPhoneIsUnreachable() async throws {
         struct Unreachable: WatchGatewayLink {
             func isReachable() async -> Bool { false }
-            func send(_ data: Data) async throws -> Data { XCTFail("must not send"); return Data() }
+            func send(_ data: Data) async throws -> Data { Issue.record("must not send"); return Data() }
         }
         let client = WatchAgentGatewayClient(link: Unreachable(), watchDeviceID: .random())
         do {
             _ = try await client.input(.random())
-            XCTFail("expected unreachable")
+            Issue.record("expected unreachable")
         } catch WatchGatewayError.iPhoneUnreachable {}
     }
 
+    @Test
     func testOldIPhoneReplyMeansUnsupported() async throws {
         struct OldPhone: WatchGatewayLink {
             func isReachable() async -> Bool { true }
@@ -206,7 +223,7 @@ final class AgentClientTests: XCTestCase {
         let client = WatchAgentGatewayClient(link: OldPhone(), watchDeviceID: .random())
         do {
             _ = try await client.capabilities()
-            XCTFail("expected unsupported")
+            Issue.record("expected unsupported")
         } catch WatchGatewayError.unsupportedVersion {}
     }
 }
@@ -216,8 +233,4 @@ private struct StubDecisions: ControlDecisionService {
     func reviewChallenge(_ request: ReviewChallengeRequest) async throws -> ReviewChallenge { throw ControlError(code: .notFound, message: "") }
     func submit(signedCommand: String, commandID: ControlID) async throws -> CommandResult { throw ControlError(code: .notFound, message: "") }
     func commandResult(_ commandID: ControlID) async throws -> CommandResult { throw ControlError(code: .notFound, message: "") }
-}
-
-private func XCTUnwrapAsync<T>(_ value: T?, file: StaticString = #filePath, line: UInt = #line) async throws -> T {
-    try XCTUnwrap(value, file: file, line: line)
 }

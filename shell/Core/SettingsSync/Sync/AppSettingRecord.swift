@@ -11,7 +11,7 @@ import CloudKit
 import Crypto
 import os
 
-struct AppSettingRecord: CloudKitSyncable {
+nonisolated struct AppSettingRecord: CloudKitSyncable {
     private static let logger = Logger(subsystem: "dev.chr33s.shell", category: "AppSettingRecord")
     /// Deterministic per key so `SyncableRecord` identity is stable across devices.
     let id: UUID

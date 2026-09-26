@@ -75,6 +75,7 @@ extension ControlAPIClient {
     /// Hands the Mac the relay-signed push capability. It is a delivery
     /// address, never authentication (docs/specs/control-protocol.md section 12.2).
     public func registerPushCapability(_ capability: String) async throws {
+        try Task.checkCancellation()
         _ = try await send(method: "PUT", path: "/v1/devices/me/push-capability", body: .object([
             "capability": .string(capability)
         ]))

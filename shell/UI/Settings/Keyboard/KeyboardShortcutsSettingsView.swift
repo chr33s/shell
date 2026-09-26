@@ -10,7 +10,7 @@ import UniformTypeIdentifiers
 
 struct KeyboardShortcutsSettingsView: View {
     @Environment(\.sheetThemeColors) private var sheetThemeColors
-    @ObservedObject private var keybindManager = KeybindManager.shared
+    @State private var keybindManager = KeybindManager.shared
     @State private var selectedCategory: KeybindCategory = .tabs
     @State private var editingAction: KeybindAction?
     /// Outcome captured from the editor sheet but not yet applied. Stored
@@ -272,7 +272,7 @@ struct KeyboardShortcutsSettingsView: View {
 private struct KeybindConfigEditorView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.sheetThemeColors) private var sheetThemeColors
-    @ObservedObject var keybindManager: KeybindManager
+    var keybindManager: KeybindManager
     @State private var text = ""
     @State private var didLoadContents = false
     @State private var errorMessage: String?

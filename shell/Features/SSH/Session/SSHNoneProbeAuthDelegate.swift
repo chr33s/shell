@@ -7,6 +7,7 @@
 
 import NIOCore
 import NIOSSH
+import Synchronization
 import os.log
 
 /// Wraps the configured authentication delegate and offers the `none` method once
@@ -24,8 +25,10 @@ nonisolated final class NoneProbeAuthDelegate: NIOSSHClientUserAuthenticationDel
     private static let logger = Logger(subsystem: "dev.chr33s.shell", category: "SSHAuth")
 
     private let username: String
+    /// Event-loop confined. The NIO protocol is not `Sendable`, which is why
+    /// this type stays `@unchecked`; the probe flag itself is synchronized.
     private let inner: NIOSSHClientUserAuthenticationDelegate
-    private nonisolated(unsafe) var probed = false
+    private let probed = Mutex(false)
 
     init(username: String, inner: NIOSSHClientUserAuthenticationDelegate) {
         self.username = username
@@ -36,21 +39,24 @@ nonisolated final class NoneProbeAuthDelegate: NIOSSHClientUserAuthenticationDel
         availableMethods: NIOSSHAvailableUserAuthenticationMethods,
         nextChallengePromise: EventLoopPromise<NIOSSHUserAuthenticationOffer?>
     ) {
-        guard probed else {
+        let shouldProbe = probed.withLock { probed -> Bool in
+            guard !probed else { return false }
             probed = true
-            Self.logger.debug("Probing 'none' authentication before the configured method")
-            nextChallengePromise.succeed(NIOSSHUserAuthenticationOffer(
-                username: username,
-                serviceName: "",
-                offer: .none
-            ))
+            return true
+        }
+        guard shouldProbe else {
+            inner.nextAuthenticationType(
+                availableMethods: availableMethods,
+                nextChallengePromise: nextChallengePromise
+            )
             return
         }
-
-        inner.nextAuthenticationType(
-            availableMethods: availableMethods,
-            nextChallengePromise: nextChallengePromise
-        )
+        Self.logger.debug("Probing 'none' authentication before the configured method")
+        nextChallengePromise.succeed(NIOSSHUserAuthenticationOffer(
+            username: username,
+            serviceName: "",
+            offer: .none
+        ))
     }
 
     func serverSignatureAlgorithmsReceived(_ algorithms: [String]) {

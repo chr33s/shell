@@ -19,12 +19,15 @@
 //  is unrecoverable corruption of whatever the remote program is drawing.
 //
 
-import XCTest
+import Foundation
+import Testing
 @testable import Shell
 
-final class RecoveryUIIsolationTests: XCTestCase {
+@Suite
+final class RecoveryUIIsolationTests {
 
     /// Lint: the recovery controller must not write to the terminal stream.
+    @Test(.enabled(if: SourceTree.isAvailable, "App sources are not readable from this build"))
     func testLint_recoveryControllerNeverWritesToTheTerminalStream() throws {
         try SourceTree.requireSources()
 
@@ -32,28 +35,20 @@ final class RecoveryUIIsolationTests: XCTestCase {
             .appendingPathComponent("Core/Terminal/Reconnect/TerminalReconnectionController.swift")
         let source = try String(contentsOf: file, encoding: .utf8)
 
-        XCTAssertFalse(
-            source.contains("terminalWriteToGhostty"),
-            """
+        #expect(!(source.contains("terminalWriteToGhostty")), """
             TerminalReconnectionController writes to the terminal stream again. \
             Recovery status belongs in RecoveryStatusStrip, outside the surface \
             (docs/specs/mobile-connectivity.md §11, AC-18).
-            """
-        )
+            """)
 
-        XCTAssertFalse(
-            source.contains("InlineSpinnerAnimator"),
-            "An inline spinner animates escape sequences into the terminal again."
-        )
+        #expect(!(source.contains("InlineSpinnerAnimator")), "An inline spinner animates escape sequences into the terminal again.")
 
-        XCTAssertFalse(
-            source.contains("\\u{1B}"),
-            "An escape sequence is being constructed on a recovery path."
-        )
+        #expect(!(source.contains("\\u{1B}")), "An escape sequence is being constructed on a recovery path.")
     }
 
     /// Lint: the strip renders through SwiftUI, so it cannot reach the stream
     /// even by accident.
+    @Test(.enabled(if: SourceTree.isAvailable, "App sources are not readable from this build"))
     func testLint_recoveryStatusStripIsNative() throws {
         try SourceTree.requireSources()
 
@@ -61,15 +56,16 @@ final class RecoveryUIIsolationTests: XCTestCase {
             .appendingPathComponent("UI/Overlays/RecoveryStatusStrip.swift")
         let source = try String(contentsOf: file, encoding: .utf8)
 
-        XCTAssertTrue(source.contains("import SwiftUI"))
-        XCTAssertFalse(source.contains("terminalWriteToGhostty"))
-        XCTAssertFalse(source.contains("ghostty_surface_"))
+        #expect(source.contains("import SwiftUI"))
+        #expect(!(source.contains("terminalWriteToGhostty")))
+        #expect(!(source.contains("ghostty_surface_")))
     }
 
     /// Lint: the recovery path must never build a create-or-attach tmux
     /// command. `new-session -A` is correct on a user-initiated connect and
     /// catastrophic on a reconnect, where it hands back an empty session
     /// while the UI says "reattaching" (CON-05).
+    @Test(.enabled(if: SourceTree.isAvailable, "App sources are not readable from this build"))
     func testLint_recoveryTmuxPathNeverUsesCreateOrAttach() throws {
         try SourceTree.requireSources()
 
@@ -84,8 +80,7 @@ final class RecoveryUIIsolationTests: XCTestCase {
             .filter { $0.contains("tmux ") && !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
 
         for line in commandLines {
-            XCTAssertFalse(line.contains("new-session"),
-                           "recovery command construction can create a session: \(line)")
+            #expect(!(line.contains("new-session")), "recovery command construction can create a session: \(line)")
         }
     }
 }

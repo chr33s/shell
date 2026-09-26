@@ -1,6 +1,6 @@
 import Foundation
 import Combine
-import LocalAuthentication
+@preconcurrency import LocalAuthentication
 import Security
 import NIOCore
 import NIOFoundationCompat
@@ -17,7 +17,7 @@ import SwiftUI
 /// (`NIOSSHPrivateKey` and Citadel's `Insecure.RSA.PrivateKey`) don't carry
 /// explicit `Sendable` conformances but are immutable opaque values once
 /// constructed. The async `loadPrivateKey(id:)` overload builds the variant
-/// inside a `Task.detached` parse and hands it back to the MainActor caller —
+/// inside a `@concurrent` parse and hands it back to the MainActor caller —
 /// that crossing only type-checks under strict concurrency with this explicit
 /// contract.
 enum SSHPrivateKeyVariant: @unchecked Sendable {
@@ -33,7 +33,8 @@ enum SSHPrivateKeyVariant: @unchecked Sendable {
 
 /// Manages SSH keys for authentication
 @MainActor
-final class SSHKeyManager: ObservableObject {
+@Observable
+final class SSHKeyManager {
     private nonisolated static let logger = Logger(subsystem: "dev.chr33s.shell", category: "SSHKeyManager")
 
     static let shared = SSHKeyManager()
@@ -41,11 +42,11 @@ final class SSHKeyManager: ObservableObject {
     private static let defaultKeyIDsKey = "defaultSSHKeyIDs"
 
     /// All saved SSH keys (metadata only, actual keys in Keychain)
-    @Published private(set) var savedKeys: [SSHKey] = []
+    private(set) var savedKeys: [SSHKey] = []
 
     /// Ordered list of default key IDs to try during authentication
     /// Keys are tried in order until one succeeds (SSH servers typically allow 6 attempts)
-    @Published private(set) var defaultKeyIDs: [UUID] = []
+    private(set) var defaultKeyIDs: [UUID] = []
 
     /// Primary default key (first in the ordered list).
     var primaryDefaultKeyID: UUID? { defaultKeyIDs.first }
@@ -60,7 +61,7 @@ final class SSHKeyManager: ObservableObject {
 
     /// Legacy-encrypted keys with no usable local passphrase; unusable on
     /// this device until unlocked once via `unlockLegacyKey`.
-    @Published private(set) var keysNeedingUnlock: Set<UUID> = []
+    private(set) var keysNeedingUnlock: Set<UUID> = []
 
     /// Single-flight guard for the background legacy-key migration scan.
     private var legacyKeyMigrationTask: Task<Void, Never>?
@@ -73,6 +74,7 @@ final class SSHKeyManager: ObservableObject {
     private var opportunisticMigrationsInFlight: Set<UUID> = []
 
     private let keychainManager: KeychainManager
+    private let certificateCache = SSHCertificateCache()
 
     private init() {
         self.keychainManager = KeychainManager.shared
@@ -309,47 +311,11 @@ final class SSHKeyManager: ObservableObject {
 
         Self.logger.info("Generating Secure Enclave P-256 key '\(trimmedName)' (auth=\(authRequirement.rawValue))")
 
-        // Build the enclave key's access control. The biometric/passcode
-        // gate (when requested) is enforced here, at the key, rather than on
-        // the Keychain item that stores its reference.
-        let access = try Self.secureEnclaveAccessControl(for: authRequirement)
-
-        let seKey: SecureEnclave.P256.Signing.PrivateKey
-        do {
-            seKey = try SecureEnclave.P256.Signing.PrivateKey(accessControl: access)
-        } catch {
-            Self.logger.error("Secure Enclave key creation failed: \(error.localizedDescription)")
-            throw SecureEnclaveError.creationFailed(error)
-        }
-
-        // Fingerprint over the raw x963 public point, matching the ECDSA
-        // P-256 convention in SSHKeyParser / SSHKeyGenerator so dedup is
-        // consistent with imported / generated software P-256 keys.
-        let x963 = Data(seKey.publicKey.x963Representation)
-        let fingerprint = Self.sha256Hex(x963)
-        if savedKeys.contains(where: { $0.fingerprint == fingerprint }) {
+        let material = try SSHSecureEnclaveKeyFactory.create(name: trimmedName, authRequirement: authRequirement)
+        let sshKey = material.key
+        if savedKeys.contains(where: { $0.fingerprint == sshKey.fingerprint }) {
             throw ImportError.duplicateKey
         }
-
-        let dataRep = seKey.dataRepresentation
-        let nioKey = NIOSSHPrivateKey(secureEnclaveP256Key: seKey)
-
-        var sshKey = SSHKey(
-            name: trimmedName,
-            keyType: .secureEnclaveP256,
-            fingerprint: fingerprint,
-            hasPassphrase: false,
-            storageLevel: .deviceOnly,
-            authRequirement: authRequirement
-        )
-        sshKey.secureEnclaveInfo = SecureEnclaveKeyInfo(publicKeyX963: x963, createdDate: sshKey.createdDate)
-
-        // Cache the SSH wire-format public blob so agent forwarding /
-        // authorized_keys export never need the Keychain. GPG keygrips stay
-        // nil on purpose: the enclave can't expose the scalar GPG's PKSIGN
-        // needs, so SE keys must never be advertised as GPG identities.
-        let blobBuffer = SSHPublicKeyBlob.make(from: .secureEnclaveP256(nioKey), keyType: .secureEnclaveP256)
-        sshKey.publicKeyBlob = blobBuffer.getData(at: blobBuffer.readerIndex, length: blobBuffer.readableBytes)
 
         // Store the opaque dataRepresentation (device-bound, useless
         // elsewhere) as device-only with NO access control — the biometric
@@ -357,7 +323,7 @@ final class SSHKeyManager: ObservableObject {
         // double-prompt.
         do {
             try keychainManager.savePrivateKey(
-                dataRep,
+                material.dataRepresentation,
                 identifier: sshKey.id.uuidString,
                 storageLevel: .deviceOnly,
                 authRequirement: .none
@@ -390,45 +356,8 @@ final class SSHKeyManager: ObservableObject {
             addToDefaults(id: sshKey.id)
         }
 
-        Self.logger.info("Secure Enclave key created: \(trimmedName) [\(fingerprint.prefix(16))]")
+        Self.logger.info("Secure Enclave key created: \(trimmedName) [\(sshKey.fingerprint.prefix(16))]")
         return sshKey
-    }
-
-    /// Builds the `SecAccessControl` for a Secure Enclave signing key.
-    /// `.privateKeyUsage` is mandatory for enclave signing keys; when auth
-    /// is required we add a biometric-with-passcode-fallback constraint
-    /// (mirroring ``KeychainManager``'s software-key access control).
-    nonisolated private static func secureEnclaveAccessControl(
-        for authRequirement: KeyAuthRequirement
-    ) throws -> SecAccessControl {
-        var flags: SecAccessControlCreateFlags = [.privateKeyUsage]
-
-        if authRequirement != .none {
-            let context = LAContext()
-            let biometricsAvailable = context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)
-            if biometricsAvailable {
-                flags.formUnion([.biometryCurrentSet, .or, .devicePasscode])
-            } else {
-                flags.insert(.devicePasscode)
-            }
-        }
-
-        var error: Unmanaged<CFError>?
-        guard let access = SecAccessControlCreateWithFlags(
-            kCFAllocatorDefault,
-            kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
-            flags,
-            &error
-        ) else {
-            throw SecureEnclaveError.accessControlFailed(error?.takeRetainedValue())
-        }
-        return access
-    }
-
-    /// Lowercase hex SHA-256 of `data` (fingerprint encoding shared with
-    /// SSHKeyParser / SSHKeyGenerator).
-    nonisolated private static func sha256Hex(_ data: Data) -> String {
-        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
     /// Deletes an SSH key
@@ -523,7 +452,7 @@ final class SSHKeyManager: ObservableObject {
     /// expensive OpenSSH bcrypt KDF + AES-CTR decryption blocks the UI
     /// for every encrypted key load. Prefer ``loadPrivateKey(id:)`` —
     /// the `async` overload — for new code so the parse can hop off
-    /// the main thread via `Task.detached`. The sync version is kept
+    /// the main thread via `@concurrent`. The sync version is kept
     /// for sync-only call sites that can't yet be converted.
     ///
     /// - Parameter id: The key ID to load
@@ -569,7 +498,7 @@ final class SSHKeyManager: ObservableObject {
     /// Async variant of ``loadPrivateKey(id:)`` that enforces the key's
     /// authentication requirement, then runs the CPU-bound parsing
     /// (OpenSSH bcrypt KDF + AES-CTR for encrypted keys, ASN.1 walks for
-    /// PKCS#8) off the MainActor via `Task.detached`. The Keychain +
+    /// PKCS#8) off the MainActor via `@concurrent`. The Keychain +
     /// metadata steps still run on the manager's MainActor; only the
     /// parse hops off.
     ///
@@ -602,9 +531,7 @@ final class SSHKeyManager: ObservableObject {
         let passphrase = prep.passphrase
         let parsedKey: SSHKeyParser.ParsedKey
         do {
-            parsedKey = try await Task.detached(priority: .userInitiated) {
-                try SSHKeyParser.parse(keyString: keyString, passphrase: passphrase)
-            }.value
+            parsedKey = try await Self.parseKeyOffMain(keyString: keyString, passphrase: passphrase)
         } catch SSHKeyParser.ParserError.encryptedKeyNeedsPassphrase,
                 SSHKeyParser.ParserError.incorrectPassphrase {
             applyLegacyMigrationOutcome(.needsUnlock, keyID: id)
@@ -701,7 +628,7 @@ final class SSHKeyManager: ObservableObject {
                 guard let fresh = authManager.makeSecureEnclaveContext(for: savedKey, reason: reason) else {
                     throw LoadError.invalidKeyData
                 }
-                let access = try Self.secureEnclaveAccessControl(for: savedKey.authRequirement)
+                let access = try SSHSecureEnclaveKeyFactory.accessControl(for: savedKey.authRequirement)
                 try await Self.evaluateAccessControl(access, on: fresh, reason: reason)
                 // Record the session only now that auth has succeeded.
                 if savedKey.authRequirement == .perSession {
@@ -859,7 +786,7 @@ final class SSHKeyManager: ObservableObject {
     /// the refresh has applied (e.g. SwiftUI `.refreshable`).
     ///
     /// `shouldApply` is an optional pre-apply guard called after the
-    /// detached Keychain read returns, just before the `@Published savedKeys`
+    /// detached Keychain read returns, just before the `savedKeys`
     /// mutation. Lifecycle callers pass a `LifecycleEpoch` check so a
     /// backgrounding that lands during the Keychain read aborts the apply
     /// instead of publishing onto a backgrounded scene. Returning `false`
@@ -869,13 +796,7 @@ final class SSHKeyManager: ObservableObject {
         let oldKeys = savedKeys
         let oldKeysByID = Dictionary(uniqueKeysWithValues: oldKeys.map { ($0.id, $0) })
 
-        let (loaded, discovered) = await Task.detached(priority: .utility) {
-            () -> (loaded: [SSHKey], discovered: [SSHKey]) in
-            let loaded = Self.loadKeysFromKeychain()
-            let existingIDs = Set(loaded.map { $0.id.uuidString })
-            let discovered = Self.discoverSyncedKeysFromKeychain(existingIDs: existingIDs)
-            return (loaded, discovered)
-        }.value
+        let (loaded, discovered) = await Self.loadKeysOffMain()
 
         // Stale-result guard: if the user (or another refresh) mutated
         // `savedKeys` while our Keychain read was in flight, the snapshot
@@ -888,7 +809,7 @@ final class SSHKeyManager: ObservableObject {
         }
 
         // Caller-provided lifecycle guard — checked AFTER the await but
-        // BEFORE the @Published mutation, closing the residual race that the
+        // BEFORE the mutation, closing the residual race that the
         // pre-await wrapper at the call site cannot cover.
         if let shouldApply, !shouldApply() {
             return
@@ -912,7 +833,7 @@ final class SSHKeyManager: ObservableObject {
         // savedKeys was replaced wholesale: drop parsed-certificate cache entries so a
         // certificate rotated through sync is re-parsed (the cache is also blob-checked
         // on read, this just frees entries for removed/changed keys).
-        certifiedKeyCache.removeAll()
+        certificateCache.clear()
 
         // Compare for any changes: additions, deletions, or modifications
         var hasChanges = false
@@ -1005,14 +926,6 @@ final class SSHKeyManager: ObservableObject {
 
     // MARK: - User Certificates
 
-    /// Cache of parsed certificates keyed by key ID, invalidated on attach/remove
-    /// and cleared on metadata refresh. Each entry carries the source blob and is
-    /// only served while it still matches the key's CURRENT stored certificate, so
-    /// a rotation that arrives through any path (sync refresh included) can never
-    /// be answered with a stale parse. Parsing is cheap; this avoids a re-parse
-    /// per connection attempt.
-    private var certifiedKeyCache: [UUID: (blob: Data, cert: NIOSSHCertifiedPublicKey)] = [:]
-
     /// Finds the saved key whose public key matches a certificate's embedded key blob.
     /// Comparison is on normalized wire blobs (see SSHUserCertificateParser).
     func findKey(forCertificateEmbeddedBlob blob: Data) -> SSHKey? {
@@ -1037,7 +950,7 @@ final class SSHKeyManager: ObservableObject {
 
         let keyName = key.name
         savedKeys[index].userCertificate = parsed.info
-        certifiedKeyCache[keyID] = (blob: parsed.info.certificateBlob, cert: parsed.certifiedKey)
+        certificateCache.store(parsed, for: keyID)
         saveKeys()
         notifyKeysChanged()
 
@@ -1052,7 +965,7 @@ final class SSHKeyManager: ObservableObject {
             return
         }
         savedKeys[index].userCertificate = nil
-        certifiedKeyCache[keyID] = nil
+        certificateCache.remove(keyID)
         saveKeys()
         notifyKeysChanged()
     }
@@ -1061,26 +974,11 @@ final class SSHKeyManager: ObservableObject {
     /// has no certificate or the stored blob no longer parses (e.g. synced from a
     /// newer app version with an unknown key type).
     func certifiedPublicKey(forKeyID id: UUID) -> NIOSSHCertifiedPublicKey? {
-        guard let key = savedKeys.first(where: { $0.id == id }),
-              let certInfo = key.userCertificate else {
-            certifiedKeyCache[id] = nil
+        guard let key = savedKeys.first(where: { $0.id == id }) else {
+            certificateCache.remove(id)
             return nil
         }
-        // Serve the cache only while it matches the current stored blob (a rotation
-        // through sync/refresh must re-parse, never return the old certificate).
-        if let cached = certifiedKeyCache[id], cached.blob == certInfo.certificateBlob {
-            return cached.cert
-        }
-        let keyName = key.name
-        do {
-            let cert = try SSHUserCertificateParser.certifiedKey(fromStoredBlob: certInfo.certificateBlob)
-            certifiedKeyCache[id] = (blob: certInfo.certificateBlob, cert: cert)
-            return cert
-        } catch {
-            certifiedKeyCache[id] = nil
-            Self.logger.error("Stored certificate for key '\(keyName)' failed to parse: \(error.localizedDescription)")
-            return nil
-        }
+        return certificateCache.certifiedKey(for: key)
     }
 
     /// The certificate to offer for a connection, or nil to use the plain key only.
@@ -1234,9 +1132,7 @@ final class SSHKeyManager: ObservableObject {
         // are plain `String`s (Sendable), so the detached hop is free.
         let parsedKey: SSHKeyParser.ParsedKey
         do {
-            parsedKey = try await Task.detached(priority: .userInitiated) {
-                try SSHKeyParser.parse(keyString: keyString, passphrase: passphrase)
-            }.value
+            parsedKey = try await Self.parseKeyOffMain(keyString: keyString, passphrase: passphrase)
         } catch SSHKeyParser.ParserError.encryptedKeyNeedsPassphrase,
                 SSHKeyParser.ParserError.incorrectPassphrase {
             // Legacy-encrypted blob without a usable local passphrase (the
@@ -1722,12 +1618,7 @@ final class SSHKeyManager: ObservableObject {
         for candidate in candidates {
             // Hop off main for the SecItemCopyMatching calls.
             let identifier = candidate.id.uuidString
-            let keychainResult: (keyData: Data?, passphrase: String?) = await Task.detached(priority: .utility) {
-                let km = KeychainManager.shared
-                let keyData = try? km.loadPrivateKey(identifier: identifier)
-                let passphrase = km.loadPassphrase(forKey: identifier)
-                return (keyData, passphrase)
-            }.value
+            let keychainResult = await Self.copyKeychainItemOffMain(identifier: identifier)
 
             guard let keyData = keychainResult.keyData,
                   let keyString = String(data: keyData, encoding: .utf8) else {
@@ -1767,67 +1658,9 @@ final class SSHKeyManager: ObservableObject {
 
     // MARK: - Legacy Encrypted-Key Migration (#285)
 
-    private enum LegacyMigrationOutcome: Sendable {
-        case migrated
-        case alreadyNormalized
-        case clean                // no legacy state; only clear stale markers
-        case needsUnlock          // encrypted, no usable local passphrase
-        case skipped              // transient; retry on a later scan
-    }
-
-    /// Normalize one stored legacy blob in place. The blob header, not the
-    /// metadata flag, is authoritative (sync can deliver either first).
-    /// Never shows UI; callers must only pass interaction-free items.
-    private nonisolated static func runInteractionFreeLegacyMigration(
-        identifier: String,
-        expectedFingerprint: String,
-        hasPassphraseHint: Bool
-    ) -> LegacyMigrationOutcome {
-        let km = KeychainManager.shared
-        let storedPassphrase = km.loadPassphrase(forKey: identifier)
-
-        // Always inspect the blob: normalized metadata can sync before the
-        // still-encrypted blob, so the flag alone proves nothing.
-        guard let blob = try? km.loadPrivateKey(identifier: identifier),
-              let keyString = String(data: blob, encoding: .utf8) else {
-            return .skipped
-        }
-
-        do {
-            switch try OpenSSHKeyNormalizer.normalize(keyString: keyString, passphrase: storedPassphrase) {
-            case .alreadyPlaintext, .notOpenSSHContainer:
-                return (hasPassphraseHint || storedPassphrase != nil) ? .alreadyNormalized : .clean
-            case .normalized(let normalizedText):
-                guard let normalizedData = normalizedText.data(using: .utf8),
-                      let parsed = try? SSHKeyParser.parse(keyString: normalizedText, passphrase: nil),
-                      parsed.fingerprint == expectedFingerprint else {
-                    return .skipped
-                }
-                // Re-read so a newer synced blob is never clobbered.
-                guard let current = try? km.loadPrivateKey(identifier: identifier),
-                      current == blob else {
-                    return .skipped
-                }
-                do {
-                    try km.updatePrivateKey(normalizedData, identifier: identifier)
-                } catch {
-                    logger.warning("Legacy key migration write failed for \(identifier): \(error.localizedDescription)")
-                    return .skipped
-                }
-                return .migrated
-            }
-        } catch OpenSSHKeyNormalizer.NormalizerError.passphraseRequired,
-                OpenSSHKeyNormalizer.NormalizerError.incorrectPassphrase {
-            return .needsUnlock
-        } catch {
-            logger.warning("Legacy key migration failed for \(identifier): \(error.localizedDescription)")
-            return .skipped
-        }
-    }
-
     /// Metadata first, passphrase deletion last — re-runnable after a crash
     /// at any boundary.
-    private func applyLegacyMigrationOutcome(_ outcome: LegacyMigrationOutcome, keyID: UUID) {
+    private func applyLegacyMigrationOutcome(_ outcome: SSHLegacyKeyMigrator.Outcome, keyID: UUID) {
         switch outcome {
         case .migrated, .alreadyNormalized:
             var changed = false
@@ -1881,13 +1714,11 @@ final class SSHKeyManager: ObservableObject {
 
         legacyKeyMigrationTask = Task { @MainActor [weak self] in
             for candidate in candidates {
-                let outcome = await Task.detached(priority: .utility) {
-                    Self.runInteractionFreeLegacyMigration(
-                        identifier: candidate.id.uuidString,
-                        expectedFingerprint: candidate.fingerprint,
-                        hasPassphraseHint: candidate.hasPassphrase
-                    )
-                }.value
+                let outcome = await Self.migrateLegacyOffMain(
+                    identifier: candidate.id.uuidString,
+                    expectedFingerprint: candidate.fingerprint,
+                    hasPassphraseHint: candidate.hasPassphrase
+                )
                 guard let self else { return }
                 self.applyLegacyMigrationOutcome(outcome, keyID: candidate.id)
             }
@@ -1908,17 +1739,11 @@ final class SSHKeyManager: ObservableObject {
     ) {
         guard opportunisticMigrationsInFlight.insert(id).inserted else { return }
         Task { @MainActor [weak self] in
-            let normalizedData: Data? = await Task.detached(priority: .utility) {
-                guard case .normalized(let text) = try? OpenSSHKeyNormalizer.normalize(
-                    keyString: keyString,
-                    passphrase: passphrase
-                ),
-                      let parsed = try? SSHKeyParser.parse(keyString: text, passphrase: nil),
-                      parsed.fingerprint == expectedFingerprint else {
-                    return nil
-                }
-                return text.data(using: .utf8)
-            }.value
+            let normalizedData = await Self.normalizeLegacyOffMain(
+                keyString: keyString,
+                passphrase: passphrase,
+                expectedFingerprint: expectedFingerprint
+            )
 
             guard let self else { return }
             defer {
@@ -1988,19 +1813,11 @@ final class SSHKeyManager: ObservableObject {
         }
 
         let expectedFingerprint = savedKey.fingerprint
-        let normalizedData: Data? = try await Task.detached(priority: .userInitiated) {
-            switch try OpenSSHKeyNormalizer.normalize(keyString: keyString, passphrase: passphrase) {
-            case .normalized(let text):
-                guard let parsed = try? SSHKeyParser.parse(keyString: text, passphrase: nil),
-                      parsed.fingerprint == expectedFingerprint,
-                      let data = text.data(using: .utf8) else {
-                    throw OpenSSHKeyNormalizer.NormalizerError.verificationFailed("Fingerprint mismatch")
-                }
-                return data
-            case .alreadyPlaintext, .notOpenSSHContainer:
-                return nil
-            }
-        }.value
+        let normalizedData = try await Self.normalizeForUnlockOffMain(
+            keyString: keyString,
+            passphrase: passphrase,
+            expectedFingerprint: expectedFingerprint
+        )
 
         if let normalizedData {
             // Authenticated re-read: don't clobber a blob that changed since
@@ -2137,6 +1954,78 @@ final class SSHKeyManager: ObservableObject {
             case .creationFailed(let error):
                 return "Failed to create the Secure Enclave key: \(error.localizedDescription)"
             }
+        }
+    }
+
+    /// CPU-bound parse. `@concurrent` so it leaves the main actor; the caller
+    /// still awaits it in the same task, so cancellation and task-locals survive.
+    @concurrent
+    private static func parseKeyOffMain(keyString: String, passphrase: String?) async throws -> SSHKeyParser.ParsedKey {
+        try SSHKeyParser.parse(keyString: keyString, passphrase: passphrase)
+    }
+
+    @concurrent
+    private static func loadKeysOffMain() async -> (loaded: [SSHKey], discovered: [SSHKey]) {
+        let loaded = loadKeysFromKeychain()
+        let existingIDs = Set(loaded.map { $0.id.uuidString })
+        let discovered = discoverSyncedKeysFromKeychain(existingIDs: existingIDs)
+        return (loaded, discovered)
+    }
+
+    @concurrent
+    private static func copyKeychainItemOffMain(identifier: String) async -> (keyData: Data?, passphrase: String?) {
+        let km = KeychainManager.shared
+        let keyData = try? km.loadPrivateKey(identifier: identifier)
+        let passphrase = km.loadPassphrase(forKey: identifier)
+        return (keyData, passphrase)
+    }
+
+    @concurrent
+    private static func migrateLegacyOffMain(
+        identifier: String,
+        expectedFingerprint: String,
+        hasPassphraseHint: Bool
+    ) async -> SSHLegacyKeyMigrator.Outcome {
+        SSHLegacyKeyMigrator.runInteractionFree(
+            identifier: identifier,
+            expectedFingerprint: expectedFingerprint,
+            hasPassphraseHint: hasPassphraseHint
+        )
+    }
+
+    @concurrent
+    private static func normalizeLegacyOffMain(
+        keyString: String,
+        passphrase: String,
+        expectedFingerprint: String
+    ) async -> Data? {
+        guard case .normalized(let text) = try? OpenSSHKeyNormalizer.normalize(
+            keyString: keyString,
+            passphrase: passphrase
+        ),
+              let parsed = try? SSHKeyParser.parse(keyString: text, passphrase: nil),
+              parsed.fingerprint == expectedFingerprint else {
+            return nil
+        }
+        return text.data(using: .utf8)
+    }
+
+    @concurrent
+    private static func normalizeForUnlockOffMain(
+        keyString: String,
+        passphrase: String,
+        expectedFingerprint: String
+    ) async throws -> Data? {
+        switch try OpenSSHKeyNormalizer.normalize(keyString: keyString, passphrase: passphrase) {
+        case .normalized(let text):
+            guard let parsed = try? SSHKeyParser.parse(keyString: text, passphrase: nil),
+                  parsed.fingerprint == expectedFingerprint,
+                  let data = text.data(using: .utf8) else {
+                throw OpenSSHKeyNormalizer.NormalizerError.verificationFailed("Fingerprint mismatch")
+            }
+            return data
+        case .alreadyPlaintext, .notOpenSSHContainer:
+            return nil
         }
     }
 }

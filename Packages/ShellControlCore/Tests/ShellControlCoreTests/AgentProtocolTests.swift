@@ -1,9 +1,11 @@
-import XCTest
+import Foundation
+import Testing
 @testable import ShellControlProtocol
 @testable import ShellControlSecurity
 
 /// `shell-agent/1` protocol rules (docs/specs/agent-relay.md sections 5–8, 14).
-final class AgentProtocolTests: XCTestCase {
+@Suite
+final class AgentProtocolTests {
     private let hex = String(repeating: "a", count: 64)
     private let now = ControlTimestamp(Date(timeIntervalSince1970: 1_790_000_000))
 
@@ -27,32 +29,36 @@ final class AgentProtocolTests: XCTestCase {
         )
     }
 
+    @Test
     func testAgentOperationRoundTripsAndKeepsTheRequestHash() throws {
         let spec = try approvalSpec(try shellOperation())
         let decoded = try ApprovalSpec(json: try JSONValue.parse(try JSONCanonicalization.canonicalize(spec.json)))
-        XCTAssertEqual(decoded, spec)
-        XCTAssertEqual(try decoded.requestHash(), try spec.requestHash())
-        XCTAssertEqual(spec.requiredFeatures, ["agent.tool.v1", "agent.shell.v1", "consume.v1"])
-        XCTAssertEqual(spec.operation.json["shell_request"]?["shell_identity"], .null)
+        #expect(decoded == spec)
+        #expect((try decoded.requestHash()) == (try spec.requestHash()))
+        #expect(spec.requiredFeatures == ["agent.tool.v1", "agent.shell.v1", "consume.v1"])
+        #expect(spec.operation.json["shell_request"]?["shell_identity"] == .null)
     }
 
+    @Test
     func testFullReviewAgentShellIsApprovableOnIPhoneOnly() throws {
         var record = try ApprovalRecord(spec: try approvalSpec(try shellOperation()), projection: ApprovalProjection())
         record.projection.presence = SourcePresence(lastSeenAt: now, isWaiting: true)
-        XCTAssertEqual(record.approvability(at: now, review: .full), .approvable)
-        XCTAssertEqual(record.approvability(at: now, review: .watch), .reviewElsewhere(reason: .policyRequiresFullReview))
+        #expect(record.approvability(at: now, review: .full) == .approvable)
+        #expect(record.approvability(at: now, review: .watch) == .reviewElsewhere(reason: .policyRequiresFullReview))
     }
 
+    @Test
     func testWatchShellPolicyIsNarrow() throws {
         var short = try ApprovalRecord(spec: try approvalSpec(try shellOperation(options: [:]), review: .watch), projection: ApprovalProjection())
         short.projection.presence = SourcePresence(lastSeenAt: now, isWaiting: true)
-        XCTAssertEqual(short.approvability(at: now, review: .watch), .approvable)
+        #expect(short.approvability(at: now, review: .watch) == .approvable)
 
         var multiline = try ApprovalRecord(spec: try approvalSpec(try shellOperation(command: "echo a\nrm -rf x", options: [:]), review: .watch), projection: ApprovalProjection())
         multiline.projection.presence = SourcePresence(lastSeenAt: now, isWaiting: true)
-        XCTAssertEqual(multiline.approvability(at: now, review: .watch), .reviewElsewhere(reason: .policyRequiresFullReview))
+        #expect(multiline.approvability(at: now, review: .watch) == .reviewElsewhere(reason: .policyRequiresFullReview))
     }
 
+    @Test
     func testUnknownKindAndBroadScopeAreNeverApprovable() throws {
         // A4 / A7: an unknown variant or a scope wider than one gate.
         for operation in [
@@ -64,63 +70,70 @@ final class AgentProtocolTests: XCTestCase {
         ] {
             var record = try ApprovalRecord(spec: try approvalSpec(operation), projection: ApprovalProjection())
             record.projection.presence = SourcePresence(lastSeenAt: now, isWaiting: true)
-            XCTAssertFalse(record.spec.operation.isRecognized)
-            XCTAssertNotEqual(record.approvability(at: now, review: .full), .approvable)
+            #expect(!(record.spec.operation.isRecognized))
+            #expect(record.approvability(at: now, review: .full) != .approvable)
         }
     }
 
+    @Test
     func testMalformedAgentOperationDecodesAsUnknownWithTheSameHash() throws {
-        var raw = try XCTUnwrap(try shellOperation().json.objectValue)
+        var raw = try #require(try shellOperation().json.objectValue)
         raw["future_field"] = "x"
         let operation = try ControlOperation.decode(.object(raw))
-        guard case .unknown(let schema, let kept) = operation else { return XCTFail("expected unknown") }
-        XCTAssertEqual(schema, AgentToolOperation.schema)
-        XCTAssertEqual(kept, .object(raw))
+        guard case .unknown(let schema, let kept) = operation else { Issue.record("expected unknown")
+return }
+        #expect(schema == AgentToolOperation.schema)
+        #expect(kept == .object(raw))
     }
 
+    @Test
     func testFileChangeNeedsBaseHashAndIsNeverWatchEligible() throws {
-        XCTAssertThrowsError(try AgentFileChange(path: "/tmp/a", change: .modify, diff: "-a\n+b", baseSHA256: nil))
+        #expect(throws: (any Error).self) { try AgentFileChange(path: "/tmp/a", change: .modify, diff: "-a\n+b", baseSHA256: nil) }
         let operation = try AgentToolOperation(
             provider: "claude_code", providerBuild: "b", adapterBuild: "a", agentSessionID: .random(), nativeWaitID: .random(),
             kind: .fileChange, toolName: "Edit", cwd: "/tmp",
             fileChanges: [try AgentFileChange(path: "/tmp/a", change: .modify, diff: "-a\n+b", baseSHA256: hex)],
             nativeRequestSHA256: hex, contextSHA256: hex
         )
-        XCTAssertTrue(operation.isRenderable)
-        XCTAssertFalse(operation.isWatchEligible)
+        #expect(operation.isRenderable)
+        #expect(!(operation.isWatchEligible))
     }
 
+    @Test
     func testShellOptionsNeedTheIPhone() throws {
         // Options change what runs; a Watch-sized review shows only the command.
-        XCTAssertFalse(try shellOperation().isWatchEligible)
+        #expect(!(try shellOperation().isWatchEligible))
         let bare = try AgentToolOperation(
             provider: "codex", providerBuild: "b", adapterBuild: "a", agentSessionID: .random(), nativeWaitID: .random(),
             kind: .shell, toolName: "Bash", cwd: "/tmp",
             shellRequest: try AgentShellRequest(representation: .commandString, command: "git status"),
             nativeRequestSHA256: hex, contextSHA256: hex
         )
-        XCTAssertTrue(bare.isWatchEligible)
+        #expect(bare.isWatchEligible)
     }
 
+    @Test
     func testSharedDraftBuildsOneCanonicalResponse() throws {
         let spec = try inputSpec()
         var draft = InputAnswerDraft()
-        guard case .multiChoice(let choices, _, _) = spec.questions[1].kind else { return XCTFail("multi") }
+        guard case .multiChoice(let choices, _, _) = spec.questions[1].kind else { Issue.record("multi")
+return }
         draft.select(choices[2].id, in: spec.questions[1])
         draft.select(choices[0].id, in: spec.questions[1])
         draft.select(choices[1].id, in: spec.questions[1]) // past the maximum of 2: refused
-        XCTAssertEqual(draft.selectionCount(for: spec.questions[1]), 2)
-        XCTAssertThrowsError(try draft.response(for: spec)) // required single choice missing
+        #expect(draft.selectionCount(for: spec.questions[1]) == 2)
+        #expect(throws: (any Error).self) { try draft.response(for: spec) } // required single choice missing
         draft.select("all", in: spec.questions[0])
-        XCTAssertEqual(try draft.response(for: spec), .answer([
+        #expect(try draft.response(for: spec) == .answer([
             .singleChoice(questionID: "scope", choiceID: "all"),
             .multiChoice(questionID: "targets", choiceIDs: ["ios", "watch"])
         ]), "sorted by question, choices in committed order, not tap order")
     }
 
-    func testOversizeOperationIsRefused() {
+    @Test
+    func testOversizeOperationIsRefused() throws {
         let big = String(repeating: "x", count: AgentPolicy.maximumOperationBytes)
-        XCTAssertThrowsError(try shellOperation(command: big))
+        #expect(throws: (any Error).self) { try shellOperation(command: big) }
     }
 
     // MARK: Inputs
@@ -148,24 +161,27 @@ final class AgentProtocolTests: XCTestCase {
         )
     }
 
+    @Test
     func testInputSpecRoundTripPreservesNativeIDType() throws {
         let spec = try inputSpec()
         let decoded = try InputSpec(json: try JSONValue.parse(try JSONCanonicalization.canonicalize(spec.json)))
-        XCTAssertEqual(decoded, spec)
-        XCTAssertEqual(decoded.source.providerRequestID, .integer(23))
-        XCTAssertTrue(decoded.permitsWatchReview)
-        XCTAssertEqual(try decoded.requestHash(), try spec.requestHash())
+        #expect(decoded == spec)
+        #expect(decoded.source.providerRequestID == .integer(23))
+        #expect(decoded.permitsWatchReview)
+        #expect((try decoded.requestHash()) == (try spec.requestHash()))
     }
 
+    @Test
     func testInputSpecLimits() throws {
-        XCTAssertThrowsError(try InputQuestion(id: "has space", prompt: "p", kind: .text(maximumBytes: 10, hint: nil), required: true))
-        XCTAssertThrowsError(try InputQuestion(id: "q", prompt: "p", kind: .singleChoice(choices: [
+        #expect(throws: (any Error).self) { try InputQuestion(id: "has space", prompt: "p", kind: .text(maximumBytes: 10, hint: nil), required: true) }
+        #expect(throws: (any Error).self) { try InputQuestion(id: "q", prompt: "p", kind: .singleChoice(choices: [
             try InputChoice(id: "a", label: "A"), try InputChoice(id: "a", label: "B")
-        ]), required: true))
-        XCTAssertThrowsError(try InputQuestion(id: "q", prompt: String(repeating: "é", count: 1100), kind: .text(maximumBytes: 10, hint: nil), required: true))
-        XCTAssertThrowsError(try InputQuestion(id: "q", prompt: "p", kind: .multiChoice(choices: [try InputChoice(id: "a", label: "A")], minimum: 2, maximum: 1), required: true))
+        ]), required: true) }
+        #expect(throws: (any Error).self) { try InputQuestion(id: "q", prompt: String(repeating: "é", count: 1100), kind: .text(maximumBytes: 10, hint: nil), required: true) }
+        #expect(throws: (any Error).self) { try InputQuestion(id: "q", prompt: "p", kind: .multiChoice(choices: [try InputChoice(id: "a", label: "A")], minimum: 2, maximum: 1), required: true) }
     }
 
+    @Test
     func testResponseValidationRejectsEveryMalformedShape() throws {
         // A21.
         let spec = try inputSpec()
@@ -173,7 +189,7 @@ final class AgentProtocolTests: XCTestCase {
             .singleChoice(questionID: "scope", choiceID: "focused"),
             .multiChoice(questionID: "targets", choiceIDs: ["ios", "watch"])
         ])
-        XCTAssertNoThrow(try valid.validate(against: spec))
+        do { _ = try valid.validate(against: spec) } catch { Issue.record("unexpected error: \(error)") }
         let invalid: [InputResponse] = [
             .answer([]),                                                               // missing required
             .answer([.singleChoice(questionID: "scope", choiceID: "nope")]),           // unknown choice
@@ -186,11 +202,12 @@ final class AgentProtocolTests: XCTestCase {
             .decline                                                                   // not offered
         ]
         for response in invalid {
-            XCTAssertThrowsError(try response.validate(against: spec), "\(response)")
+            #expect(throws: (any Error).self, "\(response)") { try response.validate(against: spec) }
         }
-        XCTAssertNoThrow(try InputResponse.decline.validate(against: try inputSpec(allowDecline: true)))
+        do { _ = try InputResponse.decline.validate(against: try inputSpec(allowDecline: true)) } catch { Issue.record("unexpected error: \(error)") }
     }
 
+    @Test
     func testTextLimitIsBytesNotCharacters() throws {
         let spec = try InputSpec(
             requestID: .random(), originID: .random(), jobID: .random(), runID: .random(),
@@ -201,10 +218,11 @@ final class AgentProtocolTests: XCTestCase {
             questions: [try InputQuestion(id: "name", prompt: "Name?", kind: .text(maximumBytes: 4, hint: nil), required: true)],
             minimumReview: .watch
         )
-        XCTAssertNoThrow(try InputResponse.answer([.text(questionID: "name", text: "abcd")]).validate(against: spec))
-        XCTAssertThrowsError(try InputResponse.answer([.text(questionID: "name", text: "ééé")]).validate(against: spec))
+        do { _ = try InputResponse.answer([.text(questionID: "name", text: "abcd")]).validate(against: spec) } catch { Issue.record("unexpected error: \(error)") }
+        #expect(throws: (any Error).self) { try InputResponse.answer([.text(questionID: "name", text: "ééé")]).validate(against: spec) }
     }
 
+    @Test
     func testInputRespondSignsAndVerifiesOnlyThroughTheAgentDecoder() throws {
         let key = InMemoryDeviceKey()
         let deviceID = ControlID.random()
@@ -218,20 +236,22 @@ final class AgentProtocolTests: XCTestCase {
         )
         let jws = try ControlJWS.sign(payload: command.json, deviceID: deviceID, key: key)
         let verified = try ControlJWS.verifyAgent(compactSerialization: jws) { $0 == deviceID ? key.publicJWK : nil }
-        XCTAssertEqual(verified.command, .inputRespond(command))
+        #expect(verified.command == .inputRespond(command))
         // The legacy decoder does not silently accept the new type.
-        XCTAssertThrowsError(try ControlJWS.verify(compactSerialization: jws) { $0 == deviceID ? key.publicJWK : nil })
-        XCTAssertEqual(command.json["action"], "answer")
-        XCTAssertEqual(command.json["answers"]?.arrayValue?.count, 1)
+        #expect(throws: (any Error).self) { try ControlJWS.verify(compactSerialization: jws) { $0 == deviceID ? key.publicJWK : nil } }
+        #expect(command.json["action"] == "answer")
+        #expect(command.json["answers"]?.arrayValue?.count == 1)
     }
 
+    @Test
     func testSessionCommandsBindTheExactActionDigest() throws {
         let session = ControlID.random(), run = ControlID.random()
         let action = AgentSessionAction.message(agentSessionID: session, runID: run, expectedSessionVersion: 3, mode: .steer, expectedTurnID: "turn_1", text: "Only unit tests")
         let challenge = try AgentReviewChallengeRequest(sessionAction: action)
-        XCTAssertEqual(try AgentReviewChallengeRequest(json: challenge.json), challenge)
-        guard case .session(_, 3, let digest) = challenge.target else { return XCTFail("target") }
-        XCTAssertEqual(digest, action.digest)
+        #expect((try AgentReviewChallengeRequest(json: challenge.json)) == challenge)
+        guard case .session(_, 3, let digest) = challenge.target else { Issue.record("target")
+return }
+        #expect(digest == action.digest)
         let key = InMemoryDeviceKey(), deviceID = ControlID.random()
         let command = try AgentSessionCommand(
             envelope: try AgentCommandEnvelope(type: .agentMessage, commandID: .random(), deviceID: deviceID,
@@ -240,30 +260,32 @@ final class AgentProtocolTests: XCTestCase {
         )
         let jws = try ControlJWS.sign(payload: command.json, deviceID: deviceID, key: key)
         let verified = try ControlJWS.verifyAgent(compactSerialization: jws) { $0 == deviceID ? key.publicJWK : nil }
-        XCTAssertEqual(verified.command, .session(command))
+        #expect(verified.command == .session(command))
         // A payload whose text differs from its digest is refused.
-        var tampered = try XCTUnwrap(command.json.objectValue)
+        var tampered = try #require(command.json.objectValue)
         tampered["text"] = "rm -rf everything"
-        XCTAssertThrowsError(try AgentSessionCommand(json: .object(tampered)))
+        #expect(throws: (any Error).self) { try AgentSessionCommand(json: .object(tampered)) }
         // Plain text only, and the mode decides whether a turn is named.
-        XCTAssertThrowsError(try AgentSessionAction.message(agentSessionID: session, runID: run, expectedSessionVersion: 1, mode: .newTurn, expectedTurnID: "t", text: "x").validate())
-        XCTAssertThrowsError(try AgentSessionAction.message(agentSessionID: session, runID: run, expectedSessionVersion: 1, mode: .steer, expectedTurnID: nil, text: "x").validate())
-        XCTAssertThrowsError(try AgentSessionAction.message(agentSessionID: session, runID: run, expectedSessionVersion: 1, mode: .newTurn, expectedTurnID: nil, text: "a\u{1b}[2J").validate())
+        #expect(throws: (any Error).self) { try AgentSessionAction.message(agentSessionID: session, runID: run, expectedSessionVersion: 1, mode: .newTurn, expectedTurnID: "t", text: "x").validate() }
+        #expect(throws: (any Error).self) { try AgentSessionAction.message(agentSessionID: session, runID: run, expectedSessionVersion: 1, mode: .steer, expectedTurnID: nil, text: "x").validate() }
+        #expect(throws: (any Error).self) { try AgentSessionAction.message(agentSessionID: session, runID: run, expectedSessionVersion: 1, mode: .newTurn, expectedTurnID: nil, text: "a\u{1b}[2J").validate() }
         // An input challenge cannot carry a session action, and vice versa.
-        XCTAssertThrowsError(try AgentReviewChallengeRequest(action: .agentMessage, requestID: .random(), requestHash: "sha256:" + hex, expectedStateVersion: 1, policyVersion: 1))
+        #expect(throws: (any Error).self) { try AgentReviewChallengeRequest(action: .agentMessage, requestID: .random(), requestHash: "sha256:" + hex, expectedStateVersion: 1, policyVersion: 1) }
     }
 
+    @Test
     func testMessagesAndCancellationNeedAManagedSession() throws {
-        XCTAssertThrowsError(try AgentSessionRegistration(
+        #expect(throws: (any Error).self) { try AgentSessionRegistration(
             agentSessionID: .random(), runID: .random(), provider: "claude_code", providerBuild: "b", adapterBuild: "a",
             profile: .hook, evidence: .contractTested, operations: [AgentFeature.messages], startedAt: now
-        ))
-        XCTAssertNoThrow(try AgentSessionRegistration(
+        ) }
+        do { _ = try AgentSessionRegistration(
             agentSessionID: .random(), runID: .random(), provider: "codex", providerBuild: "b", adapterBuild: "a",
             profile: .managed, evidence: .userAttested, operations: [AgentFeature.messages, AgentFeature.turnCancel], startedAt: now
-        ))
+        ) } catch { Issue.record("unexpected error: \(error)") }
     }
 
+    @Test
     func testPermitValidationComparesEveryBinding() throws {
         let key = InMemoryDeviceKey()
         let deviceID = ControlID.random(), origin = ControlID.random(), run = ControlID.random(), wait = ControlID.random()
@@ -284,27 +306,29 @@ final class AgentProtocolTests: XCTestCase {
                                commandID: command.envelope.commandID, responseHash: response.responseHash,
                                response: permitted, commandJWS: jws, issuedAt: now, applyBefore: now.adding(10))
         }
-        XCTAssertNoThrow(try permit().validate(request: request, originID: origin, requestID: requestID))
-        XCTAssertThrowsError(try permit(wait: .random()).validate(request: request, originID: origin, requestID: requestID))
-        XCTAssertThrowsError(try permit(response: .decline).validate(request: request, originID: origin, requestID: requestID))
-        XCTAssertThrowsError(try permit().validate(request: request, originID: .random(), requestID: requestID))
+        do { _ = try permit().validate(request: request, originID: origin, requestID: requestID) } catch { Issue.record("unexpected error: \(error)") }
+        #expect(throws: (any Error).self) { try permit(wait: .random()).validate(request: request, originID: origin, requestID: requestID) }
+        #expect(throws: (any Error).self) { try permit(response: .decline).validate(request: request, originID: origin, requestID: requestID) }
+        #expect(throws: (any Error).self) { try permit().validate(request: request, originID: .random(), requestID: requestID) }
         let decoded = try InputConsumePermit(json: permit().json)
-        XCTAssertEqual(decoded.response, response)
+        #expect(decoded.response == response)
     }
 
-    func testDispatchStatesAreForwardOnlyAndLegacyMappingIsConservative() {
-        XCTAssertTrue(AgentDispatch.claimed.canTransition(to: .dispatchStarted))
-        XCTAssertFalse(AgentDispatch.dispatchStarted.canTransition(to: .claimed))
-        XCTAssertFalse(AgentDispatch.accepted.canTransition(to: .notApplied))
-        XCTAssertEqual(AgentDispatch.nativeResponseWritten.legacyReceiptResult, .unknown)
-        XCTAssertEqual(AgentDispatch.accepted.legacyReceiptResult, .applied)
-        XCTAssertNil(AgentDispatch.dispatchStarted.legacyReceiptResult)
+    @Test
+    func testDispatchStatesAreForwardOnlyAndLegacyMappingIsConservative() throws {
+        #expect(AgentDispatch.claimed.canTransition(to: .dispatchStarted))
+        #expect(!(AgentDispatch.dispatchStarted.canTransition(to: .claimed)))
+        #expect(!(AgentDispatch.accepted.canTransition(to: .notApplied)))
+        #expect(AgentDispatch.nativeResponseWritten.legacyReceiptResult == .unknown)
+        #expect(AgentDispatch.accepted.legacyReceiptResult == .applied)
+        #expect((AgentDispatch.dispatchStarted.legacyReceiptResult) == nil)
     }
 
+    @Test
     func testUnsupportedInputInAPageDoesNotBreakThePage() throws {
         let record = try InputRecord(spec: try inputSpec(), projection: InputProjection())
-        var raw = try XCTUnwrap(record.json.objectValue)
-        var spec = try XCTUnwrap(raw["spec"]?.objectValue)
+        var raw = try #require(record.json.objectValue)
+        var spec = try #require(raw["spec"]?.objectValue)
         spec["effect"] = "grant_permission"
         spec["new_constraint"] = true
         raw["spec"] = .object(spec)
@@ -313,11 +337,13 @@ final class AgentProtocolTests: XCTestCase {
             "inputs": .array([record.json, .object(raw)]),
             "snapshot_token": "s", "cursor": "a1.0.x", "server_time": JSONValue(now)
         ]))
-        XCTAssertEqual(page.inputs.count, 2)
-        guard case .supported = page.inputs[0], case .unsupported(let id, _) = page.inputs[1] else { return XCTFail("item kinds") }
-        XCTAssertEqual(id, record.spec.requestID)
+        #expect(page.inputs.count == 2)
+        guard case .supported = page.inputs[0], case .unsupported(let id, _) = page.inputs[1] else { Issue.record("item kinds")
+return }
+        #expect(id == record.spec.requestID)
     }
 
+    @Test
     func testUnknownEffectIsNotAnswerable() throws {
         let base = try inputSpec()
         let spec = try InputSpec(
@@ -327,29 +353,32 @@ final class AgentProtocolTests: XCTestCase {
         )
         var record = try InputRecord(spec: spec, projection: InputProjection())
         record.projection.presence = SourcePresence(lastSeenAt: now, isWaiting: true)
-        XCTAssertEqual(record.answerability(at: now, review: .full), .reviewElsewhere(reason: .unknownOperationSchema))
+        #expect(record.answerability(at: now, review: .full) == .reviewElsewhere(reason: .unknownOperationSchema))
     }
 
-    func testAnswerMappingDigestIsStable() {
+    @Test
+    func testAnswerMappingDigestIsStable() throws {
         let mapping = InputAnswerMapping(questions: ["scope": .init(nativeKey: "Which tests?", choices: ["all": "Entire test suite"])])
-        XCTAssertEqual(mapping.sha256Hex, InputAnswerMapping(questions: mapping.questions).sha256Hex)
-        XCTAssertTrue(ASCIIHex.isSHA256(mapping.sha256Hex))
+        #expect(mapping.sha256Hex == InputAnswerMapping(questions: mapping.questions).sha256Hex)
+        #expect(ASCIIHex.isSHA256(mapping.sha256Hex))
     }
 
+    @Test
     func testTerminalLocationRejectsNonTmuxIdentifiers() throws {
-        XCTAssertNoThrow(try TerminalLocation(serverInstance: hex, sessionID: "$1", windowID: "@2", paneID: "%3", observedAt: now))
-        XCTAssertThrowsError(try TerminalLocation(serverInstance: hex, sessionID: "main", windowID: "@2", paneID: "%3", observedAt: now))
-        XCTAssertThrowsError(try TerminalLocation(serverInstance: "/tmp/tmux-501/default", sessionID: "$1", windowID: "@2", paneID: "%3", observedAt: now))
+        do { _ = try TerminalLocation(serverInstance: hex, sessionID: "$1", windowID: "@2", paneID: "%3", observedAt: now) } catch { Issue.record("unexpected error: \(error)") }
+        #expect(throws: (any Error).self) { try TerminalLocation(serverInstance: hex, sessionID: "main", windowID: "@2", paneID: "%3", observedAt: now) }
+        #expect(throws: (any Error).self) { try TerminalLocation(serverInstance: "/tmp/tmux-501/default", sessionID: "$1", windowID: "@2", paneID: "%3", observedAt: now) }
     }
 
+    @Test
     func testInformationalSessionsPublishNoOperations() throws {
-        XCTAssertThrowsError(try AgentSessionRegistration(
+        #expect(throws: (any Error).self) { try AgentSessionRegistration(
             agentSessionID: .random(), runID: .random(), provider: "codex", providerBuild: "b", adapterBuild: "a",
             profile: .informational, evidence: .contractTested, operations: [AgentFeature.shell], startedAt: now
-        ))
-        XCTAssertThrowsError(try AgentSessionRegistration(
+        ) }
+        #expect(throws: (any Error).self) { try AgentSessionRegistration(
             agentSessionID: .random(), runID: .random(), provider: "codex", providerBuild: "b", adapterBuild: "a",
             profile: .hook, evidence: .documented, operations: [AgentFeature.shell], startedAt: now
-        ))
+        ) }
     }
 }

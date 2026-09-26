@@ -298,9 +298,7 @@ final class SSHPasswordManager {
         let oldSnapshot = savedPasswords
         let oldKeys = Set(oldSnapshot.map { $0.connectionKey })
 
-        let loaded = await Task.detached(priority: .utility) {
-            Self.loadPasswordsFromKeychain()
-        }.value
+        let loaded = await Self.loadPasswordsOffMain()
 
         // Stale-result guard: if the user (or another refresh) mutated
         // `savedPasswords` while our Keychain read was in flight, do not
@@ -479,5 +477,10 @@ final class SSHPasswordManager {
                 return "Keychain error: \(error.localizedDescription)"
             }
         }
+    }
+
+    @concurrent
+    private static func loadPasswordsOffMain() async -> [SSHSavedPassword] {
+        loadPasswordsFromKeychain()
     }
 }

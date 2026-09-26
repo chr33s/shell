@@ -1,5 +1,5 @@
 import Foundation
-import XCTest
+import Testing
 
 @testable import Shell
 
@@ -13,173 +13,194 @@ import XCTest
 /// route the builtin's stdout/stderr/stdin, and anything else is ignored with
 /// a warning while the script carries on.
 @MainActor
-final class ShellBuiltinRedirectionTests: XCTestCase {
+@Suite
+final class ShellBuiltinRedirectionTests {
     private var directory: URL!
 
-    override func setUpWithError() throws {
+    init() throws {
         directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("builtin-redirection-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     }
 
-    override func tearDownWithError() throws {
+    deinit {
         try? FileManager.default.removeItem(at: directory)
     }
 
     // MARK: - stderr routing
 
+    @Test
     func testEchoToStderrGoesToTheErrorSinkAndTheScriptContinues() throws {
         let run = try runShell("echo warn >&2\necho after\n")
-        XCTAssertEqual(run.stdout, "after\n")
-        XCTAssertEqual(run.stderr, "warn\n")
+        #expect(run.stdout == "after\n")
+        #expect(run.stderr == "warn\n")
     }
 
+    @Test
     func testExplicitFdOneDuplicatesToStderr() throws {
         let run = try runShell("echo warn 1>&2\necho after\n")
-        XCTAssertEqual(run.stdout, "after\n")
-        XCTAssertEqual(run.stderr, "warn\n")
+        #expect(run.stdout == "after\n")
+        #expect(run.stderr == "warn\n")
     }
 
+    @Test
     func testStderrToDevNullSilencesABuiltinsDiagnostic() throws {
         let missing = directory.appendingPathComponent("missing").path
         let run = try runShell("cd '\(missing)' 2>/dev/null || echo fallback\necho after\n")
-        XCTAssertEqual(run.stdout, "fallback\nafter\n")
-        XCTAssertEqual(run.stderr, "")
+        #expect(run.stdout == "fallback\nafter\n")
+        #expect(run.stderr == "")
     }
 
+    @Test
     func testBuiltinDiagnosticsGoToStderrByDefault() throws {
         let missing = directory.appendingPathComponent("missing").path
         let run = try runShell("cd '\(missing)'\necho after\n")
-        XCTAssertEqual(run.stdout, "after\n")
-        XCTAssertTrue(run.stderr.contains("No such file or directory"), run.stderr)
+        #expect(run.stdout == "after\n")
+        #expect(run.stderr.contains("No such file or directory"), "\(run.stderr)")
     }
 
+    @Test
     func testStderrToFileAndAppend() throws {
         let log = directory.appendingPathComponent("err.log").path
         let missing = directory.appendingPathComponent("missing").path
         _ = try runShell("cd '\(missing)' 2>'\(log)'\ncd '\(missing)' 2>>'\(log)'\n")
         let text = try String(contentsOfFile: log, encoding: .utf8)
-        XCTAssertEqual(text.components(separatedBy: "No such file or directory").count - 1, 2, text)
+        #expect(text.components(separatedBy: "No such file or directory").count - 1 == 2, "\(text)")
     }
 
     // MARK: - stdout + stderr together
 
+    @Test
     func testOutputToFileWithStderrMergedLandsBothInTheFile() throws {
         let out = directory.appendingPathComponent("out").path
         let missing = directory.appendingPathComponent("missing").path
         let run = try runShell("echo x > '\(out)' 2>&1\ncd '\(missing)' > '\(out)' 2>&1\necho after\n")
-        XCTAssertEqual(run.stdout, "after\n")
-        XCTAssertEqual(run.stderr, "")
+        #expect(run.stdout == "after\n")
+        #expect(run.stderr == "")
         let text = try String(contentsOfFile: out, encoding: .utf8)
-        XCTAssertTrue(text.contains("No such file or directory"), text)
+        #expect(text.contains("No such file or directory"), "\(text)")
     }
 
+    @Test
     func testMergeBeforeFileRedirectKeepsStderrOnTheOldStdout() throws {
         let out = directory.appendingPathComponent("out").path
         let missing = directory.appendingPathComponent("missing").path
         // `2>&1 > f`: stderr copies the *old* stdout (the terminal).
         let run = try runShell("cd '\(missing)' 2>&1 > '\(out)'\n")
-        XCTAssertTrue(run.stdout.contains("No such file or directory"), run.stdout)
-        XCTAssertEqual(try String(contentsOfFile: out, encoding: .utf8), "")
+        #expect(run.stdout.contains("No such file or directory"), "\(run.stdout)")
+        #expect((try String(contentsOfFile: out, encoding: .utf8)) == "")
     }
 
+    @Test
     func testAmpersandGreaterSendsBothStreamsToTheFile() throws {
         let out = directory.appendingPathComponent("both").path
         let run = try runShell("echo hi &> '\(out)'\necho after\n")
-        XCTAssertEqual(run.stdout, "after\n")
-        XCTAssertEqual(try String(contentsOfFile: out, encoding: .utf8), "hi\n")
+        #expect(run.stdout == "after\n")
+        #expect((try String(contentsOfFile: out, encoding: .utf8)) == "hi\n")
     }
 
+    @Test
     func testPlainOutputAndAppendStillWork() throws {
         let out = directory.appendingPathComponent("plain").path
         _ = try runShell("echo one > '\(out)'\necho two >> '\(out)'\necho three 1>> '\(out)'\n")
-        XCTAssertEqual(try String(contentsOfFile: out, encoding: .utf8), "one\ntwo\nthree\n")
+        #expect((try String(contentsOfFile: out, encoding: .utf8)) == "one\ntwo\nthree\n")
     }
 
     // MARK: - stdin
 
+    @Test
     func testReadFromAFile() throws {
         let input = directory.appendingPathComponent("in")
         try "first line\nsecond\n".write(to: input, atomically: true, encoding: .utf8)
         let run = try runShell("read -r line < '\(input.path)'\necho \"got $line\"\n")
-        XCTAssertEqual(run.stdout, "got first line\n")
+        #expect(run.stdout == "got first line\n")
     }
 
+    @Test
     func testReadFromAHereDocument() throws {
         let run = try runShell("read -r a b <<EOF\nhello world\nEOF\necho \"$b $a\"\n")
-        XCTAssertEqual(run.stdout, "world hello\n")
+        #expect(run.stdout == "world hello\n")
     }
 
+    @Test
     func testMissingInputFileFailsTheBuiltinButNotTheScript() throws {
         let missing = directory.appendingPathComponent("missing").path
         let run = try runShell("read -r line < '\(missing)' || echo failed\necho after\n")
-        XCTAssertEqual(run.stdout, "failed\nafter\n")
-        XCTAssertTrue(run.stderr.contains("No such file or directory"), run.stderr)
+        #expect(run.stdout == "failed\nafter\n")
+        #expect(run.stderr.contains("No such file or directory"), "\(run.stderr)")
     }
 
     // MARK: - Nesting and fallbacks
 
+    @Test
     func testRedirectionsApplyOnlyToTheirOwnCommand() throws {
         let out = directory.appendingPathComponent("scoped").path
         let run = try runShell("echo in > '\(out)'\necho out\necho err >&2\n")
-        XCTAssertEqual(run.stdout, "out\n")
-        XCTAssertEqual(run.stderr, "err\n")
-        XCTAssertEqual(try String(contentsOfFile: out, encoding: .utf8), "in\n")
+        #expect(run.stdout == "out\n")
+        #expect(run.stderr == "err\n")
+        #expect((try String(contentsOfFile: out, encoding: .utf8)) == "in\n")
     }
 
+    @Test
     func testEvalInheritsItsRedirections() throws {
         let out = directory.appendingPathComponent("eval").path
         let run = try runShell("eval 'echo a; echo b >&2' > '\(out)'\n")
-        XCTAssertEqual(run.stdout, "")
-        XCTAssertEqual(run.stderr, "b\n")
-        XCTAssertEqual(try String(contentsOfFile: out, encoding: .utf8), "a\n")
+        #expect(run.stdout == "")
+        #expect(run.stderr == "b\n")
+        #expect((try String(contentsOfFile: out, encoding: .utf8)) == "a\n")
     }
 
+    @Test
     func testStderrInsideCommandSubstitutionIsNotCaptured() throws {
         let run = try runShell("x=$(echo value; echo noise >&2)\necho \"[$x]\"\n")
-        XCTAssertEqual(run.stdout, "[value]\n")
-        XCTAssertEqual(run.stderr, "noise\n")
+        #expect(run.stdout == "[value]\n")
+        #expect(run.stderr == "noise\n")
     }
 
+    @Test
     func testUnsupportedRedirectionIsIgnoredWithAWarningNotAnAbort() throws {
         let run = try runShell("echo kept >&3\necho after\n")
-        XCTAssertEqual(run.stdout, "kept\nafter\n")
-        XCTAssertTrue(run.stderr.contains("ignored"), run.stderr)
+        #expect(run.stdout == "kept\nafter\n")
+        #expect(run.stderr.contains("ignored"), "\(run.stderr)")
     }
 
     // MARK: - Shell functions
 
+    @Test
     func testFunctionOutputFollowsItsRedirection() throws {
         let out = directory.appendingPathComponent("fn").path
         let run = try runShell("f() { echo a; echo b >&2; }\nf > '\(out)'\necho after\n")
-        XCTAssertEqual(run.stdout, "after\n")
-        XCTAssertEqual(run.stderr, "b\n")
-        XCTAssertEqual(try String(contentsOfFile: out, encoding: .utf8), "a\n")
+        #expect(run.stdout == "after\n")
+        #expect(run.stderr == "b\n")
+        #expect((try String(contentsOfFile: out, encoding: .utf8)) == "a\n")
     }
 
+    @Test
     func testFunctionToStderr() throws {
         let run = try runShell("usage() { echo 'usage: x'; }\nusage >&2\necho after\n")
-        XCTAssertEqual(run.stdout, "after\n")
-        XCTAssertEqual(run.stderr, "usage: x\n")
+        #expect(run.stdout == "after\n")
+        #expect(run.stderr == "usage: x\n")
     }
 
+    @Test
     func testFunctionReadsItsInputRedirection() throws {
         let input = directory.appendingPathComponent("in").path
         try "first\nsecond\n".write(toFile: input, atomically: true, encoding: .utf8)
         let run = try runShell("both() { read -r a; read -r b; echo \"$b $a\"; }\nboth < '\(input)'\n")
-        XCTAssertEqual(run.stdout, "second first\n")
+        #expect(run.stdout == "second first\n")
     }
 
+    @Test
     func testExternalStdoutInsideARedirectedFunctionIsRouted() throws {
         let out = directory.appendingPathComponent("ext").path
         let run = try runShell(
             "f() { ls; }\nf > '\(out)'\nls\n",
             captureExternal: { command in (0, "captured:\(command)\n") }
         )
-        XCTAssertFalse(run.stdout.contains("captured"), "only the redirected call is captured")
+        #expect(!(run.stdout.contains("captured")), "only the redirected call is captured")
         // An isolated context may prefix the command with its exported env.
         let text = try String(contentsOfFile: out, encoding: .utf8)
-        XCTAssertTrue(text.hasPrefix("captured:") && text.hasSuffix("ls\n"), text)
+        #expect(text.hasPrefix("captured:") && text.hasSuffix("ls\n"), "\(text)")
     }
 
     // MARK: - Harness

@@ -1,5 +1,5 @@
 import Foundation
-import XCTest
+import Testing
 
 @testable import Shell
 
@@ -16,31 +16,42 @@ import XCTest
 /// Every test asserts the *error*, not the depth: the limits themselves are
 /// tuning, far above any real script, and are free to move.
 @MainActor
-final class ShellRecursionLimitTests: XCTestCase {
+@Suite
+final class ShellRecursionLimitTests {
 
-    func testInfiniteFunctionRecursionReportsAnErrorInsteadOfCrashing() {
-        XCTAssertThrowsError(try runShell("f() { f; }\nf\n")) { error in
+    @Test
+    func testInfiniteFunctionRecursionReportsAnErrorInsteadOfCrashing() throws {
+        do { _ = try runShell("f() { f; }\nf\n")
+Issue.record("expected an error")
+} catch let error {
             guard case ShellError.recursionLimit = error else {
-                return XCTFail("expected a recursion limit, got \(error)")
+                Issue.record("expected a recursion limit, got \(error)")
+return
             }
         }
     }
 
-    func testMutualFunctionRecursionIsAlsoBounded() {
-        XCTAssertThrowsError(try runShell("a() { b; }\nb() { a; }\na\n")) { error in
+    @Test
+    func testMutualFunctionRecursionIsAlsoBounded() throws {
+        do { _ = try runShell("a() { b; }\nb() { a; }\na\n")
+Issue.record("expected an error")
+} catch let error {
             guard case ShellError.recursionLimit = error else {
-                return XCTFail("expected a recursion limit, got \(error)")
+                Issue.record("expected a recursion limit, got \(error)")
+return
             }
         }
     }
 
     /// The depth is per call chain, not a running total: a function called
     /// many times in sequence must not trip the limit.
+    @Test
     func testRepeatedNonRecursiveCallsDoNotTripTheLimit() throws {
         let script = "f() { :; }\n" + String(repeating: "f\n", count: 5_000) + "echo done\n"
-        XCTAssertEqual(try runShell(script), "done\n")
+        #expect((try runShell(script)) == "done\n")
     }
 
+    @Test
     func testOrdinaryRecursionWellInsideTheLimitStillWorks() throws {
         let script = """
         countdown() {
@@ -49,69 +60,86 @@ final class ShellRecursionLimitTests: XCTestCase {
         }
         countdown 50
         """
-        XCTAssertEqual(try runShell(script), "done\n")
+        #expect((try runShell(script)) == "done\n")
     }
 
     /// Spaced parens: `((` with no gap is the arithmetic command, which the
     /// tokenizer slurps as one word and never nests.
-    func testDeeplyNestedSubshellsAreASyntaxErrorNotACrash() {
+    @Test
+    func testDeeplyNestedSubshellsAreASyntaxErrorNotACrash() throws {
         let script = String(repeating: "( ", count: 5_000) + "true" + String(repeating: " )", count: 5_000)
-        XCTAssertThrowsError(try runShell(script)) { error in
+        do { _ = try runShell(script)
+Issue.record("expected an error")
+} catch let error {
             guard case ShellError.syntaxError = error else {
-                return XCTFail("expected a syntax error, got \(error)")
+                Issue.record("expected a syntax error, got \(error)")
+return
             }
         }
     }
 
+    @Test
     func testModestSubshellNestingStillParses() throws {
         let depth = 20
         let script = String(repeating: "( ", count: depth) + "echo hi" + String(repeating: " )", count: depth)
-        XCTAssertEqual(try runShell(script), "hi\n")
+        #expect((try runShell(script)) == "hi\n")
     }
 
-    func testDeeplyNestedCommandSubstitutionIsBounded() {
+    @Test
+    func testDeeplyNestedCommandSubstitutionIsBounded() throws {
         let depth = 500
         let script = "echo " + String(repeating: "$(echo ", count: depth) + "hi" + String(repeating: ")", count: depth)
-        XCTAssertThrowsError(try runShell(script)) { error in
+        do { _ = try runShell(script)
+Issue.record("expected an error")
+} catch let error {
             guard case ShellError.recursionLimit = error else {
-                return XCTFail("expected a recursion limit, got \(error)")
+                Issue.record("expected a recursion limit, got \(error)")
+return
             }
         }
     }
 
+    @Test
     func testModestCommandSubstitutionNestingStillWorks() throws {
-        XCTAssertEqual(try runShell("echo $(echo $(echo $(echo hi)))\n"), "hi\n")
+        #expect((try runShell("echo $(echo $(echo $(echo hi)))\n")) == "hi\n")
     }
 
     /// Two lines, no function frame: `eval` re-entering itself was invisible
     /// to the function-nesting counter.
-    func testSelfReferentialEvalIsBounded() {
-        XCTAssertThrowsError(try runShell("X='eval \"$X\"'\neval \"$X\"\n")) { error in
+    @Test
+    func testSelfReferentialEvalIsBounded() throws {
+        do { _ = try runShell("X='eval \"$X\"'\neval \"$X\"\n")
+Issue.record("expected an error")
+} catch let error {
             guard case ShellError.recursionLimit = error else {
-                return XCTFail("expected a recursion limit, got \(error)")
+                Issue.record("expected a recursion limit, got \(error)")
+return
             }
         }
     }
 
     /// `[[ ((((…)))) ]]`: the tokenizer slurps the whole condition
     /// iteratively, so an arbitrarily deep one reached the recursive parser.
+    @Test
     func testDeeplyNestedDoubleBracketConditionsDoNotCrash() throws {
         let depth = 5_000
         let condition = String(repeating: "( ", count: depth) + "-n x" + String(repeating: " )", count: depth)
         // Reported as a `[[` usage error on stderr-as-stdout (exit 2), and the
         // script keeps running — never a crash.
         let output = try runShell("[[ \(condition) ]]\necho done\n")
-        XCTAssertTrue(output.contains("sh: [[:"), output)
-        XCTAssertTrue(output.contains("done"), output)
+        #expect(output.contains("sh: [[:"), "\(output)")
+        #expect(output.contains("done"), "\(output)")
     }
 
+    @Test
     func testModestDoubleBracketNestingStillEvaluates() throws {
-        XCTAssertEqual(try runShell("[[ ( ( -n x ) ) ]] && echo yes\n"), "yes\n")
+        #expect((try runShell("[[ ( ( -n x ) ) ]] && echo yes\n")) == "yes\n")
     }
 
+    @Test
     func testOrdinaryEvalStillWorks() throws {
-        XCTAssertEqual(try runShell("X='echo hi'\neval \"$X\"\n"), "hi\n")
-        XCTAssertEqual(try runShell("eval 'eval \"eval \\\"echo deep\\\"\"'\n"), "deep\n")
+        #expect((try runShell("X='echo hi'\neval \"$X\"\n")) == "hi\n")
+        #expect((try runShell("eval 'eval \"eval \\\"echo deep\\\"\"'\n")) == "deep\n")
     }
 
     // MARK: - Harness

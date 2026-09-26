@@ -19,7 +19,7 @@ extension LocalShellSession {
 
         // Get suggestions if cache is empty
         if state.suggestions.isEmpty {
-            state.suggestions = QuickConnectSuggestionProvider.shared.getSuggestions(
+            state.suggestions = QuickConnectSuggestionProvider.shared.suggestions(
                 matching: extraction.completableText,
                 mode: state.matchingMode
             )
@@ -46,7 +46,7 @@ extension LocalShellSession {
             return
         }
 
-        let suggestions = QuickConnectSuggestionProvider.shared.getSuggestions(
+        let suggestions = QuickConnectSuggestionProvider.shared.suggestions(
             matching: extraction.completableText,
             mode: .prefix
         )

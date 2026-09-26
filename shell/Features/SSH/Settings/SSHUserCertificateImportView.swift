@@ -18,7 +18,7 @@ struct SSHUserCertificateImportView: View {
     private nonisolated static let logger = Logger(subsystem: "dev.chr33s.shell", category: "SSHCertImport")
 
     @Environment(\.dismiss) var dismiss
-    @StateObject private var sshKeyManager = SSHKeyManager.shared
+    @State private var sshKeyManager = SSHKeyManager.shared
 
     /// When set, the certificate must certify this key. When nil, the owning
     /// key is located automatically from the embedded public key.

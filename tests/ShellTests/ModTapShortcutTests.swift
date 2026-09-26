@@ -2,12 +2,14 @@
 // run against the iOS key interpretation only.
 #if os(iOS) && !targetEnvironment(macCatalyst)
 import UIKit
-import XCTest
+import Foundation
+import Testing
 
 @testable import Shell
 
 @MainActor
-final class ModTapShortcutTests: XCTestCase {
+@Suite
+final class ModTapShortcutTests {
     private final class HardwareKey: UIKey {
         let usage: UIKeyboardHIDUsage
         let unmodified: String
@@ -36,16 +38,17 @@ final class ModTapShortcutTests: XCTestCase {
         -> (action: String?, modifiers: UIKeyModifierFlags, text: String) {
         var state = ModTapState(sourceKey: source, holdModifier: hold, startedAt: 10, threshold: 0.2)
         if timedHold { state.advance(to: 11) } else { state.useInChord() }
-        let code = try XCTUnwrap(KeyCode(uiKey: key, modifiers: key.modifierFlags))
+        let code = try #require(KeyCode(uiKey: key, modifiers: key.modifierFlags))
         let original = KeyTrigger(key: code, modifiers: KeybindModifiers(uiModifierFlags: key.modifierFlags))
         let resolved = original.resolvingShiftedSymbol { bindings[$0] != nil }
         let action = bindings[resolved]
         let modifiers = state.modifiers(hardware: key.modifierFlags, originalShortcutIsBound: action != nil,
             heldKeys: [source])
-        XCTAssertEqual(state.resolution(onRelease: source), .hold)
+        #expect(state.resolution(onRelease: source) == .hold)
         return (action, modifiers, HardwareKeyboardText.text(for: key, modifiers: modifiers))
     }
 
+    @Test
     func testShiftBracketChordsFindDefaultTabBindingsBeforeModTap() throws {
         let bindings: [KeyTrigger: String] = [
             KeyTrigger(key: .leftBrace, modifiers: .command): "previous_tab",
@@ -58,12 +61,13 @@ final class ModTapShortcutTests: XCTestCase {
             ] {
                 let result = try route(HardwareKey(usage, base: base, text: text, modifiers: [.command, .shift]),
                     bindings: bindings, timedHold: timedHold)
-                XCTAssertEqual(result.action, action)
-                XCTAssertEqual(result.modifiers, [.command, .shift])
+                #expect(result.action == action)
+                #expect(result.modifiers == [.command, .shift])
             }
         }
     }
 
+    @Test
     func testTabSymbolBindingsRetainNativeRepeatOwnership() throws {
         for extra: UIKeyModifierFlags in [[], .control, .alternate, [.control, .alternate]] {
             for (usage, base, symbol, code): (UIKeyboardHIDUsage, String, String, KeyCode) in [
@@ -75,79 +79,86 @@ final class ModTapShortcutTests: XCTestCase {
                 let binding = KeyTrigger(key: code, modifiers: KeybindModifiers(uiModifierFlags: flags.subtracting(.shift)))
                 for timedHold in [false, true] {
                     let result = try route(key, bindings: [binding: "switch_tab"], timedHold: timedHold)
-                    XCTAssertEqual(result.action, "switch_tab")
-                    XCTAssertEqual(result.modifiers, flags)
+                    #expect(result.action == "switch_tab")
+                    #expect(result.modifiers == flags)
                     // Production uses this gate to forward the press to UIKit
                     // instead of executing a one-shot tab action locally.
-                    XCTAssertTrue(binding.matchesHardwareChord(key))
+                    #expect(binding.matchesHardwareChord(key))
                 }
             }
         }
     }
 
-    func testSyntheticTabChordCannotBeHandedToUIKit() {
+    @Test
+    func testSyntheticTabChordCannotBeHandedToUIKit() throws {
         let binding = KeyTrigger(key: .rightBrace, modifiers: .command)
         for flags: UIKeyModifierFlags in [[], .shift, [.control, .shift], [.command, .shift, .control]] {
             let key = HardwareKey(.keyboardCloseBracket, base: "]", text: "}", modifiers: flags)
-            XCTAssertFalse(binding.matchesHardwareChord(key))
+            #expect(!(binding.matchesHardwareChord(key)))
         }
     }
 
-    func testExplicitTabChordAlsoRetainsNativeRepeatOwnership() {
+    @Test
+    func testExplicitTabChordAlsoRetainsNativeRepeatOwnership() throws {
         let key = HardwareKey(.keyboardCloseBracket, base: "]", text: "}", modifiers: [.command, .shift])
         let binding = KeyTrigger(key: .rightBracket, modifiers: [.command, .shift])
-        XCTAssertTrue(binding.matchesHardwareChord(key))
+        #expect(binding.matchesHardwareChord(key))
     }
 
-    func testRepurposedCapsLockCorrectsBothTextAndModifiers() {
+    @Test
+    func testRepurposedCapsLockCorrectsBothTextAndModifiers() throws {
         for extra: UIKeyModifierFlags in [[], .shift, .control, [.control, .shift], .alternate] {
             let physical = extra.union(.alphaShift)
             let effective = HardwareKeyboardModifiers.applyingCapsLock(false, to: physical)
-            XCTAssertEqual(effective, extra)
+            #expect(effective == extra)
             let key = HardwareKey(.keyboardA, base: "a", text: "A", modifiers: physical)
             let expected = extra.contains(.shift) ? "A" : "a"
-            XCTAssertEqual(HardwareKeyboardText.text(for: key, modifiers: effective), expected)
-            XCTAssertEqual(HardwareKeyboardText.printableText(
+            #expect(HardwareKeyboardText.text(for: key, modifiers: effective) == expected)
+            let printed = HardwareKeyboardText.printableText(
                 modifiers: effective, fallbackCharacter: "a", translate: {
-                    XCTAssertFalse($0.contains(.alphaShift))
+                    #expect(!$0.contains(.alphaShift))
                     return nil
                 }
-            ), expected)
+            )
+            #expect(printed == expected)
         }
     }
 
-    func testIntentionalCapsLockToggleOverridesEitherOSState() {
+    @Test
+    func testIntentionalCapsLockToggleOverridesEitherOSState() throws {
         for osCapsLock in [false, true] {
             for desiredCapsLock in [false, true] {
                 for shift in [false, true] {
                     var physical: UIKeyModifierFlags = shift ? .shift : []
                     if osCapsLock { physical.insert(.alphaShift) }
                     let effective = HardwareKeyboardModifiers.applyingCapsLock(desiredCapsLock, to: physical)
-                    XCTAssertEqual(effective.contains(.alphaShift), desiredCapsLock)
-                    XCTAssertEqual(effective.contains(.shift), shift)
+                    #expect(effective.contains(.alphaShift) == desiredCapsLock)
+                    #expect(effective.contains(.shift) == shift)
                     let key = HardwareKey(.keyboardA, base: "a", text: osCapsLock != shift ? "A" : "a", modifiers: physical)
-                    XCTAssertEqual(HardwareKeyboardText.text(for: key, modifiers: effective), desiredCapsLock != shift ? "A" : "a")
+                    #expect(HardwareKeyboardText.text(for: key, modifiers: effective) == (desiredCapsLock != shift ? "A" : "a"))
                 }
             }
         }
         let physical: UIKeyModifierFlags = [.command, .shift, .alphaShift]
-        XCTAssertEqual(HardwareKeyboardModifiers.applyingCapsLock(nil, to: physical), physical)
+        #expect(HardwareKeyboardModifiers.applyingCapsLock(nil, to: physical) == physical)
     }
 
-    func testControlShiftCommandUsesLiveCapsStateThenModTapOverride() {
+    @Test
+    func testControlShiftCommandUsesLiveCapsStateThenModTapOverride() throws {
         let command = UIKeyCommand(input: "a", modifierFlags: [.control, .shift], action: NSSelectorFromString("handleControlKey:"))
-        XCTAssertFalse(command.modifierFlags.contains(.alphaShift))
+        #expect(!(command.modifierFlags.contains(.alphaShift)))
         let live = HardwareKeyboardModifiers.applyingCapsLock(true, to: command.modifierFlags)
-        XCTAssertEqual(live, [.control, .shift, .alphaShift])
+        #expect(live == [.control, .shift, .alphaShift])
         for (override, expected): (Bool?, String) in [(nil, "a"), (false, "A"), (true, "a")] {
             let effective = HardwareKeyboardModifiers.applyingCapsLock(override, to: live)
-            XCTAssertEqual(HardwareKeyboardText.printableText(
+            #expect(HardwareKeyboardText.printableText(
                 modifiers: effective, fallbackCharacter: "a", translate: { _ in nil }
-            ), expected)
+            ) == expected)
         }
     }
 
-    func testCapsOnlyCompensationPreservesLayoutSymbolsWithoutOption() {
+    @Test
+    func testCapsOnlyCompensationPreservesLayoutSymbolsWithoutOption() throws {
         for osCapsLock in [false, true] {
             for (usage, base, composed, shift): (UIKeyboardHIDUsage, String, String, Bool) in [
                 (.keyboard3, "3", "§", true),
@@ -160,19 +171,21 @@ final class ModTapShortcutTests: XCTestCase {
                 if osCapsLock { physical.insert(.alphaShift) }
                 let effective = HardwareKeyboardModifiers.applyingCapsLock(!osCapsLock, to: physical)
                 let key = HardwareKey(usage, base: base, text: composed, modifiers: physical)
-                XCTAssertEqual(HardwareKeyboardText.text(for: key, modifiers: effective), composed)
+                #expect(HardwareKeyboardText.text(for: key, modifiers: effective) == composed)
             }
         }
     }
 
-    func testCapsOnlyCompensationPreservesControlBytesAndSentinels() {
+    @Test
+    func testCapsOnlyCompensationPreservesControlBytesAndSentinels() throws {
         for text in ["\u{01}", "UIKeyInputEscape"] {
             let key = HardwareKey(.keyboardA, base: "a", text: text, modifiers: [.control, .alphaShift])
-            XCTAssertEqual(HardwareKeyboardText.text(for: key, modifiers: .control), text)
+            #expect(HardwareKeyboardText.text(for: key, modifiers: .control) == text)
         }
     }
 
-    func testCapsOnlyCompensationPreservesOptionSymbolsAndDeadKeys() {
+    @Test
+    func testCapsOnlyCompensationPreservesOptionSymbolsAndDeadKeys() throws {
         for osCapsLock in [false, true] {
             for (usage, base, composed, shift): (UIKeyboardHIDUsage, String, String, Bool) in [
                 (.keyboard1, "1", "¡", false),
@@ -186,29 +199,32 @@ final class ModTapShortcutTests: XCTestCase {
                 if osCapsLock { physical.insert(.alphaShift) }
                 let effective = HardwareKeyboardModifiers.applyingCapsLock(!osCapsLock, to: physical)
                 let key = HardwareKey(usage, base: base, text: composed, modifiers: physical)
-                XCTAssertEqual(HardwareKeyboardText.text(for: key, modifiers: effective), composed)
+                #expect(HardwareKeyboardText.text(for: key, modifiers: effective) == composed)
             }
         }
         let letter = HardwareKey(.keyboardA, base: "a", text: "Å", modifiers: [.alternate, .alphaShift])
-        XCTAssertEqual(HardwareKeyboardText.text(for: letter, modifiers: .alternate), "å")
+        #expect(HardwareKeyboardText.text(for: letter, modifiers: .alternate) == "å")
     }
 
-    func testConsumedOptionStillRetranslatesSymbolFromBase() {
+    @Test
+    func testConsumedOptionStillRetranslatesSymbolFromBase() throws {
         let key = HardwareKey(.keyboard1, base: "1", text: "¡", modifiers: [.alternate, .alphaShift])
-        XCTAssertEqual(HardwareKeyboardText.text(for: key, modifiers: .shift), "!")
+        #expect(HardwareKeyboardText.text(for: key, modifiers: .shift) == "!")
     }
 
-    func testSharedControlSequencePrefixHasNativeDispatchOwner() {
+    @Test
+    func testSharedControlSequencePrefixHasNativeDispatchOwner() throws {
         let prefix = KeyTrigger(key: .a, modifiers: .option)
         let handler = NSSelectorFromString("handleKeybindCommand:")
         // Generated for Option+A -> Option+A even though the direct ctrl_a
         // action alone would not generate a command.
         let commands = [UIKeyCommand(input: "a", modifierFlags: .alternate, action: handler)]
-        XCTAssertTrue(prefix.hasKeyCommand(in: commands, action: handler))
-        XCTAssertFalse(prefix.hasKeyCommand(in: commands, action: NSSelectorFromString("handleControlKey:")))
-        XCTAssertFalse(KeyTrigger(key: .a, modifiers: [.option, .shift]).hasKeyCommand(in: commands, action: handler))
+        #expect(prefix.hasKeyCommand(in: commands, action: handler))
+        #expect(!(prefix.hasKeyCommand(in: commands, action: NSSelectorFromString("handleControlKey:"))))
+        #expect(!(KeyTrigger(key: .a, modifiers: [.option, .shift]).hasKeyCommand(in: commands, action: handler)))
     }
 
+    @Test
     func testControlPrefixWithoutRegisteredKeybindCommandRemainsLocal() throws {
         let prefix = KeyTrigger(key: .a, modifiers: .option)
         let handler = NSSelectorFromString("handleKeybindCommand:")
@@ -216,15 +232,16 @@ final class ModTapShortcutTests: XCTestCase {
             UIKeyCommand(input: "a", modifierFlags: .control, action: NSSelectorFromString("handleControlKey:")),
             UIKeyCommand(input: "b", modifierFlags: .alternate, action: handler)
         ]
-        XCTAssertFalse(prefix.hasKeyCommand(in: commands, action: handler))
-        XCTAssertFalse(prefix.hasKeyCommand(in: [], action: handler))
-        let chord = try XCTUnwrap(ModifierPrintableChord(
+        #expect(!(prefix.hasKeyCommand(in: commands, action: handler)))
+        #expect(!(prefix.hasKeyCommand(in: [], action: handler)))
+        let chord = try #require(ModifierPrintableChord(
             hardware: .alternate, state: nil, originalShortcutIsBound: true,
             heldKeys: [.keyboardLeftAlt], optionActsAsAlt: true, originalControlCharacter: 1
         ))
-        XCTAssertEqual(chord.controlCharacter, 1)
+        #expect(chord.controlCharacter == 1)
     }
 
+    @Test
     func testEveryAdditionalModifierCombinationPreservesLetterBinding() throws {
         for extra: UIKeyModifierFlags in [
             .shift, .alternate, .control, [.shift, .alternate],
@@ -237,11 +254,12 @@ final class ModTapShortcutTests: XCTestCase {
             let trigger = KeyTrigger(key: .v, modifiers: KeybindModifiers(uiModifierFlags: modifiers))
             let result = try route(HardwareKey(.keyboardV, base: "v", text: text, modifiers: modifiers),
                 bindings: [trigger: "paste"])
-            XCTAssertEqual(result.action, "paste", "Modifiers: \(modifiers)")
-            XCTAssertEqual(result.modifiers, modifiers)
+            #expect(result.action == "paste", "Modifiers: \(modifiers)")
+            #expect(result.modifiers == modifiers)
         }
     }
 
+    @Test
     func testCommandOptionBracketsFindGroupBindingsWithoutShiftAlias() throws {
         for (usage, base, text, code): (UIKeyboardHIDUsage, String, String, KeyCode) in [
             (.keyboardOpenBracket, "[", "“", .leftBracket),
@@ -250,11 +268,12 @@ final class ModTapShortcutTests: XCTestCase {
             let trigger = KeyTrigger(key: code, modifiers: [.command, .option])
             let result = try route(HardwareKey(usage, base: base, text: text, modifiers: [.command, .alternate]),
                 bindings: [trigger: "switch_group"])
-            XCTAssertEqual(result.action, "switch_group")
-            XCTAssertEqual(result.modifiers, [.command, .alternate])
+            #expect(result.action == "switch_group")
+            #expect(result.modifiers == [.command, .alternate])
         }
     }
 
+    @Test
     func testShiftedSymbolAliasesRetainOptionAndControl() throws {
         for extra: UIKeyModifierFlags in [.alternate, .control, [.alternate, .control]] {
             let modifiers = extra.union([.command, .shift])
@@ -266,39 +285,43 @@ final class ModTapShortcutTests: XCTestCase {
                 let trigger = KeyTrigger(key: code, modifiers: KeybindModifiers(uiModifierFlags: modifiers.subtracting(.shift)))
                 let result = try route(HardwareKey(usage, base: base, text: symbol, modifiers: modifiers),
                     bindings: [trigger: "custom_action"])
-                XCTAssertEqual(result.action, "custom_action")
-                XCTAssertEqual(result.modifiers, modifiers)
+                #expect(result.action == "custom_action")
+                #expect(result.modifiers == modifiers)
             }
         }
     }
 
+    @Test
     func testExplicitBaseBindingWinsOverSymbolAlias() throws {
         let result = try route(HardwareKey(.keyboardOpenBracket, base: "[", text: "{", modifiers: [.command, .shift]),
             bindings: [
                 KeyTrigger(key: .leftBracket, modifiers: [.command, .shift]): "custom_action",
                 KeyTrigger(key: .leftBrace, modifiers: .command): "previous_tab"
             ])
-        XCTAssertEqual(result.action, "custom_action")
-        XCTAssertEqual(result.modifiers, [.command, .shift])
+        #expect(result.action == "custom_action")
+        #expect(result.modifiers == [.command, .shift])
     }
 
+    @Test
     func testLessModifiedShortcutCannotClaimCombinedChord() throws {
         for extra: UIKeyModifierFlags in [.alternate, .control, [.alternate, .control]] {
             let modifiers = extra.union([.command, .shift])
             let result = try route(HardwareKey(.keyboardOpenBracket, base: "[", text: "{", modifiers: modifiers),
                 bindings: [KeyTrigger(key: .leftBrace, modifiers: .command): "previous_tab"])
-            XCTAssertNil(result.action)
-            XCTAssertEqual(result.modifiers, modifiers.subtracting(.command).union(.control))
+            #expect((result.action) == nil)
+            #expect(result.modifiers == modifiers.subtracting(.command).union(.control))
         }
     }
 
+    @Test
     func testUnboundCombinedChordStillUsesHoldModifier() throws {
         let result = try route(HardwareKey(.keyboardCloseBracket, base: "]", text: "}", modifiers: [.command, .shift]),
             bindings: [:])
-        XCTAssertNil(result.action)
-        XCTAssertEqual(result.modifiers, [.control, .shift])
+        #expect((result.action) == nil)
+        #expect(result.modifiers == [.control, .shift])
     }
 
+    @Test
     func testOptionToShiftRebuildsLettersSymbolsAndDeadKeys() throws {
         for (usage, base, composed, expected): (UIKeyboardHIDUsage, String, String, String) in [
             (.keyboardA, "a", "å", "A"),
@@ -308,60 +331,67 @@ final class ModTapShortcutTests: XCTestCase {
         ] {
             let result = try route(HardwareKey(usage, base: base, text: composed, modifiers: .alternate),
                 bindings: [:], source: .keyboardLeftAlt, hold: .shift)
-            XCTAssertNil(result.action)
-            XCTAssertEqual(result.modifiers, .shift)
-            XCTAssertEqual(result.text, expected)
+            #expect((result.action) == nil)
+            #expect(result.modifiers == .shift)
+            #expect(result.text == expected)
         }
     }
 
+    @Test
     func testConsumedControlDoesNotLeakOriginalControlByte() throws {
         let result = try route(HardwareKey(.keyboardA, base: "a", text: "\u{01}", modifiers: .control),
             bindings: [:], source: .keyboardLeftControl, hold: .shift)
-        XCTAssertEqual(result.modifiers, .shift)
-        XCTAssertEqual(result.text, "A")
+        #expect(result.modifiers == .shift)
+        #expect(result.text == "A")
     }
 
+    @Test
     func testSyntheticShiftUsesLayoutBaseRatherThanPhysicalUSKey() throws {
         // A layout where physical Q types a; synthetic Shift must send A.
         let result = try route(HardwareKey(.keyboardQ, base: "a", text: "å", modifiers: .alternate),
             bindings: [:], source: .keyboardLeftAlt, hold: .shift)
-        XCTAssertEqual(result.text, "A")
+        #expect(result.text == "A")
         let nonASCII = try route(HardwareKey(.keyboardQuote, base: "ä", text: "æ", modifiers: .alternate),
             bindings: [:], source: .keyboardLeftAlt, hold: .shift)
-        XCTAssertEqual(nonASCII.text, "Ä")
+        #expect(nonASCII.text == "Ä")
     }
 
+    @Test
     func testSyntheticShiftAndCapsLockUseEffectiveCase() throws {
         let result = try route(HardwareKey(.keyboardA, base: "a", text: "Å", modifiers: [.alternate, .alphaShift]),
             bindings: [:], source: .keyboardLeftAlt, hold: .shift)
-        XCTAssertEqual(result.modifiers, [.shift, .alphaShift])
-        XCTAssertEqual(result.text, "a")
+        #expect(result.modifiers == [.shift, .alphaShift])
+        #expect(result.text == "a")
     }
 
+    @Test
     func testUnchangedOptionChordKeepsComposedText() throws {
         let key = HardwareKey(.keyboardA, base: "a", text: "å", modifiers: .alternate)
-        XCTAssertEqual(HardwareKeyboardText.text(for: key, modifiers: .alternate), "å")
+        #expect(HardwareKeyboardText.text(for: key, modifiers: .alternate) == "å")
         let result = try route(key, bindings: [KeyTrigger(key: .a, modifiers: .option): "custom_action"],
             source: .keyboardLeftAlt, hold: .shift)
-        XCTAssertEqual(result.action, "custom_action")
-        XCTAssertEqual(result.modifiers, .alternate)
-        XCTAssertEqual(result.text, "å")
+        #expect(result.action == "custom_action")
+        #expect(result.modifiers == .alternate)
+        #expect(result.text == "å")
     }
 
-    func testNativeLayoutTranslationWinsOverUSShiftFallback() {
+    @Test
+    func testNativeLayoutTranslationWinsOverUSShiftFallback() throws {
         let key = HardwareKey(.keyboard1, base: "1", text: "¡", modifiers: .alternate)
-        XCTAssertEqual(HardwareKeyboardText.text(for: key, modifiers: .shift, layoutText: "&"), "&")
+        #expect(HardwareKeyboardText.text(for: key, modifiers: .shift, layoutText: "&") == "&")
     }
 
-    func testOptionHeldIndependentlyKeepsItsComposedLetter() {
+    @Test
+    func testOptionHeldIndependentlyKeepsItsComposedLetter() throws {
         let key = HardwareKey(.keyboardA, base: "a", text: "å", modifiers: .alternate)
-        XCTAssertEqual(HardwareKeyboardText.text(for: key, modifiers: [.alternate, .shift]), "Å")
+        #expect(HardwareKeyboardText.text(for: key, modifiers: [.alternate, .shift]) == "Å")
     }
 
-    func testControlOnlyTerminalChordDoesNotUseCommandSymbolAliases() {
+    @Test
+    func testControlOnlyTerminalChordDoesNotUseCommandSymbolAliases() throws {
         let trigger = KeyTrigger(key: .leftBracket, modifiers: [.control, .shift])
         let alias = KeyTrigger(key: .leftBrace, modifiers: .control)
-        XCTAssertEqual(trigger.resolvingShiftedSymbol { $0 == alias }, trigger)
+        #expect(trigger.resolvingShiftedSymbol { $0 == alias } == trigger)
     }
 }
 #endif

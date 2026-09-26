@@ -535,7 +535,9 @@ final class LocalShellSession: TerminalSession, EmbeddedConnectionConfigProvidin
         // tab. The strong capture keeps the session alive until teardown
         // completes; every member touched below is nonisolated.
         let session = self
-        DispatchQueue.global(qos: .userInitiated).async {
+        // Dedicated thread: the body waits on a semaphore for the command
+        // queue to drain, which must not run on the cooperative pool.
+        Thread.detachNewThread {
 
             // Wait for runExternalCommand()/runScript() to finish cleanup.
             // After the kills above this completes quickly; the timeout is a
@@ -673,7 +675,8 @@ final class LocalShellSession: TerminalSession, EmbeddedConnectionConfigProvidin
 
         // Don't queue on commandQueue - it's blocked by ios_system_async wait!
         // Handle interruption directly on a background thread
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        // Dedicated thread: interruption talks to ios_system, which can block.
+        Thread.detachNewThread { [weak self] in
             guard let self = self else { return }
 
             // Get current command state
@@ -789,7 +792,8 @@ final class LocalShellSession: TerminalSession, EmbeddedConnectionConfigProvidin
                 // runExternalCommand clears currentCommand under pidLock before
                 // calling ios_command_release, so if we see a non-nil pointer
                 // here it is guaranteed to still be valid.
-                DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                Task { [weak self] in
+                    try? await Task.sleep(for: .milliseconds(300))
                     guard let self = self else { return }
 
                     self.pidLock.withLock {

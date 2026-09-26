@@ -1,10 +1,12 @@
-import XCTest
+import Foundation
+import Testing
 import ShellControlProtocol
 import ShellControlSecurity
 import ShellControlHTTPServer
 @testable import ShellPushRelay
 
-final class RelayServiceTests: XCTestCase {
+@Suite
+final class RelayServiceTests {
     private let token = String(repeating: "ab", count: 32)
     private let topic = "dev.chr33s.shell"
 
@@ -19,8 +21,8 @@ final class RelayServiceTests: XCTestCase {
         let (status, value) = try await post(service, "/v1/capabilities", .object([
             "apns_token": .string(token), "topic": .string(topic), "environment": "development"
         ]))
-        XCTAssertEqual(status, 201)
-        return try XCTUnwrap(value["capability"]?.stringValue)
+        #expect(status == 201)
+        return try #require(value["capability"]?.stringValue)
     }
 
     private func hint(_ capability: String, requestID: ControlID = .random(), event: String = "approval.created") -> JSONValue {
@@ -31,72 +33,77 @@ final class RelayServiceTests: XCTestCase {
         ])
     }
 
+    @Test
     func testCapabilityDeliversOneGenericHintToItsSealedToken() async throws {
         let apns = RecordingRelayAPNs()
         let service = RelayService(key: OriginSigningKey(), configuration: .init(allowedTopics: [topic]), sender: apns)
         let sealed = try await capability(service)
         let requestID = ControlID.random()
         let (status, _) = try await post(service, "/v1/push", hint(sealed, requestID: requestID))
-        XCTAssertEqual(status, 202)
+        #expect(status == 202)
         let deliveries = await apns.deliveries
-        XCTAssertEqual(deliveries.count, 1)
-        XCTAssertEqual(deliveries.first?.token, token)
-        XCTAssertEqual(deliveries.first?.topic, topic)
-        let payload = try JSONValue.parse(try XCTUnwrap(deliveries.first?.payload))
-        XCTAssertEqual(payload["request_id"]?.stringValue, requestID.rawValue)
-        XCTAssertEqual(payload["aps"]?["category"]?.stringValue, PushCategory.approval)
-        XCTAssertEqual(payload["aps"]?["alert"]?["title"]?.stringValue, "Approval needed")
+        #expect(deliveries.count == 1)
+        #expect(deliveries.first?.token == token)
+        #expect(deliveries.first?.topic == topic)
+        let payload = try JSONValue.parse(try #require(deliveries.first?.payload))
+        #expect(payload["request_id"]?.stringValue == requestID.rawValue)
+        #expect(payload["aps"]?["category"]?.stringValue == PushCategory.approval)
+        #expect(payload["aps"]?["alert"]?["title"]?.stringValue == "Approval needed")
     }
 
+    @Test
     func testQuestionHintIsGenericAndDistinct() async throws {
         let apns = RecordingRelayAPNs()
         let service = RelayService(key: OriginSigningKey(), configuration: .init(allowedTopics: [topic]), sender: apns)
         let sealed = try await capability(service)
         let requestID = ControlID.random()
-        var body = try XCTUnwrap(hint(sealed, requestID: requestID, event: "input.created").objectValue)
+        var body = try #require(hint(sealed, requestID: requestID, event: "input.created").objectValue)
         body["presentation_class"] = "input"
         let (status, _) = try await post(service, "/v1/push", .object(body))
-        XCTAssertEqual(status, 202)
+        #expect(status == 202)
         let deliveries = await apns.deliveries
-        let payload = try JSONValue.parse(try XCTUnwrap(deliveries.first?.payload))
-        XCTAssertEqual(payload["event"]?.stringValue, "input.created")
-        XCTAssertEqual(payload["request_id"]?.stringValue, requestID.rawValue)
-        XCTAssertEqual(payload["aps"]?["alert"]?["title"]?.stringValue, "Question from an agent")
+        let payload = try JSONValue.parse(try #require(deliveries.first?.payload))
+        #expect(payload["event"]?.stringValue == "input.created")
+        #expect(payload["request_id"]?.stringValue == requestID.rawValue)
+        #expect(payload["aps"]?["alert"]?["title"]?.stringValue == "Question from an agent")
         // The pairing of event and presentation is fixed.
         body["presentation_class"] = "approval"
         let (mismatched, _) = try await post(service, "/v1/push", .object(body))
-        XCTAssertEqual(mismatched, 400)
+        #expect(mismatched == 400)
     }
 
+    @Test
     func testUnconfiguredTopicsAndArbitraryTextAreRefused() async throws {
         let service = RelayService(key: OriginSigningKey(), configuration: .init(allowedTopics: [topic]), sender: RecordingRelayAPNs())
         let (status, _) = try await post(service, "/v1/capabilities", .object([
             "apns_token": .string(token), "topic": "com.example.other", "environment": "development"
         ]))
-        XCTAssertEqual(status, 403)
+        #expect(status == 403)
         let sealed = try await capability(service)
-        var withText = try XCTUnwrap(hint(sealed).objectValue)
+        var withText = try #require(hint(sealed).objectValue)
         withText["alert"] = "Run rm -rf?"
         let (textStatus, _) = try await post(service, "/v1/push", .object(withText))
-        XCTAssertEqual(textStatus, 400, "no caller-supplied alert text")
+        #expect(textStatus == 400, "no caller-supplied alert text")
         let (eventStatus, _) = try await post(service, "/v1/push", hint(sealed, event: "approval.approve"))
-        XCTAssertEqual(eventStatus, 400)
+        #expect(eventStatus == 400)
     }
 
+    @Test
     func testForgedAndExpiredCapabilitiesAreRejected() async throws {
         let clock = Clock()
         let service = RelayService(key: OriginSigningKey(), configuration: .init(allowedTopics: [topic]), sender: RecordingRelayAPNs(), now: { clock.now })
         let other = RelayService(key: OriginSigningKey(), configuration: .init(allowedTopics: [topic]), sender: RecordingRelayAPNs())
         let foreign = try await capability(other)
         let (forgedStatus, _) = try await post(service, "/v1/push", hint(foreign))
-        XCTAssertEqual(forgedStatus, 403)
+        #expect(forgedStatus == 403)
 
         let sealed = try await capability(service)
         clock.advance(PushCapability.lifetime + 1)
         let (expiredStatus, _) = try await post(service, "/v1/push", hint(sealed))
-        XCTAssertEqual(expiredStatus, 410)
+        #expect(expiredStatus == 410)
     }
 
+    @Test
     func testRateLimitIsPerCapability() async throws {
         let service = RelayService(key: OriginSigningKey(), configuration: .init(allowedTopics: [topic]), sender: RecordingRelayAPNs())
         let sealed = try await capability(service)
@@ -104,13 +111,14 @@ final class RelayServiceTests: XCTestCase {
         for _ in 0..<(PushCapability.RateClass.standard.perMinute + 1) {
             statuses.append(try await post(service, "/v1/push", hint(sealed)).0)
         }
-        XCTAssertEqual(statuses.last, 429)
+        #expect(statuses.last == 429)
         let fresh = try await capability(service)
         let freshStatus = try await post(service, "/v1/push", hint(fresh)).0
-        XCTAssertEqual(freshStatus, 202)
+        #expect(freshStatus == 202)
     }
 
     /// One noisy caller cannot lock every other iPhone out of registering.
+    @Test
     func testCapabilityRateLimitIsPerClient() async throws {
         let service = RelayService(
             key: OriginSigningKey(),
@@ -131,13 +139,14 @@ final class RelayServiceTests: XCTestCase {
         }
         var last = 0
         for _ in 0..<25 { last = try await register(from: "203.0.113.9") }
-        XCTAssertEqual(last, 429)
+        #expect(last == 429)
         let other = try await register(from: "198.51.100.4")
-        XCTAssertEqual(other, 201)
+        #expect(other == 201)
     }
 
     /// Behind a local front end with no configured header, every request is
     /// the proxy: it shares the wider bucket instead of a per-client one.
+    @Test
     func testCapabilityRateLimitBehindUnconfiguredProxyIsShared() async throws {
         let service = RelayService(key: OriginSigningKey(), configuration: .init(allowedTopics: [topic]), sender: RecordingRelayAPNs())
         var statuses: [Int] = []
@@ -151,18 +160,19 @@ final class RelayServiceTests: XCTestCase {
             ))
             statuses.append(response.status)
         }
-        XCTAssertEqual(statuses[119], 201)
-        XCTAssertEqual(statuses[120], 429)
+        #expect(statuses[119] == 201)
+        #expect(statuses[120] == 429)
     }
 
     /// A relay outage costs a hint, never correctness: the relay's failure is
     /// reported, and it holds nothing to lose.
+    @Test
     func testAPNsFailureIsReportedAsUnavailable() async throws {
         struct Failing: RelayAPNsSending { func send(_ delivery: RelayDelivery) async throws { throw URLError(.timedOut) } }
         let service = RelayService(key: OriginSigningKey(), configuration: .init(allowedTopics: [topic]), sender: Failing())
         let sealed = try await capability(service)
         let status = try await post(service, "/v1/push", hint(sealed)).0
-        XCTAssertEqual(status, 503)
+        #expect(status == 503)
     }
 }
 

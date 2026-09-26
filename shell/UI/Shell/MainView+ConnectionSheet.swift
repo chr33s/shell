@@ -97,7 +97,7 @@ extension MainView {
         // reach a profile connect: the connection sheet (via `onProfileConnect`
         // above) and the notification/deep-link path. `recordUsage` is not
         // idempotent (`useCount += 1` plus a profile write), and `useCount` is a
-        // live sort key for `ProfileSortOrder.mostUsed` and `getSuggestions`, so
+        // live sort key for `ProfileSortOrder.mostUsed` and `suggestions`, so
         // callers must not record usage again before or after calling this.
         ConnectionProfileManager.shared.recordUsage(id: profile.id)
 

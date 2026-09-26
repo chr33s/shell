@@ -56,8 +56,35 @@ extension Ghostty {
         case none, left, right, both
     }
 
-    /// The UIView implementation for a terminal surface on iOS
-    final class TerminalView: SplitPaneView, ObservableObject, UITextInput {
+    /// The UIView implementation for a terminal surface on iOS.
+    ///
+    /// UI state that SwiftUI and UIKit observers read lives on `observed`,
+    /// not on this view. A `UIView`'s stored properties are the wrong place
+    /// for `@Observable`: tracking every ivar would notify on scrollbar and
+    /// layout writes. Callers still use `title`, `progressReport`, and the
+    /// other former `@Published` names; those getters touch `observed`, so
+    /// `Observations` and SwiftUI both see the writes.
+    final class TerminalView: SplitPaneView, UITextInput {
+
+        /// Presentation fields previously published with `@Published`.
+        /// Equality-guarded writes live on the view's setters so a repeated
+        /// assignment does not wake observers.
+        @Observable
+        final class ObservedState {
+            var title: String = "ghostty"
+            var pwd: String?
+            var cellSize: CGSize = .zero
+            var error: Error?
+            var searchState: Ghostty.SearchState?
+            var isMouseCaptured: Bool = false
+            var progressReport: Ghostty.Action.ProgressReport?
+            var connectionHealth: ConnectionHealth?
+            var restorationState: RestorationState = .none
+            var recoveryStatus: RecoveryStatusPresentation?
+            var multiplexerScrollActive: Bool = false
+        }
+
+        private let observed = ObservedState()
 
         struct SelectionCell: Equatable {
             let col: Int
@@ -167,10 +194,7 @@ extension Ghostty {
         var cancellables = Set<AnyCancellable>()
 
         // Window focus observers (multi-window cursor syncing)
-        private weak var observedWindow: UIWindow?
-        private weak var observedScene: UIScene?
-        private var windowFocusObservers: [NSObjectProtocol] = []
-        private var windowActiveOverride: Bool?
+        private let windowFocus = TerminalWindowFocus()
 
         /// True while a keyboard-owning overlay (the vertical tab sidebar, the
         /// connection sidebar, any sheet — see `MainView.isAnySheetPresented`)
@@ -195,9 +219,15 @@ extension Ghostty {
 
         // MARK: Published State
 
-        /// The current title of the surface
-        @Published var title: String = "ghostty" {
-            didSet { refreshPanePresentationTitle() }
+        /// The current title of the surface.
+        var title: String {
+            get { observed.title }
+            set {
+                if observed.title != newValue {
+                    observed.title = newValue
+                }
+                refreshPanePresentationTitle()
+            }
         }
 
         /// Title set by the user via the context menu (overrides session-provided title)
@@ -252,44 +282,67 @@ extension Ghostty {
         /// gate is up without triggering SwiftUI scene updates (see
         /// `Ghostty.isAppBackgroundedAtomic`). On foreground return,
         /// `replayCachedSessionStateOnForeground()` pushes this into the
-        /// `@Published pwd` so the UI catches up.
+        /// observed `pwd` so the UI catches up.
         var sessionProvidedPwd: String?
 
-        /// The current working directory
-        @Published var pwd: String?
+        /// The current working directory.
+        var pwd: String? {
+            get { observed.pwd }
+            set {
+                guard observed.pwd != newValue else { return }
+                observed.pwd = newValue
+            }
+        }
 
-        /// The cell size of this surface
-        @Published var cellSize: CGSize = .zero
+        /// The cell size of this surface.
+        var cellSize: CGSize {
+            get { observed.cellSize }
+            set {
+                guard observed.cellSize != newValue else { return }
+                observed.cellSize = newValue
+            }
+        }
 
-        /// Any error while initializing the surface
-        @Published var error: Error?
+        /// Any error while initializing the surface.
+        var error: Error? {
+            get { observed.error }
+            set { observed.error = newValue }
+        }
 
-        /// Search state for scrollback search
-        @Published var searchState: Ghostty.SearchState? {
-            didSet {
+        /// Search state for scrollback search.
+        var searchState: Ghostty.SearchState? {
+            get { observed.searchState }
+            set {
+                if observed.searchState !== newValue {
+                    observed.searchState = newValue
+                }
                 #if !targetEnvironment(macCatalyst)
                 syncSelectionHandlesForSurfaceActivity()
                 #endif
             }
         }
 
-        /// Whether mouse capture mode is currently active (tmux, vim mouse mode)
-        /// Used to hide scroll bars since they cannot be rendered correctly in capture mode
-        @Published var isMouseCaptured: Bool = false {
-            didSet {
+        /// Whether mouse capture mode is currently active (tmux, vim mouse mode).
+        /// Used to hide scroll bars since they cannot be rendered correctly in capture mode.
+        var isMouseCaptured: Bool {
+            get { observed.isMouseCaptured }
+            set {
+                let oldValue = observed.isMouseCaptured
+                if oldValue != newValue {
+                    observed.isMouseCaptured = newValue
+                }
                 updateOutputCoalescingState()
                 // When capture ends, force-reset the tmux scroll observer so
                 // it doesn't keep `isTracking == true` (and thus block
                 // Ghostty's native handleScrollbar values from updating the
                 // indicator) while it sits in `.fading`.
-                if oldValue && !isMouseCaptured {
+                if oldValue && !newValue {
                     multiplexerScrollObserver?.reset()
                 }
-                // The Mouse Capture checkmark reads this flag, and a UIView's
-                // `@Published` is invisible to `@Observable`. Notifying here
-                // covers the app-driven flip (`updateMouseCaptureState()` when
-                // vim or tmux enables mouse reporting), which otherwise only
-                // reaches the menu through a sink re-armed on focus changes.
+                // The Mouse Capture checkmark is not a SwiftUI read of this
+                // flag. Notify here so an app-driven flip (vim or tmux enabling
+                // mouse reporting) reaches the menu without waiting for the
+                // focus-change subscription to re-arm.
                 MenuFocusState.shared.notePaneStateChanged()
             }
         }
@@ -302,15 +355,20 @@ extension Ghostty {
         /// return false and suppressing mouse protocol reports at the ghostty level.
         var mouseCaptureOverrideActive: Bool = false
 
-        /// Progress report state (for OSC 9;4 progress indicators)
-        @Published var progressReport: Ghostty.Action.ProgressReport? {
-            didSet {
-                // Cancel any existing timer
+        /// Progress report state (for OSC 9;4 progress indicators).
+        var progressReport: Ghostty.Action.ProgressReport? {
+            get { observed.progressReport }
+            set {
+                if observed.progressReport != newValue {
+                    observed.progressReport = newValue
+                }
+                // Cancel any existing timer. A repeated report still refreshes
+                // the timeout even when the value itself did not change.
                 progressReportTimer?.invalidate()
                 progressReportTimer = nil
 
                 // If we have a new progress report, start a timer to remove it after 15 seconds
-                if progressReport != nil {
+                if newValue != nil {
                     progressReportTimer = Timer.scheduledTimer(
                         withTimeInterval: 15.0,
                         repeats: false
@@ -336,9 +394,13 @@ extension Ghostty {
 
         var surface: ghostty_surface_t? {
             didSet {
+                surfaceForTeardown = surface
                 if surface != oldValue { invalidateInputDocument(resetDocument: true) }
             }
         }
+        /// Mirror of `surface` for the nonisolated deinit. The live property
+        /// stays main-actor isolated so its didSet can invalidate input.
+        nonisolated(unsafe) private var surfaceForTeardown: ghostty_surface_t?
         var ghosttyApp: Ghostty.App?
 
         /// When set, this view renders a tmux control mode PANE rather than
@@ -559,8 +621,7 @@ extension Ghostty {
 
         // MARK: Input Mode Indicator
         #if !targetEnvironment(macCatalyst)
-        private var inputModeOverlayHost: UIHostingController<InputModeOverlayView>?
-        private var inputModeDismissTask: Task<Void, Never>?
+        private let inputModeOverlay = TerminalTransientOverlay()
         private var inputModeObserver: NSObjectProtocol?
         private var lastInputModePrimaryLanguage: String?
         var hasHardwareInputSourceSwitchAvailable = false
@@ -569,8 +630,7 @@ extension Ghostty {
         private var inputModeChangeCount: Int = 0
 
         // MARK: Mouse Capture Override Overlay
-        private var mouseCaptureOverlayHost: UIHostingController<InputModeOverlayView>?
-        private var mouseCaptureOverlayDismissTask: Task<Void, Never>?
+        private let mouseCaptureOverlay = TerminalTransientOverlay()
         #endif
 
         /// Timestamp of last space insertion for double-space-for-period detection
@@ -651,8 +711,14 @@ extension Ghostty {
         // Connection health for SSH sessions.
         // Mutate via `applyConnectionHealth(_:)` so writes are equality-guarded
         // and suppressed while the app is backgrounded; the cached value is
-        // released to the @Published property by `replayCachedSessionStateOnForeground()`.
-        @Published var connectionHealth: ConnectionHealth?
+        // released to the observed property by `replayCachedSessionStateOnForeground()`.
+        var connectionHealth: ConnectionHealth? {
+            get { observed.connectionHealth }
+            set {
+                guard observed.connectionHealth != newValue else { return }
+                observed.connectionHealth = newValue
+            }
+        }
 
         /// Most recent connection-health value observed from the SSH session.
         /// Cached in a non-observed property so we can keep it up to date while
@@ -690,9 +756,13 @@ extension Ghostty {
             }
         }
 
-        /// Current restoration state (for restored sessions)
-        @Published var restorationState: RestorationState = .none {
-            didSet {
+        /// Current restoration state (for restored sessions).
+        var restorationState: RestorationState {
+            get { observed.restorationState }
+            set {
+                if observed.restorationState != newValue {
+                    observed.restorationState = newValue
+                }
                 #if !targetEnvironment(macCatalyst)
                 syncSelectionHandlesForSurfaceActivity()
                 #endif
@@ -705,7 +775,13 @@ extension Ghostty {
         /// Native recovery status for this terminal, rendered by
         /// `RecoveryStatusStrip` above the surface. Recovery status never
         /// enters the terminal byte stream (docs/specs/mobile-connectivity.md §11).
-        @Published var recoveryStatus: RecoveryStatusPresentation?
+        var recoveryStatus: RecoveryStatusPresentation? {
+            get { observed.recoveryStatus }
+            set {
+                guard observed.recoveryStatus != newValue else { return }
+                observed.recoveryStatus = newValue
+            }
+        }
 
         /// Whether this terminal shows a reconnection overlay
         var showsReconnectionOverlay: Bool {
@@ -1172,12 +1248,10 @@ extension Ghostty {
         var embeddedTrzszReachedRunning: Bool = false
 
         // Scrollbar state
-        var scrollIndicator: UIView?
+        private let scrollIndicator = TerminalScrollIndicator()
         var scrollbarTotal: UInt64 = 0
         var scrollbarOffset: UInt64 = 0
         var scrollbarLen: UInt64 = 0
-        private var scrollIndicatorHideWorkItem: DispatchWorkItem?
-        private var scrollIndicatorRevealDeadline: TimeInterval = 0
         var smoothScrollOffset: CGFloat = 0
         var smoothScrollActive: Bool = false
         var suppressBottomInsetUpdatesForScrollRubberBand: Bool = false
@@ -1196,7 +1270,13 @@ extension Ghostty {
         /// otherwise clobber the multiplexer values, and by TerminalScrollView
         /// to keep the native scroll indicator visible despite mouse capture
         /// being active.
-        @Published var multiplexerScrollActive: Bool = false
+        var multiplexerScrollActive: Bool {
+            get { observed.multiplexerScrollActive }
+            set {
+                guard observed.multiplexerScrollActive != newValue else { return }
+                observed.multiplexerScrollActive = newValue
+            }
+        }
 
         /// Pre-tracking snapshot of native scrollbar state, captured on
         /// the first apply(sample) of a tracking session and restored on
@@ -1340,7 +1420,7 @@ extension Ghostty {
         nonisolated deinit {
             // Safety net - surface should already be freed by cleanup()
             // This handles edge cases where cleanup() wasn't called
-            if let surface = self.surface {
+            if let surface = self.surfaceForTeardown {
                 // Capture as Int to satisfy Sendable requirement (raw pointers aren't Sendable)
                 let surfaceAddress = Int(bitPattern: surface)
                 Task { @MainActor in
@@ -1421,7 +1501,7 @@ extension Ghostty {
             clearCursorRegistration()
             #endif
 
-            unregisterWindowFocusObservers()
+            windowFocus.stop()
 
             // 0.5. Stop spinner animation
             connectionProgress.reset()
@@ -1438,8 +1518,7 @@ extension Ghostty {
             tmuxResumeGateReleaseTask = nil
             tmuxResumeGateReleaseScheduled = false
             outputPipeline.cancel()
-            scrollIndicatorHideWorkItem?.cancel()
-            scrollIndicatorHideWorkItem = nil
+            scrollIndicator.stop()
             keyboardAccessoryController?.tearDown()
             #if !targetEnvironment(macCatalyst)
             pendingDoubleTapActionTask?.cancel()
@@ -1456,8 +1535,8 @@ extension Ghostty {
             selectionLoupe = nil
             selectionMagnifierPoint = nil
 
-            inputModeDismissTask?.cancel()
-            inputModeDismissTask = nil
+            inputModeOverlay.stop()
+            mouseCaptureOverlay.stop()
             if let obs = inputModeObserver {
                 NotificationCenter.default.removeObserver(obs)
                 inputModeObserver = nil
@@ -1906,14 +1985,7 @@ extension Ghostty {
         }
 
         private func setupScrollIndicator() {
-            let indicator = UIView()
-            indicator.backgroundColor = UIColor.white.withAlphaComponent(0.5)
-            indicator.layer.cornerRadius = 2
-            indicator.alpha = 0 // Hidden by default
-            indicator.isUserInteractionEnabled = false
-            addSubview(indicator)
-
-            self.scrollIndicator = indicator
+            scrollIndicator.attach(to: self)
 
             // Observer that drives this same indicator with multiplexer-
             // derived values during mouse-captured scrolling. Hooked to the
@@ -1929,7 +2001,7 @@ extension Ghostty {
                     guard let surface = self?.surface else { return false }
                     return ghostty_surface_is_alternate_active(surface)
                 },
-                // Query the C side directly. The cached @Published
+                // Query the C side directly. The cached observed
                 // `isMouseCaptured` can lag tmux's mouse-on sequence (same
                 // reason the scroll handlers query C directly — see comment
                 // at TerminalViewScroll.swift:425).
@@ -2021,20 +2093,7 @@ extension Ghostty {
         // MARK: - Window Focus Management
 
         private func windowIsActiveForFocus() -> Bool {
-            // The override may only NARROW focus, never claim it while the scene
-            // is not foreground-active. `updateWindowFocusState` leaves it armed
-            // across an app transition to preserve the software keyboard, and a
-            // stale `true` let becomeFirstResponder() present the keyboard under
-            // lock (FrontBoard 0x2BAD45EC).
-            #if !targetEnvironment(macCatalyst)
-            if let scene = window?.windowScene, scene.activationState != .foregroundActive {
-                return false
-            }
-            #endif
-            if let windowActiveOverride {
-                return windowActiveOverride
-            }
-            return windowGenuineFocusSignal()
+            windowFocus.isActive(for: self)
         }
 
         /// Ground-truth "this window is the active/usable one" from live UIKit
@@ -2051,15 +2110,7 @@ extension Ghostty {
         /// non-Catalyst requires the authoritative `activeAppearance` trait only;
         /// Catalyst keeps `isKeyWindow` (reliable there, matching MainView).
         private func windowGenuineFocusSignal() -> Bool {
-            guard let window = window else { return false }
-            if let scene = window.windowScene, scene.activationState != .foregroundActive {
-                return false
-            }
-            #if targetEnvironment(macCatalyst)
-            return window.isKeyWindow
-            #else
-            return traitCollection.activeAppearance == .active
-            #endif
+            windowFocus.genuineSignal(for: self)
         }
 
         override func setWindowActive(_ active: Bool) {
@@ -2074,10 +2125,7 @@ extension Ghostty {
             // By only allowing false after the override has been set to true at least
             // once, we ensure: (1) cold start can't be poisoned regardless of timing,
             // (2) once the window has been active, defocusing works correctly.
-            if !active && windowActiveOverride == nil {
-                return
-            }
-            windowActiveOverride = active
+            guard windowFocus.setActive(active) else { return }
             syncFocusForWindowStateChange()
         }
 
@@ -2202,68 +2250,27 @@ extension Ghostty {
 
         private func registerWindowFocusObservers() {
             guard let window = window else { return }
-            if observedWindow === window { return }
-
-            unregisterWindowFocusObservers()
-            observedWindow = window
-            observedScene = window.windowScene
-
-            let center = NotificationCenter.default
-            let didBecomeKey = center.addObserver(
-                forName: UIWindow.didBecomeKeyNotification,
-                object: window,
-                queue: .main
-            ) { [weak self] _ in
-                MainActor.assumeIsolated { self?.syncFocusForWindowStateChange() }
-            }
-            let didResignKey = center.addObserver(
-                forName: UIWindow.didResignKeyNotification,
-                object: window,
-                queue: .main
-            ) { [weak self] _ in
-                MainActor.assumeIsolated { self?.syncFocusForWindowStateChange() }
-            }
-
-            windowFocusObservers = [didBecomeKey, didResignKey]
-
-            if let scene = observedScene {
-                let didActivate = center.addObserver(
-                    forName: UIScene.didActivateNotification,
-                    object: scene,
-                    queue: .main
-                ) { [weak self] _ in
-                    MainActor.assumeIsolated {
-                        #if !targetEnvironment(macCatalyst)
-                        self?.isPreservingResponderAcrossSceneDeactivation = false
-                        #endif
-                        self?.syncFocusForWindowStateChange()
-                    }
+            windowFocus.observe(window) { [weak self] event in
+                guard let self else { return }
+                switch event {
+                case .windowChanged:
+                    self.syncFocusForWindowStateChange()
+                case .sceneActivated:
+                    #if !targetEnvironment(macCatalyst)
+                    self.isPreservingResponderAcrossSceneDeactivation = false
+                    #endif
+                    self.syncFocusForWindowStateChange()
+                case .sceneDeactivating:
+                    #if !targetEnvironment(macCatalyst)
+                    self.isPreservingResponderAcrossSceneDeactivation = true
+                    #endif
+                    self.syncFocusForWindowStateChange(sceneIsDeactivating: true)
                 }
-                let willDeactivate = center.addObserver(
-                    forName: UIScene.willDeactivateNotification,
-                    object: scene,
-                    queue: .main
-                ) { [weak self] _ in
-                    MainActor.assumeIsolated {
-                        #if !targetEnvironment(macCatalyst)
-                        self?.isPreservingResponderAcrossSceneDeactivation = true
-                        #endif
-                        self?.syncFocusForWindowStateChange(sceneIsDeactivating: true)
-                    }
-                }
-                windowFocusObservers.append(contentsOf: [didActivate, willDeactivate])
             }
         }
 
         private func unregisterWindowFocusObservers() {
-            guard !windowFocusObservers.isEmpty else { return }
-            let center = NotificationCenter.default
-            for token in windowFocusObservers {
-                center.removeObserver(token)
-            }
-            windowFocusObservers.removeAll()
-            observedWindow = nil
-            observedScene = nil
+            windowFocus.stop()
         }
 
         /// Background queue for Ghostty surface API calls that may block on the termio mailbox.
@@ -2968,49 +2975,7 @@ extension Ghostty {
         }
 
         func showInputModeOverlay(_ text: String) {
-            inputModeDismissTask?.cancel()
-
-            if let host = inputModeOverlayHost {
-                // Update existing overlay
-                host.rootView = InputModeOverlayView(text: text)
-                host.view.layer.removeAllAnimations()
-                host.view.alpha = 1.0
-            } else {
-                // Create overlay using same hosting pattern as DimensionOverlayView
-                let host = UIHostingController(rootView: InputModeOverlayView(text: text))
-                host.sizingOptions = [.intrinsicContentSize]
-                host.view.backgroundColor = .clear
-                host.view.translatesAutoresizingMaskIntoConstraints = false
-
-                addSubview(host.view)
-                NSLayoutConstraint.activate([
-                    host.view.centerXAnchor.constraint(equalTo: centerXAnchor),
-                    host.view.centerYAnchor.constraint(equalTo: centerYAnchor)
-                ])
-                inputModeOverlayHost = host
-
-                host.view.alpha = 0
-                UIView.animate(withDuration: 0.15, delay: 0, options: .curveEaseOut) {
-                    host.view.alpha = 1.0
-                }
-            }
-
-            // Auto-dismiss after 0.5s
-            inputModeDismissTask = Task { @MainActor [weak self] in
-                try? await Task.sleep(nanoseconds: 500_000_000)
-                guard !Task.isCancelled, let self else { return }
-                self.hideInputModeOverlay()
-            }
-        }
-
-        private func hideInputModeOverlay() {
-            guard let host = inputModeOverlayHost else { return }
-            UIView.animate(withDuration: 0.3, delay: 0, options: .curveEaseIn, animations: {
-                host.view.alpha = 0
-            }, completion: { [weak self] _ in
-                host.view.removeFromSuperview()
-                self?.inputModeOverlayHost = nil
-            })
+            inputModeOverlay.show(text, in: self, for: .milliseconds(500))
         }
 
         // MARK: - Mouse Capture Override Overlay
@@ -3020,46 +2985,7 @@ extension Ghostty {
                 ? String(localized: "Mouse Capture Off")
                 : String(localized: "Mouse Capture On")
 
-            mouseCaptureOverlayDismissTask?.cancel()
-
-            if let host = mouseCaptureOverlayHost {
-                host.rootView = InputModeOverlayView(text: text)
-                host.view.layer.removeAllAnimations()
-                host.view.alpha = 1.0
-            } else {
-                let host = UIHostingController(rootView: InputModeOverlayView(text: text))
-                host.sizingOptions = [.intrinsicContentSize]
-                host.view.backgroundColor = .clear
-                host.view.translatesAutoresizingMaskIntoConstraints = false
-
-                addSubview(host.view)
-                NSLayoutConstraint.activate([
-                    host.view.centerXAnchor.constraint(equalTo: centerXAnchor),
-                    host.view.centerYAnchor.constraint(equalTo: centerYAnchor)
-                ])
-                mouseCaptureOverlayHost = host
-
-                host.view.alpha = 0
-                UIView.animate(withDuration: 0.15, delay: 0, options: .curveEaseOut) {
-                    host.view.alpha = 1.0
-                }
-            }
-
-            mouseCaptureOverlayDismissTask = Task { @MainActor [weak self] in
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
-                guard !Task.isCancelled, let self else { return }
-                self.hideMouseCaptureOverlay()
-            }
-        }
-
-        private func hideMouseCaptureOverlay() {
-            guard let host = mouseCaptureOverlayHost else { return }
-            UIView.animate(withDuration: 0.3, delay: 0, options: .curveEaseIn, animations: {
-                host.view.alpha = 0
-            }, completion: { [weak self] _ in
-                host.view.removeFromSuperview()
-                self?.mouseCaptureOverlayHost = nil
-            })
+            mouseCaptureOverlay.show(text, in: self, for: .seconds(1))
         }
         #endif
 
@@ -3184,7 +3110,7 @@ extension Ghostty {
             }
 
             // Update scroll indicator position when layout changes
-            updateScrollIndicatorLayout()
+            scrollIndicator.layout(total: scrollbarTotal, offset: scrollbarOffset, length: scrollbarLen, in: bounds)
             updateCollapsedKeyboardToolbarButtonLayout()
 
             // Reserve the bottom safe-area strip as a per-surface inset BEFORE
@@ -4300,7 +4226,7 @@ extension Ghostty.TerminalView: GhosttyActionDelegate {
                 }
                 // Always cache the session-provided title so foreground replay has it.
                 self.sessionProvidedTitle = title
-                // Skip the @Published write while the resume gate is up. The atomic
+                // Skip the observed title write while the resume gate is up. The atomic
                 // (not UIApplication state) is canonical because the gate stays
                 // true through the deferred-resume window, after applicationState
                 // has already flipped to .active. replayCachedSessionStateOnForeground()
@@ -4327,7 +4253,7 @@ extension Ghostty.TerminalView: GhosttyActionDelegate {
         Ghostty.logger.info("PWD changed: \(pwd)")
     }
 
-    /// Pushes cached title/pwd/health into the `@Published` properties that were
+    /// Pushes cached title/pwd/health into the observed properties that were
     /// suppressed while the app was backgrounded. Call from the scene-phase
     /// transition back to `.active` (see `MainViewLifecycle.handleAppForegrounded`).
     /// Runs before SwiftUI's first post-resume render so stale values never
@@ -4351,8 +4277,8 @@ extension Ghostty.TerminalView: GhosttyActionDelegate {
 
     /// Applies a new connection-health value with the cache + skip-while-backgrounded
     /// + replay pattern used by `title` and `pwd`. Equality-guarded to avoid
-    /// redundant @Published fires when the SSH health monitor reports the same
-    /// state on consecutive ticks.
+    /// redundant observation updates when the SSH health monitor reports the
+    /// same state on consecutive ticks.
     @MainActor
     func applyConnectionHealth(_ health: ConnectionHealth?) {
         sessionProvidedConnectionHealth = health
@@ -4363,10 +4289,10 @@ extension Ghostty.TerminalView: GhosttyActionDelegate {
         // The cached value in sessionProvidedConnectionHealth is replayed
         // by the per-terminal foreground replay
         // (replayCachedSessionStateOnForeground), so suppressing the live
-        // publish here doesn't lose data — it only prevents the @Published
+        // update here doesn't lose data — it only prevents an observation
         // storm across N sessions from landing inside the SwiftUI
         // scene-update settling window. The health-change fan-out
-        // (Combine sink in TabsModel.startObserving mirroring into
+        // (observation task in TabsModel.startObserving mirroring into
         // TabsModel.connectionHealth) is one of the noisiest sources
         // post-resume.
         if connectionHealth != health {
@@ -4565,10 +4491,8 @@ extension Ghostty.TerminalView: GhosttyActionDelegate {
         }
         #endif
 
-        updateScrollIndicatorLayout()
-        let revealScrollIndicator = Date().timeIntervalSinceReferenceDate <= scrollIndicatorRevealDeadline
-        scrollIndicatorRevealDeadline = 0
-        updateScrollIndicatorVisibility(animated: true, reveal: revealScrollIndicator)
+        scrollIndicator.scrollbarChanged(total: scrollbarTotal, offset: scrollbarOffset, length: scrollbarLen,
+                                         in: bounds, mouseCaptured: isMouseCaptured)
 
         // Notify TerminalScrollView of scrollbar updates
         NotificationCenter.default.post(name: .ghosttyDidUpdateScrollbar, object: self)
@@ -4632,9 +4556,8 @@ extension Ghostty.TerminalView: GhosttyActionDelegate {
         scrollbarTotal = total
         scrollbarOffset = offset
         scrollbarLen = len
-        // Only flip on transitions. @Published emits per-assignment even
-        // when the value is unchanged, and downstream sinks (e.g. the
-        // indicator pulse timer) would churn at sample rate (~30 Hz).
+        // Only flip on transitions. The observed setter also ignores an
+        // unchanged write, so a 30 Hz sample does not wake scroll observers.
         if !multiplexerScrollActive {
             multiplexerScrollActive = true
         }
@@ -4725,7 +4648,7 @@ extension Ghostty.TerminalView: GhosttyActionDelegate {
     }
 
     func noteUserScrollForScrollIndicator() {
-        scrollIndicatorRevealDeadline = Date().timeIntervalSinceReferenceDate + 1.0
+        scrollIndicator.noteUserScroll()
     }
 
     private static func actionRevealsScrollIndicator(_ action: String) -> Bool {
@@ -4737,84 +4660,6 @@ extension Ghostty.TerminalView: GhosttyActionDelegate {
         }
     }
 
-    private func updateScrollIndicatorLayout() {
-        guard let indicator = scrollIndicator else { return }
-
-        // Only update layout when the indicator should be visible.
-        let isAtBottom = scrollbarOffset + scrollbarLen >= scrollbarTotal
-        guard scrollbarTotal != 0, !isAtBottom else { return }
-
-        // Calculate scroll indicator position and size
-        let viewHeight = bounds.height
-        let indicatorWidth: CGFloat = 4
-        let inset: CGFloat = 2
-
-        // Calculate proportional position and size
-        let proportion = Float(scrollbarLen) / Float(scrollbarTotal)
-        let indicatorHeight = max(CGFloat(proportion) * viewHeight, 30) // Minimum 30pt height
-
-        let scrollPosition = Float(scrollbarOffset) / Float(scrollbarTotal)
-        let indicatorY = CGFloat(scrollPosition) * (viewHeight - indicatorHeight)
-
-        let newFrame = CGRect(
-            x: bounds.width - indicatorWidth - inset,
-            y: indicatorY,
-            width: indicatorWidth,
-            height: indicatorHeight
-        )
-
-        if indicator.frame != newFrame {
-            UIView.performWithoutAnimation {
-                indicator.frame = newFrame
-            }
-        }
-    }
-
-    private func updateScrollIndicatorVisibility(animated: Bool, reveal: Bool) {
-        guard let indicator = scrollIndicator else { return }
-
-        let isAtBottom = scrollbarOffset + scrollbarLen >= scrollbarTotal
-        // Hide scroll indicator when mouse is captured (tmux, vim mouse mode).
-        // In multiplexer scroll mode the native UIScrollView indicator
-        // (driven by TerminalScrollView via multiplexerScrollActive) is
-        // what shows instead.
-        let shouldBeVisible = scrollbarTotal != 0 && !isAtBottom && !isMouseCaptured
-        let targetAlpha: CGFloat = shouldBeVisible ? 1 : 0
-
-        if !shouldBeVisible {
-            scrollIndicatorHideWorkItem?.cancel()
-            scrollIndicatorHideWorkItem = nil
-        }
-
-        guard reveal || !shouldBeVisible else { return }
-
-        if indicator.alpha != targetAlpha {
-            let changeAlpha = { indicator.alpha = targetAlpha }
-            if animated {
-                UIView.animate(withDuration: 0.2, animations: changeAlpha)
-            } else {
-                UIView.performWithoutAnimation(changeAlpha)
-            }
-        }
-
-        if shouldBeVisible {
-            scheduleScrollIndicatorAutoHide()
-        }
-    }
-
-    private func scheduleScrollIndicatorAutoHide() {
-        scrollIndicatorHideWorkItem?.cancel()
-
-        let workItem = DispatchWorkItem { [weak self] in
-            guard let self = self, let indicator = self.scrollIndicator else { return }
-            UIView.animate(withDuration: 0.5) {
-                indicator.alpha = 0
-            }
-        }
-
-        scrollIndicatorHideWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: workItem)
-    }
 }
 
 // MARK: - Pane Presentation

@@ -11,6 +11,12 @@ import GhosttyKit
 import os
 import UIKit
 
+/// Main-queue notification handoff. `Notification` is not `Sendable`.
+private nonisolated struct MainActorNotification: @unchecked Sendable {
+    let notification: Notification
+    init(_ notification: Notification) { self.notification = notification }
+}
+
 // MARK: - Observer Token Bag
 
 /// Holds the opaque tokens returned by NotificationCenter's block-based
@@ -26,7 +32,9 @@ import UIKit
 /// (they were running on torn-down `@State` storage).
 final class MainViewObserverBag: @unchecked Sendable {
     private let lock = NSLock()
-    private var tokens: [NSObjectProtocol] = []
+    /// `deinit` is nonisolated. The lock is the synchronization; the annotation
+    /// lets teardown remove observers the compiler cannot see are confined.
+    nonisolated(unsafe) private var tokens: [NSObjectProtocol] = []
 
     func track(_ token: NSObjectProtocol) {
         lock.lock()
@@ -76,8 +84,9 @@ final class MainViewObserverBag: @unchecked Sendable {
         using block: @escaping @MainActor @Sendable (Notification) -> Void
     ) {
         observe(name, queue: .main) { notification in
+            let boxed = MainActorNotification(notification)
             MainActor.assumeIsolated {
-                block(notification)
+                block(boxed.notification)
             }
         }
     }
@@ -260,7 +269,9 @@ extension MainView {
         }
 
         observerBag.observe(.appTabSwipeBegan, queue: nil) { [self] notification in
+            let boxed = MainActorNotification(notification)
             MainActor.assumeIsolated {
+                let notification = boxed.notification
                 guard self.shouldHandleNotification(notification) else {
                     if let accept = notification.userInfo?["accept"] as? (Bool) -> Void {
                         accept(false)
@@ -272,14 +283,18 @@ extension MainView {
         }
 
         observerBag.observe(.appTabSwipeChanged, queue: nil) { [self] notification in
+            let boxed = MainActorNotification(notification)
             MainActor.assumeIsolated {
+                let notification = boxed.notification
                 guard self.shouldHandleNotification(notification) else { return }
                 self.handleAppTabSwipeChanged(notification)
             }
         }
 
         observerBag.observe(.appTabSwipeEnded, queue: nil) { [self] notification in
+            let boxed = MainActorNotification(notification)
             MainActor.assumeIsolated {
+                let notification = boxed.notification
                 guard self.shouldHandleNotification(notification) else { return }
                 self.handleAppTabSwipeEnded(notification)
             }
@@ -602,7 +617,7 @@ extension MainView {
     //
     // Title and connection-health observation moved into `TabModel.startObserving()`
     // (see `Views/TabsModel.swift`). Each tab subscribes to its own focused
-    // `Ghostty.TerminalView`'s `$title` and `$connectionHealth` and writes the
+    // `Ghostty.TerminalView`'s `title` and `connectionHealth` and writes the
     // resolved values into its own `@Observable` properties — invalidation is
     // scoped per-tab instead of triggering a full `MainView` body recompute.
     //

@@ -5,13 +5,15 @@
 //  Central singleton manager for keyboard shortcuts
 //
 
+import Observation
 import Foundation
 import Combine
 import os
 
 /// Central manager for keyboard shortcut bindings
 @MainActor
-final class KeybindManager: ObservableObject {
+@Observable
+final class KeybindManager {
     static let shared = KeybindManager()
 
     private static let logger = Logger(subsystem: "dev.chr33s.shell", category: "KeybindManager")
@@ -20,19 +22,19 @@ final class KeybindManager: ObservableObject {
 
     /// All active keybindings (defaults + external config + user overrides)
     /// Priority: user overrides > external config > defaults
-    @Published private(set) var activeBindings: [Keybind] = []
+    private(set) var activeBindings: [Keybind] = []
 
     /// User overrides only (stored in UserDefaults)
-    @Published private(set) var userOverrides: [Keybind] = []
+    private(set) var userOverrides: [Keybind] = []
 
     /// Keybindings from external config file
-    @Published private(set) var externalConfigBindings: [Keybind] = []
+    private(set) var externalConfigBindings: [Keybind] = []
 
     /// Original filename of the imported config (for UI display)
-    @Published private(set) var externalConfigOriginalFileName: String?
+    private(set) var externalConfigOriginalFileName: String?
 
     /// Path to the canonical editable config file in ~/.ghostty/
-    @Published var externalConfigPath: URL? {
+    var externalConfigPath: URL? {
         didSet {
             saveExternalConfigPath()
             if let path = externalConfigPath {

@@ -33,7 +33,7 @@ final class ScrollbackEncryptionManager {
 
     // MARK: - Key Management
 
-    private func getOrCreateKey() throws -> SymmetricKey {
+    private func loadOrCreateKey() throws -> SymmetricKey {
         if let cached = cachedKey {
             return cached
         }
@@ -87,14 +87,14 @@ final class ScrollbackEncryptionManager {
     // MARK: - Key Access
 
     /// Pre-fetch the encryption key on MainActor so it can be passed to background work.
-    func getKey() throws -> SymmetricKey {
-        return try getOrCreateKey()
+    func encryptionKey() throws -> SymmetricKey {
+        return try loadOrCreateKey()
     }
 
     // MARK: - Encrypt / Decrypt
 
     func encrypt(_ plaintext: Data) throws -> Data {
-        let key = try getOrCreateKey()
+        let key = try loadOrCreateKey()
         return try Self.encrypt(plaintext, using: key)
     }
 
@@ -117,7 +117,7 @@ final class ScrollbackEncryptionManager {
     }
 
     func decrypt(_ combined: Data) throws -> Data {
-        let key = try getOrCreateKey()
+        let key = try loadOrCreateKey()
         do {
             let sealedBox = try AES.GCM.SealedBox(combined: combined)
             return try AES.GCM.open(sealedBox, using: key)

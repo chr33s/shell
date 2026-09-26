@@ -47,12 +47,12 @@ enum QuickConnectSuggestionProvider {
     static let shared = QuickConnectSuggestionProvider.self
 
     /// Profiles matching `searchText`, most-recently-used first.
-    static func getSuggestions(
+    static func suggestions(
         matching searchText: String,
         mode: MatchingMode = .prefix,
         limit: Int = 10
     ) -> [AnyQuickConnectSuggestion] {
-        ConnectionProfileManager.shared.getSuggestions(matching: "", limit: .max)
+        ConnectionProfileManager.shared.suggestions(matching: "", limit: .max)
             .map(AnyQuickConnectSuggestion.init(profile:))
             .filter { $0.matches(searchText, mode: mode) }
             .prefix(limit)

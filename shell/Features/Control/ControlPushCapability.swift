@@ -120,11 +120,11 @@ enum ControlPushCapability {
             await alerts.recordFailure(.relayRejected, generation: generation)
             return
         }
-        // The user may have turned alerts off while the relay answered: a
-        // capability minted under an older generation is never uploaded.
-        guard await alerts.beginRegistration() == generation else { return }
         do {
-            try await gateway.authenticatedClient().registerPushCapability(capability)
+            let client = try await gateway.authenticatedClient()
+            // Authentication may have taken time; check consent again before
+            // beginning registration with the Mac.
+            guard try await alerts.registerCapability(capability, generation: generation, with: client) else { return }
         } catch {
             await alerts.recordFailure(.macRegistrationPending, generation: generation)
             return

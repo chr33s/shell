@@ -270,9 +270,11 @@ final class ConnectionHealthMonitor {
         // it resolves *or the connection is retired* (§8.3). This observer is
         // the "until it resolves" half: without it a single stalled probe
         // reserves the slot forever and the connection is never probed again.
-        let probe = Task<Void, Error> { [weak client] in
-            guard let client else { throw CancellationError() }
-            _ = try await client.sendKeepalive()
+        // Citadel's keepalive is `@concurrent` and `SSHClient` is not `Sendable`.
+        // The probe is the one extra user; the connection owns the client.
+        nonisolated(unsafe) let probed = client
+        let probe = Task { () throws -> Void in
+            _ = try await probed.sendKeepalive()
         }
         probeObserver = Task { @MainActor [weak self] in
             let result = await probe.result

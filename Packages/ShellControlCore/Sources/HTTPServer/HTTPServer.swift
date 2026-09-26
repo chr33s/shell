@@ -123,29 +123,39 @@ public final class HTTPServer: Sendable {
                 continue
             }
             // Slowloris protection: a peer that opens a connection and then
-            // stalls would otherwise pin a thread forever, and threads here are
-            // unbounded. Both directions time out.
+            // stalls would otherwise pin a read forever. Both directions time out.
             HTTPServer.setTimeouts(client)
-            // A detached thread per connection rather than a shared pool: a
-            // handler may block for the whole of a `wait=30` long poll, and a
-            // bounded pool would stop serving short foreground control
-            // requests once enough long polls were in flight.
-            Thread.detachNewThread { [handler, peer] in
-                defer { close(client) }
-                guard let request = HTTPServer.readRequest(client, peer: HTTPServer.address(peer)) else {
-                    HTTPServer.write(client, Response(status: 400, body: Data("bad request".utf8)))
-                    return
-                }
-                let semaphore = DispatchSemaphore(value: 0)
-                nonisolated(unsafe) var response = Response(status: 500)
-                Task {
-                    response = await handler(request)
-                    semaphore.signal()
-                }
-                semaphore.wait()
-                HTTPServer.write(client, response)
+            // One task per connection. Long polls suspend (`Task.sleep`); they
+            // must not occupy a thread, or enough of them would stop short
+            // requests from being served. Blocking `recv`/`send` hop to a
+            // dedicated thread inside `blocking` and resume a continuation —
+            // the accept thread never waits on the handler.
+            let handler = self.handler
+            let peerAddress = HTTPServer.address(peer)
+            Task {
+                await HTTPServer.serve(client: client, peerAddress: peerAddress, handler: handler)
             }
         }
+    }
+
+    /// Blocking socket IO off the cooperative pool. Resumes the continuation
+    /// exactly once; the caller suspends instead of waiting on a semaphore.
+    private static func blocking<T: Sendable>(_ work: @escaping @Sendable () -> T) async -> T {
+        await withCheckedContinuation { continuation in
+            Thread.detachNewThread {
+                continuation.resume(returning: work())
+            }
+        }
+    }
+
+    private static func serve(client: Int32, peerAddress: String?, handler: Handler) async {
+        defer { close(client) }
+        guard let request = await blocking({ readRequest(client, peer: peerAddress) }) else {
+            await blocking { write(client, Response(status: 400, body: Data("bad request".utf8))) }
+            return
+        }
+        let response = await handler(request)
+        await blocking { write(client, response) }
     }
 
     public func stop() {

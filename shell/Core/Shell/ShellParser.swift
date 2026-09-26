@@ -415,7 +415,7 @@ nonisolated final class ShellParser: @unchecked Sendable {
     private func extractHeredocInfo(from redirections: [Redirection]) -> (content: String, quoted: Bool)? {
         for redir in redirections {
             if redir.op == .heredocOp || redir.op == .heredocStripOp {
-                return tokenizer.getHeredocContent(delimiter: redir.target)
+                return tokenizer.heredocContent(delimiter: redir.target)
             }
         }
         return nil

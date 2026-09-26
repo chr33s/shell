@@ -39,7 +39,6 @@
 //
 
 import Foundation
-import XCTest
 
 enum SourceTree {
     /// Repository root, derived from this file's own compile-time path
@@ -58,17 +57,12 @@ enum SourceTree {
         return ok && isDir.boolValue
     }
 
-    /// Skips the calling test when the checkout is not reachable (physical
-    /// device, or a build artifact run detached from its source tree).
+    /// Fails the calling test when the checkout is not reachable. Suites that
+    /// call this also use `.enabled(if: SourceTree.isAvailable)` so a device
+    /// build skips instead of failing.
     static func requireSources() throws {
-        try XCTSkipUnless(
-            isAvailable,
-            """
-            App sources are not readable at \(appSources.path). Source-text \
-            tripwires only run against a checkout — use scripts/test.sh, which \
-            targets the iOS Simulator.
-            """
-        )
+        if isAvailable { return }
+        throw SourceTreeUnavailable(path: appSources.path)
     }
 
     /// Every `.swift` file under `shell/`, sorted for deterministic output.
@@ -102,5 +96,12 @@ enum SourceTree {
 
     static func path(of file: URL) -> String {
         file.path.replacingOccurrences(of: root.path + "/", with: "")
+    }
+}
+
+struct SourceTreeUnavailable: Error, CustomStringConvertible {
+    var path: String
+    var description: String {
+        "App sources are not readable at \(path). Source-text tripwires only run against a checkout."
     }
 }

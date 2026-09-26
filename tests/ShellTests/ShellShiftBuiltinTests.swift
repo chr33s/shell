@@ -1,5 +1,5 @@
 import Foundation
-import XCTest
+import Testing
 
 @testable import Shell
 
@@ -10,31 +10,36 @@ import XCTest
 /// precondition is `k >= 0`. `shift -1` is a plausible typo and it trapped —
 /// taking the app down rather than being the no-op bash makes of it.
 @MainActor
-final class ShellShiftBuiltinTests: XCTestCase {
-    func testANegativeShiftIsANoOpRatherThanACrash() {
+@Suite
+final class ShellShiftBuiltinTests {
+    @Test
+    func testANegativeShiftIsANoOpRatherThanACrash() throws {
         let env = makeEnvironment(params: ["a", "b", "c"])
         env.shiftParams(-1)
-        XCTAssertEqual(env.getAllPositionalParams(), ["a", "b", "c"])
+        #expect(env.allPositionalParams() == ["a", "b", "c"])
         env.shiftParams(Int.min)
-        XCTAssertEqual(env.getAllPositionalParams(), ["a", "b", "c"])
+        #expect(env.allPositionalParams() == ["a", "b", "c"])
     }
 
-    func testAShiftPastTheEndClearsTheParametersWithoutCrashing() {
+    @Test
+    func testAShiftPastTheEndClearsTheParametersWithoutCrashing() throws {
         let env = makeEnvironment(params: ["a", "b"])
         env.shiftParams(99)
-        XCTAssertEqual(env.getAllPositionalParams(), [])
+        #expect(env.allPositionalParams() == [])
         env.shiftParams(Int.max)
-        XCTAssertEqual(env.getAllPositionalParams(), [])
+        #expect(env.allPositionalParams() == [])
     }
 
-    func testOrdinaryShiftsStillWork() {
+    @Test
+    func testOrdinaryShiftsStillWork() throws {
         let env = makeEnvironment(params: ["a", "b", "c"])
         env.shiftParams()
-        XCTAssertEqual(env.getAllPositionalParams(), ["b", "c"])
+        #expect(env.allPositionalParams() == ["b", "c"])
         env.shiftParams(2)
-        XCTAssertEqual(env.getAllPositionalParams(), [])
+        #expect(env.allPositionalParams() == [])
     }
 
+    @Test
     func testTheShiftBuiltinPassesANegativeCountThrough() throws {
         let env = makeEnvironment(params: ["a", "b"])
         let interpreter = ShellInterpreter(
@@ -44,9 +49,9 @@ final class ShellShiftBuiltinTests: XCTestCase {
             writeOutput: { _ in },
             readLine: { _, _ in nil }
         )
-        let shift = try XCTUnwrap(ShellBuiltins.lookup("shift"))
-        XCTAssertEqual(try shift(["-3"], env, interpreter), 0)
-        XCTAssertEqual(env.getAllPositionalParams(), ["a", "b"])
+        let shift = try #require(ShellBuiltins.lookup("shift"))
+        #expect((try shift(["-3"], env, interpreter)) == 0)
+        #expect(env.allPositionalParams() == ["a", "b"])
     }
 
     private func makeEnvironment(params: [String]) -> ShellEnvironment {

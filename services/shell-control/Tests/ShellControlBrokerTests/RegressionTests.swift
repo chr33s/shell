@@ -1,35 +1,40 @@
-import XCTest
+import Foundation
+import Testing
 import ShellControlProtocol
 import ShellControlSecurity
 @testable import ShellControlBroker
 
 /// Regressions for defects found in review of the first implementation.
-final class RegressionTests: XCTestCase {
+@Suite
+final class RegressionTests {
     // MARK: Request parsing
 
-    func testDegenerateQueryAndFormPairsDoNotTrap() {
+    @Test
+    func testDegenerateQueryAndFormPairsDoNotTrap() throws {
         // "?=" and a body of "=" split into no parts at all; indexing them
         // would take the whole broker process down from an unauthenticated
         // request.
-        XCTAssertEqual(HTTPServer.parseTarget("/v1/capabilities?=").query, [:])
-        XCTAssertEqual(HTTPServer.parseTarget("/v1/capabilities?=&&a=1").query, ["a": "1"])
-        XCTAssertEqual(HTTPServer.parseTarget("/v1/capabilities").path, "/v1/capabilities")
-        XCTAssertEqual(BrokerService.parseFormBody(Data("=".utf8)), [:])
-        XCTAssertEqual(BrokerService.parseFormBody(Data("=&grant_type=refresh_token".utf8)), ["grant_type": "refresh_token"])
+        #expect(HTTPServer.parseTarget("/v1/capabilities?=").query == [:])
+        #expect(HTTPServer.parseTarget("/v1/capabilities?=&&a=1").query == ["a": "1"])
+        #expect(HTTPServer.parseTarget("/v1/capabilities").path == "/v1/capabilities")
+        #expect(BrokerService.parseFormBody(Data("=".utf8)) == [:])
+        #expect(BrokerService.parseFormBody(Data("=&grant_type=refresh_token".utf8)) == ["grant_type": "refresh_token"])
     }
 
     /// `application/x-www-form-urlencoded` writes a space as `+` and a literal
     /// plus as `%2B`. Percent decoding alone turned a browser-submitted admin
     /// secret containing either into a different string, so the form never
     /// authenticated with a secret the API accepted.
-    func testFormBodyDecodesPlusAsSpaceAndPercentAsLiteral() {
-        XCTAssertEqual(BrokerService.parseFormBody(Data("admin_secret=a+b".utf8)), ["admin_secret": "a b"])
-        XCTAssertEqual(BrokerService.parseFormBody(Data("admin_secret=a%2Bb".utf8)), ["admin_secret": "a+b"])
-        XCTAssertEqual(BrokerService.parseFormBody(Data("user+code=A+B".utf8)), ["user code": "A B"])
+    @Test
+    func testFormBodyDecodesPlusAsSpaceAndPercentAsLiteral() throws {
+        #expect(BrokerService.parseFormBody(Data("admin_secret=a+b".utf8)) == ["admin_secret": "a b"])
+        #expect(BrokerService.parseFormBody(Data("admin_secret=a%2Bb".utf8)) == ["admin_secret": "a+b"])
+        #expect(BrokerService.parseFormBody(Data("user+code=A+B".utf8)) == ["user code": "A B"])
     }
 
     // MARK: Push registration
 
+    @Test
     func testPushRegistrationFailsClosedWithNoConfiguredTopics() async throws {
         let harness = BrokerHarness()
         try await harness.bootstrap()
@@ -51,6 +56,7 @@ final class RegressionTests: XCTestCase {
 
     // MARK: Sessions across a restart
 
+    @Test
     func testRestoreKeepsSessionsEnrollmentsAndSequenceNumbers() async throws {
         let url = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("shell-control-regression-\(UUID().uuidString)")
@@ -62,7 +68,7 @@ final class RegressionTests: XCTestCase {
         try await harness.bootstrap()
         let device = try await harness.enrollDevice()
         let stored = await harness.store.device(device.id)
-        let record = try XCTUnwrap(stored)
+        let record = try #require(stored)
         let session = try await harness.store.issueSession(for: record)
         try await harness.store.commit()
         let runID = ControlID.random()
@@ -82,17 +88,18 @@ final class RegressionTests: XCTestCase {
 
         // A restart must not 401 every enrolled device.
         let principal = try await restored.authenticate(bearer: session.accessToken)
-        XCTAssertEqual(principal.deviceID, device.id)
+        #expect(principal.deviceID == device.id)
         // The rotating refresh token survives too.
         let refreshed = try await restored.refreshSession(refreshToken: session.refreshToken)
-        XCTAssertEqual(refreshed.deviceID, device.id)
+        #expect(refreshed.deviceID == device.id)
         // Sequence numbers continue rather than restarting under live cursors.
         let sequenceAfter = await restored.nextSequence
-        XCTAssertEqual(sequenceAfter, sequenceBefore)
+        #expect(sequenceAfter == sequenceBefore)
     }
 
     // MARK: Snapshot pagination
 
+    @Test
     func testAnItemCreatedDuringPaginationDoesNotDisplaceOne() async throws {
         let harness = BrokerHarness()
         try await harness.bootstrap()
@@ -118,22 +125,22 @@ final class RegressionTests: XCTestCase {
         }
 
         let first = try await harness.store.snapshot(principal: device.principal, limit: 2)
-        XCTAssertEqual(first.approvals.count, 2)
+        #expect(first.approvals.count == 2)
         // A new approval lands between the two page fetches.
         _ = try await harness.publish(try harness.makeSpec(runID: runID, jobID: jobID))
         let second = try await harness.store.snapshot(
             principal: device.principal,
-            pageToken: try XCTUnwrap(first.nextPageToken),
+            pageToken: try #require(first.nextPageToken),
             limit: 2
         )
         // Paging is anchored, so the mid-pagination approval is not in the
         // snapshot and neither notification is skipped.
-        XCTAssertTrue(second.approvals.isEmpty)
-        XCTAssertEqual(second.notifications.count, 2)
-        XCTAssertTrue(second.isComplete)
+        #expect(second.approvals.isEmpty)
+        #expect(second.notifications.count == 2)
+        #expect(second.isComplete)
         // The one that arrived mid-pagination is delivered as a delta instead.
         let changes = try await harness.store.changes(principal: device.principal, cursor: second.cursor)
-        XCTAssertTrue(changes.events.contains { $0.type == .approvalCreated })
+        #expect(changes.events.contains { $0.type == .approvalCreated })
     }
 
     // MARK: The confirmation surface
@@ -157,11 +164,12 @@ final class RegressionTests: XCTestCase {
             scope: "control.enroll:\(enrollment.enrollmentID.rawValue)",
             verificationURI: "http://localhost:8443/v1/oauth/confirm"
         )
-        return (try XCTUnwrap(authorization["user_code"]?.stringValue), try key.publicJWK.displayFingerprint())
+        return (try #require(authorization["user_code"]?.stringValue), try key.publicJWK.displayFingerprint())
     }
 
     /// A browser sent to the verification URI gets a page it can act on, and
     /// learns nothing about the pending enrollment until it authenticates.
+    @Test
     func testUnauthenticatedBrowserGetsAFormAndNoDetails() async throws {
         let harness = BrokerHarness()
         try await harness.bootstrap()
@@ -173,17 +181,18 @@ final class RegressionTests: XCTestCase {
             headers: ["accept": "text/html"],
             body: Data()
         ))
-        XCTAssertEqual(response.status, 401)
+        #expect(response.status == 401)
         let page = String(decoding: response.body, as: UTF8.self)
-        XCTAssertTrue(page.contains("Administration secret"))
-        XCTAssertFalse(page.contains(pending.fingerprint))
-        XCTAssertFalse(page.contains("Probe"))
-        XCTAssertEqual(response.headers["Content-Type"], "text/html; charset=utf-8")
-        XCTAssertEqual(response.headers["Cache-Control"], "no-store")
+        #expect(page.contains("Administration secret"))
+        #expect(!(page.contains(pending.fingerprint)))
+        #expect(!(page.contains("Probe")))
+        #expect(response.headers["Content-Type"] == "text/html; charset=utf-8")
+        #expect(response.headers["Cache-Control"] == "no-store")
     }
 
     /// An API client without the credential still gets the JSON error envelope,
     /// not a page.
+    @Test
     func testUnauthenticatedAPICallStillGetsJSON() async throws {
         let harness = BrokerHarness()
         try await harness.bootstrap()
@@ -195,11 +204,12 @@ final class RegressionTests: XCTestCase {
             headers: [:],
             body: Data()
         ))
-        XCTAssertEqual(response.status, ControlErrorCode.notAuthorized.httpStatus)
+        #expect(response.status == ControlErrorCode.notAuthorized.httpStatus)
         let error = try ControlError(json: try JSONValue.parse(response.body))
-        XCTAssertEqual(error.code, .notAuthorized)
+        #expect(error.code == .notAuthorized)
     }
 
+    @Test
     func testAuthenticatedPageShowsWhatIsBeingGrantedWithEscaping() async throws {
         let harness = BrokerHarness()
         try await harness.bootstrap()
@@ -211,15 +221,16 @@ final class RegressionTests: XCTestCase {
             headers: ["accept": "text/html", "authorization": "Admin admin-secret"],
             body: Data()
         ))
-        XCTAssertEqual(response.status, 200)
+        #expect(response.status == 200)
         let page = String(decoding: response.body, as: UTF8.self)
-        XCTAssertTrue(page.contains(pending.fingerprint))
-        XCTAssertTrue(page.contains("approvals.decide"))
+        #expect(page.contains(pending.fingerprint))
+        #expect(page.contains("approvals.decide"))
         // A device-supplied label is escaped, never rendered as markup.
-        XCTAssertTrue(page.contains("Probe &lt;Watch&gt;"))
-        XCTAssertFalse(page.contains("Probe <Watch>"))
+        #expect(page.contains("Probe &lt;Watch&gt;"))
+        #expect(!(page.contains("Probe <Watch>")))
     }
 
+    @Test
     func testBrowserFormConfirmationApprovesAndAWrongSecretDoesNot() async throws {
         let harness = BrokerHarness()
         try await harness.bootstrap()
@@ -233,7 +244,7 @@ final class RegressionTests: XCTestCase {
             headers: ["content-type": "application/x-www-form-urlencoded", "accept": "text/html"],
             body: Data("user_code=\(pending.code)&admin_secret=wrong&approve=true".utf8)
         ))
-        XCTAssertEqual(refused.status, ControlErrorCode.notAuthorized.httpStatus)
+        #expect(refused.status == ControlErrorCode.notAuthorized.httpStatus)
 
         let approved = await service.handle(HTTPServer.Request(
             method: "POST",
@@ -242,15 +253,16 @@ final class RegressionTests: XCTestCase {
             headers: ["content-type": "application/x-www-form-urlencoded", "accept": "text/html"],
             body: Data("user_code=\(pending.code)&admin_secret=admin-secret&approve=true".utf8)
         ))
-        XCTAssertEqual(approved.status, 200)
-        XCTAssertTrue(String(decoding: approved.body, as: UTF8.self).contains("Device approved"))
+        #expect(approved.status == 200)
+        #expect(String(decoding: approved.body, as: UTF8.self).contains("Device approved"))
         // The approval is real: the enrollment can now be completed.
         let described = try await harness.store.describeUserCode(pending.code)
-        XCTAssertEqual(described["user_code"]?.stringValue, pending.code)
+        #expect(described["user_code"]?.stringValue == pending.code)
     }
 
     // MARK: Grants
 
+    @Test
     func testChangeStreamRequiresTheReadGrant() async throws {
         let harness = BrokerHarness()
         try await harness.bootstrap()
@@ -265,7 +277,7 @@ final class RegressionTests: XCTestCase {
             )
         )
         let stored = await harness.store.device(device.id)
-        let record = try XCTUnwrap(stored)
+        let record = try #require(stored)
         let session = try await harness.store.issueSession(for: record)
         let response = await service.handle(HTTPServer.Request(
             method: "GET",
@@ -275,6 +287,6 @@ final class RegressionTests: XCTestCase {
             body: Data()
         ))
         // Reduced grants must not keep reading request content through deltas.
-        XCTAssertEqual(response.status, ControlErrorCode.notAuthorized.httpStatus)
+        #expect(response.status == ControlErrorCode.notAuthorized.httpStatus)
     }
 }

@@ -569,7 +569,7 @@ nonisolated enum ShellBuiltins {
             if arg == "-p" {
                 let exported = env.snapshotExportedState()
                 for name in exported.names.sorted() {
-                    let value = exported.values[name] ?? env.getVariable(name) ?? ""
+                    let value = exported.values[name] ?? env.variable(name) ?? ""
                     let escaped = value.replacingOccurrences(of: "\"", with: "\\\"")
                     interp.writeLine("export \(name)=\"\(escaped)\"")
                 }
@@ -634,7 +634,7 @@ nonisolated enum ShellBuiltins {
 
     static func builtinReturn(_ args: [String], _ env: ShellEnvironment,
                                _ interp: ShellInterpreter) throws -> Int32 {
-        let code = args.first.flatMap { Int32($0) } ?? env.getLastExitCode()
+        let code = args.first.flatMap { Int32($0) } ?? env.lastExitCode()
         throw ShellError.returnSignal(code)
     }
 
@@ -652,7 +652,7 @@ nonisolated enum ShellBuiltins {
 
     static func builtinExit(_ args: [String], _ env: ShellEnvironment,
                              _ interp: ShellInterpreter) throws -> Int32 {
-        let code = args.first.flatMap { Int32($0) } ?? env.getLastExitCode()
+        let code = args.first.flatMap { Int32($0) } ?? env.lastExitCode()
         throw ShellError.exitSignal(code)
     }
 
@@ -683,13 +683,13 @@ nonisolated enum ShellBuiltins {
 
             // `set -- arg1 arg2 ...`: remaining args become positional params
             if arg == "--" {
-                env.setPositionalParams(Array(args[(i + 1)...]), scriptName: env.getScriptName())
+                env.setPositionalParams(Array(args[(i + 1)...]), scriptName: env.scriptName())
                 return 0
             }
 
             guard arg.hasPrefix("-") || arg.hasPrefix("+"), arg.count >= 2 else {
                 // First non-option argument: it and the rest become positionals
-                env.setPositionalParams(Array(args[i...]), scriptName: env.getScriptName())
+                env.setPositionalParams(Array(args[i...]), scriptName: env.scriptName())
                 return 0
             }
 
@@ -945,7 +945,7 @@ nonisolated enum ShellBuiltins {
         for name in args {
             if lookup(name) != nil {
                 interp.writeLine("\(name) is a shell builtin")
-            } else if env.getFunction(name) != nil {
+            } else if env.function(name) != nil {
                 interp.writeLine("\(name) is a function")
             } else if ios_executable(name) != 0 {
                 interp.writeLine("\(name) is an external command")
@@ -976,21 +976,21 @@ nonisolated enum ShellBuiltins {
         let target: String
         if let dir = args.first {
             if dir == "-" {
-                target = env.getVariable("OLDPWD") ?? ""
+                target = env.variable("OLDPWD") ?? ""
             } else if dir.hasPrefix("~") {
-                let home = env.getVariable("HOME") ?? ""
+                let home = env.variable("HOME") ?? ""
                 target = home + String(dir.dropFirst())
             } else {
                 target = dir
             }
         } else {
-            target = env.getVariable("HOME") ?? ""
+            target = env.variable("HOME") ?? ""
         }
 
         guard !target.isEmpty else { return 0 }
 
         // Save old directory
-        let oldPwd = env.getVariable("PWD") ?? ""
+        let oldPwd = env.variable("PWD") ?? ""
 
         // Pipeline stages and background jobs share the tab's real ios_system
         // session — a chdir there would leak into the foreground shell (and
@@ -1034,14 +1034,14 @@ nonisolated enum ShellBuiltins {
     static func builtinPwd(_ args: [String], _ env: ShellEnvironment,
                             _ interp: ShellInterpreter) -> Int32 {
         // Isolated contexts track cwd logically in PWD (see builtinCd)
-        if env.isIsolatedContext, let pwd = env.getVariable("PWD") {
+        if env.isIsolatedContext, let pwd = env.variable("PWD") {
             interp.writeLine(pwd)
             return 0
         }
         let sessionPtr = IOSSystemSessionKey.key(for: env.sessionID)
         if let pwd = ios_getLogicalPWD(sessionPtr) {
             interp.writeLine(pwd as String)
-        } else if let pwd = env.getVariable("PWD") {
+        } else if let pwd = env.variable("PWD") {
             interp.writeLine(pwd)
         }
         return 0

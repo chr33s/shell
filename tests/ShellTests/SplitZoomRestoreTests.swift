@@ -1,6 +1,23 @@
 import Foundation
 import UIKit
-import XCTest
+import Testing
+
+/// UIView panes cannot cross out of the main actor. The box is created in
+/// `setUp` on the main thread and only touched there.
+private nonisolated final class ZoomPanes: @unchecked Sendable {
+    var a: SplitPaneView!
+    var b: SplitPaneView!
+    var c: SplitPaneView!
+    var inner: SplitTree<SplitPaneView>.Node!
+    var root: SplitTree<SplitPaneView>.Node!
+    func clear() {
+        a = nil
+        b = nil
+        c = nil
+        inner = nil
+        root = nil
+    }
+}
 
 @testable import Shell
 
@@ -28,7 +45,8 @@ import XCTest
 /// `SplitTree.Node` compares leaves by view object identity, so every assertion
 /// below is exact about *which* pane came back.
 @MainActor
-final class SplitZoomRestoreTests: XCTestCase {
+@Suite
+final class SplitZoomRestoreTests {
 
     // Tree shape shared by the tests:
     //
@@ -37,30 +55,35 @@ final class SplitZoomRestoreTests: XCTestCase {
     //     leaf(a)          inner (vertical)
     //                      /            \
     //                  leaf(b)        leaf(c)
-    private var a: SplitPaneView!
-    private var b: SplitPaneView!
-    private var c: SplitPaneView!
-    private var inner: SplitTree<SplitPaneView>.Node!
-    private var root: SplitTree<SplitPaneView>.Node!
-
-    override func setUp() {
-        super.setUp()
-        a = SplitPaneView()
-        b = SplitPaneView()
-        c = SplitPaneView()
-        inner = .split(.init(direction: .vertical, ratio: 0.5,
-                             left: .leaf(view: b), right: .leaf(view: c)))
-        root = .split(.init(direction: .horizontal, ratio: 0.5,
-                            left: .leaf(view: a), right: inner))
+    private let panes = ZoomPanes()
+    private var a: SplitPaneView! { panes.a }
+    private var b: SplitPaneView! { panes.b }
+    private var c: SplitPaneView! { panes.c }
+    private var inner: SplitTree<SplitPaneView>.Node! {
+        get { panes.inner }
+        set { panes.inner = newValue }
+    }
+    private var root: SplitTree<SplitPaneView>.Node! {
+        get { panes.root }
+        set { panes.root = newValue }
     }
 
-    override func tearDown() {
-        a = nil
-        b = nil
-        c = nil
-        inner = nil
-        root = nil
-        super.tearDown()
+    init() {
+        // Split panes are UIView subclasses. The runner calls init on the main thread.
+        let panes = panes
+        MainActor.assumeIsolated {
+            panes.a = SplitPaneView()
+            panes.b = SplitPaneView()
+            panes.c = SplitPaneView()
+            panes.inner = .split(.init(direction: .vertical, ratio: 0.5,
+                                       left: .leaf(view: panes.b), right: .leaf(view: panes.c)))
+            panes.root = .split(.init(direction: .horizontal, ratio: 0.5,
+                                      left: .leaf(view: panes.a), right: panes.inner))
+        }
+    }
+
+    deinit {
+        panes.clear()
     }
 
     // MARK: - The zoom comes back
@@ -71,15 +94,12 @@ final class SplitZoomRestoreTests: XCTestCase {
     /// Reverting `init(root:restoringZoomedPath:)` to ignore the path (the
     /// plain `self.init(root: root, zoomed: nil)` it replaced) makes every
     /// assertion here nil out, which is the "pane came back un-zoomed" bug.
-    func testSavedPathRestoresTheZoomOntoTheSamePane() {
-        XCTAssertEqual(SplitTree(root: root, restoringZoomedPath: [.left]).zoomed,
-                       .leaf(view: a))
-        XCTAssertEqual(SplitTree(root: root, restoringZoomedPath: [.right]).zoomed,
-                       inner)
-        XCTAssertEqual(SplitTree(root: root, restoringZoomedPath: [.right, .left]).zoomed,
-                       .leaf(view: b))
-        XCTAssertEqual(SplitTree(root: root, restoringZoomedPath: [.right, .right]).zoomed,
-                       .leaf(view: c))
+    @Test
+    func testSavedPathRestoresTheZoomOntoTheSamePane() throws {
+        #expect(SplitTree(root: root, restoringZoomedPath: [.left]).zoomed == .leaf(view: a))
+        #expect(SplitTree(root: root, restoringZoomedPath: [.right]).zoomed == inner)
+        #expect(SplitTree(root: root, restoringZoomedPath: [.right, .left]).zoomed == .leaf(view: b))
+        #expect(SplitTree(root: root, restoringZoomedPath: [.right, .right]).zoomed == .leaf(view: c))
     }
 
     /// Capture and restore are inverses: whatever `pathToNode` writes for a
@@ -88,18 +108,18 @@ final class SplitZoomRestoreTests: XCTestCase {
     /// This is the property the persistence round trip actually depends on, so
     /// it fails if *either* half drifts — for instance if one side starts
     /// numbering children in the opposite order.
+    @Test
     func testCaptureAndRestoreAreInversesForEveryNodeInTheTree() throws {
-        let root = try XCTUnwrap(self.root)
+        let root = try #require(self.root)
         let tree = SplitTree<SplitPaneView>(root: root, zoomed: nil)
 
         for node in [SplitTree<SplitPaneView>.Node.leaf(view: a),
                      .leaf(view: b),
                      .leaf(view: c),
-                     try XCTUnwrap(self.inner),
+                     try #require(self.inner),
                      root] {
-            let path = try XCTUnwrap(tree.pathToNode(node),
-                                     "every node in the tree must have a path")
-            XCTAssertEqual(SplitTree(root: root, restoringZoomedPath: path).zoomed, node)
+            let path = try #require(tree.pathToNode(node), "every node in the tree must have a path")
+            #expect(SplitTree(root: root, restoringZoomedPath: path).zoomed == node)
         }
     }
 
@@ -110,21 +130,19 @@ final class SplitZoomRestoreTests: XCTestCase {
     /// ? nil : …` short-circuit anywhere in the restore path silently drops the
     /// zoom on a single-pane tab. That is the whole reason `node(at:)` returns
     /// `self` for an empty path.
-    func testEmptyPathMeansTheRootIsZoomedNotThatNothingIs() {
-        XCTAssertEqual(SplitTree(root: root, restoringZoomedPath: []).zoomed, root,
-                       "an empty path is the root itself, not the absence of a zoom")
+    @Test
+    func testEmptyPathMeansTheRootIsZoomedNotThatNothingIs() throws {
+        #expect(SplitTree(root: root, restoringZoomedPath: []).zoomed == root, "an empty path is the root itself, not the absence of a zoom")
 
         let sole = SplitTree<SplitPaneView>(root: .leaf(view: a), zoomed: .leaf(view: a))
-        XCTAssertEqual(sole.pathToNode(.leaf(view: a)), [],
-                       "zooming a sole pane records an empty path")
-        XCTAssertEqual(SplitTree(root: .leaf(view: a), restoringZoomedPath: []).zoomed,
-                       .leaf(view: a),
-                       "…and that empty path restores the zoom")
+        #expect(sole.pathToNode(.leaf(view: a)) == [], "zooming a sole pane records an empty path")
+        #expect(SplitTree(root: .leaf(view: a), restoringZoomedPath: []).zoomed == .leaf(view: a), "…and that empty path restores the zoom")
     }
 
     /// No saved path means no zoom.
-    func testNilPathRestoresAnUnzoomedTree() {
-        XCTAssertNil(SplitTree(root: root, restoringZoomedPath: nil).zoomed)
+    @Test
+    func testNilPathRestoresAnUnzoomedTree() throws {
+        #expect((SplitTree(root: root, restoringZoomedPath: nil).zoomed) == nil)
     }
 
     // MARK: - Paths that no longer resolve
@@ -137,22 +155,24 @@ final class SplitZoomRestoreTests: XCTestCase {
     /// then over-runs. A "walk as far as you can" implementation would hand
     /// back `a` and `c` — the wrong pane, zoomed, with no sign anything went
     /// wrong. Both must be nil.
-    func testPathThatOverrunsALeafFallsBackToNoZoomRatherThanTheWrongPane() {
+    @Test
+    func testPathThatOverrunsALeafFallsBackToNoZoomRatherThanTheWrongPane() throws {
         let overrunsImmediately = SplitTree(root: root, restoringZoomedPath: [.left, .left])
-        XCTAssertNil(overrunsImmediately.zoomed)
-        XCTAssertEqual(overrunsImmediately.root, root, "the tree itself still restores")
+        #expect((overrunsImmediately.zoomed) == nil)
+        #expect(overrunsImmediately.root == root, "the tree itself still restores")
 
-        XCTAssertNil(SplitTree(root: root, restoringZoomedPath: [.right, .right, .right]).zoomed)
-        XCTAssertNil(SplitTree(root: root, restoringZoomedPath: [.left, .right, .left]).zoomed)
+        #expect((SplitTree(root: root, restoringZoomedPath: [.right, .right, .right]).zoomed) == nil)
+        #expect((SplitTree(root: root, restoringZoomedPath: [.left, .right, .left]).zoomed) == nil)
     }
 
     /// State saved from a split tab, restored into a tab that is now a single
     /// pane, restores un-zoomed instead of crashing.
-    func testPathSavedAgainstADeeperTreeIsDiscardedWhenTheShapeShrank() {
+    @Test
+    func testPathSavedAgainstADeeperTreeIsDiscardedWhenTheShapeShrank() throws {
         let shrunk = SplitTree(root: SplitTree<SplitPaneView>.Node.leaf(view: a),
                                restoringZoomedPath: [.right, .left])
-        XCTAssertNil(shrunk.zoomed)
-        XCTAssertEqual(shrunk.root, .leaf(view: a))
+        #expect((shrunk.zoomed) == nil)
+        #expect(shrunk.root == .leaf(view: a))
     }
 
     // MARK: - Persisted representation
@@ -164,34 +184,33 @@ final class SplitZoomRestoreTests: XCTestCase {
     /// renaming these raw values (or reordering the enum in a way that changes
     /// them) does not fail to decode — it decodes to a *different* pane. The
     /// literal below is the format already on users' disks.
+    @Test
     func testZoomedPathKeepsItsOnDiskSpellingAndOrder() throws {
         let encoded = try JSONEncoder().encode(
             SerializableSplitTree(root: nil, zoomedPath: [.right, .left]))
-        XCTAssertEqual(String(decoding: encoded, as: UTF8.self),
-                       #"{"zoomedPath":["right","left"]}"#)
+        #expect(String(decoding: encoded, as: UTF8.self) == #"{"zoomedPath":["right","left"]}"#)
 
         let decoded = try JSONDecoder().decode(
             SerializableSplitTree.self,
             from: Data(#"{"zoomedPath":["right","left"]}"#.utf8))
-        XCTAssertEqual(decoded.zoomedPath, [.right, .left])
+        #expect(decoded.zoomedPath == [.right, .left])
 
         // …and that decoded path still selects the pane it was written for.
-        XCTAssertEqual(SplitTree(root: root, restoringZoomedPath: decoded.zoomedPath).zoomed,
-                       .leaf(view: b))
+        #expect(SplitTree(root: root, restoringZoomedPath: decoded.zoomedPath).zoomed == .leaf(view: b))
     }
 
     /// A saved tree with no zoom decodes as no zoom, and stays distinct from
     /// the empty-path (root-zoomed) case above.
+    @Test
     func testAbsentZoomedPathDecodesAsNoZoomAndEmptyArrayStaysDistinct() throws {
         let noZoom = try JSONDecoder().decode(
             SerializableSplitTree.self, from: Data(#"{}"#.utf8))
-        XCTAssertNil(noZoom.zoomedPath)
-        XCTAssertNil(SplitTree(root: root, restoringZoomedPath: noZoom.zoomedPath).zoomed)
+        #expect((noZoom.zoomedPath) == nil)
+        #expect((SplitTree(root: root, restoringZoomedPath: noZoom.zoomedPath).zoomed) == nil)
 
         let rootZoomed = try JSONDecoder().decode(
             SerializableSplitTree.self, from: Data(#"{"zoomedPath":[]}"#.utf8))
-        XCTAssertEqual(rootZoomed.zoomedPath, [])
-        XCTAssertEqual(SplitTree(root: root, restoringZoomedPath: rootZoomed.zoomedPath).zoomed,
-                       root)
+        #expect(rootZoomed.zoomedPath == [])
+        #expect(SplitTree(root: root, restoringZoomedPath: rootZoomed.zoomedPath).zoomed == root)
     }
 }

@@ -126,10 +126,13 @@ extension Ghostty {
                 // double vertical), U+2506/2507/250A/250B (broken vertical
                 // variants), U+2575/2577 (half-bar fragments tmux uses on
                 // small panes).
-                // swiftlint:disable:next force_try
-                regex: try! NSRegularExpression(
-                    pattern: #"(?:^|[\s│┃║┆┇┊┋╵╷])\[(\d+)/(\d+)\](?=[\s│┃║┆┇┊┋]|$)"#
-                ),
+                regex: {
+                    let pattern = #"(?:^|[\s│┃║┆┇┊┋╵╷])\[(\d+)/(\d+)\](?=[\s│┃║┆┇┊┋]|$)"#
+                    guard let expression = try? NSRegularExpression(pattern: pattern) else {
+                        preconditionFailure("invalid multiplexer scroll pattern")
+                    }
+                    return expression
+                }(),
                 rowsToScan: 2
             )
         ]

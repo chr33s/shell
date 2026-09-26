@@ -28,7 +28,7 @@ final class SettingsLocalChangeObserver {
         }
     }
 
-    deinit {
+    isolated deinit {
         if let token { NotificationCenter.default.removeObserver(token) }
     }
 

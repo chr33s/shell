@@ -3,7 +3,7 @@ import SwiftUI
 /// View for modifying the security settings of an existing SSH key
 struct SSHKeySecuritySettingsView: View {
     @Environment(\.dismiss) var dismiss
-    @StateObject private var sshKeyManager = SSHKeyManager.shared
+    @State private var sshKeyManager = SSHKeyManager.shared
 
     let key: SSHKey
 

@@ -94,7 +94,7 @@ final class ProtectedInboxCache: InboxCacheStore, Sendable {
 /// ``ProtectedInboxCache/limits``. `InboxReconciler` only trims seen event
 /// IDs past 5000 and never drops approvals or notifications; this is applied
 /// after every reconcile and on every commit.
-enum InboxBounds {
+nonisolated enum InboxBounds {
     /// Seen event IDs kept for at-least-once dedup. Trimmed *to* this cap.
     /// A reconcile applies at most one change page (100 events), so the
     /// reconciler's own 5000 threshold is never reached.

@@ -13,7 +13,8 @@ import GhosttyKit
 
 extension Ghostty {
     /// Wrapper around ghostty_config_t
-    final class Config: ObservableObject {
+    @Observable
+    final class Config {
         // The underlying C pointer to the Ghostty config structure
         private(set) var config: ghostty_config_t? {
             didSet {
@@ -55,7 +56,12 @@ extension Ghostty {
         }
 
         deinit {
-            self.config = nil
+            // @Observable isolates this class to the main actor. Swift 6 runs
+            // that deinit on the main actor; assumeIsolated frees the config
+            // without hopping, and traps if that assumption is ever wrong.
+            MainActor.assumeIsolated {
+                self.config = nil
+            }
         }
 
         /// Initializes a new configuration and loads all the values

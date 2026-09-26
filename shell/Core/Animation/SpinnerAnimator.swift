@@ -226,7 +226,7 @@ final class SpinnerAnimator {
     private var frameIndex: Int = 0
 
     /// Animation timer
-    private var timer: Timer?
+    nonisolated(unsafe) private var timer: Timer?
 
     /// Start time for elapsed time calculation
     private var startTime: Date?
@@ -263,7 +263,7 @@ final class SpinnerAnimator {
 
     /// Returns the ANSI sequence needed to clear all lines used by the spinner.
     /// Call this before stopping to get the cleanup sequence for final output.
-    func getCleanupSequence() -> String {
+    func cleanupSequence() -> String {
         // Use synchronized output + absolute positioning for robust cleanup
         // Re-enable auto-wrap as safety reset
         return ANSI.syncOutputStart

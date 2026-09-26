@@ -1,43 +1,49 @@
-import XCTest
+import Foundation
+import Testing
 @testable import Shell
 
-final class TerminalScrollbarAvailabilityTests: XCTestCase {
-    func testTmuxControlPanePreservesDocumentWhileSurfaceIsUnavailable() {
-        XCTAssertTrue(TerminalScrollbarAvailabilityPolicy.preservesExistingDocument(
+@Suite
+final class TerminalScrollbarAvailabilityTests {
+    @Test
+    func testTmuxControlPanePreservesDocumentWhileSurfaceIsUnavailable() throws {
+        #expect(TerminalScrollbarAvailabilityPolicy.preservesExistingDocument(
             isTmuxPane: true,
             hasSurface: false,
             hasValidSample: true
         ))
     }
 
-    func testTmuxPaneResetsWhenExistingSurfaceReportsNoScrollback() {
+    @Test
+    func testTmuxPaneResetsWhenExistingSurfaceReportsNoScrollback() throws {
         // The displayed-scrollbar query returns false when total <= len,
         // including after a resize consumes the remaining history.
-        XCTAssertFalse(TerminalScrollbarAvailabilityPolicy.preservesExistingDocument(
+        #expect(!(TerminalScrollbarAvailabilityPolicy.preservesExistingDocument(
             isTmuxPane: true,
             hasSurface: true,
             hasValidSample: true
-        ))
+        )))
     }
 
-    func testFreshTmuxPaneStillUsesResetPath() {
+    @Test
+    func testFreshTmuxPaneStillUsesResetPath() throws {
         for hasSurface in [false, true] {
-            XCTAssertFalse(TerminalScrollbarAvailabilityPolicy.preservesExistingDocument(
+            #expect(!(TerminalScrollbarAvailabilityPolicy.preservesExistingDocument(
                 isTmuxPane: true,
                 hasSurface: hasSurface,
                 hasValidSample: false
-            ))
+            )))
         }
     }
 
-    func testOrdinaryTerminalStillUsesResetPath() {
+    @Test
+    func testOrdinaryTerminalStillUsesResetPath() throws {
         for hasSurface in [false, true] {
             for hasValidSample in [false, true] {
-                XCTAssertFalse(TerminalScrollbarAvailabilityPolicy.preservesExistingDocument(
+                #expect(!(TerminalScrollbarAvailabilityPolicy.preservesExistingDocument(
                     isTmuxPane: false,
                     hasSurface: hasSurface,
                     hasValidSample: hasValidSample
-                ))
+                )))
             }
         }
     }

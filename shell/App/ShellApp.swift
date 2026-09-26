@@ -13,8 +13,8 @@ import UIKit
 
 @main
 struct ShellApp: App {
-    @StateObject private var ghosttyApp = Ghostty.App()
-    @StateObject private var appearanceManager = AppearanceManager.shared
+    @State private var ghosttyApp = Ghostty.App()
+    @State private var appearanceManager = AppearanceManager.shared
 
     #if targetEnvironment(macCatalyst)
     @UIApplicationDelegateAdaptor(CatalystAppDelegate.self) var appDelegate
@@ -47,7 +47,7 @@ struct ShellApp: App {
     var body: some Scene {
         WindowGroup(id: "main-terminal") {
             MainView()
-                .environmentObject(ghosttyApp)
+                .environment(ghosttyApp)
                 .preferredColorScheme(appearanceManager.colorScheme)
                 .statusBarStyleForTerminalTheme()
                 .modifier(ControlReviewPresentationModifier())
@@ -114,8 +114,8 @@ struct ShellApp: App {
 
                     // Save a snapshot of sentinel UserDefaults keys while data is available.
                     // Used to detect and recover from corruption caused by background launches.
-                    DispatchQueue.global(qos: .utility).async {
-                        UserDefaultsBackup.saveSnapshot()
+                    Task(priority: .utility) {
+                        await Self.saveDefaultsSnapshot()
                     }
 
                     // Capture the lifecycle background epoch at activation
@@ -140,5 +140,10 @@ struct ShellApp: App {
             AppCommands()
         }
         .handlesExternalEvents(matching: ["ssh", "file://"])
+    }
+
+    @concurrent
+    private static func saveDefaultsSnapshot() async {
+        UserDefaultsBackup.saveSnapshot()
     }
 }

@@ -2,7 +2,7 @@ import SwiftUI
 
 /// View for managing known SSH hosts
 struct KnownHostsView: View {
-    @StateObject private var manager = KnownHostsManager.shared
+    @State private var manager = KnownHostsManager.shared
     @State private var showingClearAllAlert = false
     @State private var searchText = ""
     /// Bumped after every mutation performed from this screen. `KnownHostsManager` is an

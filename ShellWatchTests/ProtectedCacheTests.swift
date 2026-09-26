@@ -1,11 +1,13 @@
-import XCTest
+import Foundation
+import Testing
 import ShellControlProtocol
 import ShellControlClient
 
 @testable import ShellWatch
 
 /// The Watch's small protected cache (docs/specs/control-protocol.md section 11.5).
-final class ProtectedCacheTests: XCTestCase {
+@Suite
+final class ProtectedCacheTests {
     private let now = ControlTimestamp(Date(timeIntervalSince1970: 1_788_000_000))
 
     private func makeCache() throws -> (ProtectedInboxCache, URL) {
@@ -14,6 +16,7 @@ final class ProtectedCacheTests: XCTestCase {
         return (try ProtectedInboxCache(directory: directory), directory)
     }
 
+    @Test
     func testCacheRoundTripsTheProjectionAndItsFreshness() throws {
         let (cache, directory) = try makeCache()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -27,15 +30,16 @@ final class ProtectedCacheTests: XCTestCase {
         state.seenEventIDs = [.random()]
         try cache.commit(state)
 
-        let loaded = try XCTUnwrap(try cache.load())
-        XCTAssertEqual(loaded.approvals[record.spec.requestID]?.requestHash, record.requestHash)
-        XCTAssertEqual(loaded.cursor?.rawValue, "c1.7.tag")
-        XCTAssertEqual(loaded.lastRefreshedAt, now)
-        XCTAssertEqual(loaded.seenEventIDs, state.seenEventIDs)
+        let loaded = try #require(try cache.load())
+        #expect(loaded.approvals[record.spec.requestID]?.requestHash == record.requestHash)
+        #expect(loaded.cursor?.rawValue == "c1.7.tag")
+        #expect(loaded.lastRefreshedAt == now)
+        #expect(loaded.seenEventIDs == state.seenEventIDs)
     }
 
     /// A cached record whose digest no longer verifies is dropped rather than
     /// shown: stale display is fine, unverifiable display is not.
+    @Test
     func testATamperedCachedRecordIsDropped() throws {
         let (cache, directory) = try makeCache()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -47,11 +51,11 @@ final class ProtectedCacheTests: XCTestCase {
 
         let url = directory.appendingPathComponent("control-inbox.json")
         let encoded = try JSONValue.parse(try Data(contentsOf: url), limits: JSONLimits(maxDocumentBytes: 1 << 20))
-        var members = try XCTUnwrap(encoded.objectValue)
-        var approvals = try XCTUnwrap(members["approvals"]?.arrayValue)
-        var entry = try XCTUnwrap(approvals[0].objectValue)
-        var spec = try XCTUnwrap(entry["spec"]?.objectValue)
-        var operation = try XCTUnwrap(spec["operation"]?.objectValue)
+        var members = try #require(encoded.objectValue)
+        var approvals = try #require(members["approvals"]?.arrayValue)
+        var entry = try #require(approvals[0].objectValue)
+        var spec = try #require(entry["spec"]?.objectValue)
+        var operation = try #require(spec["operation"]?.objectValue)
         // Swap the argument vector while leaving the advertised digest alone.
         operation["argv"] = JSONValue(strings: ["/usr/bin/git", "push", "--force"])
         spec["operation"] = .object(operation)
@@ -60,22 +64,24 @@ final class ProtectedCacheTests: XCTestCase {
         members["approvals"] = .array(approvals)
         try JSONCanonicalization.canonicalize(.object(members)).write(to: url)
 
-        let loaded = try XCTUnwrap(try cache.load())
-        XCTAssertTrue(loaded.approvals.isEmpty)
+        let loaded = try #require(try cache.load())
+        #expect(loaded.approvals.isEmpty)
     }
 
+    @Test
     func testClearRemovesTheCacheFile() throws {
         let (cache, directory) = try makeCache()
         defer { try? FileManager.default.removeItem(at: directory) }
         try cache.commit(InboxState())
-        XCTAssertNotNil(try cache.load())
+        #expect((try cache.load()) != nil)
         try cache.clear()
-        XCTAssertNil(try cache.load())
+        #expect((try cache.load()) == nil)
     }
 
     /// THE REGRESSION: the cache parsed with a 4096-element limit while the
     /// reconciler only trims seen event IDs past 5000, so a valid cache with
     /// 4097–5000 IDs failed to load and the Watch started empty offline.
+    @Test
     func testACacheWithUpToFiveThousandSeenEventIDsStillLoads() throws {
         let (cache, directory) = try makeCache()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -88,12 +94,13 @@ final class ProtectedCacheTests: XCTestCase {
         let url = directory.appendingPathComponent("control-inbox.json")
         try JSONCanonicalization.canonicalize(ProtectedInboxCache.encode(state)).write(to: url)
 
-        let loaded = try XCTUnwrap(try cache.load())
-        XCTAssertNotNil(loaded.approvals[record.spec.requestID])
-        XCTAssertEqual(loaded.cursor?.rawValue, "c1.9.tag")
-        XCTAssertEqual(loaded.seenEventIDs.count, InboxBounds.maxSeenEventIDs, "trimmed to the cap on load")
+        let loaded = try #require(try cache.load())
+        #expect((loaded.approvals[record.spec.requestID]) != nil)
+        #expect(loaded.cursor?.rawValue == "c1.9.tag")
+        #expect(loaded.seenEventIDs.count == InboxBounds.maxSeenEventIDs, "trimmed to the cap on load")
     }
 
+    @Test
     func testACommitIsBoundedAndReloads() throws {
         let (cache, directory) = try makeCache()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -108,14 +115,15 @@ final class ProtectedCacheTests: XCTestCase {
         }
         try cache.commit(state)
 
-        let loaded = try XCTUnwrap(try cache.load())
-        XCTAssertEqual(loaded.seenEventIDs.count, InboxBounds.maxSeenEventIDs)
-        XCTAssertEqual(loaded.approvals.count, InboxBounds.maxApprovals)
-        XCTAssertTrue(pendingIDs.isSubset(of: Set(loaded.approvals.keys)), "every pending request survives trimming")
+        let loaded = try #require(try cache.load())
+        #expect(loaded.seenEventIDs.count == InboxBounds.maxSeenEventIDs)
+        #expect(loaded.approvals.count == InboxBounds.maxApprovals)
+        #expect(pendingIDs.isSubset(of: Set(loaded.approvals.keys)), "every pending request survives trimming")
     }
 
     /// Unreadable dedup bookkeeping costs the cursor (forcing a fresh
     /// snapshot), not the cached records.
+    @Test
     func testUnreadableSeenIDsKeepTheRecords() throws {
         let (cache, directory) = try makeCache()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -123,18 +131,20 @@ final class ProtectedCacheTests: XCTestCase {
         var state = InboxState()
         state.approvals[record.spec.requestID] = record
         state.cursor = ChangeCursor("c1.3.tag")
-        guard case .object(var members) = ProtectedInboxCache.encode(state) else { return XCTFail("expected object") }
+        guard case .object(var members) = ProtectedInboxCache.encode(state) else { Issue.record("expected object")
+return }
         members["seen_event_ids"] = .string("not an array")
         let url = directory.appendingPathComponent("control-inbox.json")
         try JSONCanonicalization.canonicalize(.object(members)).write(to: url)
 
-        let loaded = try XCTUnwrap(try cache.load())
-        XCTAssertNotNil(loaded.approvals[record.spec.requestID])
-        XCTAssertNil(loaded.cursor)
+        let loaded = try #require(try cache.load())
+        #expect((loaded.approvals[record.spec.requestID]) != nil)
+        #expect((loaded.cursor) == nil)
     }
 
     /// Unresolved command ids are persisted apart from the projection, so a
     /// snapshot refresh cannot erase an ambiguous submitted decision.
+    @Test
     func testCommandJournalPersistsSeparately() throws {
         let directory = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("shell-watch-journal-\(UUID().uuidString)")
@@ -151,9 +161,9 @@ final class ProtectedCacheTests: XCTestCase {
         try store.save([command])
 
         let reloaded = try FileCommandJournalStore(directory: directory).load()
-        XCTAssertEqual(reloaded.count, 1)
-        XCTAssertEqual(reloaded.first?.commandID, command.commandID)
-        XCTAssertEqual(reloaded.first?.status, .outcomeUnknown)
-        XCTAssertEqual(reloaded.first?.signedCommand, "header.payload.signature")
+        #expect(reloaded.count == 1)
+        #expect(reloaded.first?.commandID == command.commandID)
+        #expect(reloaded.first?.status == .outcomeUnknown)
+        #expect(reloaded.first?.signedCommand == "header.payload.signature")
     }
 }

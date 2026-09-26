@@ -21,7 +21,7 @@ enum KeybindEditorOutcome {
 struct KeybindEditorView: View {
     @Environment(\.dismiss) var dismiss
     @Environment(\.sheetThemeColors) private var sheetThemeColors
-    @ObservedObject private var keybindManager = KeybindManager.shared
+    @State private var keybindManager = KeybindManager.shared
 
     let action: KeybindAction
     /// Reports the user's choice to the parent. All paths that mutate

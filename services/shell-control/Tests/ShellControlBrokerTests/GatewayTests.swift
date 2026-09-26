@@ -1,5 +1,5 @@
 import Foundation
-import XCTest
+import Testing
 import ShellControlProtocol
 import ShellControlSecurity
 import ShellControlClient
@@ -137,10 +137,10 @@ final class GatewayFixture {
         let link = DirectWatchLink(router: router)
         let client = WatchGatewayClient(link: link)
         let pending = try await client.requestEnrollment(try WatchEnrollmentRequest.make(key: key, label: "Apple Watch"))
-        XCTAssertEqual(pending.state, .pending)
-        try await confirm(try XCTUnwrap(pending.userCode))
+        #expect(pending.state == .pending)
+        try await confirm(try #require(pending.userCode))
         let active = try await client.enrollmentStatus()
-        XCTAssertEqual(active.state, .active)
+        #expect(active.state == .active)
         return Watch(key: key, client: client, link: link, router: router, status: active)
     }
 
@@ -152,9 +152,11 @@ final class GatewayFixture {
     }
 }
 
-final class GatewayTests: XCTestCase {
+@Suite
+final class GatewayTests {
     // MARK: Origin identity and pairing
 
+    @Test
     func testOriginProofAnswersTheNonceUnderTheOriginKey() async throws {
         let fixture = GatewayFixture()
         try await fixture.harness.bootstrap()
@@ -166,6 +168,7 @@ final class GatewayTests: XCTestCase {
         await assertControlError(.notAuthorized) { try await client.verifyOrigin(impostor) }
     }
 
+    @Test
     func testPairingSecretIsRequiredAndSpentOnce() async throws {
         let fixture = GatewayFixture()
         try await fixture.harness.bootstrap()
@@ -185,6 +188,7 @@ final class GatewayTests: XCTestCase {
         }
     }
 
+    @Test
     func testPairingExpires() async throws {
         let fixture = GatewayFixture()
         try await fixture.harness.bootstrap()
@@ -196,6 +200,7 @@ final class GatewayTests: XCTestCase {
         }
     }
 
+    @Test
     func testPairedPhoneNeedsMacConfirmationBeforeItHasASession() async throws {
         let fixture = GatewayFixture()
         try await fixture.harness.bootstrap()
@@ -205,14 +210,15 @@ final class GatewayTests: XCTestCase {
         let enrollment = EnrollmentCoordinator(baseURL: fixture.route.url, transport: fixture.transport)
         do {
             _ = try await enrollment.poll(deviceCode: claim.authorization.deviceCode)
-            XCTFail("expected authorization_pending")
+            Issue.record("expected authorization_pending")
         } catch EnrollmentError.authorizationPending {}
         let pending = try await fixture.admin("GET", "/v1/admin/pending")
-        XCTAssertEqual(pending["pending"]?.arrayValue?.count, 1)
+        #expect(pending["pending"]?.arrayValue?.count == 1)
     }
 
     /// Without the setup QR there is no way in: direct enrollment is closed in
     /// the gateway profile, for iPhones and Watches alike.
+    @Test
     func testDirectEnrollmentIsClosedInTheGatewayProfile() async throws {
         let fixture = GatewayFixture()
         try await fixture.harness.bootstrap()
@@ -225,6 +231,7 @@ final class GatewayTests: XCTestCase {
     }
 
     /// Admin routes are unreachable through Tailscale Serve, whatever Host says.
+    @Test
     func testAdminRoutesRefuseTailscaleForwardedRequests() async throws {
         let fixture = GatewayFixture()
         try await fixture.harness.bootstrap()
@@ -238,41 +245,44 @@ final class GatewayTests: XCTestCase {
 
     // MARK: Watch behind the gateway
 
+    @Test
     func testWatchDecisionThroughTheGatewayIsAttributedToTheWatchKey() async throws {
         let fixture = GatewayFixture()
         try await fixture.harness.bootstrap()
         let phone = try await fixture.pairPhone()
         let watch = try await fixture.enrollWatch(behind: phone)
-        XCTAssertEqual(watch.status.gatewayDeviceID, phone.session.deviceID)
-        XCTAssertEqual(watch.status.accountID, fixture.harness.accountID)
-        XCTAssertFalse(watch.status.grants.contains(.requestsRead), "a reviewer holds no standalone read grant")
+        #expect(watch.status.gatewayDeviceID == phone.session.deviceID)
+        #expect(watch.status.accountID == fixture.harness.accountID)
+        #expect(!(watch.status.grants.contains(.requestsRead)), "a reviewer holds no standalone read grant")
         let record = try await fixture.publishApproval()
 
         // The inbox comes through the gateway, one bounded page at a time.
         let page = try await watch.client.snapshot()
-        XCTAssertEqual(page.approvals.map(\.spec.requestID), [record.spec.requestID])
+        #expect(page.approvals.map(\.spec.requestID) == [record.spec.requestID])
 
         let coordinator = DecisionCoordinator(
             service: watch.client,
             journal: CommandJournal(),
             key: watch.key,
-            signer: SignerIdentity(deviceID: watch.status.watchDeviceID, audience: try XCTUnwrap(watch.status.audience), grants: watch.status.grants),
+            signer: SignerIdentity(deviceID: watch.status.watchDeviceID, audience: try #require(watch.status.audience), grants: watch.status.grants),
             now: { [clock = fixture.harness.clock] in clock.now }
         )
         let state = try await coordinator.decide(.approve, reviewed: try await watch.client.approval(record.spec.requestID))
-        guard case .waitingForHost(let result) = state else { return XCTFail("unexpected \(state)") }
-        XCTAssertEqual(result.resolution, .approved)
+        guard case .waitingForHost(let result) = state else { Issue.record("unexpected \(state)")
+return }
+        #expect(result.resolution == .approved)
 
         let stored = try await fixture.harness.store.approval(record.spec.requestID, principal: phone.session.principal(fixture.harness.store))
-        XCTAssertEqual(stored.projection.decidedByDeviceID, watch.status.watchDeviceID)
+        #expect(stored.projection.decidedByDeviceID == watch.status.watchDeviceID)
 
         // The recorded result is reachable again by command id.
         let queried = try await watch.client.commandResult(result.commandID)
-        XCTAssertEqual(queried.decisionID, result.decisionID)
+        #expect(queried.decisionID == result.decisionID)
     }
 
     /// The iPhone relays; it cannot forge. A JWS it signs is either not the
     /// Watch's key or not the Watch's identity.
+    @Test
     func testIPhoneCannotSubstituteItsOwnSignatureForTheWatch() async throws {
         let fixture = GatewayFixture()
         try await fixture.harness.bootstrap()
@@ -310,9 +320,10 @@ final class GatewayTests: XCTestCase {
             _ = try await phone.client.gatewaySubmit(watch: watchID, signedCommand: phoneOwn, commandID: .random())
         }
         let current = try await fixture.harness.store.approval(record.spec.requestID, principal: fixture.harness.originPrincipal)
-        XCTAssertEqual(current.projection.resolution, .pending)
+        #expect(current.projection.resolution == .pending)
     }
 
+    @Test
     func testAnotherGatewayCannotReachTheWatch() async throws {
         let fixture = GatewayFixture()
         try await fixture.harness.bootstrap()
@@ -332,6 +343,7 @@ final class GatewayTests: XCTestCase {
         }
     }
 
+    @Test
     func testSwitchingGatewayRequiresExplicitRebinding() async throws {
         let fixture = GatewayFixture()
         try await fixture.harness.bootstrap()
@@ -343,19 +355,20 @@ final class GatewayTests: XCTestCase {
         let router = WatchGatewayRouter(client: { replacement.client }, binding: InMemoryWatchBindingStore())
         let client = WatchGatewayClient(link: DirectWatchLink(router: router))
         let pending = try await client.requestEnrollment(try WatchEnrollmentRequest.make(key: watch.key, label: "Apple Watch"))
-        XCTAssertEqual(pending.state, .pending)
-        XCTAssertEqual(pending.watchDeviceID, watch.status.watchDeviceID)
+        #expect(pending.state == .pending)
+        #expect(pending.watchDeviceID == watch.status.watchDeviceID)
         // Until confirmed, the old binding stands.
         _ = try await phone.client.gatewaySnapshot(watch: watch.status.watchDeviceID, limit: 4)
 
-        try await fixture.confirm(try XCTUnwrap(pending.userCode))
+        try await fixture.confirm(try #require(pending.userCode))
         let rebound = try await client.enrollmentStatus()
-        XCTAssertEqual(rebound.state, .active)
+        #expect(rebound.state == .active)
         await assertControlError(.reviewerNotBound) {
             _ = try await phone.client.gatewaySnapshot(watch: watch.status.watchDeviceID, limit: 4)
         }
     }
 
+    @Test
     func testRevokingTheGatewayDisablesWatchTransport() async throws {
         let fixture = GatewayFixture()
         try await fixture.harness.bootstrap()
@@ -364,12 +377,13 @@ final class GatewayTests: XCTestCase {
         _ = try await fixture.admin("POST", "/v1/admin/devices/\(phone.session.deviceID.rawValue)/revoke")
         do {
             _ = try await watch.client.snapshot()
-            XCTFail("expected refusal")
+            Issue.record("expected refusal")
         } catch let error as ControlError {
-            XCTAssertTrue([.deviceRevoked, .invalidToken].contains(error.code))
+            #expect([.deviceRevoked, .invalidToken].contains(error.code))
         }
     }
 
+    @Test
     func testRevokingTheWatchLeavesTheIPhoneUsable() async throws {
         let fixture = GatewayFixture()
         try await fixture.harness.bootstrap()
@@ -380,6 +394,7 @@ final class GatewayTests: XCTestCase {
         _ = try await phone.client.snapshot()
     }
 
+    @Test
     func testUnreachableIPhoneDisablesDecisionsWithoutQueueing() async throws {
         let fixture = GatewayFixture()
         try await fixture.harness.bootstrap()
@@ -393,23 +408,24 @@ final class GatewayTests: XCTestCase {
         let journal = CommandJournal()
         let coordinator = DecisionCoordinator(
             service: watch.client, journal: journal, key: watch.key,
-            signer: SignerIdentity(deviceID: watch.status.watchDeviceID, audience: try XCTUnwrap(watch.status.audience), grants: watch.status.grants),
+            signer: SignerIdentity(deviceID: watch.status.watchDeviceID, audience: try #require(watch.status.audience), grants: watch.status.grants),
             now: { [clock = fixture.harness.clock] in clock.now }
         )
         do {
             _ = try await coordinator.decide(.approve, reviewed: reviewed)
-            XCTFail("expected iPhone unavailable")
+            Issue.record("expected iPhone unavailable")
         } catch let error as WatchGatewayError {
-            XCTAssertEqual(error, .iPhoneUnreachable)
+            #expect(error == .iPhoneUnreachable)
         }
         let journalled = await journal.pending
-        XCTAssertTrue(journalled.isEmpty, "nothing was signed for later delivery")
-        XCTAssertEqual(watch.link.sent, sentBefore)
+        #expect(journalled.isEmpty, "nothing was signed for later delivery")
+        #expect(watch.link.sent == sentBefore)
         watch.link.setReachable(true)
         let current = try await watch.client.approval(record.spec.requestID)
-        XCTAssertEqual(current.projection.resolution, .pending)
+        #expect(current.projection.resolution == .pending)
     }
 
+    @Test
     func testSimultaneousIPhoneAndWatchDecisionsYieldOneWinner() async throws {
         let fixture = GatewayFixture()
         try await fixture.harness.bootstrap()
@@ -419,7 +435,7 @@ final class GatewayTests: XCTestCase {
         let clock = fixture.harness.clock
         let watchCoordinator = DecisionCoordinator(
             service: watch.client, journal: CommandJournal(), key: watch.key,
-            signer: SignerIdentity(deviceID: watch.status.watchDeviceID, audience: try XCTUnwrap(watch.status.audience), grants: watch.status.grants),
+            signer: SignerIdentity(deviceID: watch.status.watchDeviceID, audience: try #require(watch.status.audience), grants: watch.status.grants),
             now: { clock.now }
         )
         let phoneCoordinator = DecisionCoordinator(client: phone.client, journal: CommandJournal(), key: phone.key, session: phone.session, now: { clock.now })
@@ -430,9 +446,10 @@ final class GatewayTests: XCTestCase {
             if case .waitingForHost = $0 { return true }
             return false
         }
-        XCTAssertEqual(recorded.count, 1)
+        #expect(recorded.count == 1)
     }
 
+    @Test
     func testDuplicateWatchCommandReturnsTheOriginalAndAChangedBodyConflicts() async throws {
         let fixture = GatewayFixture()
         try await fixture.harness.bootstrap()
@@ -450,7 +467,7 @@ final class GatewayTests: XCTestCase {
         let jws = try fixture.harness.signDecision(.reject, device: device, record: record, challengeID: challenge.challengeID, commandID: commandID)
         let first = try await watch.client.submit(signedCommand: jws, commandID: commandID)
         let again = try await watch.client.submit(signedCommand: jws, commandID: commandID)
-        XCTAssertEqual(first.decisionID, again.decisionID)
+        #expect(first.decisionID == again.decisionID)
         let changed = try fixture.harness.signDecision(.approve, device: device, record: record, challengeID: challenge.challengeID, commandID: commandID)
         await assertControlError(.idempotencyConflict) {
             _ = try await watch.client.submit(signedCommand: changed, commandID: commandID)
@@ -459,6 +476,7 @@ final class GatewayTests: XCTestCase {
 
     /// One approval too large for a Watch message is left out of the Watch's
     /// snapshot instead of failing every sync; its review is handed off.
+    @Test
     func testOversizedApprovalDoesNotStallTheWatchSnapshot() async throws {
         let fixture = GatewayFixture()
         try await fixture.harness.bootstrap()
@@ -477,24 +495,26 @@ final class GatewayTests: XCTestCase {
             page = try await watch.client.snapshot(pageToken: next, limit: 8)
             seen += page.approvals.map(\.spec.requestID)
         }
-        XCTAssertTrue(seen.contains(small.spec.requestID))
-        XCTAssertFalse(seen.contains(huge.spec.requestID))
+        #expect(seen.contains(small.spec.requestID))
+        #expect(!(seen.contains(huge.spec.requestID)))
         await assertControlError(.unsupportedOperation) { _ = try await watch.client.approval(huge.spec.requestID) }
     }
 
     // MARK: Background channel
 
+    @Test
     func testBackgroundDeliveryCarriesNoAuthority() async throws {
         let router = WatchGatewayRouter(client: { throw TransportError.offline }, binding: InMemoryWatchBindingStore())
-        XCTAssertFalse(router.handleBackground(["signed_command": "a.b.c", "type": "command.submit"]))
+        #expect(!(router.handleBackground(["signed_command": "a.b.c", "type": "command.submit"])))
         let decisionLike: [String: Any] = [
             WatchGatewayContext.applicationContextKey: #"{"mac_reachable":true,"pending_count":1,"protocol":"shell-watch-gateway/1","refresh_requested":false,"request_ids":[],"signed_command":"a.b.c","type":"gateway.context","v":1}"#
         ]
-        XCTAssertNil(WatchGatewayContext(applicationContext: decisionLike))
+        #expect((WatchGatewayContext(applicationContext: decisionLike)) == nil)
         let context = WatchGatewayContext(pendingCount: 2, requestIDs: [.random()], refreshRequested: true, macReachable: true)
-        XCTAssertEqual(WatchGatewayContext(applicationContext: try context.applicationContext()), context)
+        #expect(WatchGatewayContext(applicationContext: (try context.applicationContext())) == context)
     }
 
+    @Test
     func testRouterRejectsMessagesForAnUnboundWatch() async throws {
         let fixture = GatewayFixture()
         try await fixture.harness.bootstrap()
@@ -506,6 +526,7 @@ final class GatewayTests: XCTestCase {
 
     /// The iPhone's own session problem is not a connectivity failure, and
     /// is not the Watch's revocation either.
+    @Test
     func testRouterRelaysTheIPhonesSessionProblemAsAControlError() async throws {
         struct PairingRequired: ControlErrorConvertible {
             var controlError: ControlError { ControlError(code: .notAuthorized, message: "pair again") }
@@ -519,6 +540,7 @@ final class GatewayTests: XCTestCase {
 
     /// An upstream rejection is reinterpreted against the iPhone's session
     /// before it reaches the Watch.
+    @Test
     func testRouterAppliesTheIPhonesErrorRecovery() async throws {
         struct PairingRequired: ControlErrorConvertible {
             var controlError: ControlError { ControlError(code: .notAuthorized, message: "pair again") }
@@ -538,6 +560,7 @@ final class GatewayTests: XCTestCase {
 
     // MARK: Push relay and durability
 
+    @Test
     func testApprovalQueuesARelayHintForARegisteredCapability() async throws {
         let fixture = GatewayFixture()
         try await fixture.harness.bootstrap()
@@ -545,11 +568,12 @@ final class GatewayTests: XCTestCase {
         try await phone.client.registerPushCapability("capability.v1.test")
         let record = try await fixture.publishApproval()
         let relayed = await fixture.harness.store.drainRelayOutbox()
-        XCTAssertEqual(relayed.map(\.requestID), [record.spec.requestID])
-        XCTAssertEqual(relayed.first?.event, "approval.created")
-        XCTAssertEqual(relayed.first?.capability, "capability.v1.test")
+        #expect(relayed.map(\.requestID) == [record.spec.requestID])
+        #expect(relayed.first?.event == "approval.created")
+        #expect(relayed.first?.capability == "capability.v1.test")
     }
 
+    @Test
     func testRestartPreservesPairedDevicesAndReviewerBindings() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -564,8 +588,8 @@ final class GatewayTests: XCTestCase {
         try await restored.restore()
         let principal = try await restored.authenticate(bearer: phone.session.accessToken)
         let status = try await restored.watchReviewer(principal: principal, watchID: watch.status.watchDeviceID)
-        XCTAssertEqual(status.state, .active)
-        XCTAssertEqual(status.gatewayDeviceID, phone.session.deviceID)
+        #expect(status.state == .active)
+        #expect(status.gatewayDeviceID == phone.session.deviceID)
     }
 }
 

@@ -62,7 +62,7 @@ extension LocalShellSession {
         // only success/failure. Only correct the env when the *sign* disagrees:
         // paths with precise codes (interpreter scripts, ios_system commands)
         // write them directly and must not be degraded to 1 here.
-        let envCode = sharedShellEnvironment.getLastExitCode()
+        let envCode = sharedShellEnvironment.lastExitCode()
         if (envCode == 0) != lastCommandSucceeded {
             sharedShellEnvironment.setLastExitCode(lastCommandSucceeded ? 0 : 1)
         }
@@ -109,7 +109,7 @@ extension LocalShellSession {
         //   - inputRows: terminal rows the input line occupies (prompt prefix + typed text)
         //   - +1 for the blank line we're currently on (from handleEnter's \n)
         let terminalWidth = max(1, Int(pty.windowSize.cols))
-        let promptPrefix = getCurrentPromptResult().secondLinePrefix
+        let promptPrefix = currentPromptResult().secondLinePrefix
         // Measure in display cells, not characters — a CJK/emoji command wraps to
         // more rows than its character count suggests, and undercounting here moves
         // the cursor up too few lines before the clear-to-end-of-screen.
@@ -142,7 +142,7 @@ extension LocalShellSession {
     /// Generate a fresh prompt (called from displayPrompt only — caches result for redraw)
     private func generateFreshPrompt() -> PromptStyle.PromptResult {
         let currentPath = sessionCurrentDirectory
-        var result = promptCache.getPrompt(
+        var result = promptCache.prompt(
             directory: currentPath,
             commandSucceeded: lastCommandSucceeded
         )
@@ -155,7 +155,7 @@ extension LocalShellSession {
 
     /// Get the cached prompt result for redraw operations (redrawLine, handleCtrlL, etc.)
     /// Returns the same prompt that displayPrompt generated — never regenerates on keystroke.
-    func getCurrentPromptResult() -> PromptStyle.PromptResult {
+    func currentPromptResult() -> PromptStyle.PromptResult {
         // Return cached prompt if available (set by displayPrompt/generateFreshPrompt)
         if let cached = promptCache.cachedPrompt {
             return cached
@@ -186,7 +186,7 @@ struct PromptCache {
     }
 
     /// Get cached prompt or regenerate if stale
-    mutating func getPrompt(directory: String, commandSucceeded: Bool) -> PromptStyle.PromptResult {
+    mutating func prompt(directory: String, commandSucceeded: Bool) -> PromptStyle.PromptResult {
         if isValid(directory: directory, commandSucceeded: commandSucceeded),
            let cached = cachedPrompt {
             return cached

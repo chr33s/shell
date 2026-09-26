@@ -1,5 +1,6 @@
 import Citadel
-import XCTest
+import Foundation
+import Testing
 
 @testable import Shell
 
@@ -19,7 +20,8 @@ import XCTest
 /// is a credential-misdirection bug, not a cosmetic one. Every test below fails
 /// if attribution reverts to "is a jump host configured?".
 @MainActor
-final class SSHHopAttributionTests: XCTestCase {
+@Suite
+final class SSHHopAttributionTests {
 
     private let targetHost = "target.example.com"
     private let bastionHost = "bastion.example.com"
@@ -50,7 +52,7 @@ final class SSHHopAttributionTests: XCTestCase {
     ) -> (host: String, isJumpHost: Bool)? {
         guard case .authenticationFailed(let host, let isJumpHost)? =
                 session.categorizeError(error) as? SSHJumpError else {
-            XCTFail("expected SSHJumpError.authenticationFailed", file: file, line: line)
+            Issue.record("expected SSHJumpError.authenticationFailed")
             return nil
         }
         return (host, isJumpHost)
@@ -61,14 +63,15 @@ final class SSHHopAttributionTests: XCTestCase {
     /// A failure while the BASTION handshake is in flight is the bastion's.
     /// This is the case that was always right, and it must stay right — a fix
     /// for the target case that simply inverts the answer would break here.
-    func testAuthFailureDuringBastionHandshakeIsAttributedToTheBastion() {
+    @Test
+    func testAuthFailureDuringBastionHandshakeIsAttributedToTheBastion() throws {
         let session = makeSession(withJumpHost: true)
         session.transition(to: .authenticating(host: bastionHost, isJumpHost: true))
 
         let hop = authFailure(SSHClientError.allAuthenticationOptionsFailed, from: session)
 
-        XCTAssertEqual(hop?.host, bastionHost)
-        XCTAssertEqual(hop?.isJumpHost, true)
+        #expect(hop?.host == bastionHost)
+        #expect(hop?.isJumpHost == true)
     }
 
     /// THE DEFECT. The bastion authenticated, the tunnelled target handshake
@@ -79,7 +82,8 @@ final class SSHHopAttributionTests: XCTestCase {
     /// other "a bastion exists" test) instead of `connectionHop`, and red if
     /// `transition(to:)` stops moving the hop back to `.target` on
     /// `.authenticatingTarget`.
-    func testTargetAuthFailureAfterBastionSucceedsIsAttributedToTheTargetNotTheBastion() {
+    @Test
+    func testTargetAuthFailureAfterBastionSucceedsIsAttributedToTheTargetNotTheBastion() throws {
         let session = makeSession(withJumpHost: true)
         session.transition(to: .connecting(host: bastionHost, isJumpHost: true))
         session.transition(to: .authenticating(host: bastionHost, isJumpHost: true))
@@ -87,14 +91,8 @@ final class SSHHopAttributionTests: XCTestCase {
 
         let hop = authFailure(SSHClientError.allAuthenticationOptionsFailed, from: session)
 
-        XCTAssertEqual(
-            hop?.host, targetHost,
-            "a target rejection reported as the bastion's aims the retry prompt at the wrong host"
-        )
-        XCTAssertEqual(
-            hop?.isJumpHost, false,
-            "isJumpHost true here writes the target's password into the bastion's Keychain row"
-        )
+        #expect(hop?.host == targetHost, "a target rejection reported as the bastion's aims the retry prompt at the wrong host")
+        #expect(hop?.isJumpHost == false, "isJumpHost true here writes the target's password into the bastion's Keychain row")
     }
 
     /// `.connectingToTarget` is the other state that means "past the bastion",
@@ -103,26 +101,28 @@ final class SSHHopAttributionTests: XCTestCase {
     /// Goes red if only one of the two target states is handled in
     /// `transition(to:)` — a partial fix that leaves the defect alive on the
     /// path where the failure surfaces during the tunnelled connect.
-    func testFailureAfterConnectingToTargetIsAttributedToTheTarget() {
+    @Test
+    func testFailureAfterConnectingToTargetIsAttributedToTheTarget() throws {
         let session = makeSession(withJumpHost: true)
         session.transition(to: .authenticating(host: bastionHost, isJumpHost: true))
         session.transition(to: .connectingToTarget(host: targetHost))
 
         let hop = authFailure(SSHClientError.allAuthenticationOptionsFailed, from: session)
 
-        XCTAssertEqual(hop?.host, targetHost)
-        XCTAssertEqual(hop?.isJumpHost, false)
+        #expect(hop?.host == targetHost)
+        #expect(hop?.isJumpHost == false)
     }
 
     /// No bastion at all: a direct connection blames the host the user named.
-    func testAuthFailureWithNoJumpHostIsAttributedToTheTarget() {
+    @Test
+    func testAuthFailureWithNoJumpHostIsAttributedToTheTarget() throws {
         let session = makeSession(withJumpHost: false)
         session.transition(to: .authenticating(host: targetHost, isJumpHost: false))
 
         let hop = authFailure(SSHClientError.allAuthenticationOptionsFailed, from: session)
 
-        XCTAssertEqual(hop?.host, targetHost)
-        XCTAssertEqual(hop?.isJumpHost, false)
+        #expect(hop?.host == targetHost)
+        #expect(hop?.isJumpHost == false)
     }
 
     // MARK: - Edges that keep the attribution honest
@@ -132,13 +132,14 @@ final class SSHHopAttributionTests: XCTestCase {
     ///
     /// Goes red if `connectionHop` is initialised to `.jumpHost` "because there
     /// is a bastion", which is the exact reasoning the defect came from.
-    func testAttributionDefaultsToTheTargetBeforeAnyHopBegins() {
+    @Test
+    func testAttributionDefaultsToTheTargetBeforeAnyHopBegins() throws {
         let session = makeSession(withJumpHost: true)
 
         let hop = authFailure(SSHClientError.allAuthenticationOptionsFailed, from: session)
 
-        XCTAssertEqual(hop?.host, targetHost)
-        XCTAssertEqual(hop?.isJumpHost, false)
+        #expect(hop?.host == targetHost)
+        #expect(hop?.isJumpHost == false)
     }
 
     /// `.failed` is emitted immediately BEFORE `categorizeError` runs, so a
@@ -148,15 +149,16 @@ final class SSHHopAttributionTests: XCTestCase {
     /// Goes red if `transition(to:)` gains a `case .failed: connectionHop =
     /// .target` (or any reset in its `default:` arm): a bastion rejection would
     /// then be reported as the target's.
-    func testStatesThatNameNoHopDoNotClearTheRecordedAttribution() {
+    @Test
+    func testStatesThatNameNoHopDoNotClearTheRecordedAttribution() throws {
         let session = makeSession(withJumpHost: true)
         session.transition(to: .authenticating(host: bastionHost, isJumpHost: true))
         session.transition(to: .failed)
 
         let hop = authFailure(SSHClientError.allAuthenticationOptionsFailed, from: session)
 
-        XCTAssertEqual(hop?.host, bastionHost)
-        XCTAssertEqual(hop?.isJumpHost, true)
+        #expect(hop?.host == bastionHost)
+        #expect(hop?.isJumpHost == true)
     }
 
     /// A host-key rejection uses the same attribution as an auth failure: the
@@ -166,34 +168,38 @@ final class SSHHopAttributionTests: XCTestCase {
     /// Goes red if the host-key branch of `categorizeError` reverts to
     /// `config.jumpHost != nil` — the user would be asked to trust the wrong
     /// host's key, and a "yes" would pin a fingerprint against the bastion.
-    func testHostKeyRejectionAfterTheBastionIsAttributedToTheTarget() {
+    @Test
+    func testHostKeyRejectionAfterTheBastionIsAttributedToTheTarget() throws {
         let session = makeSession(withJumpHost: true)
         session.transition(to: .authenticating(host: bastionHost, isJumpHost: true))
         session.transition(to: .authenticatingTarget(host: targetHost))
 
         guard case .hostKeyRejected(let host, let isJumpHost)? =
                 session.categorizeError(HostKeyRejectedError()) as? SSHJumpError else {
-            return XCTFail("expected SSHJumpError.hostKeyRejected")
+            Issue.record("expected SSHJumpError.hostKeyRejected")
+return
         }
 
-        XCTAssertEqual(host, targetHost)
-        XCTAssertEqual(isJumpHost, false)
+        #expect(host == targetHost)
+        #expect(isJumpHost == false)
     }
 
     /// A host-key rejection during the BASTION handshake is the bastion's.
     /// Pairs with the test above so neither direction can be satisfied by a
     /// constant.
-    func testHostKeyRejectionDuringTheBastionHandshakeIsAttributedToTheBastion() {
+    @Test
+    func testHostKeyRejectionDuringTheBastionHandshakeIsAttributedToTheBastion() throws {
         let session = makeSession(withJumpHost: true)
         session.transition(to: .connecting(host: bastionHost, isJumpHost: true))
 
         guard case .hostKeyRejected(let host, let isJumpHost)? =
                 session.categorizeError(HostKeyRejectedError()) as? SSHJumpError else {
-            return XCTFail("expected SSHJumpError.hostKeyRejected")
+            Issue.record("expected SSHJumpError.hostKeyRejected")
+return
         }
 
-        XCTAssertEqual(host, bastionHost)
-        XCTAssertEqual(isJumpHost, true)
+        #expect(host == bastionHost)
+        #expect(isJumpHost == true)
     }
 
     /// Every auth-failure variant Citadel can raise routes through the same
@@ -201,7 +207,8 @@ final class SSHHopAttributionTests: XCTestCase {
     ///
     /// Goes red if a new `SSHClientError` arm is given its own hard-coded host
     /// instead of `failedHopAttribution`.
-    func testAllAuthFailureVariantsShareTheSameHopAttribution() {
+    @Test
+    func testAllAuthFailureVariantsShareTheSameHopAttribution() throws {
         let variants: [SSHClientError] = [
             .allAuthenticationOptionsFailed,
             .unsupportedPasswordAuthentication,
@@ -216,8 +223,8 @@ final class SSHHopAttributionTests: XCTestCase {
             session.transition(to: .authenticatingTarget(host: targetHost))
 
             let hop = authFailure(variant, from: session)
-            XCTAssertEqual(hop?.host, targetHost, "\(variant) mis-attributed")
-            XCTAssertEqual(hop?.isJumpHost, false, "\(variant) mis-attributed")
+            #expect(hop?.host == targetHost, "\(variant) mis-attributed")
+            #expect(hop?.isJumpHost == false, "\(variant) mis-attributed")
         }
     }
 
@@ -228,13 +235,14 @@ final class SSHHopAttributionTests: XCTestCase {
     ///
     /// Goes red if the `guard let jump = config.jumpHost` in
     /// `failedHopAttribution` becomes a force-unwrap.
-    func testJumpHopWithNoJumpConfigFallsBackToTheTargetInsteadOfTrapping() {
+    @Test
+    func testJumpHopWithNoJumpConfigFallsBackToTheTargetInsteadOfTrapping() throws {
         let session = makeSession(withJumpHost: false)
         session.transition(to: .authenticating(host: bastionHost, isJumpHost: true))
 
         let hop = authFailure(SSHClientError.allAuthenticationOptionsFailed, from: session)
 
-        XCTAssertEqual(hop?.host, targetHost)
-        XCTAssertEqual(hop?.isJumpHost, false)
+        #expect(hop?.host == targetHost)
+        #expect(hop?.isJumpHost == false)
     }
 }

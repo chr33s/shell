@@ -8,7 +8,8 @@
 //  answer (docs/specs/agent-relay.md sections 6.3, 11, 12.1, and 14).
 //
 
-import XCTest
+import Foundation
+import Testing
 import ShellControlProtocol
 import ShellControlSecurity
 import ShellControlClient
@@ -16,42 +17,46 @@ import ShellControlClient
 @testable import Shell
 
 @MainActor
-final class ControlAgentTests: XCTestCase {
+@Suite
+final class ControlAgentTests {
     private let now = ControlTimestamp(Date(timeIntervalSince1970: 1_790_000_000))
 
     // MARK: Discovery and grants
 
     /// A Mac without `shell-agent/1` answers `not_found`: the section is
     /// hidden and the probe is not repeated on every refresh.
-    func testNotFoundCapabilitiesHidesTheSectionWithoutAnErrorLoop() async {
+    @Test
+    func testNotFoundCapabilitiesHidesTheSectionWithoutAnErrorLoop() async throws {
         let service = StubAgentService(now: now)
         service.capabilitiesError = ControlError(code: .notFound, message: "no such endpoint")
         let clock = TestClock(now.date)
         let center = ControlAgentCenter(now: { clock.date })
 
         await center.refresh(using: service, grants: DeviceGrant.agentPhone)
-        XCTAssertEqual(center.availability, .unsupported)
-        XCTAssertNil(center.problem, "an older Mac is not an error")
-        XCTAssertFalse(center.isAvailable)
+        #expect(center.availability == .unsupported)
+        #expect((center.problem) == nil, "an older Mac is not an error")
+        #expect(!(center.isAvailable))
 
         clock.advance(60)
         await center.refresh(using: service, grants: DeviceGrant.agentPhone)
-        XCTAssertEqual(service.calls, ["capabilities"], "not asked again before the reprobe interval")
+        #expect(service.calls == ["capabilities"], "not asked again before the reprobe interval")
     }
 
     /// Discovery needs no grant; without the agent read grant nothing else is
     /// fetched and the section says so.
-    func testWithoutTheGrantAgentQuestionsAreNotEnabled() async {
+    @Test
+    func testWithoutTheGrantAgentQuestionsAreNotEnabled() async throws {
         let service = StubAgentService(now: now)
         let center = ControlAgentCenter(now: { [now] in now.date })
         await center.refresh(using: service, grants: DeviceGrant.watchDefault)
-        XCTAssertEqual(center.availability, .notEnabled)
-        XCTAssertEqual(service.calls, ["capabilities"])
-        XCTAssertFalse(center.canRespond)
+        #expect(center.availability == .notEnabled)
+        #expect(service.calls == ["capabilities"])
+        #expect(!(center.canRespond))
     }
 
     /// One snapshot, then only changes after its cursor, and never faster
     /// than the poll floor.
+    @Test
     func testSnapshotThenChangesNoFasterThanThePollFloor() async throws {
         let record = try makeInput()
         let service = StubAgentService(now: now)
@@ -60,12 +65,12 @@ final class ControlAgentTests: XCTestCase {
         let center = ControlAgentCenter(now: { clock.date })
 
         await center.refresh(using: service, grants: DeviceGrant.agentPhone)
-        XCTAssertTrue(center.isAvailable)
-        XCTAssertEqual(center.inbox.pendingInputs.map(\.spec.requestID), [record.spec.requestID])
+        #expect(center.isAvailable)
+        #expect(center.inbox.pendingInputs.map(\.spec.requestID) == [record.spec.requestID])
 
         clock.advance(1)
         await center.refresh(using: service, grants: DeviceGrant.agentPhone)
-        XCTAssertEqual(service.calls, ["capabilities", "snapshot"], "throttled to the poll floor")
+        #expect(service.calls == ["capabilities", "snapshot"], "throttled to the poll floor")
 
         var answered = record
         answered.projection.resolution = .answered
@@ -77,14 +82,15 @@ final class ControlAgentTests: XCTestCase {
         )]
         clock.advance(ControlAgentCenter.minimumInterval)
         await center.refresh(using: service, grants: DeviceGrant.agentPhone)
-        XCTAssertEqual(service.calls, ["capabilities", "snapshot", "changes"])
-        XCTAssertTrue(center.inbox.pendingInputs.isEmpty)
-        let resolved = try XCTUnwrap(center.inbox.resolvedInputs.first)
-        XCTAssertEqual(ControlAgentText.resolution(resolved.projection), "Delivered to agent")
+        #expect(service.calls == ["capabilities", "snapshot", "changes"])
+        #expect(center.inbox.pendingInputs.isEmpty)
+        let resolved = try #require(center.inbox.resolvedInputs.first)
+        #expect(ControlAgentText.resolution(resolved.projection) == "Delivered to agent")
     }
 
     /// More history than one refresh can page through still loads what can
     /// be answered, with a note, instead of failing every refresh.
+    @Test
     func testSnapshotOverThePageCapFallsBackToPendingOnly() async throws {
         let pending = try makeInput()
         var resolved = try makeInput()
@@ -95,41 +101,43 @@ final class ControlAgentTests: XCTestCase {
         let center = ControlAgentCenter(now: { [now] in now.date })
 
         await center.refresh(using: service, grants: DeviceGrant.agentPhone)
-        XCTAssertNil(center.problem, "a capped snapshot is not a refresh failure")
-        XCTAssertTrue(center.inbox.omitsOlderOutcomes)
-        XCTAssertEqual(center.inbox.pendingInputs.map(\.spec.requestID), [pending.spec.requestID])
-        XCTAssertTrue(center.inbox.resolvedInputs.isEmpty, "the partial full cut is never adopted")
-        XCTAssertEqual(center.inbox.cursor, ChangeCursor("ac1.1.t"))
-        XCTAssertEqual(service.calls.filter { $0 == "snapshot" }.count, ControlAgentCenter.maxSnapshotPages)
-        XCTAssertEqual(service.calls.last, "snapshot-pending")
+        #expect((center.problem) == nil, "a capped snapshot is not a refresh failure")
+        #expect(center.inbox.omitsOlderOutcomes)
+        #expect(center.inbox.pendingInputs.map(\.spec.requestID) == [pending.spec.requestID])
+        #expect(center.inbox.resolvedInputs.isEmpty, "the partial full cut is never adopted")
+        #expect(center.inbox.cursor == ChangeCursor("ac1.1.t"))
+        #expect(service.calls.filter { $0 == "snapshot" }.count == ControlAgentCenter.maxSnapshotPages)
+        #expect(service.calls.last == "snapshot-pending")
 
         await center.refresh(using: service, grants: DeviceGrant.agentPhone, force: true)
-        XCTAssertEqual(service.calls.last, "changes", "the pending-only cursor is followed like any other")
-        XCTAssertTrue(center.inbox.omitsOlderOutcomes, "older outcomes stay omitted until a full snapshot")
+        #expect(service.calls.last == "changes", "the pending-only cursor is followed like any other")
+        #expect(center.inbox.omitsOlderOutcomes, "older outcomes stay omitted until a full snapshot")
     }
 
     // MARK: Notification lookup
 
     /// Inputs reuse the approval hint: an approval `not_found` falls back to
     /// the input endpoint.
+    @Test
     func testApprovalNotFoundFallsBackToInputLookup() async throws {
         let record = try makeInput()
         let found = try await ControlRequestLookup.resolve(
             approval: { throw ControlError(code: .notFound, message: "no such request") },
             input: { record }
         )
-        XCTAssertEqual(found, .input(record))
+        #expect(found == .input(record))
     }
 
+    @Test
     func testLookupReportsTheApprovalErrorWhenNeitherExists() async throws {
         do {
             _ = try await ControlRequestLookup.resolve(
                 approval: { throw ControlError(code: .notFound, message: "no such request") },
                 input: { throw ControlError(code: .notAuthorized, message: "missing grant agent.inputs.read") }
             )
-            XCTFail("expected not found")
+            Issue.record("expected not found")
         } catch let error as ControlError {
-            XCTAssertEqual(error.code, .notFound)
+            #expect(error.code == .notFound)
         }
         // Without the read grant, the input endpoint is not even tried.
         do {
@@ -137,14 +145,15 @@ final class ControlAgentTests: XCTestCase {
                 approval: { throw ControlError(code: .notFound, message: "no such request") },
                 input: nil
             )
-            XCTFail("expected not found")
+            Issue.record("expected not found")
         } catch let error as ControlError {
-            XCTAssertEqual(error.code, .notFound)
+            #expect(error.code == .notFound)
         }
     }
 
     // MARK: Answers and rendering
 
+    @Test
     func testTheAnswerIsExactAndCanonical() throws {
         let spec = try makeInput(questions: [
             try InputQuestion(id: "zeta", prompt: "Note", kind: .text(maximumBytes: 8, hint: nil), required: false),
@@ -152,26 +161,27 @@ final class ControlAgentTests: XCTestCase {
                 try InputChoice(id: "a", label: "A"), try InputChoice(id: "b", label: "B"), try InputChoice(id: "c", label: "C")
             ], minimum: 1, maximum: 2), required: true)
         ]).spec
-        let text = try XCTUnwrap(spec.question("zeta"))
-        let multi = try XCTUnwrap(spec.question("alpha"))
+        let text = try #require(spec.question("zeta"))
+        let multi = try #require(spec.question("alpha"))
         var draft = InputAnswerDraft()
-        XCTAssertThrowsError(try draft.response(for: spec), "a required answer is missing")
+        #expect(throws: (any Error).self, "a required answer is missing") { try draft.response(for: spec) }
         draft.select("c", in: multi)
         draft.select("a", in: multi)
         draft.select("b", in: multi)
-        XCTAssertEqual(draft.selectionCount(for: multi), 2, "the committed maximum holds")
+        #expect(draft.selectionCount(for: multi) == 2, "the committed maximum holds")
         draft.setText("né", for: text)
-        XCTAssertEqual(draft.byteCount(for: text), 3, "limits are UTF-8 bytes")
-        XCTAssertEqual(try draft.response(for: spec), .answer([
+        #expect(draft.byteCount(for: text) == 3, "limits are UTF-8 bytes")
+        #expect(try draft.response(for: spec) == .answer([
             .multiChoice(questionID: "alpha", choiceIDs: ["a", "c"]),
             .text(questionID: "zeta", text: "né")
         ]))
         draft.setText("123456789", for: text)
-        XCTAssertThrowsError(try draft.response(for: spec), "over-limit text is refused before signing")
+        #expect(throws: (any Error).self, "over-limit text is refused before signing") { try draft.response(for: spec) }
     }
 
     /// The exact command is shown with control and bidi characters escaped
     /// visibly, split only at real line breaks.
+    @Test
     func testShellOperationRendersExactlyAndVisibly() throws {
         let operation = try AgentToolOperation(
             provider: "claude_code", providerBuild: "tested", adapterBuild: "adapter",
@@ -182,11 +192,11 @@ final class ControlAgentTests: XCTestCase {
             nativeRequestSHA256: String(repeating: "a", count: 64), contextSHA256: String(repeating: "b", count: 64)
         )
         let display = AgentOperationDisplay(operation)
-        XCTAssertEqual(display.commandLines.count, 2)
-        XCTAssertEqual(display.commandText, "git status\necho <U+202E>txt.exe")
-        XCTAssertTrue(display.didEscape)
-        XCTAssertFalse(display.isTruncated)
-        XCTAssertEqual(display.unavailable, ["shell_identity"])
+        #expect(display.commandLines.count == 2)
+        #expect(display.commandText == "git status\necho <U+202E>txt.exe")
+        #expect(display.didEscape)
+        #expect(!(display.isTruncated))
+        #expect(display.unavailable == ["shell_identity"])
     }
 
     // MARK: Fixtures

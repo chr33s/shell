@@ -1,8 +1,10 @@
-import XCTest
+import Foundation
+import Testing
 @testable import Shell
 
 @MainActor
-final class TmuxLayoutTests: XCTestCase {
+@Suite
+final class TmuxLayoutTests {
     private func pane(_ id: Int, width: Int = 20, height: Int = 24) -> TmuxLayoutNode {
         .pane(paneId: id, width: width, height: height, x: 0, y: 0)
     }
@@ -99,34 +101,36 @@ final class TmuxLayoutTests: XCTestCase {
         }
     }
 
+    @Test
     func testNestedGroupsUseNativeSpreadWhenLeafResizesCannotReachRoot() async throws {
         let columns = nestedGroups([[75, 75], [25, 25]])
         for original in [columns, transposed(columns)] {
-            let target = try XCTUnwrap(original.equalizationTarget())
-            XCTAssertTrue(target.hasSameTopology(as: original))
-            XCTAssertEqual(target.leaves, original.equalizedLayout()?.leaves)
-            XCTAssertNil(original.resizePlan(to: target))
-            XCTAssertTrue(original.nativeEqualizationProducesEqualLeaves)
+            let target = try #require(original.equalizationTarget())
+            #expect(target.hasSameTopology(as: original))
+            #expect(target.leaves == original.equalizedLayout()?.leaves)
+            #expect((original.resizePlan(to: target)) == nil)
+            #expect(original.nativeEqualizationProducesEqualLeaves)
             var current = original
             var spreads = 0
             try await TmuxSplitEqualizer.run(windowID: 1, layout: original) { command in
                 if command.hasPrefix("display-message") { return self.reply(current) }
-                XCTAssertTrue(command.hasPrefix("select-layout -E -t @1.%"))
+                #expect(command.hasPrefix("select-layout -E -t @1.%"))
                 spreads += 1
                 current = target
                 return ""
             }
-            XCTAssertGreaterThan(spreads, 0)
-            XCTAssertEqual(current, target)
+            #expect(spreads > 0)
+            #expect(current == target)
         }
     }
 
+    @Test
     func testUnequalNestedGroupsAreRejectedBeforeMutatingOrUnzooming() async throws {
         let columns = nestedGroups([[75, 75], [16, 16, 17]])
         for original in [columns, transposed(columns)] {
-            let target = try XCTUnwrap(original.equalizationTarget())
-            XCTAssertNil(original.resizePlan(to: target))
-            XCTAssertFalse(original.nativeEqualizationProducesEqualLeaves)
+            let target = try #require(original.equalizationTarget())
+            #expect((original.resizePlan(to: target)) == nil)
+            #expect(!(original.nativeEqualizationProducesEqualLeaves))
             for zoom in [nil, 0] as [Int?] {
                 var commands: [String] = []
                 do {
@@ -134,15 +138,16 @@ final class TmuxLayoutTests: XCTestCase {
                         commands.append(command)
                         return self.reply(original, zoom: zoom)
                     }
-                    XCTFail("Unreachable targets must fail preflight")
+                    Issue.record("Unreachable targets must fail preflight")
                 } catch TmuxSplitEqualizer.Failure.unsafeLayout {
-                    XCTAssertEqual(commands.count, 1)
-                    XCTAssertTrue(commands[0].hasPrefix("display-message"))
+                    #expect(commands.count == 1)
+                    #expect(commands[0].hasPrefix("display-message"))
                 }
             }
         }
     }
 
+    @Test
     func testResizePlanUsesLastChildToReachBoundaryBeforeNestedGroup() throws {
         let left = TmuxLayoutNode.split(direction: .horizontal, children: [
             .pane(paneId: 0, width: 25, height: 24, x: 0, y: 0),
@@ -152,43 +157,46 @@ final class TmuxLayoutTests: XCTestCase {
             left, .pane(paneId: 2, width: 101, height: 24, x: 52, y: 0)
         ], width: 153, height: 24, x: 0, y: 0)
         for original in [columns, transposed(columns)] {
-            let target = try XCTUnwrap(original.equalizationTarget())
-            let plan = try XCTUnwrap(original.resizePlan(to: target))
-            XCTAssertEqual(plan.map(\.paneID), [2, 0])
-            XCTAssertEqual(plan.map(\.size), [50, 51])
-            XCTAssertEqual(plan.map(\.direction), Array(repeating: original == columns ? .horizontal : .vertical, count: 2))
+            let target = try #require(original.equalizationTarget())
+            let plan = try #require(original.resizePlan(to: target))
+            #expect(plan.map(\.paneID) == [2, 0])
+            #expect(plan.map(\.size) == [50, 51])
+            #expect(plan.map(\.direction) == Array(repeating: original == columns ? .horizontal : .vertical, count: 2))
         }
     }
 
-    func testNativeFallbackAllowsRoundingCellsInDifferentGroups() {
+    @Test
+    func testNativeFallbackAllowsRoundingCellsInDifferentGroups() throws {
         let original = nestedGroups([[25, 25], [8, 8]])
         // 69 columns: native -E yields 17/16/17/16, while the flattened
         // sizing model chooses 17/17/16/16. Both are valid equalization.
-        XCTAssertEqual(original.width, 69)
-        XCTAssertTrue(original.nativeEqualizationProducesEqualLeaves)
-        XCTAssertTrue(transposed(original).nativeEqualizationProducesEqualLeaves)
+        #expect(original.width == 69)
+        #expect(original.nativeEqualizationProducesEqualLeaves)
+        #expect(transposed(original).nativeEqualizationProducesEqualLeaves)
     }
 
+    @Test
     func testUnreachableBoundaryCanStayPutWhenItsGroupsAlreadyHaveTargetSizes() throws {
         let columns = nestedGroups([[60, 20], [60, 30, 28]])
         // The 81/120 group widths are already correct for five columns in 202
         // cells. Only the dividers inside those groups need to move.
         for original in [columns, transposed(columns)] {
-            let target = try XCTUnwrap(original.equalizationTarget())
-            XCTAssertFalse(original.nativeEqualizationProducesEqualLeaves)
-            let plan = try XCTUnwrap(original.resizePlan(to: target))
-            XCTAssertEqual(plan.map(\.paneID), [0, 2, 3])
-            XCTAssertEqual(plan.map(\.size), [40, 40, 39])
+            let target = try #require(original.equalizationTarget())
+            #expect(!(original.nativeEqualizationProducesEqualLeaves))
+            let plan = try #require(original.resizePlan(to: target))
+            #expect(plan.map(\.paneID) == [0, 2, 3])
+            #expect(plan.map(\.size) == [40, 40, 39])
         }
     }
 
+    @Test
     func testCorrectUnreachableBoundaryDoesNotBlockUnrelatedResize() async throws {
         let columns = nestedGroups([[50, 50], [80], [20]])
-        XCTAssertEqual(columns.width, 203)
+        #expect(columns.width == 203)
         for original in [columns, transposed(columns)] {
-            let target = try XCTUnwrap(original.equalizationTarget())
+            let target = try #require(original.equalizationTarget())
             let direction: TmuxLayoutNode.Direction = original == columns ? .horizontal : .vertical
-            XCTAssertEqual(original.resizePlan(to: target), [
+            #expect(original.resizePlan(to: target) == [
                 TmuxLayoutNode.PaneResize(paneID: 2, direction: direction, size: 50)
             ])
             var current = original
@@ -196,52 +204,55 @@ final class TmuxLayoutTests: XCTestCase {
             try await TmuxSplitEqualizer.run(windowID: 1, layout: original) { command in
                 if command.hasPrefix("display-message") { return self.reply(current) }
                 let flag = direction == .horizontal ? "-x" : "-y"
-                XCTAssertEqual(command, "resize-pane -t @1.%2 \(flag) 50")
+                #expect(command == "resize-pane -t @1.%2 \(flag) 50")
                 resizes += 1
                 current = target
                 return ""
             }
-            XCTAssertEqual(resizes, 1)
-            XCTAssertEqual(current.leaves, target.leaves)
+            #expect(resizes == 1)
+            #expect(current.leaves == target.leaves)
         }
     }
 
+    @Test
     func testEarlierShrinkCanPutAnUnreachableBoundaryAtItsTarget() throws {
         let columns = nestedGroups([[80], [35, 35], [20], [80]])
         for original in [columns, transposed(columns)] {
-            let target = try XCTUnwrap(original.equalizationTarget())
+            let target = try #require(original.equalizationTarget())
             // Shrinking pane 0 gives 30 cells to the nested group, making its
             // width 101. Its outer boundary then needs no command. Pane 3 can
             // grow into pane 4 without touching that group again.
-            let plan = try XCTUnwrap(original.resizePlan(to: target))
-            XCTAssertEqual(plan.map(\.paneID), [0, 3, 1])
-            XCTAssertEqual(plan.map(\.size), [50, 50, 50])
+            let plan = try #require(original.resizePlan(to: target))
+            #expect(plan.map(\.paneID) == [0, 3, 1])
+            #expect(plan.map(\.size) == [50, 50, 50])
         }
     }
 
+    @Test
     func testEarlierGrowthInvalidatesAnOtherwiseCorrectUnreachableBoundary() async throws {
         let columns = nestedGroups([[20], [50, 50], [80], [50]])
         for original in [columns, transposed(columns)] {
-            let target = try XCTUnwrap(original.equalizationTarget())
+            let target = try #require(original.equalizationTarget())
             // Growing pane 0 takes 30 cells from the initially correct nested
             // group. Its next boundary is not addressable, so reject the whole
             // plan before issuing the otherwise reachable first resize.
-            XCTAssertNil(original.resizePlan(to: target))
-            XCTAssertFalse(original.nativeEqualizationProducesEqualLeaves)
+            #expect((original.resizePlan(to: target)) == nil)
+            #expect(!(original.nativeEqualizationProducesEqualLeaves))
             var commands: [String] = []
             do {
                 try await TmuxSplitEqualizer.run(windowID: 1, layout: original) { command in
                     commands.append(command)
                     return self.reply(original, zoom: 0)
                 }
-                XCTFail("Expected preflight to account for the first resize")
+                Issue.record("Expected preflight to account for the first resize")
             } catch TmuxSplitEqualizer.Failure.unsafeLayout {
-                XCTAssertEqual(commands.count, 1)
-                XCTAssertTrue(commands[0].hasPrefix("display-message"))
+                #expect(commands.count == 1)
+                #expect(commands[0].hasPrefix("display-message"))
             }
         }
     }
 
+    @Test
     func testAlreadyEqualNestedGroupsNeedNoMutation() async throws {
         let original = nestedGroups([[50, 50], [50, 50]])
         var commands: [String] = []
@@ -249,49 +260,54 @@ final class TmuxLayoutTests: XCTestCase {
             commands.append(command)
             return self.reply(original, zoom: 0)
         }
-        XCTAssertEqual(commands.count, 1)
-        XCTAssertTrue(commands[0].hasPrefix("display-message"))
+        #expect(commands.count == 1)
+        #expect(commands[0].hasPrefix("display-message"))
     }
 
-    func testTopologyAllowsGeometryChangesButRejectsMovedOrReplacedPanes() {
+    @Test
+    func testTopologyAllowsGeometryChangesButRejectsMovedOrReplacedPanes() throws {
         let original = pair()
-        XCTAssertTrue(original.hasSameTopology(as: pair(width: 60)))
-        XCTAssertFalse(original.hasSameTopology(as: split(.horizontal, [pane(2), pane(0)])))
-        XCTAssertFalse(original.hasSameTopology(as: split(.horizontal, [pane(0), pane(8)])))
-        XCTAssertFalse(original.hasSameTopology(as: split(.vertical, [pane(0), pane(2)])))
-        XCTAssertFalse(original.hasSameTopology(as: pane(0)))
+        #expect(original.hasSameTopology(as: pair(width: 60)))
+        #expect(!(original.hasSameTopology(as: split(.horizontal, [pane(2), pane(0)]))))
+        #expect(!(original.hasSameTopology(as: split(.horizontal, [pane(0), pane(8)]))))
+        #expect(!(original.hasSameTopology(as: split(.vertical, [pane(0), pane(2)]))))
+        #expect(!(original.hasSameTopology(as: pane(0))))
     }
 
-    func testServerLayoutParserRejectsUncheckedGeometry() {
-        XCTAssertEqual(TmuxLayoutNode.parseServerLayout("b25d,80x24,0,0,0"), pane(0, width: 80, height: 24))
-        XCTAssertNil(TmuxLayoutNode.parseServerLayout("0000,80x24,0,0,0"))
-        XCTAssertNil(TmuxLayoutNode.parseServerLayout("unknown-format"))
-        XCTAssertEqual(TmuxLayoutNode.parseServerLayout(wireLayout(constrained)), constrained)
-        XCTAssertNil(TmuxLayoutNode.parseServerLayout(wireLayout(split(.horizontal, [pane(0), pane(0)]))))
+    @Test
+    func testServerLayoutParserRejectsUncheckedGeometry() throws {
+        #expect(TmuxLayoutNode.parseServerLayout("b25d,80x24,0,0,0") == pane(0, width: 80, height: 24))
+        #expect((TmuxLayoutNode.parseServerLayout("0000,80x24,0,0,0")) == nil)
+        #expect((TmuxLayoutNode.parseServerLayout("unknown-format")) == nil)
+        #expect(TmuxLayoutNode.parseServerLayout(wireLayout(constrained)) == constrained)
+        #expect((TmuxLayoutNode.parseServerLayout(wireLayout(split(.horizontal, [pane(0), pane(0)])))) == nil)
         let malformed = TmuxLayoutNode.split(direction: .horizontal, children: [pane(0), pane(2)], width: 2, height: 24, x: 0, y: 0)
-        XCTAssertNil(TmuxLayoutNode.parseServerLayout(wireLayout(malformed)))
+        #expect((TmuxLayoutNode.parseServerLayout(wireLayout(malformed))) == nil)
     }
 
+    @Test
     func testIssue475NestedColumnsFlattenToEqualLeafWidths() throws {
         let original = issue475NestedColumns
-        XCTAssertTrue(original.hasNestedSameAxisSplit)
-        let equalized = try XCTUnwrap(original.equalizedLayout())
-        XCTAssertEqual(equalized.paneIDs, [24, 1, 10, 29, 26, 30])
+        #expect(original.hasNestedSameAxisSplit)
+        let equalized = try #require(original.equalizedLayout())
+        #expect(equalized.paneIDs == [24, 1, 10, 29, 26, 30])
         guard case let .split(.horizontal, columns, width, height, x, y) = equalized else {
-            return XCTFail("Expected flattened horizontal root")
+            Issue.record("Expected flattened horizontal root")
+return
         }
-        XCTAssertEqual(width, 208)
-        XCTAssertEqual(height, 77)
-        XCTAssertEqual(x, 0)
-        XCTAssertEqual(y, 0)
-        XCTAssertEqual(columns.count, 3)
-        XCTAssertEqual(columns.map(\.width), [69, 69, 68])
-        XCTAssertEqual(TmuxLayoutNode.parseServerLayout(equalized.serverLayoutString), equalized)
+        #expect(width == 208)
+        #expect(height == 77)
+        #expect(x == 0)
+        #expect(y == 0)
+        #expect(columns.count == 3)
+        #expect(columns.map(\.width) == [69, 69, 68])
+        #expect(TmuxLayoutNode.parseServerLayout(equalized.serverLayoutString) == equalized)
     }
 
+    @Test
     func testIssue475NestedColumnsResizeWithoutImportingLayout() async throws {
         let original = issue475NestedColumns
-        let equalized = try XCTUnwrap(original.equalizedLayout())
+        let equalized = try #require(original.equalizedLayout())
         var current = original
         var commands: [String] = []
         try await TmuxSplitEqualizer.run(windowID: 1, layout: original) { command in
@@ -299,18 +315,19 @@ final class TmuxLayoutTests: XCTestCase {
             if command.hasPrefix("display-message") { return self.reply(current) }
             if command.hasPrefix("resize-pane -t @1.%24 -x 69") {
                 current = self.nestedColumns(equalized: true)
-            } else { XCTFail("Unexpected command: \(command)") }
+            } else { Issue.record("Unexpected command: \(command)") }
             return ""
         }
-        XCTAssertEqual(current.leaves, equalized.leaves)
-        XCTAssertTrue(current.hasSameTopology(as: original))
-        XCTAssertEqual(commands.filter { $0.hasPrefix("resize-pane") }.count, 1)
-        XCTAssertFalse(commands.contains { $0.hasPrefix("select-layout") })
+        #expect(current.leaves == equalized.leaves)
+        #expect(current.hasSameTopology(as: original))
+        #expect(commands.filter { $0.hasPrefix("resize-pane") }.count == 1)
+        #expect(!(commands.contains { $0.hasPrefix("select-layout") }))
     }
 
+    @Test
     func testNestedResizeStopsWhenTopologyChangesWithSamePaneOrder() async throws {
         let original = issue475NestedColumns
-        let changed = try XCTUnwrap(original.equalizedLayout())
+        let changed = try #require(original.equalizedLayout())
         var current = original
         var commands: [String] = []
         do {
@@ -321,37 +338,39 @@ final class TmuxLayoutTests: XCTestCase {
                     current = changed
                     return ""
                 }
-                XCTFail("Unexpected command: \(command)")
+                Issue.record("Unexpected command: \(command)")
                 return ""
             }
-            XCTFail("Expected topology mismatch")
+            Issue.record("Expected topology mismatch")
         } catch TmuxSplitEqualizer.Failure.layoutChanged {
-            XCTAssertEqual(commands.filter { $0.hasPrefix("resize-pane") }.count, 1)
-            XCTAssertFalse(commands.contains { $0.hasPrefix("select-layout") })
+            #expect(commands.filter { $0.hasPrefix("resize-pane") }.count == 1)
+            #expect(!(commands.contains { $0.hasPrefix("select-layout") }))
         } catch {
-            XCTFail("Unexpected error: \(error)")
+            Issue.record("Unexpected error: \(error)")
         }
     }
 
-    func testPerpendicularGroupRetainsMinimumWidth() async {
-        XCTAssertEqual(constrained.width, 8)
-        XCTAssertFalse(constrained.permitsNativeEqualization)
+    @Test
+    func testPerpendicularGroupRetainsMinimumWidth() async throws {
+        #expect(constrained.width == 8)
+        #expect(!(constrained.permitsNativeEqualization))
         var commands: [String] = []
         do {
             try await TmuxSplitEqualizer.run(windowID: 0, layout: constrained) { command in
                 commands.append(command)
                 return self.reply(self.constrained, zoom: 0)
             }
-            XCTFail("Root spreading would shrink the five-column subtree to three")
+            Issue.record("Root spreading would shrink the five-column subtree to three")
         } catch TmuxSplitEqualizer.Failure.unsafeLayout {
-            XCTAssertEqual(commands.count, 1)
-            XCTAssertTrue(commands[0].hasPrefix("display-message"))
-        } catch { XCTFail("Unexpected error: \(error)") }
+            #expect(commands.count == 1)
+            #expect(commands[0].hasPrefix("display-message"))
+        } catch { Issue.record("Unexpected error: \(error)") }
     }
 
-    func testSafetyIncludesAncestorShrinkAndBothAxes() {
+    @Test
+    func testSafetyIncludesAncestorShrinkAndBothAxes() throws {
         let deep = split(.vertical, [constrained, pane(5, width: 8, height: 5)])
-        XCTAssertFalse(deep.permitsNativeEqualization)
+        #expect(!(deep.permitsNativeEqualization))
         func transpose(_ node: TmuxLayoutNode) -> TmuxLayoutNode {
             switch node {
             case let .pane(id, w, h, _, _): return pane(id, width: h, height: w)
@@ -359,10 +378,11 @@ final class TmuxLayoutTests: XCTestCase {
                 return split(axis == .horizontal ? .vertical : .horizontal, children.map(transpose))
             }
         }
-        XCTAssertFalse(transpose(constrained).permitsNativeEqualization)
-        XCTAssertTrue(columns().permitsNativeEqualization)
+        #expect(!(transpose(constrained).permitsNativeEqualization))
+        #expect(columns().permitsNativeEqualization)
     }
 
+    @Test
     func testSixPaneLayoutWaitsForServerGeometryToSettle() async throws {
         var spreads = 0
         var commands: [String] = []
@@ -374,37 +394,40 @@ final class TmuxLayoutTests: XCTestCase {
             spreads += 1
             return ""
         }
-        XCTAssertEqual(spreads, 18)
-        XCTAssertEqual(commands.filter { $0.hasPrefix("select-layout") }, Array(repeating: [1, 10, 7, 13, 11, 12].map {
+        #expect(spreads == 18)
+        #expect(commands.filter { $0.hasPrefix("select-layout") } == Array(repeating: [1, 10, 7, 13, 11, 12].map {
             "select-layout -E -t @4.%\($0)"
         }, count: 3).flatMap { $0 })
-        XCTAssertTrue(commands.allSatisfy { !$0.contains(";") && !$0.contains("\n") })
-        XCTAssertEqual(commands.filter { $0.hasPrefix("display-message") }.count, spreads + 1)
+        #expect(commands.allSatisfy { !$0.contains(";") && !$0.contains("\n") })
+        #expect(commands.filter { $0.hasPrefix("display-message") }.count == spreads + 1)
     }
 
+    @Test
     func testZoomedPaneZeroIsRestoredWithItsOwnCommandAfterConvergence() async throws {
         var commands: [String] = []
         try await TmuxSplitEqualizer.run(windowID: 9, layout: pair()) { command in
             commands.append(command)
             return command.hasPrefix("display-message") ? self.reply(self.pair(), zoom: commands.count == 1 ? 0 : nil) : ""
         }
-        XCTAssertEqual(commands.last, "resize-pane -Z -t @9.%0")
-        XCTAssertEqual(commands.filter { $0.hasPrefix("resize-pane") }.count, 1)
-        XCTAssertTrue(commands.allSatisfy { !$0.contains(";") && !$0.contains("\n") })
+        #expect(commands.last == "resize-pane -Z -t @9.%0")
+        #expect(commands.filter { $0.hasPrefix("resize-pane") }.count == 1)
+        #expect(commands.allSatisfy { !$0.contains(";") && !$0.contains("\n") })
     }
 
+    @Test
     func testExistingZoomIsNotToggledOffDuringRestoration() async throws {
         var reads = 0
         try await TmuxSplitEqualizer.run(windowID: 9, layout: pair()) { command in
-            XCTAssertFalse(command.hasPrefix("resize-pane"))
+            #expect(!(command.hasPrefix("resize-pane")))
             guard command.hasPrefix("display-message") else { return "" }
             reads += 1
             return self.reply(self.pair(), zoom: reads == 1 ? 0 : (reads == 4 ? 2 : nil))
         }
-        XCTAssertEqual(reads, 4)
+        #expect(reads == 4)
     }
 
-    func testFailureStopsSpreadingAndRestoresZoom() async {
+    @Test
+    func testFailureStopsSpreadingAndRestoresZoom() async throws {
         var reads = 0
         var commands: [String] = []
         do {
@@ -417,20 +440,21 @@ final class TmuxLayoutTests: XCTestCase {
                 if command.hasPrefix("select-layout") { throw TmuxSplitEqualizer.Failure.layoutChanged }
                 return ""
             }
-            XCTFail("Expected failure")
+            Issue.record("Expected failure")
         } catch TmuxSplitEqualizer.Failure.layoutChanged {
-            XCTAssertEqual(commands.filter { $0.hasPrefix("select-layout") }.count, 1)
-            XCTAssertEqual(commands.last, "resize-pane -Z -t @9.%0")
-        } catch { XCTFail("Unexpected error: \(error)") }
+            #expect(commands.filter { $0.hasPrefix("select-layout") }.count == 1)
+            #expect(commands.last == "resize-pane -Z -t @9.%0")
+        } catch { Issue.record("Unexpected error: \(error)") }
     }
 
-    func testServerGeometryIsRecheckedBeforeEverySpread() async {
+    @Test
+    func testServerGeometryIsRecheckedBeforeEverySpread() async throws {
         let roomy = TmuxLayoutNode.split(direction: .horizontal,
             children: [pane(0, width: 6, height: 5), split(.vertical, [
                 split(.horizontal, [1, 2, 3].map { pane($0, width: 2, height: 2) }),
                 pane(4, width: 8, height: 2)
             ])], width: 15, height: 5, x: 0, y: 0)
-        XCTAssertTrue(roomy.permitsNativeEqualization)
+        #expect(roomy.permitsNativeEqualization)
         var spreads = 0
         do {
             try await TmuxSplitEqualizer.run(windowID: 0, layout: roomy) { command in
@@ -438,13 +462,14 @@ final class TmuxLayoutTests: XCTestCase {
                 spreads += 1
                 return ""
             }
-            XCTFail("Must stop when the server layout becomes constrained")
+            Issue.record("Must stop when the server layout becomes constrained")
         } catch TmuxSplitEqualizer.Failure.unsafeLayout {
-            XCTAssertEqual(spreads, 1)
-        } catch { XCTFail("Unexpected error: \(error)") }
+            #expect(spreads == 1)
+        } catch { Issue.record("Unexpected error: \(error)") }
     }
 
-    func testDecorationsFailClosedInsteadOfUndercountingMinimumCells() async {
+    @Test
+    func testDecorationsFailClosedInsteadOfUndercountingMinimumCells() async throws {
         for (status, scrollbars) in [("top", "off"), ("off", "on")] {
             var calls = 0
             do {
@@ -452,24 +477,26 @@ final class TmuxLayoutTests: XCTestCase {
                     calls += 1
                     return self.reply(self.pair(), status: status, scrollbars: scrollbars)
                 }
-                XCTFail("Decoration minima must not be ignored")
+                Issue.record("Decoration minima must not be ignored")
             } catch TmuxSplitEqualizer.Failure.unsafeLayout {
-                XCTAssertEqual(calls, 1)
-            } catch { XCTFail("Unexpected error: \(error)") }
+                #expect(calls == 1)
+            } catch { Issue.record("Unexpected error: \(error)") }
         }
     }
 
-    func testInvalidSnapshotDoesNotMutateServer() async {
+    @Test
+    func testInvalidSnapshotDoesNotMutateServer() async throws {
         var calls = 0
         do {
             try await TmuxSplitEqualizer.run(windowID: 9, layout: pair()) { _ in calls += 1; return "malformed" }
-            XCTFail("Expected invalid snapshot")
+            Issue.record("Expected invalid snapshot")
         } catch TmuxSplitEqualizer.Failure.invalidSnapshot {
-            XCTAssertEqual(calls, 1)
-        } catch { XCTFail("Unexpected error: \(error)") }
+            #expect(calls == 1)
+        } catch { Issue.record("Unexpected error: \(error)") }
     }
 
-    func testConcurrentResizesCannotLoopForever() async {
+    @Test
+    func testConcurrentResizesCannotLoopForever() async throws {
         var reads = 0
         let layout = pair()
         do {
@@ -478,27 +505,29 @@ final class TmuxLayoutTests: XCTestCase {
                 reads += 1
                 return self.reply(self.pair(width: 20 + reads))
             }
-            XCTFail("Expected bounded failure")
+            Issue.record("Expected bounded failure")
         } catch TmuxSplitEqualizer.Failure.didNotConverge {
-            XCTAssertEqual(reads, 1 + layout.paneIDs.count * (2 * layout.depth + 1))
-        } catch { XCTFail("Unexpected error: \(error)") }
+            #expect(reads == 1 + layout.paneIDs.count * (2 * layout.depth + 1))
+        } catch { Issue.record("Unexpected error: \(error)") }
     }
 
+    @Test
     func testSinglePaneNeedsNoCommands() async throws {
         try await TmuxSplitEqualizer.run(windowID: 0, layout: pane(0)) { _ in
-            XCTFail("A single pane is already equalized")
+            Issue.record("A single pane is already equalized")
             return ""
         }
     }
 
-    func testDuplicatePaneIDsAreRejectedBeforeSending() async {
+    @Test
+    func testDuplicatePaneIDsAreRejectedBeforeSending() async throws {
         do {
             try await TmuxSplitEqualizer.run(windowID: 0, layout: split(.horizontal, [pane(0), pane(0)])) { _ in
-                XCTFail("Malformed topology must not reach the server")
+                Issue.record("Malformed topology must not reach the server")
                 return ""
             }
-            XCTFail("Expected malformed topology to fail")
+            Issue.record("Expected malformed topology to fail")
         } catch TmuxSplitEqualizer.Failure.layoutChanged {
-        } catch { XCTFail("Unexpected error: \(error)") }
+        } catch { Issue.record("Unexpected error: \(error)") }
     }
 }

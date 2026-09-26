@@ -1,9 +1,11 @@
-import XCTest
+import Foundation
+import Testing
 import ShellControlProtocol
 import ShellControlSecurity
 @testable import ShellControlBroker
 
-final class AdminSetupTests: XCTestCase {
+@Suite
+final class AdminSetupTests {
     private func makeService(_ harness: BrokerHarness) -> BrokerService {
         BrokerService(
             store: harness.store,
@@ -16,6 +18,7 @@ final class AdminSetupTests: XCTestCase {
         )
     }
 
+    @Test
     func testAdminPendingRequiresLoopbackHostAndAdminSecret() async throws {
         let harness = BrokerHarness()
         try await harness.bootstrap()
@@ -37,7 +40,7 @@ final class AdminSetupTests: XCTestCase {
             ],
             body: Data()
         ))
-        XCTAssertEqual(hidden.status, 404)
+        #expect(hidden.status == 404)
 
         let unauthenticated = await service.handle(HTTPServer.Request(
             method: "GET",
@@ -46,7 +49,7 @@ final class AdminSetupTests: XCTestCase {
             headers: ["host": "127.0.0.1:8443"],
             body: Data()
         ))
-        XCTAssertEqual(unauthenticated.status, 403)
+        #expect(unauthenticated.status == 403)
 
         let ok = await service.handle(HTTPServer.Request(
             method: "GET",
@@ -58,13 +61,14 @@ final class AdminSetupTests: XCTestCase {
             ],
             body: Data()
         ))
-        XCTAssertEqual(ok.status, 200)
+        #expect(ok.status == 200)
         let body = try JSONValue.parse(ok.body)
-        XCTAssertEqual(body["pending"]?.arrayValue?.count, 1)
-        XCTAssertEqual(body["pending"]?.arrayValue?.first?["label"]?.stringValue, "Watch")
-        XCTAssertEqual(body["pending"]?.arrayValue?.first?["key_fingerprint"]?.stringValue, try key.publicJWK.displayFingerprint())
+        #expect(body["pending"]?.arrayValue?.count == 1)
+        #expect(body["pending"]?.arrayValue?.first?["label"]?.stringValue == "Watch")
+        #expect(body["pending"]?.arrayValue?.first?["key_fingerprint"]?.stringValue == (try key.publicJWK.displayFingerprint()))
     }
 
+    @Test
     func testAdminCanProvisionAnOriginSecretOnce() async throws {
         let harness = BrokerHarness()
         let service = makeService(harness)
@@ -80,15 +84,17 @@ final class AdminSetupTests: XCTestCase {
             ],
             body: body
         ))
-        XCTAssertEqual(created.status, 201)
+        #expect(created.status == 201)
         let json = try JSONValue.parse(created.body)
-        let originID = try XCTUnwrap(json["origin_id"]?.stringValue)
-        let secret = try XCTUnwrap(json["origin_secret"]?.stringValue)
-        XCTAssertFalse(secret.isEmpty)
+        let originID = try #require(json["origin_id"]?.stringValue)
+        let secret = try #require(json["origin_secret"]?.stringValue)
+        #expect(!(secret.isEmpty))
         let principal = try await harness.store.authenticateOrigin(originID: ControlID(originID)!, secret: secret)
-        guard case .origin = principal else { return XCTFail("expected origin principal") }
+        guard case .origin = principal else { Issue.record("expected origin principal")
+return }
     }
 
+    @Test
     func testNativeOriginProvisioningIsIdempotentAndConflictsSafely() async throws {
         let harness = BrokerHarness()
         let service = makeService(harness)
@@ -107,17 +113,19 @@ final class AdminSetupTests: XCTestCase {
         let first = try await request(secret: stableSecret)
         let retry = try await request(secret: stableSecret)
         let conflict = try await request(secret: String(repeating: "b", count: 32))
-        XCTAssertEqual(first.status, 200)
-        XCTAssertEqual(retry.status, 200)
-        XCTAssertEqual(conflict.status, 409)
+        #expect(first.status == 200)
+        #expect(retry.status == 200)
+        #expect(conflict.status == 409)
         let principal = try await harness.store.authenticateOrigin(originID: originID, secret: stableSecret)
-        guard case .origin = principal else { return XCTFail("expected original credential to remain valid") }
+        guard case .origin = principal else { Issue.record("expected original credential to remain valid")
+return }
     }
 
     /// `Host` is attacker-controlled, so a request that reaches the broker
     /// through Tailscale Serve can claim to be local. Serve's own forwarding
     /// headers cannot be removed by the client, so they give the check
     /// something the caller does not control.
+    @Test
     func testAdminPendingRejectsAProxiedRequestClaimingALoopbackHost() async throws {
         let harness = BrokerHarness()
         try await harness.bootstrap()
@@ -135,10 +143,11 @@ final class AdminSetupTests: XCTestCase {
                 ],
                 body: Data()
             ))
-            XCTAssertEqual(spoofed.status, 404, header)
+            #expect(spoofed.status == 404, "\(header)")
         }
     }
 
+    @Test
     func testAdminPendingAcceptsIPv6Loopback() async throws {
         let harness = BrokerHarness()
         try await harness.bootstrap()
@@ -153,6 +162,6 @@ final class AdminSetupTests: XCTestCase {
             ],
             body: Data()
         ))
-        XCTAssertEqual(response.status, 200)
+        #expect(response.status == 200)
     }
 }

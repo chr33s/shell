@@ -349,13 +349,11 @@ public struct HookRunner: Sendable {
         }
         let updated: JSONValue
         do {
-            guard permit.runID == run.runID, permit.nativeWaitID == waitID, permit.requestID == published.requestID,
-                  ContentDigest.matches(permit.requestHash, published.requestHash),
-                  ContentDigest.matches(try spec.requestHash(), published.requestHash),
-                  permit.isApplicable(at: env.now()), env.ownerAlive() else {
-                throw AdapterRefusal("permit_invalid", "the permit does not match this wait")
-            }
-            try permit.response.validate(against: spec)
+            try InputPermitBinding.validate(
+                permit, spec: spec, requestID: published.requestID, requestHash: published.requestHash,
+                runID: run.runID, nativeWaitID: waitID, answerMappingSHA256: mapping.mapping.sha256Hex,
+                now: env.now(), ownerAlive: env.ownerAlive()
+            )
             updated = try mapping.updatedInput(for: permit.response, committedMappingSHA256: spec.source.answerMappingSHA256)
         } catch {
             await inputReceipt(run: run, published: published, waitID: waitID, permit: permit, dispatch: .notApplied, evidence: "response_not_dispatched")

@@ -22,7 +22,7 @@ struct ProfileEditorSheet: View {
     var onConnect: ((SSHConfig) -> Void)?
 
     @Environment(\.dismiss) private var dismiss
-    @ObservedObject private var keyManager = SSHKeyManager.shared
+    @State private var keyManager = SSHKeyManager.shared
     @State private var profileManager = ConnectionProfileManager.shared
 
     @State private var name: String = ""

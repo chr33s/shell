@@ -30,12 +30,14 @@
 //  flipping a key from `.deviceOnly` to `.synced` starts pushing it to iCloud.
 //
 
-import XCTest
+import Foundation
+import Testing
 
 @testable import Shell
 
 @MainActor
-final class SettingsRegistryInventoryTests: XCTestCase {
+@Suite
+final class SettingsRegistryInventoryTests {
 
     struct Setting {
         let name: String
@@ -172,40 +174,37 @@ final class SettingsRegistryInventoryTests: XCTestCase {
     /// removal: the sweep took the `SettingKey` and its reader together, the
     /// app still built, and nothing else noticed that an iCloud-synced
     /// preference had stopped existing.
-    func testEveryRecordedSettingIsStillRegistered() {
+    @Test
+    func testEveryRecordedSettingIsStillRegistered() throws {
         let live = Set(registry.definitions.keys)
         let missing = Self.expected.map(\.name).filter { !live.contains($0) }.sorted()
 
-        XCTAssertEqual(
-            missing, [],
-            """
+        #expect(missing == [], """
             These settings are recorded here but are no longer registered. Each one \
             is a user preference — several are synced to the user's other devices — \
             that has silently stopped existing. If the removal is intentional, delete \
             the matching rows from `SettingsRegistryInventoryTests.expected`; that \
             deletion is the review signal this test exists to force.
-            """
-        )
+            """)
     }
 
     /// The inverse direction: a new setting must be recorded here. This is the
     /// maintenance cost that makes the test above meaningful — an inventory
     /// nobody updates decays into a list of things that used to be true.
-    func testEveryRegisteredSettingIsRecordedInTheInventory() {
+    @Test
+    func testEveryRegisteredSettingIsRecordedInTheInventory() throws {
         let recorded = Set(Self.expected.map(\.name))
         let unrecorded = registry.definitions.keys.filter { !recorded.contains($0) }.sorted()
 
-        XCTAssertEqual(
-            unrecorded, [],
-            "New settings must be added to `SettingsRegistryInventoryTests.expected`, with their configKey and sync policy."
-        )
+        #expect(unrecorded == [], "New settings must be added to `SettingsRegistryInventoryTests.expected`, with their configKey and sync policy.")
     }
 
     /// `configKey` is the setting's name in the text config file and in the
     /// iCloud payload. Renaming one compiles cleanly, passes every behavioral
     /// test, and orphans that setting's value on every other device the user
     /// owns — the old name is simply never read again.
-    func testConfigKeyWireNamesAreUnchanged() {
+    @Test
+    func testConfigKeyWireNamesAreUnchanged() throws {
         var drifted: [String] = []
         for setting in Self.expected {
             guard let live = registry.definitions[setting.name] else { continue }  // reported above
@@ -216,22 +215,20 @@ final class SettingsRegistryInventoryTests: XCTestCase {
             }
         }
 
-        XCTAssertEqual(
-            drifted, [],
-            """
+        #expect(drifted == [], """
             A setting's config-file / iCloud name changed. This is a wire format: \
             the old name stops being read, so the value is orphaned on every other \
             device and in every existing config file. Renaming needs a migration, \
             not just an edit.
-            """
-        )
+            """)
     }
 
     /// Sync policy decides whether a value leaves the device at all. Widening
     /// `.deviceOnly` to `.synced` starts uploading a key that was deliberately
     /// local; narrowing does the reverse and silently stops syncing something
     /// users expect to follow them.
-    func testSyncPolicyIsUnchanged() {
+    @Test
+    func testSyncPolicyIsUnchanged() throws {
         var drifted: [String] = []
         for setting in Self.expected {
             guard let live = registry.definitions[setting.name] else { continue }
@@ -240,7 +237,7 @@ final class SettingsRegistryInventoryTests: XCTestCase {
             }
         }
 
-        XCTAssertEqual(drifted, [], "A setting's sync policy changed; check whether it should still leave the device.")
+        #expect(drifted == [], "A setting's sync policy changed; check whether it should still leave the device.")
     }
 
     // MARK: - Registry self-consistency
@@ -264,28 +261,27 @@ final class SettingsRegistryInventoryTests: XCTestCase {
     /// `Settings.Tmux.all` makes this return nil at run time instead of
     /// failing to compile — a red test in CI rather than a symbol that
     /// vanishes with everything that referenced it.
+    @Test
     func testTmuxNewTabActionSettingIsRegisteredWithItsSyncedConfigKey() throws {
-        let definition = try XCTUnwrap(
-            registry.definition(for: TmuxNewTabAction.storageKey),
-            """
+        let definition = try #require(registry.definition(for: TmuxNewTabAction.storageKey), """
             The tmux New Tab Action setting is no longer registered. It has been \
             removed once before, together with its ⌘T reader, leaving the shortcut \
             silently pinned to "always local shell". See shell/Features/Tmux/TmuxNewTabAction.swift.
-            """
-        )
+            """)
 
-        XCTAssertEqual(definition.configKey, "tmux-new-tab-action")
-        XCTAssertEqual(definition.group, .tmux)
-        XCTAssertNotEqual(definition.policy, .deviceOnly, "The preference is meant to follow the user across devices.")
-        XCTAssertTrue(registry.isSyncable(TmuxNewTabAction.storageKey))
+        #expect(definition.configKey == "tmux-new-tab-action")
+        #expect(definition.group == .tmux)
+        #expect(definition.policy != .deviceOnly, "The preference is meant to follow the user across devices.")
+        #expect(registry.isSyncable(TmuxNewTabAction.storageKey))
     }
 
     /// `storageKey` and the registered `SettingKey` name must stay the same
     /// string. They are declared in different files, and nothing but this
     /// checks that they still agree.
-    func testTmuxNewTabActionStorageKeyMatchesTheRegisteredName() {
-        XCTAssertEqual(TmuxNewTabAction.storageKey, "tmuxNewTabAction")
-        XCTAssertEqual(registry.definitions[TmuxNewTabAction.storageKey]?.name, TmuxNewTabAction.storageKey)
+    @Test
+    func testTmuxNewTabActionStorageKeyMatchesTheRegisteredName() throws {
+        #expect(TmuxNewTabAction.storageKey == "tmuxNewTabAction")
+        #expect(registry.definitions[TmuxNewTabAction.storageKey]?.name == TmuxNewTabAction.storageKey)
     }
 
     /// `.current` must actually read the store. A `TmuxNewTabAction.current`
@@ -294,11 +290,11 @@ final class SettingsRegistryInventoryTests: XCTestCase {
     ///
     /// Restores the user's value in `defer`, and skips rather than reports a
     /// false pass if the simulator host cannot accept writes.
+    @Test(.enabled("SettingsStore needs protected data", {
+        await MainActor.run { ProtectedDataGuard.isAvailable }
+    }))
     func testTmuxNewTabActionCurrentReflectsTheStoredValue() throws {
-        try XCTSkipUnless(
-            ProtectedDataGuard.isAvailable,
-            "SettingsStore drops writes while protected data is unavailable."
-        )
+        try #require(ProtectedDataGuard.isAvailable, "SettingsStore drops writes while protected data is unavailable.")
 
         let store = SettingsStore.shared
         let original = store.isUserSet(TmuxNewTabAction.storageKey) ? TmuxNewTabAction.current : nil
@@ -314,39 +310,29 @@ final class SettingsRegistryInventoryTests: XCTestCase {
         // cannot pass by matching the default.
         for action in TmuxNewTabAction.allCases {
             store.set(Settings.Tmux.newTabAction, action)
-            XCTAssertEqual(
-                TmuxNewTabAction.current, action,
-                "TmuxNewTabAction.current does not reflect the stored value; ⌘T would ignore the user's choice."
-            )
+            #expect(TmuxNewTabAction.current == action, "TmuxNewTabAction.current does not reflect the stored value; ⌘T would ignore the user's choice.")
         }
     }
 
     /// The default is what ⌘T does for a user who never opened Settings, and
     /// it is the historical behavior the setting was added to preserve.
-    func testTmuxNewTabActionDefaultsToLocalShell() {
-        XCTAssertEqual(registry.definitions[TmuxNewTabAction.storageKey]?.defaultCodable, .string("localShell"))
+    @Test
+    func testTmuxNewTabActionDefaultsToLocalShell() throws {
+        #expect(registry.definitions[TmuxNewTabAction.storageKey]?.defaultCodable == .string("localShell"))
     }
 
     /// All three cases must survive a round trip through the store's
     /// `CodableValue` representation. A case that fails validation is silently
     /// rejected on the way in from iCloud or a config file, so the user's
     /// choice reverts on their other devices only.
+    @Test
     func testEveryTmuxNewTabActionCaseSurvivesTheSettingsWireFormat() throws {
-        let definition = try XCTUnwrap(registry.definitions[TmuxNewTabAction.storageKey])
+        let definition = try #require(registry.definitions[TmuxNewTabAction.storageKey])
 
-        XCTAssertEqual(
-            TmuxNewTabAction.allCases.map(\.rawValue), ["localShell", "tmuxTab", "ask"],
-            "Raw values are the stored representation; renaming one discards existing users' choices."
-        )
+        #expect(TmuxNewTabAction.allCases.map(\.rawValue) == ["localShell", "tmuxTab", "ask"], "Raw values are the stored representation; renaming one discards existing users' choices.")
         for action in TmuxNewTabAction.allCases {
-            XCTAssertTrue(
-                definition.validate(.string(action.rawValue)),
-                "\(action.rawValue) is rejected by the registry, so it can never arrive from iCloud or a config file."
-            )
+            #expect(definition.validate(.string(action.rawValue)), "\(action.rawValue) is rejected by the registry, so it can never arrive from iCloud or a config file.")
         }
-        XCTAssertFalse(
-            definition.validate(.string("notACase")),
-            "The registry must reject unknown values rather than storing them."
-        )
+        #expect(!(definition.validate(.string("notACase"))), "The registry must reject unknown values rather than storing them.")
     }
 }

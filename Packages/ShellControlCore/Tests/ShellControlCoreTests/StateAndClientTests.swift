@@ -1,68 +1,77 @@
-import XCTest
+import Foundation
+import Testing
 @testable import ShellControlProtocol
 @testable import ShellControlClient
 
-final class StateAndClientTests: XCTestCase {
-    func testResolutionIsImmutableOnceTerminal() {
-        XCTAssertTrue(Resolution.pending.canTransition(to: .approved))
-        XCTAssertFalse(Resolution.approved.canTransition(to: .rejected))
-        XCTAssertFalse(Resolution.rejected.canTransition(to: .pending))
+@Suite
+final class StateAndClientTests {
+    @Test
+    func testResolutionIsImmutableOnceTerminal() throws {
+        #expect(Resolution.pending.canTransition(to: .approved))
+        #expect(!(Resolution.approved.canTransition(to: .rejected)))
+        #expect(!(Resolution.rejected.canTransition(to: .pending)))
     }
 
-    func testDispatchTransitions() {
-        XCTAssertTrue(Dispatch.none.canTransition(to: .awaitingOrigin))
-        XCTAssertTrue(Dispatch.awaitingOrigin.canTransition(to: .claimed))
-        XCTAssertTrue(Dispatch.awaitingOrigin.canTransition(to: .applied))
-        XCTAssertTrue(Dispatch.claimed.canTransition(to: .unknown))
+    @Test
+    func testDispatchTransitions() throws {
+        #expect(Dispatch.none.canTransition(to: .awaitingOrigin))
+        #expect(Dispatch.awaitingOrigin.canTransition(to: .claimed))
+        #expect(Dispatch.awaitingOrigin.canTransition(to: .applied))
+        #expect(Dispatch.claimed.canTransition(to: .unknown))
         // Unknown reconciles only with positive evidence, and never to pending.
-        XCTAssertTrue(Dispatch.unknown.canTransition(to: .applied))
-        XCTAssertFalse(Dispatch.applied.canTransition(to: .claimed))
-        XCTAssertFalse(Dispatch.unknown.canTransition(to: .awaitingOrigin))
+        #expect(Dispatch.unknown.canTransition(to: .applied))
+        #expect(!(Dispatch.applied.canTransition(to: .claimed)))
+        #expect(!(Dispatch.unknown.canTransition(to: .awaitingOrigin)))
     }
 
+    @Test
     func testPresenceGoesStaleAfterFortyFiveSeconds() throws {
-        let seen = try XCTUnwrap(ControlTimestamp(rfc3339: "2026-09-07T09:00:00Z"))
+        let seen = try #require(ControlTimestamp(rfc3339: "2026-09-07T09:00:00Z"))
         let presence = SourcePresence(lastSeenAt: seen, isWaiting: true)
-        XCTAssertTrue(presence.isFresh(at: seen.adding(44)))
-        XCTAssertFalse(presence.isFresh(at: seen.adding(46)))
-        XCTAssertFalse(SourcePresence(lastSeenAt: seen, isWaiting: false).isFresh(at: seen))
+        #expect(presence.isFresh(at: seen.adding(44)))
+        #expect(!(presence.isFresh(at: seen.adding(46))))
+        #expect(!(SourcePresence(lastSeenAt: seen, isWaiting: false).isFresh(at: seen)))
     }
 
-    func testErrorCodeMapping() {
-        XCTAssertEqual(ControlErrorCode.alreadyClaimed.httpStatus, 409)
-        XCTAssertEqual(ControlErrorCode.originUnavailable.httpStatus, 423)
-        XCTAssertEqual(ControlErrorCode.hashMismatch.clientAction, .requireFreshReview)
-        XCTAssertEqual(ControlErrorCode.unsupportedOperation.clientAction, .handoff)
-        XCTAssertFalse(ControlErrorCode.alreadyResolved.isRetryable)
-        XCTAssertTrue(ControlErrorCode.temporarilyUnavailable.isRetryable)
+    @Test
+    func testErrorCodeMapping() throws {
+        #expect(ControlErrorCode.alreadyClaimed.httpStatus == 409)
+        #expect(ControlErrorCode.originUnavailable.httpStatus == 423)
+        #expect(ControlErrorCode.hashMismatch.clientAction == .requireFreshReview)
+        #expect(ControlErrorCode.unsupportedOperation.clientAction == .handoff)
+        #expect(!(ControlErrorCode.alreadyResolved.isRetryable))
+        #expect(ControlErrorCode.temporarilyUnavailable.isRetryable)
     }
 
-    func testSanitizerEscapesBidiAndControlCharacters() {
+    @Test
+    func testSanitizerEscapesBidiAndControlCharacters() throws {
         let result = DisplaySanitizer.sanitize("rm\u{202E}txt.exe\u{07}")
-        XCTAssertTrue(result.didEscape)
-        XCTAssertTrue(result.text.contains("<U+202E>"))
-        XCTAssertFalse(result.isTruncated)
+        #expect(result.didEscape)
+        #expect(result.text.contains("<U+202E>"))
+        #expect(!(result.isTruncated))
         let long = DisplaySanitizer.sanitize(String(repeating: "a", count: 600), maxScalars: 100)
-        XCTAssertTrue(long.isTruncated)
+        #expect(long.isTruncated)
     }
 
     /// A character that renders as nothing hides the difference between what
     /// is shown and what would run just as effectively as a bidi override.
-    func testSanitizerEscapesInvisibleAndLineBreakingScalars() {
+    @Test
+    func testSanitizerEscapesInvisibleAndLineBreakingScalars() throws {
         for scalar in ["\u{200B}", "\u{200D}", "\u{FEFF}", "\u{00AD}", "\u{2028}", "\u{2029}", "\u{E000}"] {
             let result = DisplaySanitizer.sanitize("rm\(scalar)-rf")
-            XCTAssertTrue(result.didEscape, "did not escape \(scalar.unicodeScalars.first!.value)")
-            XCTAssertFalse(result.text.unicodeScalars.contains(scalar.unicodeScalars.first!))
+            #expect(result.didEscape, "did not escape \(scalar.unicodeScalars.first!.value)")
+            #expect(!(result.text.unicodeScalars.contains(scalar.unicodeScalars.first!)))
         }
         // Ordinary text is left exactly as it is.
         let plain = DisplaySanitizer.sanitize("rm -rf /tmp/naïve — done")
-        XCTAssertFalse(plain.didEscape)
-        XCTAssertEqual(plain.text, "rm -rf /tmp/naïve — done")
+        #expect(!(plain.didEscape))
+        #expect(plain.text == "rm -rf /tmp/naïve — done")
     }
 
     /// A `sendMessageData` whose reply handler never fires — a `WCSession`
     /// torn down mid-flight — used to park the review forever: there is no
     /// second transport, and the continuation cannot be cancelled out of.
+    @Test
     func testAGatewayRoundTripThatNeverAnswersTimesOut() async throws {
         let client = WatchGatewayClient(
             link: HangingGatewayLink(),
@@ -71,57 +80,62 @@ final class StateAndClientTests: XCTestCase {
         )
         do {
             _ = try await client.enrollmentStatus()
-            XCTFail("a link that never answers must not return a result")
+            Issue.record("a link that never answers must not return a result")
         } catch let error as WatchGatewayError {
-            XCTAssertEqual(error, .iPhoneUnreachable)
+            #expect(error == .iPhoneUnreachable)
         }
     }
 
+    @Test
     func testIPCFramingRoundTrip() throws {
         var buffer = try IPCFraming.frame(JSONValue.object(["a": 1]))
         buffer.append(try IPCFraming.frame(JSONValue.object(["b": 2])))
-        XCTAssertEqual(try IPCFraming.decodeFrame(from: &buffer), .object(["a": 1]))
-        XCTAssertEqual(try IPCFraming.decodeFrame(from: &buffer), .object(["b": 2]))
-        XCTAssertNil(try IPCFraming.decodeFrame(from: &buffer))
+        #expect((try IPCFraming.decodeFrame(from: &buffer)) == .object(["a": 1]))
+        #expect((try IPCFraming.decodeFrame(from: &buffer)) == .object(["b": 2]))
+        #expect((try IPCFraming.decodeFrame(from: &buffer)) == nil)
     }
 
+    @Test
     func testPartialFrameYieldsNilRatherThanGarbage() throws {
         var buffer = try IPCFraming.frame(JSONValue.object(["a": 1]))
         buffer.removeLast()
-        XCTAssertNil(try IPCFraming.decodeFrame(from: &buffer))
+        #expect((try IPCFraming.decodeFrame(from: &buffer)) == nil)
     }
 
-    func testExitCodeConvention() {
-        XCTAssertEqual(ApprovalWaitOutcome.rejected(decisionID: .random()).exitCode.rawValue, 10)
-        XCTAssertEqual(ApprovalWaitOutcome.expired.exitCode.rawValue, 11)
-        XCTAssertEqual(ApprovalWaitOutcome.cancelled.exitCode.rawValue, 12)
-        XCTAssertEqual(ApprovalWaitOutcome.unavailable(reason: "x").exitCode.rawValue, 13)
+    @Test
+    func testExitCodeConvention() throws {
+        #expect(ApprovalWaitOutcome.rejected(decisionID: .random()).exitCode.rawValue == 10)
+        #expect(ApprovalWaitOutcome.expired.exitCode.rawValue == 11)
+        #expect(ApprovalWaitOutcome.cancelled.exitCode.rawValue == 12)
+        #expect(ApprovalWaitOutcome.unavailable(reason: "x").exitCode.rawValue == 13)
     }
 
+    @Test
     func testPushPayloadStaysUnderTheAPNsLimit() throws {
         let payload = ApprovalPushPayload(eventID: .random(), requestID: .random())
         let encoded = try payload.encoded()
-        XCTAssertLessThan(encoded.count, 4096)
+        #expect(encoded.count < 4096)
         // The payload carries identifiers only: no credential, key, or command.
         let value = try JSONValue.parse(encoded)
-        XCTAssertNil(value["token"])
-        XCTAssertNil(value["command"])
-        XCTAssertEqual(value["aps"]?["category"]?.stringValue, "SHELL_APPROVAL_V1")
-        XCTAssertEqual(payload.collapseID, "approval.\(payload.requestID.rawValue)")
+        #expect((value["token"]) == nil)
+        #expect((value["command"]) == nil)
+        #expect(value["aps"]?["category"]?.stringValue == "SHELL_APPROVAL_V1")
+        #expect(payload.collapseID == "approval.\(payload.requestID.rawValue)")
     }
 
+    @Test
     func testAPNsExpirationNeverOutlivesTheDeadline() throws {
-        let deadline = try XCTUnwrap(ControlTimestamp(rfc3339: "2026-09-07T09:05:00Z"))
+        let deadline = try #require(ControlTimestamp(rfc3339: "2026-09-07T09:05:00Z"))
         let headers = APNsRequestHeaders(topic: "dev.chr33s.shell.watchkitapp", expiresAt: deadline, collapseID: "approval.x")
-        XCTAssertEqual(headers.headerFields["apns-expiration"], String(Int64(deadline.date.timeIntervalSince1970)))
-        XCTAssertEqual(headers.headerFields["apns-push-type"], "alert")
-        XCTAssertEqual(headers.headerFields["apns-priority"], "10")
+        #expect(headers.headerFields["apns-expiration"] == String(Int64(deadline.date.timeIntervalSince1970)))
+        #expect(headers.headerFields["apns-push-type"] == "alert")
+        #expect(headers.headerFields["apns-priority"] == "10")
     }
 
     // MARK: Reconciliation
 
     private func makeRecord(requestID: ControlID, stateVersion: Int64, resolution: Resolution = .pending) throws -> ApprovalRecord {
-        let created = try XCTUnwrap(ControlTimestamp(rfc3339: "2026-09-07T09:00:00Z"))
+        let created = try #require(ControlTimestamp(rfc3339: "2026-09-07T09:00:00Z"))
         let spec = try ApprovalSpec(
             requestID: requestID,
             originID: .random(),
@@ -137,10 +151,11 @@ final class StateAndClientTests: XCTestCase {
         return try ApprovalRecord(spec: spec, projection: ApprovalProjection(stateVersion: stateVersion, resolution: resolution))
     }
 
+    @Test
     func testSnapshotAppliesAtomicallyAndDeltasDeduplicate() throws {
         let requestID = ControlID.random()
         let record = try makeRecord(requestID: requestID, stateVersion: 1)
-        let serverTime = try XCTUnwrap(ControlTimestamp(rfc3339: "2026-09-07T09:00:10Z"))
+        let serverTime = try #require(ControlTimestamp(rfc3339: "2026-09-07T09:00:10Z"))
         var accumulator = InboxReconciler.SnapshotAccumulator(firstPage: SnapshotPage(
             approvals: [record],
             notifications: [],
@@ -151,8 +166,8 @@ final class StateAndClientTests: XCTestCase {
         ))
         var reconciler = InboxReconciler()
         try reconciler.applyCompletedSnapshot(accumulator, at: serverTime)
-        XCTAssertEqual(reconciler.state.pendingApprovals.count, 1)
-        XCTAssertEqual(reconciler.state.lastRefreshedAt, serverTime)
+        #expect(reconciler.state.pendingApprovals.count == 1)
+        #expect(reconciler.state.lastRefreshedAt == serverTime)
 
         let resolved = try makeRecord(requestID: requestID, stateVersion: 2, resolution: .approved)
         let event = ChangeEvent(
@@ -166,9 +181,9 @@ final class StateAndClientTests: XCTestCase {
         )
         let page = ChangePage(events: [event, event], cursor: ChangeCursor("c1.6.tag"), serverTime: serverTime)
         // At-least-once delivery: the duplicate applies once.
-        XCTAssertEqual(reconciler.apply(page), 1)
-        XCTAssertEqual(reconciler.state.approvals[requestID]?.projection.resolution, .approved)
-        XCTAssertEqual(reconciler.state.cursor?.rawValue, "c1.6.tag")
+        #expect(reconciler.apply(page) == 1)
+        #expect(reconciler.state.approvals[requestID]?.projection.resolution == .approved)
+        #expect(reconciler.state.cursor?.rawValue == "c1.6.tag")
 
         // A stale redelivery cannot roll the record backwards.
         let stale = ChangeEvent(
@@ -181,12 +196,13 @@ final class StateAndClientTests: XCTestCase {
             projection: record.json
         )
         _ = reconciler.apply(ChangePage(events: [stale], cursor: ChangeCursor("c1.7.tag"), serverTime: serverTime))
-        XCTAssertEqual(reconciler.state.approvals[requestID]?.projection.resolution, .approved)
+        #expect(reconciler.state.approvals[requestID]?.projection.resolution == .approved)
         _ = accumulator
     }
 
+    @Test
     func testIncompleteSnapshotIsNotApplied() throws {
-        let serverTime = try XCTUnwrap(ControlTimestamp(rfc3339: "2026-09-07T09:00:10Z"))
+        let serverTime = try #require(ControlTimestamp(rfc3339: "2026-09-07T09:00:10Z"))
         let accumulator = InboxReconciler.SnapshotAccumulator(firstPage: SnapshotPage(
             approvals: [],
             notifications: [],
@@ -196,11 +212,12 @@ final class StateAndClientTests: XCTestCase {
             serverTime: serverTime
         ))
         var reconciler = InboxReconciler()
-        XCTAssertThrowsError(try reconciler.applyCompletedSnapshot(accumulator, at: serverTime))
+        #expect(throws: (any Error).self) { try reconciler.applyCompletedSnapshot(accumulator, at: serverTime) }
     }
 
+    @Test
     func testJournalKeepsAmbiguousCommandsAcrossSnapshots() async throws {
-        let notAfter = try XCTUnwrap(ControlTimestamp(rfc3339: "2026-09-07T09:01:00Z"))
+        let notAfter = try #require(ControlTimestamp(rfc3339: "2026-09-07T09:01:00Z"))
         let journal = CommandJournal(now: { notAfter.date })
         let commandID = ControlID.random()
         try await journal.record(PendingCommand(
@@ -212,17 +229,18 @@ final class StateAndClientTests: XCTestCase {
         ))
         try await journal.update(commandID, status: .outcomeUnknown)
         let pending = await journal.pending
-        XCTAssertEqual(pending.first?.status, .outcomeUnknown)
+        #expect(pending.first?.status == .outcomeUnknown)
         // The identical command may be retried only while its lifetime holds.
-        XCTAssertTrue(pending[0].isRetryable(at: notAfter.adding(-5)))
-        XCTAssertFalse(pending[0].isRetryable(at: notAfter.adding(5)))
+        #expect(pending[0].isRetryable(at: notAfter.adding(-5)))
+        #expect(!(pending[0].isRetryable(at: notAfter.adding(5))))
     }
 
     /// Commands whose outcome is never learned — the device stayed offline,
     /// the app was killed — used to accumulate forever, until the persisted
     /// journal no longer parsed and every ambiguous decision was lost at once.
+    @Test
     func testJournalDropsCommandsPastTheRetentionWindow() async throws {
-        let notAfter = try XCTUnwrap(ControlTimestamp(rfc3339: "2026-09-07T09:01:00Z"))
+        let notAfter = try #require(ControlTimestamp(rfc3339: "2026-09-07T09:01:00Z"))
         let store = InMemoryCommandJournal()
         let live = CommandJournal(store: store, now: { notAfter.date })
         try await live.record(PendingCommand(
@@ -230,20 +248,21 @@ final class StateAndClientTests: XCTestCase {
             targetID: .random(), notAfter: notAfter
         ))
         var count = await live.pending.count
-        XCTAssertEqual(count, 1)
+        #expect(count == 1)
 
         // Still held just inside the window, gone once it closes.
         let inside = CommandJournal(store: store, now: { notAfter.date.addingTimeInterval(CommandJournal.retention - 60) })
         count = await inside.pending.count
-        XCTAssertEqual(count, 1)
+        #expect(count == 1)
         let outside = CommandJournal(store: store, now: { notAfter.date.addingTimeInterval(CommandJournal.retention + 60) })
         count = await outside.pending.count
-        XCTAssertEqual(count, 0)
-        XCTAssertEqual(try store.load().count, 0, "the prune is persisted, not just in memory")
+        #expect(count == 0)
+        #expect((try store.load().count) == 0, "the prune is persisted, not just in memory")
     }
 
+    @Test
     func testJournalIsCappedAtItsMaximumEntries() async throws {
-        let base = try XCTUnwrap(ControlTimestamp(rfc3339: "2026-09-07T09:01:00Z"))
+        let base = try #require(ControlTimestamp(rfc3339: "2026-09-07T09:01:00Z"))
         let journal = CommandJournal(now: { base.date })
         for offset in 0..<(CommandJournal.maximumEntries + 25) {
             try await journal.record(PendingCommand(
@@ -252,13 +271,14 @@ final class StateAndClientTests: XCTestCase {
             ))
         }
         let pending = await journal.pending
-        XCTAssertEqual(pending.count, CommandJournal.maximumEntries)
+        #expect(pending.count == CommandJournal.maximumEntries)
         // The newest deadlines survive; the oldest are the ones dropped.
-        XCTAssertEqual(pending.last?.notAfter, base.adding(TimeInterval(CommandJournal.maximumEntries + 24)))
+        #expect(pending.last?.notAfter == base.adding(TimeInterval(CommandJournal.maximumEntries + 24)))
     }
 
     /// A store that cannot be read yet — a protected file before first
     /// unlock — must not be treated as empty: a save would overwrite it.
+    @Test
     func testUnreadableJournalRefusesWritesUntilItCanBeRead() async throws {
         final class LockedStore: CommandJournalStore, @unchecked Sendable {
             let lock = NSLock()
@@ -276,7 +296,7 @@ final class StateAndClientTests: XCTestCase {
                 lock.withLock { saved = commands; saves += 1 }
             }
         }
-        let notAfter = try XCTUnwrap(ControlTimestamp(rfc3339: "2026-09-07T09:01:00Z"))
+        let notAfter = try #require(ControlTimestamp(rfc3339: "2026-09-07T09:01:00Z"))
         let earlier = PendingCommand(
             commandID: .random(), signedCommand: "a.b.c", type: .approvalDecide,
             targetID: .random(), notAfter: notAfter, status: .outcomeUnknown
@@ -285,25 +305,26 @@ final class StateAndClientTests: XCTestCase {
         let journal = CommandJournal(store: store, now: { notAfter.date })
 
         var available = await journal.isAvailable
-        XCTAssertFalse(available)
+        #expect(!(available))
         let unreadable = await journal.pending
-        XCTAssertEqual(unreadable, [])
+        #expect(unreadable == [])
         do {
             try await journal.record(PendingCommand(
                 commandID: .random(), signedCommand: "d.e.f", type: .approvalDecide,
                 targetID: .random(), notAfter: notAfter
             ))
-            XCTFail("recorded into an unread journal")
+            Issue.record("recorded into an unread journal")
         } catch is CommandJournalUnavailable {}
-        XCTAssertEqual(store.saves, 0, "nothing overwrote the unread entries")
+        #expect(store.saves == 0, "nothing overwrote the unread entries")
 
         store.lock.withLock { store.locked = false }
         available = await journal.isAvailable
-        XCTAssertTrue(available)
+        #expect(available)
         let pending = await journal.pending
-        XCTAssertEqual(pending, [earlier])
+        #expect(pending == [earlier])
     }
 
+    @Test
     func testFileJournalSetsAsideBytesThatDoNotParse() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -311,10 +332,10 @@ final class StateAndClientTests: XCTestCase {
         let url = directory.appendingPathComponent("control-commands.json")
         try Data("[{\"command_id\":".utf8).write(to: url)
 
-        XCTAssertEqual(try store.load(), [])
+        #expect((try store.load()) == [])
         let names = try FileManager.default.contentsOfDirectory(atPath: directory.path)
-        XCTAssertFalse(names.contains("control-commands.json"))
-        XCTAssertTrue(names.contains { $0.hasPrefix("control-commands.json.corrupt-") }, "the bytes are kept")
+        #expect(!(names.contains("control-commands.json")))
+        #expect(names.contains { $0.hasPrefix("control-commands.json.corrupt-") }, "the bytes are kept")
     }
 }
 

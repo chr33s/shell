@@ -295,8 +295,8 @@ final class ThemeManager {
     /// synchronously at launch; `availableThemes` lands whenever this finishes.
     private func startBackgroundLoad() {
         guard let themesDirectory else { return }
-        let load = Task.detached(priority: .utility) {
-            ThemeManager.loadBuiltInThemes(from: themesDirectory)
+        let load = Task(priority: .utility) {
+            await Self.loadBuiltInThemesOffMain(from: themesDirectory)
         }
         builtInLoad = load
         Task { [weak self] in
@@ -401,5 +401,10 @@ final class ThemeManager {
             Ghostty.logger.error("Failed to parse theme file \(url.lastPathComponent): \(error)")
             return nil
         }
+    }
+
+    @concurrent
+    private static func loadBuiltInThemesOffMain(from directory: URL) async -> [ThemeInfo] {
+        loadBuiltInThemes(from: directory)
     }
 }

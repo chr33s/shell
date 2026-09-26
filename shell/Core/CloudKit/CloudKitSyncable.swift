@@ -191,7 +191,7 @@ extension SSHProfile: CloudKitSyncable {
 /// that lives elsewhere is *expected* to be missing from this device's key
 /// list — without an owner it would look indistinguishable from a locally
 /// deleted key.
-struct SSHIdentityMetadata: Codable, Identifiable, Hashable, SyncableRecord, Sendable {
+nonisolated struct SSHIdentityMetadata: Codable, Identifiable, Hashable, SyncableRecord, Sendable {
     let id: UUID
     var name: String
     var keyType: String

@@ -2157,8 +2157,8 @@ extension Ghostty.TerminalView {
         noteModTapCommand(sender as? UIKeyCommand)
         toggleMouseReporting()
         // `toggleMouseReporting()` refreshes `isMouseCaptured` synchronously,
-        // so the menu bar's checkmark reads the settled value. `isMouseCaptured`
-        // is a plain `@Published` on a UIView, which `@Observable` cannot see.
+        // so the menu bar's checkmark reads the settled value. The setter also
+        // notifies; this call covers the path that returns without a write.
         MenuFocusState.shared.notePaneStateChanged()
     }
 

@@ -56,7 +56,7 @@ final class TerminalSurfaceController: NSObject {
 
     private(set) var hasRenderedFirstFrame = false
     private var firstFrameCallbacks: [@MainActor () -> Void] = []
-    private var firstFramePollLink: CADisplayLink?
+    nonisolated(unsafe) private var firstFramePollLink: CADisplayLink?
     private var firstFramePollTarget: FirstFramePollTarget?
     private var firstFramePollStart: CFTimeInterval = 0
 
@@ -700,11 +700,8 @@ final class TerminalSurfaceController: NSObject {
         suspendFirstFramePolling()
         guard let surface else { return }
         let surfaceAddress = Int(bitPattern: surface)
-        DispatchQueue.global(qos: .utility).async {
-            guard let surfacePtr = UnsafeMutableRawPointer(bitPattern: surfaceAddress) else {
-                return
-            }
-            _ = ghostty_surface_drain_renderer_to_idle(surfacePtr, timeoutNanoseconds)
+        Task(priority: .utility) {
+            await Self.drainRendererOffMain(surfaceAddress: surfaceAddress, timeoutNanoseconds: timeoutNanoseconds)
         }
     }
 
@@ -739,6 +736,14 @@ final class TerminalSurfaceController: NSObject {
         }
 
         resetFirstFrameTracking()
+    }
+
+    /// Bounded renderer drain. `@concurrent` so it leaves the main actor; the
+    /// timeout is the bound, and the pointer is only used for this call.
+    @concurrent
+    private static func drainRendererOffMain(surfaceAddress: Int, timeoutNanoseconds: UInt64) async {
+        guard let surfacePtr = UnsafeMutableRawPointer(bitPattern: surfaceAddress) else { return }
+        _ = ghostty_surface_drain_renderer_to_idle(surfacePtr, timeoutNanoseconds)
     }
 }
 
@@ -844,4 +849,5 @@ extension Ghostty.TerminalView: TerminalSurfaceHost {
             reason: "first-frame-fail-open"
         )
     }
+
 }

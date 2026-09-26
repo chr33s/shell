@@ -1,4 +1,5 @@
-import XCTest
+import Foundation
+import Testing
 
 @testable import Shell
 
@@ -18,7 +19,8 @@ import XCTest
 /// rather than inherited from whatever the simulator's app container happens to
 /// hold — the gate cannot be exercised at all otherwise.
 @MainActor
-final class ConnectionKeyResolverHintTests: XCTestCase {
+@Suite
+final class ConnectionKeyResolverHintTests {
 
     private let targetKeyID = UUID()
     private let jumpKeyID = UUID()
@@ -76,17 +78,15 @@ final class ConnectionKeyResolverHintTests: XCTestCase {
     /// Goes red the moment the `carriesExplicitHints` guard is removed —
     /// "consult the store, it might help" is precisely the change that widens
     /// the trust boundary to every record any device ever published.
-    func testProfileWithNoHintsOfItsOwnGetsNothingFromTheMetadataStore() {
+    @Test
+    func testProfileWithNoHintsOfItsOwnGetsNothingFromTheMetadataStore() throws {
         let resolved = ConnectionKeyResolver.resolutionHint(
             for: targetKeyID,
             config: config(hints: nil),
             metadataEntries: [metadataEntry(for: targetKeyID)]
         )
 
-        XCTAssertNil(
-            resolved,
-            "an unhinted profile must not be steered by a record published from another device"
-        )
+        #expect((resolved) == nil, "an unhinted profile must not be steered by a record published from another device")
     }
 
     /// An EMPTY hints dictionary is still "no hints" — presence of the key must
@@ -94,7 +94,8 @@ final class ConnectionKeyResolverHintTests: XCTestCase {
     ///
     /// Goes red if `carriesExplicitHints` degrades to a nil check and drops the
     /// `!hints.isEmpty` test.
-    func testEmptyHintsDictionaryDoesNotOpenTheGate() {
+    @Test
+    func testEmptyHintsDictionaryDoesNotOpenTheGate() throws {
         let resolved = ConnectionKeyResolver.resolutionHint(
             for: targetKeyID,
             config: config(hints: [:]),
@@ -102,7 +103,7 @@ final class ConnectionKeyResolverHintTests: XCTestCase {
             metadataEntries: [metadataEntry(for: targetKeyID)]
         )
 
-        XCTAssertNil(resolved)
+        #expect((resolved) == nil)
     }
 
     /// The case the fallback exists for: a profile that hinted its TARGET key
@@ -113,26 +114,26 @@ final class ConnectionKeyResolverHintTests: XCTestCase {
     /// Goes red if the fallback stops firing for a partially-hinted profile —
     /// such a profile would report its bastion key as unresolvable on every
     /// device but the one that wrote it.
+    @Test
     func testPartiallyHintedProfileFillsTheJumpKeyGapFromTheMetadataStore() throws {
         let hinted = config(hints: [targetKeyID.uuidString: hint(fingerprint: "SHA256:target", name: "Target Key")])
 
-        let resolved = try XCTUnwrap(
-            ConnectionKeyResolver.resolutionHint(
+        let resolved = try #require(ConnectionKeyResolver.resolutionHint(
                 for: jumpKeyID,
                 config: hinted,
                 jumpConfig: jumpConfig(hints: nil),
                 metadataEntries: [metadataEntry(for: jumpKeyID, name: "Bastion Key", keyType: .rsa)]
-            )
-        )
+            ))
 
-        XCTAssertEqual(resolved.fingerprint, metadataFingerprint)
-        XCTAssertEqual(resolved.keyName, "Bastion Key")
-        XCTAssertEqual(resolved.keyType, .rsa)
+        #expect(resolved.fingerprint == metadataFingerprint)
+        #expect(resolved.keyName == "Bastion Key")
+        #expect(resolved.keyType == .rsa)
     }
 
     /// A hint recorded at jump level opens the gate for the profile just as a
     /// config-level one does — the profile author recorded hints either way.
-    func testJumpLevelHintsAlsoCountAsExplicitHintsForTheGate() {
+    @Test
+    func testJumpLevelHintsAlsoCountAsExplicitHintsForTheGate() throws {
         let resolved = ConnectionKeyResolver.resolutionHint(
             for: targetKeyID,
             config: config(hints: nil),
@@ -140,7 +141,7 @@ final class ConnectionKeyResolverHintTests: XCTestCase {
             metadataEntries: [metadataEntry(for: targetKeyID)]
         )
 
-        XCTAssertEqual(resolved?.fingerprint, metadataFingerprint)
+        #expect(resolved?.fingerprint == metadataFingerprint)
     }
 
     /// An EMPTY fingerprint is never a usable hint. `findKey(byFingerprint:)`
@@ -150,7 +151,8 @@ final class ConnectionKeyResolverHintTests: XCTestCase {
     ///
     /// Goes red if the `!entry.fingerprint.isEmpty` guard is dropped: the test
     /// would then get a hint back instead of nil.
-    func testMetadataEntryWithAnEmptyFingerprintIsNeverUsedAsAHint() {
+    @Test
+    func testMetadataEntryWithAnEmptyFingerprintIsNeverUsedAsAHint() throws {
         let hinted = config(hints: [targetKeyID.uuidString: hint(fingerprint: "SHA256:target", name: "Target")])
 
         let resolved = ConnectionKeyResolver.resolutionHint(
@@ -160,7 +162,7 @@ final class ConnectionKeyResolverHintTests: XCTestCase {
             metadataEntries: [metadataEntry(for: jumpKeyID, fingerprint: "")]
         )
 
-        XCTAssertNil(resolved)
+        #expect((resolved) == nil)
     }
 
     /// A store holding no record for this key yields nothing, rather than the
@@ -168,7 +170,8 @@ final class ConnectionKeyResolverHintTests: XCTestCase {
     ///
     /// Goes red if the `first(where: { $0.id == keyID })` lookup loosens to
     /// `first` or to a name match.
-    func testMetadataLookupIsKeyedOnTheKeyIDAndNotJustTheFirstRecord() {
+    @Test
+    func testMetadataLookupIsKeyedOnTheKeyIDAndNotJustTheFirstRecord() throws {
         let hinted = config(hints: [targetKeyID.uuidString: hint(fingerprint: "SHA256:target", name: "Target")])
 
         let resolved = ConnectionKeyResolver.resolutionHint(
@@ -178,7 +181,7 @@ final class ConnectionKeyResolverHintTests: XCTestCase {
             metadataEntries: [metadataEntry(for: UUID()), metadataEntry(for: UUID())]
         )
 
-        XCTAssertNil(resolved)
+        #expect((resolved) == nil)
     }
 
     // MARK: - Precedence
@@ -189,59 +192,56 @@ final class ConnectionKeyResolverHintTests: XCTestCase {
     /// Goes red if the metadata lookup is moved ahead of the recorded hints — a
     /// record published from another device would then override what this
     /// profile explicitly states.
+    @Test
     func testConfigLevelHintOutranksTheMetadataStore() throws {
         let hinted = config(hints: [
             targetKeyID.uuidString: hint(fingerprint: "SHA256:recorded-by-the-profile", name: "Profile Key")
         ])
 
-        let resolved = try XCTUnwrap(
-            ConnectionKeyResolver.resolutionHint(
+        let resolved = try #require(ConnectionKeyResolver.resolutionHint(
                 for: targetKeyID,
                 config: hinted,
                 metadataEntries: [metadataEntry(for: targetKeyID)]
-            )
-        )
+            ))
 
-        XCTAssertEqual(resolved.fingerprint, "SHA256:recorded-by-the-profile")
+        #expect(resolved.fingerprint == "SHA256:recorded-by-the-profile")
     }
 
     /// Config level outranks jump level for the same key id.
     ///
     /// Goes red if the two lookups are swapped.
+    @Test
     func testConfigLevelHintOutranksJumpLevelHintForTheSameKey() throws {
         let hinted = config(hints: [
             jumpKeyID.uuidString: hint(fingerprint: "SHA256:from-config", name: "Config")
         ])
 
-        let resolved = try XCTUnwrap(
-            ConnectionKeyResolver.resolutionHint(
+        let resolved = try #require(ConnectionKeyResolver.resolutionHint(
                 for: jumpKeyID,
                 config: hinted,
                 jumpConfig: jumpConfig(hints: [
                     jumpKeyID.uuidString: hint(fingerprint: "SHA256:from-jump", name: "Jump")
                 ])
-            )
-        )
+            ))
 
-        XCTAssertEqual(resolved.fingerprint, "SHA256:from-config")
+        #expect(resolved.fingerprint == "SHA256:from-config")
     }
 
     /// Jump level outranks the metadata store.
     ///
     /// Goes red if the store is consulted before the jump host's own dictionary.
+    @Test
     func testJumpLevelHintOutranksTheMetadataStore() throws {
-        let resolved = try XCTUnwrap(
-            ConnectionKeyResolver.resolutionHint(
+        let resolved = try #require(ConnectionKeyResolver.resolutionHint(
                 for: jumpKeyID,
                 config: config(hints: nil),
                 jumpConfig: jumpConfig(hints: [
                     jumpKeyID.uuidString: hint(fingerprint: "SHA256:from-jump", name: "Jump")
                 ]),
                 metadataEntries: [metadataEntry(for: jumpKeyID)]
-            )
-        )
+            ))
 
-        XCTAssertEqual(resolved.fingerprint, "SHA256:from-jump")
+        #expect(resolved.fingerprint == "SHA256:from-jump")
     }
 
     // MARK: - Fail-closed: a hint narrows resolution, never widens it
@@ -257,13 +257,14 @@ final class ConnectionKeyResolverHintTests: XCTestCase {
     /// Goes red if `resolveKey(id:hint:)` gains any "close enough" rung — a
     /// default-key fallback, or a match on something weaker than the exact
     /// SHA256 fingerprint.
-    func testHintThatMatchesNoLocalKeyResolvesToNothingRatherThanASubstitute() {
+    @Test
+    func testHintThatMatchesNoLocalKeyResolvesToNothingRatherThanASubstitute() throws {
         let unknown = hint(
             fingerprint: "SHA256:ffffffffffffffffffffffffffffffffffffffffffffffff-not-on-device",
             name: "Key From Another Device"
         )
 
-        XCTAssertNil(SSHKeyManager.shared.resolveKey(id: UUID(), hint: unknown))
+        #expect((SSHKeyManager.shared.resolveKey(id: UUID(), hint: unknown)) == nil)
     }
 
     /// A hint carrying only a NAME (and type) resolves to nothing. Names are
@@ -272,17 +273,19 @@ final class ConnectionKeyResolverHintTests: XCTestCase {
     ///
     /// Goes red if a name or key-type matching strategy is added to
     /// `resolveKey(id:hint:)`.
-    func testHintWithoutAFingerprintNeverSelectsAKeyByName() {
+    @Test
+    func testHintWithoutAFingerprintNeverSelectsAKeyByName() throws {
         var nameOnly = KeyResolutionHint()
         nameOnly.keyName = "id_ed25519"
         nameOnly.keyType = .ed25519
 
-        XCTAssertNil(SSHKeyManager.shared.resolveKey(id: UUID(), hint: nameOnly))
+        #expect((SSHKeyManager.shared.resolveKey(id: UUID(), hint: nameOnly)) == nil)
     }
 
     /// No hint at all and no local key under that UUID resolves to nothing.
     /// Pins the `guard let hint else { return nil }` early exit.
-    func testAbsentHintResolvesToNothingForAnUnknownKeyID() {
-        XCTAssertNil(SSHKeyManager.shared.resolveKey(id: UUID(), hint: nil))
+    @Test
+    func testAbsentHintResolvesToNothingForAnUnknownKeyID() throws {
+        #expect((SSHKeyManager.shared.resolveKey(id: UUID(), hint: nil)) == nil)
     }
 }

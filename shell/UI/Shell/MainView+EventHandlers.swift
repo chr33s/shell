@@ -90,10 +90,10 @@ extension MainView {
             notifySessionCountChanged()
         } else if terminals.isEmpty {
 #if targetEnvironment(macCatalyst)
-            // NOTE: getPendingState() has a side effect — it marks the window
+            // NOTE: pendingState() has a side effect — it marks the window
             // as restored — so it must be read exactly once and the value
             // reused (a second call returns nil and would skip restore).
-            let pendingState = WindowStateManager.shared.getPendingState(forWindowId: windowId)
+            let pendingState = WindowStateManager.shared.pendingState(forWindowId: windowId)
             // Stash this window's saved size/position; it is applied exactly once
             // the scene link is live (from the WindowSceneReporter callback above,
             // or right here if the link is already up). Restoring it also triggers
@@ -109,7 +109,7 @@ extension MainView {
             }
 #else
             // Non-Catalyst path (iPad/iPhone/visionOS)
-            if let savedState = WindowStateManager.shared.getPendingState(forWindowId: windowId) {
+            if let savedState = WindowStateManager.shared.pendingState(forWindowId: windowId) {
                 // Mark restoration in-progress for crash detection
                 RestorationHealthTracker.shared.markRestorationStarted()
                 Ghostty.logger.info("Restoring window state: \(savedState.tabs.count) tabs")

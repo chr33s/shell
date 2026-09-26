@@ -6,6 +6,7 @@
 //  Used to trigger opportunistic reconnection when network is restored.
 //
 
+import Observation
 import Foundation
 import Network
 import Combine
@@ -15,7 +16,8 @@ import UIKit
 
 /// Monitors network connectivity for reconnection triggers
 @MainActor
-final class NetworkReachabilityMonitor: ObservableObject {
+@Observable
+final class NetworkReachabilityMonitor {
 
     // MARK: - Singleton
 
@@ -28,10 +30,10 @@ final class NetworkReachabilityMonitor: ObservableObject {
     // MARK: - Published State
 
     /// Whether the device currently has network connectivity
-    @Published private(set) var isConnected: Bool = true
+    private(set) var isConnected: Bool = true
 
     /// The type of network connection (wifi, cellular, wired, etc.)
-    @Published private(set) var connectionType: ConnectionType = .unknown
+    private(set) var connectionType: ConnectionType = .unknown
 
     // MARK: - Publishers
 
@@ -64,7 +66,10 @@ final class NetworkReachabilityMonitor: ObservableObject {
 
     // MARK: - Private Properties
 
-    private var pathMonitor: NWPathMonitor?
+    /// `deinit` cancels this off the main actor. `NWPathMonitor.cancel()` is
+    /// thread-safe; the rest of the class only touches it on the main actor.
+    @ObservationIgnored
+    nonisolated(unsafe) private var pathMonitor: NWPathMonitor?
     private let monitorQueue = DispatchQueue(label: "dev.chr33s.shell.network-monitor", qos: .utility)
     private var isMonitoring = false
     private var previouslyConnected: Bool = true
@@ -417,10 +422,10 @@ final class NetworkReachabilityMonitor: ObservableObject {
         let wasConnected = isConnected
         let previousType = connectionType
 
-        // Equality-guard every @Published assignment. NWPathMonitor delivers
+        // Equality-guard every assignment. NWPathMonitor delivers
         // bursts of updates during cellular ↔ Wi-Fi handoff, VPN setup, and
         // captive-portal probing where most fields don't actually change
-        // between successive paths. Unguarded `=` on a @Published property
+        // between successive paths. Unguarded `=` on a property
         // fires `objectWillChange` regardless of value, which invalidates
         // every SwiftUI body that observes this singleton (MainView reads
         // it transitively via theme/connection-status subviews). These
@@ -464,7 +469,7 @@ final class NetworkReachabilityMonitor: ObservableObject {
         // interface set genuinely changed; previously this also fired on
         // every same-type same-interface path event, which during instability
         // arrives many times per second and drives the same invalidation
-        // storm the @Published guards above defuse.
+        // storm the guards above defuse.
         let currentInterfaceNames = Set(path.availableInterfaces.map { $0.name })
         let interfacesChanged = currentInterfaceNames != previousInterfaceNames
         previousInterfaceNames = currentInterfaceNames
@@ -478,7 +483,7 @@ final class NetworkReachabilityMonitor: ObservableObject {
         // Emit a synthesized `connectivityRestored` if `replayBackgroundPathIfAny`
         // observed a flap during the backgrounded period AND the path being
         // handled here is the one it asked for synthesis on. Done at the
-        // very end so subscribers see all the path-derived @Published state
+        // very end so subscribers see all the path-derived state
         // (connectionType, networkPathUpdated) updated FIRST. Honors the
         // resume quiet window: when the replay arrived during the window,
         // `handlePathUpdate` stashed both the path and the synthesis flag

@@ -1,4 +1,5 @@
-import XCTest
+import Foundation
+import Testing
 import ShellControlProtocol
 import ShellControlClient
 @testable import ShellControlDaemon
@@ -123,7 +124,8 @@ actor FakeBroker: ControlHTTPTransport {
     }
 }
 
-final class DaemonTests: XCTestCase {
+@Suite
+final class DaemonTests {
     private func makeCore(
         _ broker: FakeBroker,
         now: @escaping @Sendable () -> Date,
@@ -148,6 +150,7 @@ final class DaemonTests: XCTestCase {
         return (try DaemonCore(configuration: configuration, client: client, now: now), directory)
     }
 
+    @Test
     func testHelloRequestApproveWaitAndReceipt() async throws {
         nonisolated(unsafe) var clock = Date(timeIntervalSince1970: 1_788_000_000)
         let broker = FakeBroker(now: { clock })
@@ -166,10 +169,10 @@ final class DaemonTests: XCTestCase {
                 "operation_schemas": .array([.string(ExecOperation.schema)])
             ])
         ))
-        XCTAssertTrue(hello.ok)
+        #expect(hello.ok)
         var helloReader = try JSONReader(hello.body)
         let capability = try helloReader.string("run_capability", maxLength: 128)
-        XCTAssertFalse(capability.isEmpty)
+        #expect(!(capability.isEmpty))
 
         let created = await core.handle(IPCRequest(
             messageID: .random(),
@@ -185,7 +188,7 @@ final class DaemonTests: XCTestCase {
                 ])
             ])
         ))
-        XCTAssertTrue(created.ok)
+        #expect(created.ok)
         var createdReader = try JSONReader(created.body)
         let requestID = try createdReader.id("request_id")
         let requestHash = try createdReader.string("request_hash", maxLength: 80)
@@ -204,11 +207,12 @@ final class DaemonTests: XCTestCase {
                 "timeout_seconds": 30
             ])
         ))
-        XCTAssertTrue(waited.ok)
+        #expect(waited.ok)
         let outcome = try ApprovalWaitOutcome(json: waited.body)
-        guard case .approved(let permit) = outcome else { return XCTFail("expected an approved permit") }
-        XCTAssertEqual(permit.decisionID, decisionID)
-        XCTAssertEqual(outcome.exitCode, .approved)
+        guard case .approved(let permit) = outcome else { Issue.record("expected an approved permit")
+return }
+        #expect(permit.decisionID == decisionID)
+        #expect(outcome.exitCode == .approved)
 
         let receipt = await core.handle(IPCRequest(
             messageID: .random(),
@@ -222,12 +226,13 @@ final class DaemonTests: XCTestCase {
                 "request_hash": .string(requestHash)
             ])
         ))
-        XCTAssertTrue(receipt.ok)
+        #expect(receipt.ok)
         let recorded = await broker.receipts
-        XCTAssertEqual(recorded.first?.result, .applied)
+        #expect(recorded.first?.result == .applied)
         clock = clock.addingTimeInterval(1)
     }
 
+    @Test
     func testRejectionReturnsExitCodeTenAndClaimsNothing() async throws {
         nonisolated(unsafe) let clock = Date(timeIntervalSince1970: 1_788_000_000)
         let broker = FakeBroker(now: { clock })
@@ -276,11 +281,12 @@ final class DaemonTests: XCTestCase {
             ])
         ))
         let outcome = try ApprovalWaitOutcome(json: waited.body)
-        XCTAssertEqual(outcome.exitCode, .rejected)
+        #expect(outcome.exitCode == .rejected)
         let consumes = await broker.consumeCount
-        XCTAssertEqual(consumes, 0)
+        #expect(consumes == 0)
     }
 
+    @Test
     func testUnknownRunCapabilityIsRefused() async throws {
         nonisolated(unsafe) let clock = Date(timeIntervalSince1970: 1_788_000_000)
         let broker = FakeBroker(now: { clock })
@@ -292,10 +298,11 @@ final class DaemonTests: XCTestCase {
             runCapability: "not-a-real-capability",
             body: .object(["title": "hi"])
         ))
-        XCTAssertFalse(response.ok)
-        XCTAssertEqual(response.errorCode, ControlErrorCode.notAuthorized.rawValue)
+        #expect(!(response.ok))
+        #expect(response.errorCode == ControlErrorCode.notAuthorized.rawValue)
     }
 
+    @Test
     func testRetransmissionWithADifferentBodyConflicts() async throws {
         nonisolated(unsafe) let clock = Date(timeIntervalSince1970: 1_788_000_000)
         let broker = FakeBroker(now: { clock })
@@ -315,7 +322,7 @@ final class DaemonTests: XCTestCase {
             ])
         )
         let first = await core.handle(hello)
-        XCTAssertTrue(first.ok)
+        #expect(first.ok)
         let changed = IPCRequest(
             messageID: messageID,
             type: .hello,
@@ -329,10 +336,11 @@ final class DaemonTests: XCTestCase {
             ])
         )
         let response = await core.handle(changed)
-        XCTAssertFalse(response.ok)
-        XCTAssertEqual(response.errorCode, ControlErrorCode.idempotencyConflict.rawValue)
+        #expect(!(response.ok))
+        #expect(response.errorCode == ControlErrorCode.idempotencyConflict.rawValue)
     }
 
+    @Test
     func testUnnegotiatedOperationSchemaGetsNoApprovalPath() async throws {
         nonisolated(unsafe) let clock = Date(timeIntervalSince1970: 1_788_000_000)
         let broker = FakeBroker(now: { clock })
@@ -350,12 +358,13 @@ final class DaemonTests: XCTestCase {
                 "operation_schemas": .array(["k8s.apply.v1"])
             ])
         ))
-        XCTAssertFalse(response.ok)
-        XCTAssertEqual(response.errorCode, ControlErrorCode.unsupportedOperation.rawValue)
+        #expect(!(response.ok))
+        #expect(response.errorCode == ControlErrorCode.unsupportedOperation.rawValue)
     }
 
     /// A retransmission with the same message id and body must replay the
     /// recorded result, not mint a second request on the broker.
+    @Test
     func testRetransmissionReplaysInsteadOfCreatingASecondRequest() async throws {
         nonisolated(unsafe) let clock = Date(timeIntervalSince1970: 1_788_000_000)
         let broker = FakeBroker(now: { clock })
@@ -391,14 +400,15 @@ final class DaemonTests: XCTestCase {
         )
         let first = await core.handle(request)
         let replay = await core.handle(request)
-        XCTAssertTrue(first.ok)
-        XCTAssertTrue(replay.ok)
-        XCTAssertEqual(first.body, replay.body)
+        #expect(first.ok)
+        #expect(replay.ok)
+        #expect(first.body == replay.body)
         let published = await broker.approvals.count
-        XCTAssertEqual(published, 1)
+        #expect(published == 1)
     }
 
     /// Two waits on one run capability must not lose each other's presence.
+    @Test
     func testConcurrentWaitsKeepBothRequestsInThePresenceLease() async throws {
         nonisolated(unsafe) let clock = Date(timeIntervalSince1970: 1_788_000_000)
         let broker = FakeBroker(now: { clock })
@@ -466,11 +476,12 @@ final class DaemonTests: XCTestCase {
         // The first wait resolving must not drop the second from the lease.
         try await broker.resolve(secondID, as: .rejected, decisionID: .random())
         let outcome = try ApprovalWaitOutcome(json: (await secondWait).body)
-        XCTAssertEqual(outcome.exitCode, .rejected)
+        #expect(outcome.exitCode == .rejected)
     }
 
     // MARK: Journal
 
+    @Test
     func testJournalRecoveryReportsUncertainDispatch() throws {
         let directory = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("shell-controld-journal-\(UUID().uuidString)")
@@ -487,14 +498,15 @@ final class DaemonTests: XCTestCase {
 
         // Crashed between dispatch and receipt: the effect is uncertain.
         var recovery = try journal.recover()
-        XCTAssertTrue(recovery.uncertain.contains(requestID))
+        #expect(recovery.uncertain.contains(requestID))
 
         try journal.append(.dispatchResult(requestID: requestID, receiptID: .random(), result: .unknown))
         recovery = try journal.recover()
-        XCTAssertFalse(recovery.uncertain.contains(requestID))
-        XCTAssertFalse(recovery.unresolved.contains(requestID))
+        #expect(!(recovery.uncertain.contains(requestID)))
+        #expect(!(recovery.unresolved.contains(requestID)))
     }
 
+    @Test
     func testJournalTracksUnresolvedRequests() throws {
         let directory = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("shell-controld-journal-\(UUID().uuidString)")
@@ -502,11 +514,12 @@ final class DaemonTests: XCTestCase {
         let journal = try DispatchJournal(url: directory.appendingPathComponent("journal.ndjson"))
         let requestID = ControlID.random()
         try journal.append(.requestPersisted(requestID: requestID, requestHash: "sha256:" + String(repeating: "0", count: 64), runID: .random()))
-        XCTAssertTrue(try journal.recover().unresolved.contains(requestID))
+        #expect(try journal.recover().unresolved.contains(requestID))
         try journal.append(.withdrawn(requestID: requestID))
-        XCTAssertFalse(try journal.recover().unresolved.contains(requestID))
+        #expect(!(try journal.recover().unresolved.contains(requestID)))
     }
 
+    @Test
     func testFailedRecoveryWriteDoesNotCompleteTheObligation() async throws {
         nonisolated(unsafe) let clock = Date(timeIntervalSince1970: 1_788_000_000)
         let broker = FakeBroker(now: { clock })
@@ -534,13 +547,14 @@ final class DaemonTests: XCTestCase {
             payload: payload
         ))
         try await core.reconcileAfterRestart()
-        XCTAssertEqual(try journal.pendingRecoveries().count, 1)
+        #expect((try journal.pendingRecoveries().count) == 1)
         let posted = await broker.receipts
-        XCTAssertTrue(posted.isEmpty)
+        #expect(posted.isEmpty)
         let attempts = await broker.receiptAttempts
-        XCTAssertGreaterThanOrEqual(attempts, 1)
+        #expect(attempts >= 1)
     }
 
+    @Test
     func testHeartbeatRetriesRecoveryWithoutAnotherRestart() async throws {
         nonisolated(unsafe) let clock = Date(timeIntervalSince1970: 1_788_000_000)
         let broker = FakeBroker(now: { clock })
@@ -574,11 +588,12 @@ final class DaemonTests: XCTestCase {
             if try journal.pendingRecoveries().isEmpty { break }
             try await Task.sleep(nanoseconds: 10_000_000)
         }
-        XCTAssertTrue(try journal.pendingRecoveries().isEmpty)
+        #expect(try journal.pendingRecoveries().isEmpty)
         let postedReceiptIDs = await broker.receipts.map(\.receiptID)
-        XCTAssertEqual(postedReceiptIDs, [receipt.receiptID])
+        #expect(postedReceiptIDs == [receipt.receiptID])
     }
 
+    @Test
     func testLiveRequestIsNeverRediscoveredByRecurringRecovery() async throws {
         let clock = Date(timeIntervalSince1970: 1_788_000_000)
         let broker = FakeBroker(now: { clock })
@@ -591,10 +606,11 @@ final class DaemonTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(30)); task.cancel()
         let withdrawals = await broker.withdrawals
         let receipts = await broker.receipts
-        XCTAssertEqual(withdrawals, 0)
-        XCTAssertTrue(receipts.isEmpty)
+        #expect(withdrawals == 0)
+        #expect(receipts.isEmpty)
     }
 
+    @Test
     func testLiveClaimAwaitingAdapterReceiptGetsNoRestartReceipt() async throws {
         let clock = Date(timeIntervalSince1970: 1_788_000_000)
         let broker = FakeBroker(now: { clock })
@@ -610,9 +626,10 @@ final class DaemonTests: XCTestCase {
         let task = Task { await core.runHeartbeats() }
         try await Task.sleep(for: .milliseconds(30)); task.cancel()
         let receipts = await broker.receipts
-        XCTAssertTrue(receipts.isEmpty)
+        #expect(receipts.isEmpty)
     }
 
+    @Test
     func testRealRestartDiscoversPriorPendingRequest() async throws {
         let clock = Date(timeIntervalSince1970: 1_788_000_000)
         let broker = FakeBroker(now: { clock })
@@ -626,9 +643,10 @@ final class DaemonTests: XCTestCase {
         let restarted = try DaemonCore(configuration: configuration, client: client, now: { clock })
         try await restarted.reconcileAfterRestart()
         let withdrawals = await broker.withdrawals
-        XCTAssertEqual(withdrawals, 1)
+        #expect(withdrawals == 1)
     }
 
+    @Test
     func testCorruptAuthorityJournalFailsClosed() throws {
         let directory = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("shell-corrupt-journal-\(UUID())")
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -636,9 +654,10 @@ final class DaemonTests: XCTestCase {
         // A damaged record in the middle is corruption, not a torn append.
         try Data("{truncated\n".utf8).write(to: journal.url)
         try journal.append(.withdrawn(requestID: .random()))
-        XCTAssertThrowsError(try journal.startupFrontier())
+        #expect(throws: (any Error).self){ try journal.startupFrontier() }
     }
 
+    @Test
     func testTornFinalRecordIsDroppedAndTheJournalStaysAppendable() throws {
         let directory = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("shell-torn-journal-\(UUID())")
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -652,18 +671,19 @@ final class DaemonTests: XCTestCase {
         try handle.write(contentsOf: Data(#"{"kind":"withdrawn","request_id":"#.utf8))
         try handle.close()
 
-        XCTAssertEqual(try journal.load().count, 2)
+        #expect((try journal.load().count) == 2)
         let repair = try journal.repairAtStartup()
-        XCTAssertTrue(repair.discardedTornTail)
-        XCTAssertNil(repair.quarantinedTo)
-        XCTAssertEqual(try Data(contentsOf: journal.url).last, 0x0A)
+        #expect(repair.discardedTornTail)
+        #expect((repair.quarantinedTo) == nil)
+        #expect((try Data(contentsOf: journal.url).last) == 0x0A)
 
         // The next record lands on its own line rather than on the torn bytes.
         try journal.append(.withdrawn(requestID: requestID))
-        XCTAssertEqual(try journal.load().count, 3)
-        XCTAssertFalse(try journal.recover().unresolved.contains(requestID))
+        #expect((try journal.load().count) == 3)
+        #expect(!(try journal.recover().unresolved.contains(requestID)))
     }
 
+    @Test
     func testMidFileCorruptionIsQuarantinedAndStartupStillSucceeds() async throws {
         let clock = Date(timeIntervalSince1970: 1_788_000_000)
         let broker = FakeBroker(now: { clock })
@@ -678,17 +698,17 @@ final class DaemonTests: XCTestCase {
         try handle.close()
         try journal.append(.requestPersisted(requestID: kept, requestHash: "sha256:" + String(repeating: "0", count: 64), runID: .random()))
         let original = try Data(contentsOf: journal.url)
-        XCTAssertThrowsError(try journal.load())
+        #expect(throws: (any Error).self){ try journal.load() }
 
         // Startup neither throws nor crash-loops; the damage is surfaced.
         try await core.reconcileAfterRestart()
         let health = await core.health()
-        let quarantinedPath = try XCTUnwrap(health["journal_quarantined"]?.stringValue)
-        XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: quarantinedPath)), original)
+        let quarantinedPath = try #require(health["journal_quarantined"]?.stringValue)
+        #expect((try Data(contentsOf: URL(fileURLWithPath: quarantinedPath))) == original)
         // Every readable record is kept; the recovery candidate follows them.
         let salvaged = try journal.load()
-        XCTAssertEqual(salvaged.count, 3)
-        XCTAssertTrue(salvaged.contains { entry in
+        #expect(salvaged.count == 3)
+        #expect(salvaged.contains { entry in
             if case .requestPersisted(let requestID, _, _) = entry { return requestID == kept }
             return false
         })
@@ -727,6 +747,7 @@ final class DaemonTests: XCTestCase {
         await broker.approvals[requestID]?.spec.runID.rawValue
     }
 
+    @Test
     func testHeartbeatCarriesOnlyWaitingRunsInOneBatch() async throws {
         let clock = Date(timeIntervalSince1970: 1_788_000_000)
         let broker = FakeBroker(now: { clock })
@@ -737,20 +758,20 @@ final class DaemonTests: XCTestCase {
         for _ in 0..<20 { _ = try await hello(on: core) }
         await core.heartbeatOnce()
         var sent = await broker.heartbeatRuns
-        XCTAssertEqual(sent.count, 1, "one heartbeat per interval, not one per hello")
-        XCTAssertEqual(sent.last, [], "runs with nothing waiting need no presence")
+        #expect(sent.count == 1, "one heartbeat per interval, not one per hello")
+        #expect(sent.last == [], "runs with nothing waiting need no presence")
 
         let first = try await createPending(on: core)
         let second = try await createPending(on: core)
         let before = await broker.heartbeatRuns.count
         await core.heartbeatOnce()
         sent = await broker.heartbeatRuns
-        XCTAssertEqual(sent.count, before + 1, "live runs are batched into one heartbeat")
+        #expect(sent.count == before + 1, "live runs are batched into one heartbeat")
         let firstRunID = await runID(of: first.id, on: broker)
         let secondRunID = await runID(of: second.id, on: broker)
-        let firstRun = try XCTUnwrap(firstRunID)
-        let secondRun = try XCTUnwrap(secondRunID)
-        XCTAssertEqual(Set(sent.last ?? []), [firstRun, secondRun])
+        let firstRun = try #require(firstRunID)
+        let secondRun = try #require(secondRunID)
+        #expect(Set(sent.last ?? []) == [firstRun, secondRun])
 
         // The first request resolves: its run is sent once more to clear the
         // waiting flag, then drops out of presence.
@@ -760,12 +781,13 @@ final class DaemonTests: XCTestCase {
         ])))
         await core.heartbeatOnce()
         let drained = await broker.heartbeatRuns.last
-        XCTAssertEqual(Set(drained ?? []), [firstRun, secondRun])
+        #expect(Set(drained ?? []) == [firstRun, secondRun])
         await core.heartbeatOnce()
         let settled = await broker.heartbeatRuns.last
-        XCTAssertEqual(settled, [secondRun])
+        #expect(settled == [secondRun])
     }
 
+    @Test
     func testIdleBindingsExpireWhilePendingRequestsKeepTheirs() async throws {
         nonisolated(unsafe) var clock = Date(timeIntervalSince1970: 1_788_000_000)
         let broker = FakeBroker(now: { clock })
@@ -775,7 +797,7 @@ final class DaemonTests: XCTestCase {
         let idle = try await hello(on: core)
         let pending = try await createPending(on: core)
         let pendingRunID = await runID(of: pending.id, on: broker)
-        let pendingRun = try XCTUnwrap(pendingRunID)
+        let pendingRun = try #require(pendingRunID)
 
         // Still approvable: the pending request's run keeps its binding and
         // its presence.
@@ -783,8 +805,8 @@ final class DaemonTests: XCTestCase {
         await core.heartbeatOnce()
         let present = await core.presenceRunIDs()
         let bindings = await core.runBindingCount
-        XCTAssertEqual(present.map(\.rawValue), [pendingRun])
-        XCTAssertEqual(bindings, 2)
+        #expect(present.map(\.rawValue) == [pendingRun])
+        #expect(bindings == 2)
 
         // Past the request's expiry and the idle lifetime, both are released.
         clock = clock.addingTimeInterval(DaemonCore.runBindingIdleLifetime + 60)
@@ -793,16 +815,17 @@ final class DaemonTests: XCTestCase {
         let remaining = await core.runBindingCount
         let stillPresent = await core.presenceRunIDs()
         let lastSent = await broker.heartbeatRuns.last
-        XCTAssertEqual(remaining, 0)
-        XCTAssertTrue(stillPresent.isEmpty)
-        XCTAssertEqual(lastSent, [])
+        #expect(remaining == 0)
+        #expect(stillPresent.isEmpty)
+        #expect(lastSent == [])
         let refused = await core.handle(IPCRequest(messageID: .random(), type: .notify, runCapability: idle,
                                                    body: .object(["title": "late"])))
-        XCTAssertEqual(refused.errorCode, ControlErrorCode.notAuthorized.rawValue)
+        #expect(refused.errorCode == ControlErrorCode.notAuthorized.rawValue)
     }
 
     // MARK: Consume identity
 
+    @Test
     func testLostConsumeReplyIsRetriedWithTheJournaledConsumeID() async throws {
         let clock = Date(timeIntervalSince1970: 1_788_000_000)
         let broker = FakeBroker(now: { clock })
@@ -818,12 +841,13 @@ final class DaemonTests: XCTestCase {
             runCapability: created.capability, body: .object([
                 "request_id": JSONValue(created.id), "request_hash": .string(created.hash), "timeout_seconds": 30
             ])))
-        XCTAssertTrue(waited.ok, waited.errorMessage ?? "")
+        #expect(waited.ok, "\(waited.errorMessage ?? "")")
         guard case .approved(let permit) = try ApprovalWaitOutcome(json: waited.body) else {
-            return XCTFail("the retry must recover the permit the broker already granted")
+            Issue.record("the retry must recover the permit the broker already granted")
+return
         }
         let presented = await broker.consumeIDs
-        XCTAssertEqual(presented, [permit.consumeID, permit.consumeID])
+        #expect(presented == [permit.consumeID, permit.consumeID])
 
         // The consume ID was journaled before the broker saw it.
         let entries = try DispatchJournal(url: directory.appendingPathComponent("journal.ndjson")).load()
@@ -835,11 +859,12 @@ final class DaemonTests: XCTestCase {
             if case .claimed(created.id, permit.consumeID, _) = entry { return true }
             return false
         }
-        XCTAssertNotNil(intent)
-        XCTAssertNotNil(claim)
-        XCTAssertLessThan(try XCTUnwrap(intent), try XCTUnwrap(claim))
+        let intentIndex = try #require(intent)
+        let claimIndex = try #require(claim)
+        #expect(intentIndex < claimIndex)
     }
 
+    @Test
     func testRestartRecoveryReclaimsAnIntentWithoutResultUnderTheSameID() async throws {
         let clock = Date(timeIntervalSince1970: 1_788_000_000)
         let broker = FakeBroker(now: { clock })
@@ -859,8 +884,8 @@ final class DaemonTests: XCTestCase {
         try await broker.commitClaim(created.id, consumeID: consumeID)
 
         let frontier = try journal.recover()
-        XCTAssertTrue(frontier.uncertain.contains(created.id), "an intent without a result is uncertain")
-        XCTAssertEqual(frontier.consumes[created.id], .init(consumeID: consumeID, claimRecorded: false))
+        #expect(frontier.uncertain.contains(created.id), "an intent without a result is uncertain")
+        #expect(frontier.consumes[created.id] == .init(consumeID: consumeID, claimRecorded: false))
 
         let configuration = await core.configuration
         let client = ControlAPIClient(baseURL: configuration.brokerURL, transport: broker,
@@ -871,19 +896,20 @@ final class DaemonTests: XCTestCase {
         // The same ID recovers the claim instead of hitting `already_claimed`,
         // and the permit that never left the daemon is reported not applied.
         let presented = await broker.consumeIDs
-        XCTAssertEqual(presented, [consumeID])
+        #expect(presented == [consumeID])
         let receipts = await broker.receipts
-        XCTAssertEqual(receipts.count, 1)
-        XCTAssertEqual(receipts.first?.consumeID, consumeID)
-        XCTAssertEqual(receipts.first?.result, .notApplied)
+        #expect(receipts.count == 1)
+        #expect(receipts.first?.consumeID == consumeID)
+        #expect(receipts.first?.result == .notApplied)
         let after = try journal.recover()
-        XCTAssertFalse(after.uncertain.contains(created.id))
-        XCTAssertFalse(after.unresolved.contains(created.id))
-        XCTAssertTrue(try journal.pendingRecoveries().isEmpty)
+        #expect(!(after.uncertain.contains(created.id)))
+        #expect(!(after.unresolved.contains(created.id)))
+        #expect(try journal.pendingRecoveries().isEmpty)
         let health = await restarted.health()
-        XCTAssertEqual(health["recovery_pending"], .number(.int(0)))
+        #expect(health["recovery_pending"] == .number(.int(0)))
     }
 
+    @Test
     func testRestartReceiptForARecordedClaimCarriesItsConsumeID() async throws {
         let clock = Date(timeIntervalSince1970: 1_788_000_000)
         let broker = FakeBroker(now: { clock })
@@ -897,7 +923,7 @@ final class DaemonTests: XCTestCase {
                 "request_id": JSONValue(created.id), "request_hash": .string(created.hash), "timeout_seconds": 5
             ])))
         let holder = await broker.consumedBy[created.id]
-        let claimedBy = try XCTUnwrap(holder)
+        let claimedBy = try #require(holder)
 
         let configuration = await core.configuration
         let client = ControlAPIClient(baseURL: configuration.brokerURL, transport: broker,
@@ -905,12 +931,13 @@ final class DaemonTests: XCTestCase {
         let restarted = try DaemonCore(configuration: configuration, client: client, now: { clock })
         try await restarted.reconcileAfterRestart()
         let receipts = await broker.receipts
-        XCTAssertEqual(receipts.map(\.result), [.unknown])
-        XCTAssertEqual(receipts.first?.consumeID, claimedBy, "the broker accepts an approved receipt only under its claim")
+        #expect(receipts.map(\.result) == [.unknown])
+        #expect(receipts.first?.consumeID == claimedBy, "the broker accepts an approved receipt only under its claim")
         let presented = await broker.consumeIDs
-        XCTAssertEqual(presented, [claimedBy], "a recorded claim is not consumed again")
+        #expect(presented == [claimedBy], "a recorded claim is not consumed again")
     }
 
+    @Test
     func testRecoveryRetriesReuseTheSameReceiptID() async throws {
         nonisolated(unsafe) let clock = Date(timeIntervalSince1970: 1_788_000_000)
         let broker = FakeBroker(now: { clock })
@@ -939,14 +966,14 @@ final class DaemonTests: XCTestCase {
             payload: payload
         ))
         try await core.reconcileAfterRestart()
-        XCTAssertEqual(try journal.pendingRecoveries().count, 1)
+        #expect((try journal.pendingRecoveries().count) == 1)
         await broker.setFailReceipts(false)
         try await core.reconcileAfterRestart()
-        XCTAssertEqual(try journal.pendingRecoveries().count, 0)
+        #expect((try journal.pendingRecoveries().count) == 0)
         let posted = await broker.receipts
-        XCTAssertEqual(posted.map(\.receiptID), [receiptID])
+        #expect(posted.map(\.receiptID) == [receiptID])
         let consumes = await broker.consumeCount
-        XCTAssertEqual(consumes, 0)
+        #expect(consumes == 0)
     }
 }
 

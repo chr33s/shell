@@ -26,15 +26,13 @@
 //  Lifecycle
 //  ---------
 //  - `TabModel.startObserving()` is invoked when a tab is added to a
-//    `TabsModel`, or when its focused split changes. It Combine-subscribes to
-//    the focused `Ghostty.TerminalView`'s `$title` and `$connectionHealth`
-//    publishers and writes the resolved values into its own `@Observable`
-//    properties.
+//    `TabsModel`, or when its focused split changes. It observes the focused
+//    `Ghostty.TerminalView`'s `title` and `connectionHealth` and writes the
+//    resolved values into its own `@Observable` properties.
 //  - `TabModel.stopObserving()` is invoked when removed (and from `deinit`).
 //
 
 import Foundation
-import Combine
 import SwiftUI
 import GhosttyKit
 import os
@@ -198,6 +196,15 @@ nonisolated struct TabOrderProjection: Equatable, Sendable {
 /// properties it actually reads.
 @MainActor
 @Observable
+/// Restoration drops fallback titles until a real OSC title arrives. The
+/// flag is mutated from the observation task, which is `@Sendable`.
+private final class TitleObservationGate: @unchecked Sendable {
+    var hasReceivedRealTitle: Bool
+    init(hasReceivedRealTitle: Bool) {
+        self.hasReceivedRealTitle = hasReceivedRealTitle
+    }
+}
+
 final class TabModel: Identifiable {
     /// Stable identity for `ForEach` and reorder/cleanup operations.
     let id = UUID()
@@ -330,7 +337,7 @@ final class TabModel: Identifiable {
         return nil
     }
 
-    // MARK: - Mirrored State (driven by the focused terminal's @Published properties)
+    // MARK: - Mirrored State (driven by the focused terminal's observed state)
 
     /// Resolved tab title — either the focused split's session-provided title
     /// or, when that title is empty/"ghostty", the connection's display name.
@@ -343,9 +350,9 @@ final class TabModel: Identifiable {
 
     // MARK: - Internal observation storage
 
-    /// Combine subscriptions on the focused terminal's @Published properties.
+    /// Observation tasks on the focused terminal's presentation state.
     /// Excluded from observation — these are implementation detail.
-    @ObservationIgnored private var observationCancellables = Set<AnyCancellable>()
+    @ObservationIgnored private var observationTasks: [Task<Void, Never>] = []
     private(set) var groupingRevision = 0
 
     /// Owning collection, read only to consult the tab-switch animation gate.
@@ -428,34 +435,28 @@ final class TabModel: Identifiable {
         // default `preserveExistingTitle: false`, which would clobber the
         // saved title with the connection's `displayName`. Set focusedPane
         // first, then overwrite with the saved title, then re-run observation
-        // with `preserveExistingTitle: true` so the dropFirst()'d title sink
-        // doesn't push a fallback emission over the saved value.
+        // with `preserveExistingTitle: true` so the dropped initial title
+        // emission doesn't push a fallback over the saved value.
         self.focusedPane = focusedPane
         self.title = title
         startObserving(preserveExistingTitle: true)
     }
 
-    deinit {
-        // Cancel Combine subscriptions on deinit. `MainActor.assumeIsolated`
-        // is safe here because the class is `@MainActor`-isolated and Swift
-        // 6 deinit on a MainActor class runs on the main actor.
-        observationCancellables.removeAll()
+    isolated deinit {
+        cancelObservationTasks()
         titlePublicationTimer?.invalidate()
     }
 
     // MARK: - Observation
 
-    /// Subscribe to the current `focusedTerminal`'s `@Published` properties and
-    /// mirror them into this model's `@Observable` properties. Replaces the
-    /// `setupTitleObservation` Combine wiring that previously lived inline in
-    /// `MainView` and pushed values into a `@State` array.
-    /// Set up observation of the focused terminal's `@Published` properties.
+    /// Subscribe to the current `focusedTerminal`'s observed title and health
+    /// and mirror them into this model's `@Observable` properties.
     ///
     /// Pass `preserveExistingTitle: true` during restoration so the saved tab
     /// title isn't immediately overwritten by the focused view's pre-connect
     /// title (typically "ghostty").
     func startObserving(preserveExistingTitle: Bool = false) {
-        observationCancellables.removeAll()
+        cancelObservationTasks()
         cancelPendingTitlePublication()
 
         // Resolve the focused pane first (not the terminal shim) so a focused
@@ -495,48 +496,50 @@ final class TabModel: Identifiable {
         // session emits a *real* (non-fallback) title. Pre-connect surface
         // SET_TITLE actions emit "ghostty" or "", which would otherwise
         // resolve to the connection's `displayName` via `resolveTitle` and
-        // overwrite the saved title. Gate the sink on "have we ever received
+        // overwrite the saved title. Gate the observation on "have we ever received
         // a real title?" — for restored tabs, fallback emissions are dropped
         // until a real OSC title arrives.
-        var hasReceivedRealTitle = !preserveExistingTitle
-        let titlePublisher: AnyPublisher<String, Never> = preserveExistingTitle
-            ? focusedTerminal.$title.dropFirst().eraseToAnyPublisher()
-            : focusedTerminal.$title.eraseToAnyPublisher()
-        titlePublisher
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self, weak focusedTerminal] newTitle in
+        let titleGate = TitleObservationGate(hasReceivedRealTitle: !preserveExistingTitle)
+        observationTasks.append(SurfaceObservation.task(
+            droppingFirst: preserveExistingTitle,
+            { [weak focusedTerminal] in focusedTerminal?.title ?? "" },
+            onChange: { [weak self, weak focusedTerminal] newTitle in
                 guard let self, let focusedTerminal else { return }
                 // tmux window tabs: reconcile is the sole title writer.
                 // (id=tmux-window-title-single-writer)
                 if self.isTmuxWindow { return }
-                if !hasReceivedRealTitle {
+                if !titleGate.hasReceivedRealTitle {
                     if Self.shouldUseFallbackTitle(newTitle) {
                         return
                     }
-                    hasReceivedRealTitle = true
+                    titleGate.hasReceivedRealTitle = true
                 }
                 guard let resolved = Self.resolveTitle(rawTitle: newTitle, on: focusedTerminal)
                 else { return }
                 self.applyResolvedTitle(resolved)
             }
-            .store(in: &observationCancellables)
+        ))
 
         // Connection-health subscription (SSH only). Equality guard.
-        focusedTerminal.$connectionHealth
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] health in
+        observationTasks.append(SurfaceObservation.task(
+            { [weak focusedTerminal] in focusedTerminal?.connectionHealth },
+            onChange: { [weak self] health in
                 guard let self else { return }
                 if self.connectionHealth != health {
                     self.connectionHealth = health
                 }
             }
-            .store(in: &observationCancellables)
-
+        ))
     }
 
     func stopObserving() {
-        observationCancellables.removeAll()
+        cancelObservationTasks()
         cancelPendingTitlePublication()
+    }
+
+    private func cancelObservationTasks() {
+        observationTasks.forEach { $0.cancel() }
+        observationTasks.removeAll()
     }
 
     /// Apply a resolved tab title. During a tab-switch animation the write is

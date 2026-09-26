@@ -14,7 +14,6 @@ import UIKit
 import os
 import GhosttyKit
 import ObjectiveC
-import Combine
 
 // MARK: - Scroll Gesture Setup
 
@@ -635,7 +634,7 @@ extension Ghostty.TerminalView {
 extension Ghostty.TerminalView {
 
     private static var catalystScrollGestureKey: UInt8 = 0
-    private static var catalystCaptureCancellableKey: UInt8 = 0
+    private static var catalystCaptureTaskKey: UInt8 = 0
     private static var scrollEndTimerKey: UInt8 = 0
 
     var catalystScrollGesture: UIPanGestureRecognizer? {
@@ -643,9 +642,12 @@ extension Ghostty.TerminalView {
         set { objc_setAssociatedObject(self, &Self.catalystScrollGestureKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
     }
 
-    private var catalystCaptureCancellable: AnyCancellable? {
-        get { objc_getAssociatedObject(self, &Self.catalystCaptureCancellableKey) as? AnyCancellable }
-        set { objc_setAssociatedObject(self, &Self.catalystCaptureCancellableKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
+    private var catalystCaptureTask: SurfaceObservationTask? {
+        get { objc_getAssociatedObject(self, &Self.catalystCaptureTaskKey) as? SurfaceObservationTask }
+        set {
+            (objc_getAssociatedObject(self, &Self.catalystCaptureTaskKey) as? SurfaceObservationTask)?.cancel()
+            objc_setAssociatedObject(self, &Self.catalystCaptureTaskKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        }
     }
 
     /// Timer to detect when scroll wheel events stop arriving
@@ -656,7 +658,7 @@ extension Ghostty.TerminalView {
 
     private func setupCatalystScrollHandling() {
         // Scroll-wheel gesture is always enabled; gateRecognizerShouldBegin queries
-        // ghostty_surface_mouse_captured() directly so the cached @Published state
+        // ghostty_surface_mouse_captured() directly so the cached observed state
         // (which can lag the C side when tmux's mouse-on sequence races with the
         // scrollbar callback that resyncs Swift) doesn't gate forwarding.
         let scrollGesture = UIPanGestureRecognizer(target: self, action: #selector(handleCatalystScrollGesture))
@@ -671,9 +673,9 @@ extension Ghostty.TerminalView {
 
         // Clean up momentum and the scroll-end timer when capture mode exits so a
         // pending tick doesn't replay stale velocity into the non-capture path.
-        catalystCaptureCancellable = $isMouseCaptured
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] isCaptured in
+        catalystCaptureTask = SurfaceObservationTask(SurfaceObservation.task(
+            { [weak self] in self?.isMouseCaptured ?? false },
+            onChange: { [weak self] isCaptured in
                 if !isCaptured {
                     self?.scrollEndTimer?.invalidate()
                     self?.scrollEndTimer = nil
@@ -681,6 +683,7 @@ extension Ghostty.TerminalView {
                     self?.stopCaptureAutoScroll()
                 }
             }
+        ))
     }
 
     /// Tear down NotificationCenter observers and timers owned by the Catalyst
@@ -689,10 +692,9 @@ extension Ghostty.TerminalView {
     /// block observers and won't release them on view dealloc).
     func tearDownCatalystScrollHandling() {
         tearDownTrackpadTabSwipe()
-        // catalystCaptureCancellable is a Combine cancellable and self-tears
-        // down when its reference is cleared, but do it explicitly here so the
-        // sink stops firing as soon as the view is on its way out.
-        catalystCaptureCancellable = nil
+        // Clearing the box cancels the observation task so a closed tab does
+        // not keep reacting to capture changes.
+        catalystCaptureTask = nil
         scrollEndTimer?.invalidate()
         scrollEndTimer = nil
         stopCaptureAutoScroll()
@@ -748,7 +750,7 @@ extension Ghostty.TerminalView {
     private static var twoFingerScrollGestureKey: UInt8 = 0
     private static var captureScrollPanGestureKey: UInt8 = 0
     private static var fingerDragActiveKey: UInt8 = 0
-    private static var iosCaptureCancellableKey: UInt8 = 0
+    private static var iosCaptureTaskKey: UInt8 = 0
     private static var iosScrollEndTimerKey: UInt8 = 0
 
     private var trackpadScrollGesture: UIPanGestureRecognizer? {
@@ -761,9 +763,12 @@ extension Ghostty.TerminalView {
         set { objc_setAssociatedObject(self, &Self.twoFingerScrollGestureKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
     }
 
-    private var iosCaptureCancellable: AnyCancellable? {
-        get { objc_getAssociatedObject(self, &Self.iosCaptureCancellableKey) as? AnyCancellable }
-        set { objc_setAssociatedObject(self, &Self.iosCaptureCancellableKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
+    private var iosCaptureTask: SurfaceObservationTask? {
+        get { objc_getAssociatedObject(self, &Self.iosCaptureTaskKey) as? SurfaceObservationTask }
+        set {
+            (objc_getAssociatedObject(self, &Self.iosCaptureTaskKey) as? SurfaceObservationTask)?.cancel()
+            objc_setAssociatedObject(self, &Self.iosCaptureTaskKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        }
     }
 
     /// Timer to detect when trackpad scroll events stop arriving
@@ -802,9 +807,9 @@ extension Ghostty.TerminalView {
         setupTrackpadTabSwipe()
 
         // Observe capture mode changes to enable/disable gestures
-        iosCaptureCancellable = $isMouseCaptured
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] isCaptured in
+        iosCaptureTask = SurfaceObservationTask(SurfaceObservation.task(
+            { [weak self] in self?.isMouseCaptured ?? false },
+            onChange: { [weak self] isCaptured in
                 guard let self else { return }
                 let scrollMode = self.isTouchScrollMode
 
@@ -832,6 +837,7 @@ extension Ghostty.TerminalView {
                     self.stopCaptureAutoScroll()
                 }
             }
+        ))
     }
 
     /// Handle Magic Keyboard trackpad scroll in capture mode
@@ -969,7 +975,7 @@ extension Ghostty.TerminalView {
     /// scroll handling. Called from `cleanup()` so closed tabs don't leak.
     func tearDownIOSScrollHandling() {
         tearDownTrackpadTabSwipe()
-        iosCaptureCancellable = nil
+        iosCaptureTask = nil
         iosScrollEndTimer?.invalidate()
         iosScrollEndTimer = nil
         stopCaptureAutoScroll()

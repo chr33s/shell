@@ -1,5 +1,5 @@
 import Foundation
-import XCTest
+import Testing
 import ShellControlProtocol
 import ShellControlSecurity
 @testable import ShellControlBroker
@@ -25,7 +25,8 @@ final class CountingPersistence: BrokerPersistence, @unchecked Sendable {
 /// Review-driven regressions: full-review clients, refresh replay, origin
 /// clock validation, heartbeat churn, retention, and the snapshot high-water
 /// mark.
-final class LedgerLifecycleTests: XCTestCase {
+@Suite
+final class LedgerLifecycleTests {
     private func makeHarness(persistence: (any BrokerPersistence)? = nil) async throws -> (BrokerHarness, ControlID, ControlID) {
         let harness = BrokerHarness(persistence: persistence)
         try await harness.bootstrap()
@@ -49,6 +50,7 @@ final class LedgerLifecycleTests: XCTestCase {
 
     // MARK: Full review
 
+    @Test
     func testFullReviewRequestIsApprovableFromTheIPhoneButNotTheWatch() async throws {
         let (harness, runID, jobID) = try await makeHarness()
         let watch = try await harness.enrollDevice()
@@ -61,11 +63,12 @@ final class LedgerLifecycleTests: XCTestCase {
         }
 
         let outcome = try await harness.decide(.approve, device: phone, record: current)
-        XCTAssertEqual(outcome.result.resolution, .approved)
+        #expect(outcome.result.resolution == .approved)
         let final = try await harness.store.approval(record.spec.requestID, principal: phone.principal)
-        XCTAssertEqual(final.projection.decidedByDeviceID, phone.id)
+        #expect(final.projection.decidedByDeviceID == phone.id)
     }
 
+    @Test
     func testFullReviewApprovalFromTheIPhoneStillNeedsPresence() async throws {
         let (harness, runID, jobID) = try await makeHarness()
         let phone = try await enrollPhone(harness)
@@ -79,17 +82,18 @@ final class LedgerLifecycleTests: XCTestCase {
 
     // MARK: Refresh replay
 
+    @Test
     func testRefreshRetryInsideTheGraceWindowReturnsTheSamePairAcrossARestart() async throws {
         let persistence = CountingPersistence()
         let harness = BrokerHarness(persistence: persistence)
         try await harness.bootstrap()
         let device = try await harness.enrollDevice()
         let stored = await harness.store.device(device.id)
-        let session = try await harness.store.issueSession(for: try XCTUnwrap(stored))
+        let session = try await harness.store.issueSession(for: try #require(stored))
         try await harness.store.commit()
 
         let rotated = try await harness.store.refreshSession(refreshToken: session.refreshToken)
-        XCTAssertNotEqual(rotated.refreshToken, session.refreshToken)
+        #expect(rotated.refreshToken != session.refreshToken)
 
         // The response was lost; the broker restarted; the client retries.
         let clock = harness.clock
@@ -102,7 +106,7 @@ final class LedgerLifecycleTests: XCTestCase {
         try await restored.restore()
         clock.advance(30)
         let retried = try await restored.refreshSession(refreshToken: session.refreshToken)
-        XCTAssertEqual(retried, rotated)
+        #expect(retried == rotated)
         _ = try await restored.authenticate(bearer: retried.accessToken)
 
         // Past the window, the spent token is plain reuse; the successor lives on.
@@ -113,12 +117,13 @@ final class LedgerLifecycleTests: XCTestCase {
         _ = try await restored.refreshSession(refreshToken: rotated.refreshToken)
     }
 
+    @Test
     func testRefreshRetryAfterTheSuccessorWasUsedIsRejected() async throws {
         let harness = BrokerHarness()
         try await harness.bootstrap()
         let device = try await harness.enrollDevice()
         let stored = await harness.store.device(device.id)
-        let session = try await harness.store.issueSession(for: try XCTUnwrap(stored))
+        let session = try await harness.store.issueSession(for: try #require(stored))
         let rotated = try await harness.store.refreshSession(refreshToken: session.refreshToken)
         _ = try await harness.store.refreshSession(refreshToken: rotated.refreshToken)
         await assertControlError(.invalidToken) {
@@ -126,12 +131,13 @@ final class LedgerLifecycleTests: XCTestCase {
         }
     }
 
+    @Test
     func testRefreshRetryAfterLogoutIsRejected() async throws {
         let harness = BrokerHarness()
         try await harness.bootstrap()
         let device = try await harness.enrollDevice()
         let stored = await harness.store.device(device.id)
-        let session = try await harness.store.issueSession(for: try XCTUnwrap(stored))
+        let session = try await harness.store.issueSession(for: try #require(stored))
         _ = try await harness.store.refreshSession(refreshToken: session.refreshToken)
         try await harness.store.revokeSessions(deviceID: device.id)
         await assertControlError(.invalidToken) {
@@ -166,6 +172,7 @@ final class LedgerLifecycleTests: XCTestCase {
         )
     }
 
+    @Test
     func testApprovalTimesAreCheckedAgainstTheBrokerClock() async throws {
         let (harness, runID, jobID) = try await makeHarness()
         let year: TimeInterval = 365 * 24 * 60 * 60
@@ -189,6 +196,7 @@ final class LedgerLifecycleTests: XCTestCase {
 
     // MARK: Heartbeats
 
+    @Test
     func testSteadyHeartbeatsNeitherCommitNorLogButKeepPresenceFresh() async throws {
         let persistence = CountingPersistence()
         let (harness, runID, jobID) = try await makeHarness(persistence: persistence)
@@ -206,27 +214,28 @@ final class LedgerLifecycleTests: XCTestCase {
             )
         }
         try await harness.store.heartbeat(principal: harness.originPrincipal, runIDs: [], waitingRequestIDs: [])
-        XCTAssertEqual(persistence.persistCount, writes)
+        #expect(persistence.persistCount == writes)
         let steadySequence = await harness.store.nextSequence
-        XCTAssertEqual(steadySequence, sequence)
+        #expect(steadySequence == sequence)
         let current = try await harness.store.approval(record.spec.requestID, principal: device.principal)
-        XCTAssertTrue(current.projection.presence.isFresh(at: harness.timestamp))
+        #expect(current.projection.presence.isFresh(at: harness.timestamp))
 
         // A change in the waiting set is material.
         try await harness.store.heartbeat(principal: harness.originPrincipal, runIDs: [runID], waitingRequestIDs: [])
         let changedSequence = await harness.store.nextSequence
-        XCTAssertEqual(changedSequence, sequence + 1)
-        XCTAssertEqual(persistence.persistCount, writes + 1)
+        #expect(changedSequence == sequence + 1)
+        #expect(persistence.persistCount == writes + 1)
 
         // So is returning from stale.
         harness.clock.advance(ApprovalPolicy.presenceStaleAfter + 1)
         try await harness.store.heartbeat(principal: harness.originPrincipal, runIDs: [runID], waitingRequestIDs: [])
         let returnedSequence = await harness.store.nextSequence
-        XCTAssertEqual(returnedSequence, sequence + 2)
+        #expect(returnedSequence == sequence + 2)
     }
 
     // MARK: Retention
 
+    @Test
     func testTerminalRecordsArePurgedAfterRetentionLeavingTombstones() async throws {
         let (harness, runID, jobID) = try await makeHarness()
         let device = try await harness.enrollDevice()
@@ -234,7 +243,7 @@ final class LedgerLifecycleTests: XCTestCase {
         let current = try await harness.store.approval(record.spec.requestID, principal: device.principal)
         let commandID = ControlID.random()
         let outcome = try await harness.decide(.approve, device: device, record: current, commandID: commandID)
-        let decisionID = try XCTUnwrap(outcome.result.decisionID)
+        let decisionID = try #require(outcome.result.decisionID)
         let consumeID = ControlID.random()
         _ = try await harness.store.consumeApproval(
             principal: harness.originPrincipal,
@@ -266,31 +275,32 @@ final class LedgerLifecycleTests: XCTestCase {
         harness.clock.advance(ApprovalPolicy.commandRetention - 60 * 60)
         try await harness.store.commit()
         var counts = await (harness.store.approvals.count, harness.store.notifications.count, harness.store.idempotency.count, harness.store.receipts.count)
-        XCTAssertEqual(counts.0, 2)
-        XCTAssertEqual(counts.1, 1)
-        XCTAssertEqual(counts.2, 1)
-        XCTAssertEqual(counts.3, 1)
+        #expect(counts.0 == 2)
+        #expect(counts.1 == 1)
+        #expect(counts.2 == 1)
+        #expect(counts.3 == 1)
 
         harness.clock.advance(2 * 60 * 60)
         try await harness.store.commit()
         counts = await (harness.store.approvals.count, harness.store.notifications.count, harness.store.idempotency.count, harness.store.receipts.count)
-        XCTAssertEqual(counts.0, 0)
-        XCTAssertEqual(counts.1, 0)
-        XCTAssertEqual(counts.2, 0)
-        XCTAssertEqual(counts.3, 0)
+        #expect(counts.0 == 0)
+        #expect(counts.1 == 0)
+        #expect(counts.2 == 0)
+        #expect(counts.3 == 0)
         let accessTokens = await harness.store.accessTokens.count
-        XCTAssertEqual(accessTokens, 0)
+        #expect(accessTokens == 0)
 
         // Both request IDs stay spent, including the one that merely expired.
         let consumed = await harness.store.tombstones[record.spec.requestID]
-        XCTAssertEqual(consumed?.consumedBy, consumeID)
+        #expect(consumed?.consumedBy == consumeID)
         let lapsed = await harness.store.tombstones[expired.requestID]
-        XCTAssertEqual(lapsed?.resolution, .expired)
+        #expect(lapsed?.resolution == .expired)
         await assertControlError(.notFound) {
             _ = try await harness.store.commandResult(commandID, principal: device.principal)
         }
     }
 
+    @Test
     func testPersistRefusesALedgerTooLargeToRestore() throws {
         let url = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("shell-control-size-\(UUID().uuidString)")
@@ -299,13 +309,14 @@ final class LedgerLifecycleTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         try persistence.persist(snapshot: .object(["v": 1]))
         let oversized = JSONValue.object(["blob": .string(String(repeating: "a", count: FileBrokerPersistence.maximumBytes))])
-        XCTAssertThrowsError(try persistence.persist(snapshot: oversized))
+        #expect(throws: (any Error).self) { try persistence.persist(snapshot: oversized) }
         // The last good ledger is still the one on disk, and it still loads.
-        XCTAssertNotNil(try persistence.load())
+        #expect((try persistence.load()) != nil)
     }
 
     // MARK: High-water mark
 
+    @Test
     func testSnapshotHighWaterSurvivesAnEmptiedChangeLog() async throws {
         let (harness, runID, jobID) = try await makeHarness()
         let device = try await harness.enrollDevice()
@@ -319,14 +330,14 @@ final class LedgerLifecycleTests: XCTestCase {
         harness.clock.advance(ApprovalPolicy.changeLogRetention + 60)
         try await harness.store.commit()
         let logCount = await harness.store.changeLog.count
-        XCTAssertEqual(logCount, 0)
+        #expect(logCount == 0)
 
         // A new snapshot still sees the older item and anchors at the counter.
         let page = try await harness.store.snapshot(principal: device.principal)
-        XCTAssertEqual(page.approvals.map(\.spec.requestID), [record.spec.requestID])
+        #expect(page.approvals.map(\.spec.requestID) == [record.spec.requestID])
         let resumed = try await harness.store.changes(principal: device.principal, cursor: page.cursor)
-        XCTAssertTrue(resumed.events.isEmpty)
-        XCTAssertEqual(page.cursor, CursorCodec.encodeCursor(sequence: LogSequence(lastSequence), principal: device.principal, secret: Data(repeating: 7, count: 32)))
+        #expect(resumed.events.isEmpty)
+        #expect(page.cursor == CursorCodec.encodeCursor(sequence: LogSequence(lastSequence), principal: device.principal, secret: Data(repeating: 7, count: 32)))
 
         // A cursor older than anything retained is expired, not silently empty.
         await assertControlError(.cursorExpired) {
@@ -336,6 +347,7 @@ final class LedgerLifecycleTests: XCTestCase {
 
     // MARK: Origin mutation records
 
+    @Test
     func testANotifyMutationIDDoesNotReplayAsAWithdrawAfterRestart() async throws {
         let persistence = CountingPersistence()
         let (harness, runID, jobID) = try await makeHarness(persistence: persistence)
@@ -366,9 +378,9 @@ final class LedgerLifecycleTests: XCTestCase {
             runID: runID,
             requestHash: record.requestHash
         )
-        XCTAssertNotEqual(withdrawn.projection.resolution, .pending, "the withdraw was taken for a replay of the notify")
+        #expect(withdrawn.projection.resolution != .pending, "the withdraw was taken for a replay of the notify")
         let mutations = await restored.originMutations
-        XCTAssertEqual(mutations.count, 2)
-        XCTAssertEqual(Set(mutations.values.map(\.kind)), [.notify, .withdraw])
+        #expect(mutations.count == 2)
+        #expect(Set(mutations.values.map(\.kind)) == [.notify, .withdraw])
     }
 }

@@ -1,4 +1,5 @@
-import XCTest
+import Foundation
+import Testing
 import ShellControlProtocol
 import ShellControlSecurity
 import ShellControlClient
@@ -11,7 +12,8 @@ import ShellControlBroker
 /// (docs/specs/agent-relay.md section 20: A01, A02, A08, A12, A13, A14, A18, A31).
 /// The native side is the fixture input and the hook's stdout; no provider
 /// runs and nothing executes.
-final class AgentRelayEndToEndTests: XCTestCase {
+@Suite
+final class AgentRelayEndToEndTests {
     /// Calls the broker's HTTP front end directly.
     struct InProcessTransport: ControlHTTPTransport {
         let service: BrokerService
@@ -97,7 +99,7 @@ final class AgentRelayEndToEndTests: XCTestCase {
                 }
                 try await Task.sleep(nanoseconds: 10_000_000)
             }
-            throw XCTSkip("no pending approval appeared")
+            throw AgentRelayTimeout("no pending approval appeared")
         }
 
         func pendingInput(for principal: Principal) async throws -> InputRecord {
@@ -110,7 +112,7 @@ final class AgentRelayEndToEndTests: XCTestCase {
                 }
                 try await Task.sleep(nanoseconds: 10_000_000)
             }
-            throw XCTSkip("no pending input appeared")
+            throw AgentRelayTimeout("no pending input appeared")
         }
 
         func decide(_ decision: ControlDecision, record: ApprovalRecord, device: (id: ControlID, key: InMemoryDeviceKey, principal: Principal)) async throws {
@@ -139,11 +141,12 @@ final class AgentRelayEndToEndTests: XCTestCase {
 
     /// The fixture input with a working directory that exists here.
     func input(_ provider: AgentProvider, _ name: String) throws -> Data {
-        var object = try XCTUnwrap(try JSONValue.parse(try fixture(provider, name)).objectValue)
+        var object = try #require(try JSONValue.parse(try fixture(provider, name)).objectValue)
         object["cwd"] = .string(FileManager.default.temporaryDirectory.resolvingSymlinksInPath().path)
         return try JSONCanonicalization.canonicalize(.object(object))
     }
 
+    @Test
     func testClaudeShellApprovedOnIPhoneAllowsTheExactGate() async throws {
         // A01, A18.
         let relay = try await Relay()
@@ -152,20 +155,22 @@ final class AgentRelayEndToEndTests: XCTestCase {
         let data = try input(.claudeCode, "permission-request.bash.input.json")
         async let outcome = runner.run(stdin: data)
         let record = try await relay.pendingApproval(for: phone.principal)
-        guard case .agentTool(let operation) = record.spec.operation else { return XCTFail("not an agent operation") }
-        XCTAssertEqual(operation.shellRequest?.command, "git status --short")
-        XCTAssertEqual(record.spec.minimumReview, .full)
+        guard case .agentTool(let operation) = record.spec.operation else { Issue.record("not an agent operation")
+return }
+        #expect(operation.shellRequest?.command == "git status --short")
+        #expect(record.spec.minimumReview == .full)
         try await relay.decide(.approve, record: record, device: phone)
 
         let result = await outcome
-        XCTAssertEqual(result.stdout, HookRunner.permissionResponse(allow: true, message: nil, provider: .claudeCode), result.note)
+        #expect(result.stdout == HookRunner.permissionResponse(allow: true, message: nil, provider: .claudeCode), "\(result.note)")
         let final = try await relay.store.approval(record.spec.requestID, principal: phone.principal)
-        XCTAssertEqual(final.projection.dispatch, .unknown, "written, but acceptance is not observable")
+        #expect(final.projection.dispatch == .unknown, "written, but acceptance is not observable")
         let snapshot = try await relay.store.agentSnapshot(principal: phone.principal, pageToken: nil, limit: 50)
-        XCTAssertEqual(snapshot.approvals.first?.dispatch, .nativeResponseWritten)
-        XCTAssertEqual(snapshot.sessions.first?.registration.evidence, .userAttested)
+        #expect(snapshot.approvals.first?.dispatch == .nativeResponseWritten)
+        #expect(snapshot.sessions.first?.registration.evidence == .userAttested)
     }
 
+    @Test
     func testCodexShellRejectedOnWatchDeniesTheGate() async throws {
         // A02: a Watch rejection, signed by the Watch.
         let relay = try await Relay()
@@ -176,12 +181,14 @@ final class AgentRelayEndToEndTests: XCTestCase {
         let record = try await relay.pendingApproval(for: watch.principal)
         try await relay.decide(.reject, record: record, device: watch)
         let result = await outcome
-        XCTAssertEqual(result.stdout, try JSONCanonicalization.canonicalize(try JSONValue.parse(try fixture(.codex, "permission-request.bash.deny.expected.json"))))
+        let expected = try JSONCanonicalization.canonicalize(try JSONValue.parse(try fixture(.codex, "permission-request.bash.deny.expected.json")))
+        #expect(result.stdout == expected)
         let final = try await relay.store.approval(record.spec.requestID, principal: watch.principal)
-        XCTAssertEqual(final.projection.resolution, .rejected)
-        XCTAssertEqual(final.projection.decidedByDeviceID, watch.id)
+        #expect(final.projection.resolution == .rejected)
+        #expect(final.projection.decidedByDeviceID == watch.id)
     }
 
+    @Test
     func testCapturedCodexHookInputRoundTripsTheWrittenDecisions() async throws {
         // The captured 0.156.1 input, answered from the phone: the hook
         // writes exactly the outputs Codex was observed to honour.
@@ -197,10 +204,12 @@ final class AgentRelayEndToEndTests: XCTestCase {
             let record = try await relay.pendingApproval(for: phone.principal)
             try await relay.decide(decision, record: record, device: phone)
             let result = await outcome
-            XCTAssertEqual(result.stdout, try JSONCanonicalization.canonicalize(try JSONValue.parse(try fixture(.codex, expected))), "\(name): \(result.note ?? "")")
+            let expectedOutput = try JSONCanonicalization.canonicalize(try JSONValue.parse(try fixture(.codex, expected)))
+            #expect(result.stdout == expectedOutput, "\(name): \(result.note)")
         }
     }
 
+    @Test
     func testWatchCannotApproveAFullReviewShellRequest() async throws {
         let relay = try await Relay()
         let watch = try await relay.device(platform: .watchOS, grants: DeviceGrant.watchDefault)
@@ -210,27 +219,29 @@ final class AgentRelayEndToEndTests: XCTestCase {
         let record = try await relay.pendingApproval(for: watch.principal)
         do {
             try await relay.decide(.approve, record: record, device: watch)
-            XCTFail("a Watch must not approve a full-review request")
+            Issue.record("a Watch must not approve a full-review request")
         } catch let error as ControlError {
-            XCTAssertEqual(error.code, .fullReviewRequired)
+            #expect(error.code == .fullReviewRequired)
         }
         task.cancel()
         _ = await task.value
     }
 
+    @Test
     func testUntestedBuildIsInformationalAndPublishesNothing() async throws {
         // A04.
         let relay = try await Relay()
         let phone = try await relay.device()
         let result = await HookRunner(environment: relay.environment(.claudeCode, attested: false))
             .run(stdin: try input(.claudeCode, "permission-request.bash.input.json"))
-        XCTAssertNil(result.stdout)
-        XCTAssertTrue(result.note.hasPrefix("unsupported_provider_version"), result.note)
+        #expect((result.stdout) == nil)
+        #expect(result.note.hasPrefix("unsupported_provider_version"), "\(result.note)")
         let snapshot = try await relay.store.snapshot(principal: phone.principal)
-        XCTAssertTrue(snapshot.approvals.isEmpty)
-        XCTAssertEqual(snapshot.notifications.count, 1, "an attention hint only")
+        #expect(snapshot.approvals.isEmpty)
+        #expect(snapshot.notifications.count == 1, "an attention hint only")
     }
 
+    @Test
     func testControlUnavailableHandsThePromptBackToTheTerminal() async throws {
         struct Down: AdapterDaemon {
             func exchange(_ type: IPCMessageType, capability: String?, body: JSONValue, timeout: TimeInterval) async throws -> JSONValue {
@@ -241,9 +252,10 @@ final class AgentRelayEndToEndTests: XCTestCase {
         var environment = relay.environment(.claudeCode)
         environment.daemon = Down()
         let result = await HookRunner(environment: environment).run(stdin: try input(.claudeCode, "permission-request.bash.input.json"))
-        XCTAssertNil(result.stdout, "no denial before publication: the terminal prompt applies")
+        #expect((result.stdout) == nil, "no denial before publication: the terminal prompt applies")
     }
 
+    @Test
     func testHookThatLosesItsWaitWithdrawsTheRequest() async throws {
         // A13, A14: the provider killed the hook; nothing stays answerable.
         let relay = try await Relay()
@@ -259,15 +271,16 @@ final class AgentRelayEndToEndTests: XCTestCase {
             resolution = try await relay.store.approval(record.spec.requestID, principal: phone.principal).projection.resolution
             try await Task.sleep(nanoseconds: 10_000_000)
         }
-        XCTAssertEqual(resolution, .cancelled)
+        #expect(resolution == .cancelled)
         do {
             try await relay.decide(.approve, record: record, device: phone)
-            XCTFail("a withdrawn request must not be approvable")
+            Issue.record("a withdrawn request must not be approvable")
         } catch let error as ControlError {
-            XCTAssertTrue([.alreadyResolved, .staleVersion].contains(error.code), "\(error.code)")
+            #expect([.alreadyResolved, .staleVersion].contains(error.code), "\(error.code)")
         }
     }
 
+    @Test
     func testDeadAgentProcessDeniesInsteadOfWriting() async throws {
         let relay = try await Relay()
         let phone = try await relay.device()
@@ -279,23 +292,25 @@ final class AgentRelayEndToEndTests: XCTestCase {
         alive.value = false
         try await relay.decide(.approve, record: record, device: phone)
         let result = await outcome
-        XCTAssertNil(result.stdout)
-        XCTAssertEqual(result.note, "native_wait_gone")
+        #expect((result.stdout) == nil)
+        #expect(result.note == "native_wait_gone")
         let final = try await relay.store.approval(record.spec.requestID, principal: phone.principal)
-        XCTAssertEqual(final.projection.dispatch, .notApplied)
+        #expect(final.projection.dispatch == .notApplied)
     }
 
+    @Test
     func testSetupThatConsumedTheBudgetNeverPublishes() async throws {
         // A12: the internal deadline is measured from hook entry.
         let relay = try await Relay()
         let phone = try await relay.device()
         let result = await HookRunner(environment: relay.environment(.claudeCode, elapsed: 310))
             .run(stdin: try input(.claudeCode, "permission-request.bash.input.json"))
-        XCTAssertNil(result.stdout)
+        #expect((result.stdout) == nil)
         let snapshot = try await relay.store.snapshot(principal: phone.principal)
-        XCTAssertTrue(snapshot.approvals.isEmpty)
+        #expect(snapshot.approvals.isEmpty)
     }
 
+    @Test
     func testClaudeQuestionAnsweredOnIPhoneReturnsTypedAnswers() async throws {
         let relay = try await Relay()
         let phone = try await relay.device()
@@ -303,9 +318,9 @@ final class AgentRelayEndToEndTests: XCTestCase {
         let native = try input(.claudeCode, "pre-tool-use.ask-user-question.input.json")
         async let outcome = runner.run(stdin: native)
         let record = try await relay.pendingInput(for: phone.principal)
-        XCTAssertEqual(record.spec.questions.map(\.prompt), ["Which tests should run next?", "Which platforms?"])
-        XCTAssertEqual(record.spec.allowedResponses, [.answer])
-        XCTAssertTrue(record.spec.permitsWatchReview)
+        #expect(record.spec.questions.map(\.prompt) == ["Which tests should run next?", "Which platforms?"])
+        #expect(record.spec.allowedResponses == [.answer])
+        #expect(record.spec.permitsWatchReview)
 
         let journal = CommandJournal()
         let response = InputResponse.answer([
@@ -330,14 +345,16 @@ final class AgentRelayEndToEndTests: XCTestCase {
                                                      signedCommand: try ControlJWS.sign(payload: command.json, deviceID: phone.id, key: phone.key),
                                                      idempotencyKey: commandID)
         let result = await outcome
-        XCTAssertEqual(result.stdout, try JSONCanonicalization.canonicalize(try JSONValue.parse(
+        let expectedOutput = try JSONCanonicalization.canonicalize(try JSONValue.parse(
             try fixture(.claudeCode, "pre-tool-use.ask-user-question.answer.expected.json")
-        )), result.note)
+        ))
+        #expect(result.stdout == expectedOutput, "\(result.note)")
         let final = try await relay.store.input(record.spec.requestID, principal: phone.principal)
-        XCTAssertEqual(final.projection.resolution, .answered)
-        XCTAssertEqual(final.projection.dispatch, .nativeResponseWritten)
+        #expect(final.projection.resolution == .answered)
+        #expect(final.projection.dispatch == .nativeResponseWritten)
     }
 
+    @Test
     func testUnansweredQuestionStaysWithTheTerminal() async throws {
         // A23: no default answer is ever generated.
         let relay = try await Relay()
@@ -351,10 +368,11 @@ final class AgentRelayEndToEndTests: XCTestCase {
             occurredAt: ControlTimestamp(Date()), observedAt: ControlTimestamp(Date())
         ))
         let result = await task.value
-        XCTAssertNil(result.stdout)
-        XCTAssertEqual(result.note, "no_remote_answer")
+        #expect((result.stdout) == nil)
+        #expect(result.note == "no_remote_answer")
     }
 
+    @Test
     func testTwoIdenticalRequestsStaySeparate() async throws {
         // A08.
         let relay = try await Relay()
@@ -367,21 +385,22 @@ final class AgentRelayEndToEndTests: XCTestCase {
             records = try await relay.store.snapshot(principal: phone.principal).approvals.filter { $0.projection.presence.isWaiting }
             try await Task.sleep(nanoseconds: 10_000_000)
         }
-        XCTAssertEqual(records.count, 2)
+        #expect(records.count == 2)
         let waits = records.compactMap { record -> ControlID? in
             if case .agentTool(let operation) = record.spec.operation { return operation.nativeWaitID }
             return nil
         }
-        XCTAssertEqual(Set(waits).count, 2)
+        #expect(Set(waits).count == 2)
         try await relay.decide(.approve, record: records[0], device: phone)
         try await relay.decide(.reject, record: records[1], device: phone)
         let outcomes = await [first.value, second.value].compactMap(\.stdout)
-        XCTAssertEqual(Set(outcomes), [
+        #expect(Set(outcomes) == [
             HookRunner.permissionResponse(allow: true, message: nil, provider: .claudeCode),
             HookRunner.permissionResponse(allow: false, message: "Denied by the reviewer in Shell Control.", provider: .claudeCode)
         ])
     }
 
+    @Test
     func testDeadAgentSessionIsEndedByTheHeartbeat() async throws {
         let relay = try await Relay()
         let phone = try await relay.device()
@@ -395,16 +414,18 @@ final class AgentRelayEndToEndTests: XCTestCase {
         let native = try input(.claudeCode, "permission-request.bash.input.json")
         let task = Task { await runner.run(stdin: native) }
         let record = try await relay.pendingApproval(for: phone.principal)
-        guard case .agentTool(let operation) = record.spec.operation else { return XCTFail("operation") }
+        guard case .agentTool(let operation) = record.spec.operation else { Issue.record("operation")
+return }
         child.terminate()
         child.waitUntilExit()
         await relay.core.heartbeatOnce()
         let session = try await relay.store.agentSession(operation.agentSessionID, principal: phone.principal)
-        XCTAssertEqual(session.state, .ended, "a killed agent never runs SessionEnd; the daemon reports it")
+        #expect(session.state == .ended, "a killed agent never runs SessionEnd; the daemon reports it")
         task.cancel()
         _ = await task.value
     }
 
+    @Test
     func testUnrecoverableInputRecoveryIsRetired() async throws {
         let relay = try await Relay()
         // A persisted input the broker never accepted: its withdrawal can
@@ -414,12 +435,13 @@ final class AgentRelayEndToEndTests: XCTestCase {
         let restarted = try DaemonCore(configuration: await relay.core.configuration, client: await relay.core.client)
         try await restarted.reconcileAfterRestart()
         let health = await restarted.health()
-        XCTAssertEqual(health["recovery_pending"], .number(.int(0)))
+        #expect(health["recovery_pending"] == .number(.int(0)))
         let queued = try journal.load().contains { if case .recoveryQueued(_, "input_withdraw", _, _) = $0 { return true }; return false }
-        XCTAssertTrue(queued, "the withdrawal was attempted, then retired")
-        XCTAssertTrue(try journal.pendingRecoveries().isEmpty)
+        #expect(queued, "the withdrawal was attempted, then retired")
+        #expect(try journal.pendingRecoveries().isEmpty)
     }
 
+    @Test
     func testSafeFixtureRunsThroughTheWholePipeline() async throws {
         let relay = try await Relay()
         let phone = try await relay.device()
@@ -427,10 +449,15 @@ final class AgentRelayEndToEndTests: XCTestCase {
         let record = try await relay.pendingApproval(for: phone.principal)
         try await relay.decide(.approve, record: record, device: phone)
         let passed = try await task.value
-        XCTAssertTrue(passed)
+        #expect(passed)
         let final = try await relay.store.approval(record.spec.requestID, principal: phone.principal)
-        XCTAssertEqual(final.projection.dispatch, .notApplied, "the fixture never executes")
+        #expect(final.projection.dispatch == .notApplied, "the fixture never executes")
     }
+}
+
+private struct AgentRelayTimeout: Error, CustomStringConvertible {
+    let description: String
+    init(_ description: String) { self.description = description }
 }
 
 final class LockedFlag: @unchecked Sendable {
@@ -454,7 +481,7 @@ enum AgentFixtureDriver {
         ]))
         let hex = ContentDigest.sha256Hex(Data("shell-agent-fixture/1".utf8))
         let operation = try AgentToolOperation(
-            provider: "shell_fixture", providerBuild: "1.0.0", adapterBuild: "1.0.0", agentSessionID: try XCTUnwrap(run.agentSessionID),
+            provider: "shell_fixture", providerBuild: "1.0.0", adapterBuild: "1.0.0", agentSessionID: try #require(run.agentSessionID),
             nativeWaitID: .random(), kind: .shell, toolName: "Bash", cwd: "/",
             shellRequest: try AgentShellRequest(representation: .commandString, command: "true"),
             nativeRequestSHA256: hex, contextSHA256: hex

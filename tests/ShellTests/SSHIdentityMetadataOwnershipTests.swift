@@ -1,4 +1,5 @@
-import XCTest
+import Foundation
+import Testing
 
 @testable import Shell
 
@@ -16,19 +17,18 @@ import XCTest
 /// through `UserDefaults`, so these tests never depend on the host device's
 /// real identity, on `ProtectedDataGuard.isAvailable`, or on each other. Each
 /// test gets its own on-disk store directory and deletes it afterwards.
+@Suite
 @MainActor
-final class SSHIdentityMetadataOwnershipTests: XCTestCase {
+final class SSHIdentityMetadataOwnershipTests {
     private var storeName = ""
 
-    override func setUp() {
-        super.setUp()
+    init() {
         storeName = "test_ssh_identity_metadata_\(UUID().uuidString)"
         removeStoreDirectory()
     }
 
-    override func tearDown() {
+    isolated deinit {
         removeStoreDirectory()
-        super.tearDown()
     }
 
     // MARK: - Scenario (a): a device sweeping only its own leftovers
@@ -36,7 +36,9 @@ final class SSHIdentityMetadataOwnershipTests: XCTestCase {
     /// A fresh install that publishes its keys and then reconciles against the
     /// same list must tombstone nothing. Breaks if the sweep stops filtering on
     /// `liveIDs` and starts tombstoning indiscriminately.
-    func testReconcileWithEveryLocalKeyStillPresentTombstonesNothing() {
+    @Test
+    @MainActor
+    func testReconcileWithEveryLocalKeyStillPresentTombstonesNothing() throws {
         let store = makeStore(ownedBy: "device-A")
         let first = makeKey(named: "first")
         let second = makeKey(named: "second")
@@ -45,11 +47,8 @@ final class SSHIdentityMetadataOwnershipTests: XCTestCase {
         store.record(second)
         store.reconcile(with: [first, second])
 
-        XCTAssertEqual(store.entries.count, 2)
-        XCTAssertTrue(
-            store.allRecordsForSync.allSatisfy { !$0.isDeleted },
-            "Reconciling against the identities that are actually present must tombstone nothing"
-        )
+        #expect(store.entries.count == 2)
+        #expect(store.allRecordsForSync.allSatisfy { !$0.isDeleted }, "Reconciling against the identities that are actually present must tombstone nothing")
     }
 
     /// The sweep must still do its job for records this device published: a key
@@ -59,24 +58,22 @@ final class SSHIdentityMetadataOwnershipTests: XCTestCase {
     /// This is the counterweight to the ownership gate. Without it the gate
     /// could be "fixed" by never sweeping at all — every other test in this
     /// file would still pass while stale records accumulated forever.
-    func testReconcileTombstonesThisDevicesOwnRecordWhoseKeyIsGone() {
+    @Test
+    @MainActor
+    func testReconcileTombstonesThisDevicesOwnRecordWhoseKeyIsGone() throws {
         let store = makeStore(ownedBy: "device-A")
         let surviving = makeKey(named: "surviving")
         let removed = makeKey(named: "removed")
 
         store.record(surviving)
         store.record(removed)
-        XCTAssertEqual(store.entries.count, 2)
+        #expect(store.entries.count == 2)
 
         store.reconcile(with: [surviving])
 
-        XCTAssertEqual(store.entries.map(\.id), [surviving.id])
-        XCTAssertEqual(record(removed.id, in: store)?.isDeleted, true)
-        XCTAssertEqual(
-            record(removed.id, in: store)?.ownerDeviceID,
-            "device-A",
-            "A record this device published must carry this device's owner ID"
-        )
+        #expect(store.entries.map(\.id) == [surviving.id])
+        #expect(record(removed.id, in: store)?.isDeleted == true)
+        #expect(record(removed.id, in: store)?.ownerDeviceID == "device-A", "A record this device published must carry this device's owner ID")
     }
 
     // MARK: - Scenario (b): the data-loss regression
@@ -89,7 +86,9 @@ final class SSHIdentityMetadataOwnershipTests: XCTestCase {
     /// Fails the moment the `stale.ownerDeviceID == owner` clause is dropped
     /// from the sweep in `reconcile`, or the `ownerDeviceID` field stops being
     /// stamped by `record`.
-    func testReconcileNeverTombstonesRecordsPublishedByAnotherDeviceOrByNobody() {
+    @Test
+    @MainActor
+    func testReconcileNeverTombstonesRecordsPublishedByAnotherDeviceOrByNobody() throws {
         let store = makeStore(ownedBy: "device-B")
         let localKey = makeKey(named: "local to B")
         let staleLocalKey = makeKey(named: "deleted on B")
@@ -98,32 +97,16 @@ final class SSHIdentityMetadataOwnershipTests: XCTestCase {
 
         let deviceARecord = makeMetadata(named: "secure enclave key on A", ownerDeviceID: "device-A")
         let legacyRecord = makeMetadata(named: "written before ownership existed", ownerDeviceID: nil)
-        XCTAssertEqual(store.applyRemoteChanges([deviceARecord, legacyRecord]), 2)
+        #expect(store.applyRemoteChanges([deviceARecord, legacyRecord]) == 2)
 
         // The user renames a key on device B, so B republishes its own list.
         store.reconcile(with: [localKey])
 
-        XCTAssertEqual(
-            record(deviceARecord.id, in: store)?.isDeleted,
-            false,
-            "Device A's record must survive device B's reconcile — this is the account-wide data loss"
-        )
-        XCTAssertEqual(
-            record(legacyRecord.id, in: store)?.ownerDeviceID,
-            nil,
-            "An unowned record is nobody's to sweep and must keep its nil owner"
-        )
-        XCTAssertEqual(
-            record(legacyRecord.id, in: store)?.isDeleted,
-            false,
-            "A record written before `ownerDeviceID` existed must survive"
-        )
-        XCTAssertEqual(
-            record(staleLocalKey.id, in: store)?.isDeleted,
-            true,
-            "B's own stale record is still B's to tombstone"
-        )
-        XCTAssertEqual(store.entries.map(\.id).sorted(by: idOrder), [deviceARecord.id, legacyRecord.id, localKey.id].sorted(by: idOrder))
+        #expect(record(deviceARecord.id, in: store)?.isDeleted == false, "Device A's record must survive device B's reconcile — this is the account-wide data loss")
+        #expect(record(legacyRecord.id, in: store)?.ownerDeviceID == nil, "An unowned record is nobody's to sweep and must keep its nil owner")
+        #expect(record(legacyRecord.id, in: store)?.isDeleted == false, "A record written before `ownerDeviceID` existed must survive")
+        #expect(record(staleLocalKey.id, in: store)?.isDeleted == true, "B's own stale record is still B's to tombstone")
+        #expect(store.entries.map(\.id).sorted(by: idOrder) == [deviceARecord.id, legacyRecord.id, localKey.id].sorted(by: idOrder))
     }
 
     /// With no readable device ID — a locked device, where
@@ -133,7 +116,9 @@ final class SSHIdentityMetadataOwnershipTests: XCTestCase {
     ///
     /// Fails if `reconcile` starts sweeping unconditionally, or if the `nil`
     /// branch is changed to fall back to some other identity.
-    func testReconcileSkipsTheSweepEntirelyWhenNoStableDeviceIDIsAvailable() {
+    @Test
+    @MainActor
+    func testReconcileSkipsTheSweepEntirelyWhenNoStableDeviceIDIsAvailable() throws {
         let store = makeStore(ownedBy: nil)
         let present = makeKey(named: "present")
         let absent = makeKey(named: "absent")
@@ -142,11 +127,7 @@ final class SSHIdentityMetadataOwnershipTests: XCTestCase {
 
         store.reconcile(with: [present])
 
-        XCTAssertEqual(
-            record(absent.id, in: store)?.isDeleted,
-            false,
-            "A device that cannot name itself must not tombstone anything"
-        )
+        #expect(record(absent.id, in: store)?.isDeleted == false, "A device that cannot name itself must not tombstone anything")
     }
 
     // MARK: - Scenario (c): no ownership ping-pong
@@ -160,13 +141,15 @@ final class SSHIdentityMetadataOwnershipTests: XCTestCase {
     /// literally counting pushes. Fails if `sameContent` stops normalising
     /// `ownerDeviceID` (or `modifiedAt`), or if the early return in `record` is
     /// removed.
-    func testRepublishingAKeyOwnedByAnotherDeviceNeitherRewritesNorReclaimsIt() {
+    @Test
+    @MainActor
+    func testRepublishingAKeyOwnedByAnotherDeviceNeitherRewritesNorReclaimsIt() throws {
         let store = makeStore(ownedBy: "device-B")
         let sharedKey = makeKey(named: "iCloud Keychain key")
 
         var remote = SSHIdentityMetadata(identity: sharedKey)
         remote.ownerDeviceID = "device-A"
-        XCTAssertEqual(store.applyRemoteChanges([remote]), 1)
+        #expect(store.applyRemoteChanges([remote]) == 1)
 
         let pushes = PushCounter()
         store.onLocalChange = { _, _ in pushes.count += 1 }
@@ -175,12 +158,8 @@ final class SSHIdentityMetadataOwnershipTests: XCTestCase {
         store.record(sharedKey)
         store.record(sharedKey)
 
-        XCTAssertEqual(pushes.count, 0, "Republishing unchanged content must not fire a sync push")
-        XCTAssertEqual(
-            record(sharedKey.id, in: store)?.ownerDeviceID,
-            "device-A",
-            "Ownership must not ping-pong to whichever device published last"
-        )
+        #expect(pushes.count == 0, "Republishing unchanged content must not fire a sync push")
+        #expect(record(sharedKey.id, in: store)?.ownerDeviceID == "device-A", "Ownership must not ping-pong to whichever device published last")
     }
 
     /// A legacy record with no owner is adopted by the device that holds the
@@ -191,24 +170,26 @@ final class SSHIdentityMetadataOwnershipTests: XCTestCase {
     /// never claimed, so the first assertion goes nil) or if it stops being
     /// gated on `existing.ownerDeviceID == nil` (the claim fires on every call
     /// and the push count climbs).
-    func testAnUnownedRecordIsClaimedOnceByTheDeviceThatHoldsTheKey() {
+    @Test
+    @MainActor
+    func testAnUnownedRecordIsClaimedOnceByTheDeviceThatHoldsTheKey() throws {
         let store = makeStore(ownedBy: "device-A")
         let key = makeKey(named: "adopted")
 
         var unowned = SSHIdentityMetadata(identity: key)
         unowned.ownerDeviceID = nil
-        XCTAssertEqual(store.applyRemoteChanges([unowned]), 1)
+        #expect(store.applyRemoteChanges([unowned]) == 1)
 
         let pushes = PushCounter()
         store.onLocalChange = { _, _ in pushes.count += 1 }
 
         store.record(key)
-        XCTAssertEqual(record(key.id, in: store)?.ownerDeviceID, "device-A")
-        XCTAssertEqual(pushes.count, 1, "Claiming an unowned record is one write")
+        #expect(record(key.id, in: store)?.ownerDeviceID == "device-A")
+        #expect(pushes.count == 1, "Claiming an unowned record is one write")
 
         store.record(key)
         store.record(key)
-        XCTAssertEqual(pushes.count, 1, "The claim must write once and then stop")
+        #expect(pushes.count == 1, "The claim must write once and then stop")
     }
 
     // MARK: - Helpers
@@ -217,6 +198,7 @@ final class SSHIdentityMetadataOwnershipTests: XCTestCase {
         var count = 0
     }
 
+    @MainActor
     private func makeStore(ownedBy deviceID: String?) -> SSHIdentityMetadataStore {
         SSHIdentityMetadataStore(storeName: storeName, owningDeviceID: { deviceID })
     }
@@ -244,6 +226,7 @@ final class SSHIdentityMetadataOwnershipTests: XCTestCase {
         )
     }
 
+    @MainActor
     private func record(_ id: UUID, in store: SSHIdentityMetadataStore) -> SSHIdentityMetadata? {
         store.allRecordsForSync.first { $0.id == id }
     }

@@ -104,7 +104,8 @@ final class KeyboardAccessoryView: UIInputView {
     /// Callback when accessory layout changes and input views should refresh
     var onLayoutInvalidated: (() -> Void)?
 
-    private var layoutChangeObserver: NSObjectProtocol?
+    /// Removed from `deinit`, which is nonisolated. `removeObserver` is thread-safe.
+    nonisolated(unsafe) private var layoutChangeObserver: NSObjectProtocol?
     private var toolbarBottomConstraint: NSLayoutConstraint?
 
     /// Continuation of the toolbar's glass plate over the reserved

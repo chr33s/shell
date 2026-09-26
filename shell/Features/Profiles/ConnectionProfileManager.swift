@@ -117,7 +117,7 @@ final class ConnectionProfileManager {
     }
 
     /// Most-recently-used profiles first, for the launch screen and pickers.
-    func getSuggestions(matching searchText: String, limit: Int = 10) -> [SSHProfile] {
+    func suggestions(matching searchText: String, limit: Int = 10) -> [SSHProfile] {
         profiles(matching: searchText)
             .sorted { p1, p2 in
                 if let d1 = p1.lastUsedAt, let d2 = p2.lastUsedAt {

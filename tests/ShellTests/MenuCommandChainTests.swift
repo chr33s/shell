@@ -41,13 +41,14 @@
 //  pins that the focused-pane half of each pair still exists.
 //
 
-import XCTest
+import Testing
 import UIKit
 
 @testable import Shell
 
 @MainActor
-final class MenuCommandChainTests: XCTestCase {
+@Suite
+final class MenuCommandChainTests {
 
     /// One menu command: the selector a menu item sends, the notification the
     /// app-level fallback turns it into, and the userInfo that disambiguates
@@ -139,6 +140,7 @@ final class MenuCommandChainTests: XCTestCase {
     /// This one test covers all 40 rows rather than generating 40 cases so a
     /// mass removal reports every casualty in a single failure, instead of the
     /// runner listing 40 individually-red tests with no shared story.
+    @Test
     func testEveryMenuCommandStillDispatchesItsNotification() throws {
         var missingSelector: [String] = []
         var postedNothing: [String] = []
@@ -170,33 +172,24 @@ final class MenuCommandChainTests: XCTestCase {
             }
         }
 
-        XCTAssertEqual(
-            missingSelector, [],
-            """
+        #expect(missingSelector == [], """
             Menu commands are no longer implemented on UIApplication. If these were \
             removed on purpose, delete their rows from `MenuCommandChainTests.commands` \
             in the same change — that deletion is the review signal this test exists \
             to force. See shell/App/UIApplication+CommandFallback.swift.
-            """
-        )
-        XCTAssertEqual(
-            postedNothing, [],
-            """
+            """)
+        #expect(postedNothing == [], """
             These selectors exist but posted nothing. The command is a dead \
             chain: the menu item is enabled, the user picks it, and the app does \
             nothing. This is the exact failure mode that hid nine broken commands \
             in this codebase.
-            """
-        )
-        XCTAssertEqual(
-            wrongUserInfo, [],
-            """
+            """)
+        #expect(wrongUserInfo == [], """
             A command posted the right notification with the wrong payload. \
             Commands that share a notification are told apart *only* by this \
             userInfo, so a swapped value silently sends the user to the wrong \
             split, tab or direction.
-            """
-        )
+            """)
     }
 
     /// The four split-navigation commands share one notification and are told
@@ -205,7 +198,8 @@ final class MenuCommandChainTests: XCTestCase {
     /// the user can no longer reach. Driven against the real selectors rather
     /// than the table above, so a mistake in production fails here even if the
     /// table was updated to match it.
-    func testSplitNavigationCommandsPostFourDistinctDirections() {
+    @Test
+    func testSplitNavigationCommandsPostFourDistinctDirections() throws {
         var directions: [String: String] = [:]
         for selector in [
             "menuNavigateSplitLeft:", "menuNavigateSplitRight:",
@@ -218,20 +212,18 @@ final class MenuCommandChainTests: XCTestCase {
             directions[selector] = received.first?.userInfo?["direction"] as? String
         }
 
-        XCTAssertEqual(
-            Set(directions.values.compactMap { $0 }), ["left", "right", "up", "down"],
-            """
+        #expect(Set(directions.values.compactMap { $0 }) == ["left", "right", "up", "down"], """
             Split navigation no longer posts four distinct directions: \(directions). \
             Two commands claiming the same direction means one of them is unreachable \
             and the other fires twice as often as the user expects.
-            """
-        )
+            """)
     }
 
     /// `menuSelectTab1…9` differ only by `tabIndex`, and the indices are
     /// 1-based — a 0-based slip selects the wrong tab for every shortcut.
     /// Also driven against the real selectors.
-    func testSelectTabCommandsPostDistinctOneBasedIndices() {
+    @Test
+    func testSelectTabCommandsPostDistinctOneBasedIndices() throws {
         var indices: [Int] = []
         for n in 1...9 {
             let received = notifications(
@@ -241,34 +233,26 @@ final class MenuCommandChainTests: XCTestCase {
             if let index = received.first?.userInfo?["tabIndex"] as? Int { indices.append(index) }
         }
 
-        XCTAssertEqual(
-            indices, Array(1...9),
-            """
+        #expect(indices == Array(1...9), """
             ⌘1…⌘9 no longer post 1…9 in order. These indices are 1-based; an \
             off-by-one sends every shortcut to its neighbour's tab.
-            """
-        )
+            """)
     }
 
     /// Untargeted commands are stamped with the scene they should land in.
     /// Without it a command raised with no terminal focused would be ambiguous
     /// across windows, and the menu's checkmarks (which resolve the same way)
     /// could describe a different window than the one that acts.
+    @Test
     func testFallbackCommandsAreStampedWithTheActiveWindowScene() throws {
-        let sceneID = try XCTUnwrap(
-            UIApplication.shared.ghostty_activeWindowSceneSessionID(),
-            "Test host has no foreground window scene; the stamping path cannot be exercised."
-        )
+        let sceneID = try #require(UIApplication.shared.ghostty_activeWindowSceneSessionID(), "Test host has no foreground window scene; the stamping path cannot be exercised.")
 
         let received = notifications(
             named: "dev.chr33s.shell.newTab",
             whileSending: NSSelectorFromString("menuNewTab:")
         )
 
-        XCTAssertEqual(
-            received.first?.userInfo?["windowSceneSessionID"] as? String, sceneID,
-            "Fallback commands must carry the active scene id, or a multi-window command lands in an arbitrary window."
-        )
+        #expect(received.first?.userInfo?["windowSceneSessionID"] as? String == sceneID, "Fallback commands must carry the active scene id, or a multi-window command lands in an arbitrary window.")
     }
 
     // MARK: - Responder-chain half
@@ -280,7 +264,8 @@ final class MenuCommandChainTests: XCTestCase {
     ///
     /// Looked up by string for the same reason as everything else here — a
     /// `#selector(...)` reference would be swept along with the method.
-    func testTerminalViewImplementsEveryResponderSideCommand() {
+    @Test
+    func testTerminalViewImplementsEveryResponderSideCommand() throws {
         // Commands the focused terminal must handle itself. Not the whole
         // fallback table: font-size and search commands are handled elsewhere
         // in the chain, and `menuSelectTab1…9` are listed once as a group.
@@ -305,38 +290,27 @@ final class MenuCommandChainTests: XCTestCase {
             !Ghostty.TerminalView.instancesRespond(to: NSSelectorFromString($0))
         }
 
-        XCTAssertEqual(
-            missing, [],
-            """
+        #expect(missing == [], """
             Ghostty.TerminalView no longer implements these menu selectors, so the \
             command silently falls through to the app-level fallback (or nowhere) \
             whenever a pane is focused. See shell/UI/Terminal/TerminalView+Keyboard.swift.
-            """
-        )
+            """)
     }
 
     /// `.previousGroup` / `.nextGroup` are on the fork's keep-list and have no
     /// other coverage: they are posted by the fallback, handled by the focused
     /// terminal, and observed by `MainView`. Pinned explicitly so the pair
     /// cannot be swept as "unused tab navigation".
-    func testGroupNavigationCommandsSurviveOnBothResponderPaths() {
+    @Test
+    func testGroupNavigationCommandsSurviveOnBothResponderPaths() throws {
         for (selector, name) in [
             ("menuPreviousGroup:", "dev.chr33s.shell.previousGroup"),
             ("menuNextGroup:", "dev.chr33s.shell.nextGroup")
         ] {
             let sel = NSSelectorFromString(selector)
-            XCTAssertTrue(
-                UIApplication.shared.responds(to: sel),
-                "\(selector) was removed from the app-level fallback."
-            )
-            XCTAssertTrue(
-                Ghostty.TerminalView.instancesRespond(to: sel),
-                "\(selector) was removed from the focused-terminal responder."
-            )
-            XCTAssertEqual(
-                notifications(named: name, whileSending: sel).count, 1,
-                "\(selector) no longer posts \(name)."
-            )
+            #expect(UIApplication.shared.responds(to: sel), "\(selector) was removed from the app-level fallback.")
+            #expect(Ghostty.TerminalView.instancesRespond(to: sel), "\(selector) was removed from the focused-terminal responder.")
+            #expect(notifications(named: name, whileSending: sel).count == 1, "\(selector) no longer posts \(name).")
         }
     }
 }

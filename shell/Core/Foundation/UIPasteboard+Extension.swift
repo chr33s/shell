@@ -16,7 +16,7 @@ extension UIPasteboard {
     /// 2. Falls back to strictly-read plain-text UTIs (avoids Mac Catalyst's
     ///    `.string` bridge, which can surface HTML/RTF bytes when a source
     ///    registers only rich types).
-    func getOpinionatedStringContents() -> String? {
+    func opinionatedStringContents() -> String? {
         if let urls = self.urls, !urls.isEmpty {
             return urls
                 .map { url -> String in
@@ -44,7 +44,7 @@ extension UIPasteboard {
     /// re-validates those on every app foreground while the terminal is first
     /// responder, so reading actual content there pops the iOS "would like to
     /// paste from X" dialog on every app switch. The paste path itself reads the
-    /// real content with `getOpinionatedStringContents()` and branches on nil.
+    /// real content with `opinionatedStringContents()` and branches on nil.
     var hasPasteableContentWithoutPrompt: Bool {
         hasStrings || hasURLs
     }

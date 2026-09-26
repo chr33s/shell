@@ -1,5 +1,5 @@
 import Foundation
-import XCTest
+import Testing
 
 @testable import Shell
 
@@ -11,85 +11,95 @@ import XCTest
 /// so a `case` branch or a `${v##…}` strip wedged the shell with no way out.
 /// The semantics tests below exist so the linear rewrite that fixed it cannot
 /// quietly change what matches.
-final class ShellGlobTests: XCTestCase {
+@Suite
+final class ShellGlobTests {
 
     // MARK: - The regression
 
     /// The shape that used to hang. A generous deadline: the point is
     /// "returns at all", not a benchmark.
-    func testAPathologicalWildcardPatternCompletesQuickly() {
+    @Test
+    func testAPathologicalWildcardPatternCompletesQuickly() throws {
         let subject = String(repeating: "a", count: 64)
         let pattern = String(repeating: "*a", count: 12) + "*b"
         let started = Date()
-        XCTAssertFalse(ShellGlob.match(subject, pattern: pattern))
-        XCTAssertLessThan(Date().timeIntervalSince(started), 2.0)
+        #expect(!(ShellGlob.match(subject, pattern: pattern)))
+        #expect(Date().timeIntervalSince(started) < 2.0)
     }
 
-    func testAPathologicalStripCompletesQuickly() {
+    @Test
+    func testAPathologicalStripCompletesQuickly() throws {
         let subject = String(repeating: "a", count: 64)
         let pattern = String(repeating: "*a", count: 12) + "*b"
         let started = Date()
-        XCTAssertEqual(ShellGlob.stripPrefix(subject, pattern: pattern, greedy: true), subject)
-        XCTAssertLessThan(Date().timeIntervalSince(started), 2.0)
+        #expect(ShellGlob.stripPrefix(subject, pattern: pattern, greedy: true) == subject)
+        #expect(Date().timeIntervalSince(started) < 2.0)
     }
 
     // MARK: - Semantics
 
-    func testLiteralsAndEmptyCases() {
-        XCTAssertTrue(ShellGlob.match("", pattern: ""))
-        XCTAssertTrue(ShellGlob.match("", pattern: "*"))
-        XCTAssertTrue(ShellGlob.match("", pattern: "**"))
-        XCTAssertFalse(ShellGlob.match("a", pattern: ""))
-        XCTAssertFalse(ShellGlob.match("", pattern: "a"))
-        XCTAssertTrue(ShellGlob.match("abc", pattern: "abc"))
-        XCTAssertFalse(ShellGlob.match("abc", pattern: "abd"))
+    @Test
+    func testLiteralsAndEmptyCases() throws {
+        #expect(ShellGlob.match("", pattern: ""))
+        #expect(ShellGlob.match("", pattern: "*"))
+        #expect(ShellGlob.match("", pattern: "**"))
+        #expect(!(ShellGlob.match("a", pattern: "")))
+        #expect(!(ShellGlob.match("", pattern: "a")))
+        #expect(ShellGlob.match("abc", pattern: "abc"))
+        #expect(!(ShellGlob.match("abc", pattern: "abd")))
     }
 
-    func testStarIsAnchoredAtBothEnds() {
-        XCTAssertTrue(ShellGlob.match("abc", pattern: "a*"))
-        XCTAssertTrue(ShellGlob.match("abc", pattern: "*c"))
-        XCTAssertTrue(ShellGlob.match("abc", pattern: "a*c"))
-        XCTAssertTrue(ShellGlob.match("ac", pattern: "a*c"))
-        XCTAssertFalse(ShellGlob.match("abc", pattern: "a*d"))
-        XCTAssertFalse(ShellGlob.match("abcd", pattern: "*c"))
-        XCTAssertTrue(ShellGlob.match("a.b.c", pattern: "*.*.*"))
+    @Test
+    func testStarIsAnchoredAtBothEnds() throws {
+        #expect(ShellGlob.match("abc", pattern: "a*"))
+        #expect(ShellGlob.match("abc", pattern: "*c"))
+        #expect(ShellGlob.match("abc", pattern: "a*c"))
+        #expect(ShellGlob.match("ac", pattern: "a*c"))
+        #expect(!(ShellGlob.match("abc", pattern: "a*d")))
+        #expect(!(ShellGlob.match("abcd", pattern: "*c")))
+        #expect(ShellGlob.match("a.b.c", pattern: "*.*.*"))
     }
 
-    func testQuestionMarkMatchesExactlyOne() {
-        XCTAssertTrue(ShellGlob.match("abc", pattern: "a?c"))
-        XCTAssertFalse(ShellGlob.match("ac", pattern: "a?c"))
-        XCTAssertFalse(ShellGlob.match("abbc", pattern: "a?c"))
+    @Test
+    func testQuestionMarkMatchesExactlyOne() throws {
+        #expect(ShellGlob.match("abc", pattern: "a?c"))
+        #expect(!(ShellGlob.match("ac", pattern: "a?c")))
+        #expect(!(ShellGlob.match("abbc", pattern: "a?c")))
     }
 
-    func testCharacterClasses() {
-        XCTAssertTrue(ShellGlob.match("b", pattern: "[abc]"))
-        XCTAssertFalse(ShellGlob.match("d", pattern: "[abc]"))
-        XCTAssertTrue(ShellGlob.match("d", pattern: "[!abc]"))
-        XCTAssertTrue(ShellGlob.match("d", pattern: "[^abc]"))
-        XCTAssertTrue(ShellGlob.match("m", pattern: "[a-z]"))
-        XCTAssertFalse(ShellGlob.match("M", pattern: "[a-z]"))
-        XCTAssertTrue(ShellGlob.match("file1.txt", pattern: "file[0-9].txt"))
+    @Test
+    func testCharacterClasses() throws {
+        #expect(ShellGlob.match("b", pattern: "[abc]"))
+        #expect(!(ShellGlob.match("d", pattern: "[abc]")))
+        #expect(ShellGlob.match("d", pattern: "[!abc]"))
+        #expect(ShellGlob.match("d", pattern: "[^abc]"))
+        #expect(ShellGlob.match("m", pattern: "[a-z]"))
+        #expect(!(ShellGlob.match("M", pattern: "[a-z]")))
+        #expect(ShellGlob.match("file1.txt", pattern: "file[0-9].txt"))
         // An unterminated class is a literal '['
-        XCTAssertTrue(ShellGlob.match("[abc", pattern: "[abc"))
+        #expect(ShellGlob.match("[abc", pattern: "[abc"))
     }
 
-    func testEscapesMatchLiterally() {
-        XCTAssertTrue(ShellGlob.match("a*b", pattern: "a\\*b"))
-        XCTAssertFalse(ShellGlob.match("axb", pattern: "a\\*b"))
-        XCTAssertTrue(ShellGlob.match("a?b", pattern: "a\\?b"))
-        XCTAssertTrue(ShellGlob.match("a[b", pattern: "a\\[b"))
-        XCTAssertTrue(ShellGlob.match(ShellGlob.escape("*?[]\\"), pattern: ShellGlob.escape(ShellGlob.escape("*?[]\\"))))
+    @Test
+    func testEscapesMatchLiterally() throws {
+        #expect(ShellGlob.match("a*b", pattern: "a\\*b"))
+        #expect(!(ShellGlob.match("axb", pattern: "a\\*b")))
+        #expect(ShellGlob.match("a?b", pattern: "a\\?b"))
+        #expect(ShellGlob.match("a[b", pattern: "a\\[b"))
+        #expect(ShellGlob.match(ShellGlob.escape("*?[]\\"), pattern: ShellGlob.escape(ShellGlob.escape("*?[]\\"))))
     }
 
-    func testStripPrefixShortestAndLongest() {
-        XCTAssertEqual(ShellGlob.stripPrefix("a.b.c", pattern: "*.", greedy: false), "b.c")
-        XCTAssertEqual(ShellGlob.stripPrefix("a.b.c", pattern: "*.", greedy: true), "c")
-        XCTAssertEqual(ShellGlob.stripPrefix("a.b.c", pattern: "x", greedy: false), "a.b.c")
+    @Test
+    func testStripPrefixShortestAndLongest() throws {
+        #expect(ShellGlob.stripPrefix("a.b.c", pattern: "*.", greedy: false) == "b.c")
+        #expect(ShellGlob.stripPrefix("a.b.c", pattern: "*.", greedy: true) == "c")
+        #expect(ShellGlob.stripPrefix("a.b.c", pattern: "x", greedy: false) == "a.b.c")
     }
 
-    func testStripSuffixShortestAndLongest() {
-        XCTAssertEqual(ShellGlob.stripSuffix("a.b.c", pattern: ".*", greedy: false), "a.b")
-        XCTAssertEqual(ShellGlob.stripSuffix("a.b.c", pattern: ".*", greedy: true), "a")
-        XCTAssertEqual(ShellGlob.stripSuffix("a.b.c", pattern: "x", greedy: false), "a.b.c")
+    @Test
+    func testStripSuffixShortestAndLongest() throws {
+        #expect(ShellGlob.stripSuffix("a.b.c", pattern: ".*", greedy: false) == "a.b")
+        #expect(ShellGlob.stripSuffix("a.b.c", pattern: ".*", greedy: true) == "a")
+        #expect(ShellGlob.stripSuffix("a.b.c", pattern: "x", greedy: false) == "a.b.c")
     }
 }

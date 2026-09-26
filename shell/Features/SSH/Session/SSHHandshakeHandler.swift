@@ -9,7 +9,7 @@
 import Foundation
 import NIOCore
 import NIOSSH
-import os.log
+import os
 
 // MARK: - SSH Timeout Configuration
 
@@ -35,68 +35,83 @@ struct SSHTimeoutConfig {
 
 /// Coordinates timeout behavior between SSH handshake handler and host key delegate.
 /// Allows pausing the handshake timeout during user interactions (host key approval).
-/// Thread-safe via NIO event loop execution.
-/// Marked nonisolated to allow use from NIO event loops.
-final class SSHTimeoutCoordinator: @unchecked Sendable {
-    private nonisolated static let logger = Logger(subsystem: "dev.chr33s.shell", category: "SSHTimeout")
+///
+/// `nonisolated` so NIO event loops can call it. Mutable state sits behind a lock:
+/// `pauseTimeout` is invoked from the main actor, while the flags are mutated on
+/// the event loop. `@unchecked Sendable` covers the event-loop reference and the
+/// callbacks, which NIO does not mark `Sendable`; the lock is the synchronization
+/// the compiler cannot see. Callbacks are copied out before they run so a re-entrant
+/// pause cannot deadlock on the lock.
+nonisolated final class SSHTimeoutCoordinator: @unchecked Sendable {
+    private struct State {
+        var eventLoop: EventLoop?
+        var isPaused = false
+        var pauseStartTime: NIODeadline?
+        var remainingTimeAtPause: TimeAmount?
+        var onPause: (() -> Void)?
+        var onResume: ((TimeAmount) -> Void)?
+    }
 
-    // Properties marked nonisolated(unsafe) because this class is @unchecked Sendable
-    // and accessed exclusively from NIO event loop threads
-    nonisolated(unsafe) private var eventLoop: EventLoop?
-    nonisolated(unsafe) private var isPaused = false
-    nonisolated(unsafe) private var pauseStartTime: NIODeadline?
-    nonisolated(unsafe) private var remainingTimeAtPause: TimeAmount?
-    nonisolated(unsafe) private var onPause: (() -> Void)?
-    nonisolated(unsafe) private var onResume: ((TimeAmount) -> Void)?
+    private static let logger = Logger(subsystem: "dev.chr33s.shell", category: "SSHTimeout")
+    private let lock = NSLock()
+    private var state = State()
 
-    nonisolated init() {}
+    init() {}
 
     /// Register the event loop and callbacks from the handshake handler
-    nonisolated func register(
+    func register(
         eventLoop: EventLoop,
         onPause: @escaping () -> Void,
         onResume: @escaping (TimeAmount) -> Void
     ) {
-        self.eventLoop = eventLoop
-        self.onPause = onPause
-        self.onResume = onResume
+        lock.withLock {
+            state.eventLoop = eventLoop
+            state.onPause = onPause
+            state.onResume = onResume
+        }
     }
 
     /// Pause the handshake timeout (called when waiting for user input)
-    nonisolated func pauseTimeout(remainingTime: TimeAmount) {
-        guard let eventLoop = eventLoop else {
+    func pauseTimeout(remainingTime: TimeAmount) {
+        guard let eventLoop = lock.withLock({ state.eventLoop }) else {
             Self.logger.warning("Cannot pause timeout - no event loop registered")
             return
         }
 
         eventLoop.execute { [self] in
-            guard !self.isPaused else { return }
-            self.isPaused = true
-            self.pauseStartTime = .now()
-            self.remainingTimeAtPause = remainingTime
-            self.onPause?()
+            let onPause: (() -> Void)? = self.lock.withLock {
+                guard !self.state.isPaused else { return nil }
+                self.state.isPaused = true
+                self.state.pauseStartTime = .now()
+                self.state.remainingTimeAtPause = remainingTime
+                return self.state.onPause
+            }
+            guard let onPause else { return }
+            onPause()
             Self.logger.info("Timeout paused for user interaction")
         }
     }
 
     /// Resume the handshake timeout (called after user input received)
-    nonisolated func resumeTimeout() {
-        guard let eventLoop = eventLoop else {
+    func resumeTimeout() {
+        guard let eventLoop = lock.withLock({ state.eventLoop }) else {
             Self.logger.warning("Cannot resume timeout - no event loop registered")
             return
         }
 
         eventLoop.execute { [self] in
-            guard self.isPaused else { return }
-            self.isPaused = false
-
-            // Resume with the remaining time from when we paused
-            let remaining = self.remainingTimeAtPause ?? SSHTimeoutConfig.handshakeTimeout
-            self.onResume?(remaining)
-            Self.logger.info("Timeout resumed with \(remaining.nanoseconds / 1_000_000_000)s remaining")
-
-            self.pauseStartTime = nil
-            self.remainingTimeAtPause = nil
+            let resume = self.lock.withLock { () -> (TimeAmount, ((TimeAmount) -> Void)?)? in
+                guard self.state.isPaused else { return nil }
+                self.state.isPaused = false
+                let remaining = self.state.remainingTimeAtPause ?? SSHTimeoutConfig.handshakeTimeout
+                let onResume = self.state.onResume
+                self.state.pauseStartTime = nil
+                self.state.remainingTimeAtPause = nil
+                return (remaining, onResume)
+            }
+            guard let resume else { return }
+            resume.1?(resume.0)
+            Self.logger.info("Timeout resumed with \(resume.0.nanoseconds / 1_000_000_000)s remaining")
         }
     }
 }
@@ -140,24 +155,27 @@ nonisolated final class SSHHandshakeHandler: ChannelInboundHandler, @unchecked S
         self.channelContext = context
         self.wasAddedToPipeline = true
 
-        // Register with coordinator for pause/resume
+        // Register with coordinator for pause/resume. Capture the event loop,
+        // not the handler context: the callbacks must be callable without
+        // sending a non-Sendable context out of this method.
+        let eventLoop = context.eventLoop
         coordinator?.register(
-            eventLoop: context.eventLoop,
+            eventLoop: eventLoop,
             onPause: { [weak self] in
                 self?.cancelTimeout()
             },
             onResume: { [weak self] remaining in
-                self?.scheduleTimeout(duration: remaining, context: context)
+                self?.scheduleTimeout(duration: remaining, eventLoop: eventLoop)
             }
         )
 
         // Schedule initial timeout
-        scheduleTimeout(duration: handshakeTimeout, context: context)
+        scheduleTimeout(duration: handshakeTimeout, eventLoop: eventLoop)
     }
 
-    private func scheduleTimeout(duration: TimeAmount, context: ChannelHandlerContext) {
+    private func scheduleTimeout(duration: TimeAmount, eventLoop: any EventLoop) {
         timeoutStartTime = .now()
-        scheduledTimeout = context.eventLoop.scheduleTask(deadline: .now() + duration) { [weak self] in
+        scheduledTimeout = eventLoop.scheduleTask(deadline: .now() + duration) { [weak self] in
             guard let self = self, !self.completed else { return }
             Self.logger.error("SSH authentication timed out after \(duration.nanoseconds / 1_000_000_000) seconds")
             self.completed = true

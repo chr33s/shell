@@ -69,7 +69,7 @@ nonisolated extension ShellInterpreter {
         case "-v":
             // Operand is a variable NAME; set (even if empty) → true
             return environment.resolveSpecialVariable(operand) != nil
-                || environment.getVariable(operand) != nil
+                || environment.variable(operand) != nil
         case "-o":
             switch operand {
             case "errexit":  return environment.options.errexit

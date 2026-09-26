@@ -1,4 +1,5 @@
-import XCTest
+import Foundation
+import Testing
 import CryptoKit
 @testable import ShellControlManagement
 import ShellControlHostSupport
@@ -61,40 +62,45 @@ actor FakeServices: ServiceManager {
     }
 }
 
-final class ManagementTests: XCTestCase {
+@Suite
+final class ManagementTests {
     private func directory() -> URL { URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("shell-native-tests-\(UUID())") }
 
+    @Test
     func testNativeStoreCreatesOnceAndRejectsMissingSecrets() throws {
         let root = directory(); defer { try? FileManager.default.removeItem(at: root) }
         let store = InstallationStore(root: root)
         let lock = try store.lock(); defer { lock.release() }
         let first = try store.create(releaseID: "release", mode: .loopback, publicURL: "http://127.0.0.1:8443", port: 8443)
         let loaded = try store.load()
-        XCTAssertEqual(first.installation.installationID, loaded.installation.installationID)
-        XCTAssertEqual(first.secrets, loaded.secrets)
+        #expect(first.installation.installationID == loaded.installation.installationID)
+        #expect(first.secrets == loaded.secrets)
         try FileManager.default.removeItem(at: store.paths.secrets)
-        XCTAssertThrowsError(try store.load())
+        #expect(throws: (any Error).self){ try store.load() }
     }
 
+    @Test
     func testUnrecognizedStateIsNotImportedOrDeleted() throws {
         let root = directory(); defer { try? FileManager.default.removeItem(at: root) }
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let legacy = root.appendingPathComponent("broker.json")
         try Data("legacy".utf8).write(to: legacy)
         let store = InstallationStore(root: root), lock = try store.lock(); defer { lock.release() }
-        XCTAssertThrowsError(try store.create(releaseID: "r", mode: .loopback, publicURL: nil, port: 8443))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: legacy.path))
+        #expect(throws: (any Error).self){ try store.create(releaseID: "r", mode: .loopback, publicURL: nil, port: 8443) }
+        #expect(FileManager.default.fileExists(atPath: legacy.path))
     }
 
+    @Test
     func testPublicOriginValidation() throws {
-        XCTAssertEqual(try AddressPolicy.validate("https://MAC.example.ts.net/", mode: .tailscale), "https://mac.example.ts.net")
-        XCTAssertThrowsError(try AddressPolicy.validate("https://user@mac.example.ts.net/path?q=x", mode: .tailscale))
-        XCTAssertThrowsError(try AddressPolicy.validate("http://example.com", mode: .loopback))
-        XCTAssertThrowsError(try AddressPolicy.validate("https://stable.example", mode: .tailscale))
-        XCTAssertEqual(try AddressPolicy.validate("http://LocalHost:8443", mode: .loopback), "http://localhost:8443")
-        XCTAssertEqual(try AddressPolicy.validate("http://[::1]:8443", mode: .loopback), "http://[::1]:8443")
+        #expect((try AddressPolicy.validate("https://MAC.example.ts.net/", mode: .tailscale)) == "https://mac.example.ts.net")
+        #expect(throws: (any Error).self){ try AddressPolicy.validate("https://user@mac.example.ts.net/path?q=x", mode: .tailscale) }
+        #expect(throws: (any Error).self){ try AddressPolicy.validate("http://example.com", mode: .loopback) }
+        #expect(throws: (any Error).self){ try AddressPolicy.validate("https://stable.example", mode: .tailscale) }
+        #expect((try AddressPolicy.validate("http://LocalHost:8443", mode: .loopback)) == "http://localhost:8443")
+        #expect((try AddressPolicy.validate("http://[::1]:8443", mode: .loopback)) == "http://[::1]:8443")
     }
 
+    @Test
     func testDownCommitsIntentAndDisablesEveryOwnedJob() async throws {
         let root = directory(); defer { try? FileManager.default.removeItem(at: root) }
         let store = InstallationStore(root: root), lock = try store.lock()
@@ -102,35 +108,38 @@ final class ManagementTests: XCTestCase {
         let services = FakeServices()
         let coordinator = LifecycleCoordinator(store: store, manager: services)
         try await coordinator.down()
-        XCTAssertEqual(try store.load().installation.desiredState, .stopped)
+        #expect((try store.load().installation.desiredState) == .stopped)
         let calls = await services.calls
-        XCTAssertEqual(calls.filter { $0.hasPrefix("disable:") }.count, 2)
-        XCTAssertEqual(calls.filter { $0.hasPrefix("stop:") }.count, 2)
+        #expect(calls.filter { $0.hasPrefix("disable:") }.count == 2)
+        #expect(calls.filter { $0.hasPrefix("stop:") }.count == 2)
     }
 
-    func testStatusOnMissingInstallationDoesNotCreateDirectory() async {
+    @Test
+    func testStatusOnMissingInstallationDoesNotCreateDirectory() async throws {
         let root = directory(); let coordinator = LifecycleCoordinator(store: InstallationStore(root: root))
         let status = await coordinator.status()
-        XCTAssertEqual(status.schema, "shell-control.status/1")
-        XCTAssertFalse(FileManager.default.fileExists(atPath: root.path))
+        #expect(status.schema == "shell-control.status/1")
+        #expect(!(FileManager.default.fileExists(atPath: root.path)))
     }
 
+    @Test
     func testProcessRunnerDrainsConcurrentOutputAndStopsOnItsBound() async throws {
         let runner = ProcessRunner(outputLimit: 65_536)
         let result = try await runner.run("/bin/sh", ["-c", "i=0; while [ $i -lt 500 ]; do echo out-$i; echo err-$i >&2; i=$((i+1)); done"], timeout: 5)
-        XCTAssertEqual(result.status, 0)
-        XCTAssertTrue(result.stdoutString.contains("out-499"))
-        XCTAssertTrue(result.stderrString.contains("err-499"))
+        #expect(result.status == 0)
+        #expect(result.stdoutString.contains("out-499"))
+        #expect(result.stderrString.contains("err-499"))
 
         let bounded = ProcessRunner(outputLimit: 1024)
         let clock = ContinuousClock(), start = clock.now
-        do { _ = try await bounded.run("/usr/bin/yes", [], timeout: 10); XCTFail("unbounded output should fail") } catch ProcessRunnerError.outputTooLarge {} catch { XCTFail("unexpected process error: \(error)") }
-        XCTAssertLessThan(start.duration(to: clock.now), .seconds(3))
+        do { _ = try await bounded.run("/usr/bin/yes", [], timeout: 10); Issue.record("unbounded output should fail") } catch ProcessRunnerError.outputTooLarge {} catch { Issue.record("unexpected process error: \(error)") }
+        #expect(start.duration(to: clock.now) < .seconds(3))
     }
 
+    @Test
     func testLaunchctlStateChangingFailuresAreNeverIgnored() async throws {
         let disableManager = LaunchdServiceManager(uid: getuid(), runner: FailingLaunchctlRunner(.disable))
-        do { try await disableManager.disable(label: "test"); XCTFail("disable should fail") } catch {}
+        do { try await disableManager.disable(label: "test"); Issue.record("disable should fail") } catch {}
 
         let root = directory(); defer { try? FileManager.default.removeItem(at: root) }
         let spec = JobSpec(component: .broker, installationID: UUID(), executable: "/usr/bin/true", arguments: [],
@@ -139,9 +148,10 @@ final class ManagementTests: XCTestCase {
                            sessionPlistDirectory: root.appendingPathComponent("session").path,
                            launchAgentsDirectory: root.appendingPathComponent("agents").path)
         let bootstrapManager = LaunchdServiceManager(uid: getuid(), runner: FailingLaunchctlRunner(.bootstrap))
-        do { try await bootstrapManager.install(spec, persistent: false, start: true); XCTFail("I/O error should fail") } catch {}
+        do { try await bootstrapManager.install(spec, persistent: false, start: true); Issue.record("I/O error should fail") } catch {}
     }
 
+    @Test
     func testBundleValidationCoversEveryExecutableAndRejectsTampering() throws {
         let root = directory(), source = root.appendingPathComponent("source"), home = root.appendingPathComponent("home")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -160,13 +170,14 @@ final class ManagementTests: XCTestCase {
                                        minimumOS: "26.0", toolchain: "test", executables: hashes)
         let encoder = JSONEncoder(); try encoder.encode(manifest).write(to: source.appendingPathComponent("release-manifest.json"))
         let installer = NativeBundleInstaller(executablePath: source.appendingPathComponent("shell-control").path, home: home)
-        XCTAssertEqual(try installer.validateBundle().releaseID, "test-release")
+        #expect((try installer.validateBundle().releaseID) == "test-release")
         _ = try installer.install(manifest)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: home.appendingPathComponent(".local/bin/shell-control").path))
+        #expect(FileManager.default.fileExists(atPath: home.appendingPathComponent(".local/bin/shell-control").path))
         try Data("tampered".utf8).write(to: source.appendingPathComponent("shell-control"))
-        XCTAssertThrowsError(try installer.validateBundle())
+        #expect(throws: (any Error).self){ try installer.validateBundle() }
     }
 
+    @Test
     func testRestartRejectedWhenStopped() async throws {
         let root = directory(); defer { try? FileManager.default.removeItem(at: root) }
         let store = InstallationStore(root: root), lock = try store.lock()
@@ -176,12 +187,13 @@ final class ManagementTests: XCTestCase {
         try await coordinator.down()
         do {
             try await coordinator.restart([.broker])
-            XCTFail("stopped installations must reject restart")
+            Issue.record("stopped installations must reject restart")
         } catch let error as ManagementError {
-            XCTAssertTrue(error.description.contains("stopped"), error.description)
+            #expect(error.description.contains("stopped"), "\(error.description)")
         }
     }
 
+    @Test
     func testPublishLinkUpdatesOwnedReleaseSymlinkAndRefusesForeignFiles() throws {
         let root = directory(); defer { try? FileManager.default.removeItem(at: root) }
         let home = root.appendingPathComponent("home")
@@ -208,18 +220,12 @@ final class ManagementTests: XCTestCase {
         let installer1 = NativeBundleInstaller(executablePath: first.0.appendingPathComponent("shell-control").path, home: home)
         _ = try installer1.install(first.1)
         let link = home.appendingPathComponent(".local/bin/shell-control")
-        XCTAssertEqual(
-            try FileManager.default.destinationOfSymbolicLink(atPath: link.path),
-            home.appendingPathComponent(".local/lib/chr33s-shell/release-1/shell-control").path
-        )
+        #expect((try FileManager.default.destinationOfSymbolicLink(atPath: link.path)) == home.appendingPathComponent(".local/lib/chr33s-shell/release-1/shell-control").path)
 
         let second = try bundle("r2", releaseID: "release-2")
         let installer2 = NativeBundleInstaller(executablePath: second.0.appendingPathComponent("shell-control").path, home: home)
         _ = try installer2.install(second.1)
-        XCTAssertEqual(
-            try FileManager.default.destinationOfSymbolicLink(atPath: link.path),
-            home.appendingPathComponent(".local/lib/chr33s-shell/release-2/shell-control").path
-        )
+        #expect((try FileManager.default.destinationOfSymbolicLink(atPath: link.path)) == home.appendingPathComponent(".local/lib/chr33s-shell/release-2/shell-control").path)
 
         try FileManager.default.removeItem(at: link)
         try FileManager.default.createSymbolicLink(
@@ -229,32 +235,30 @@ final class ManagementTests: XCTestCase {
         let third = try bundle("r3", releaseID: "release-3")
         let installer3 = NativeBundleInstaller(executablePath: third.0.appendingPathComponent("shell-control").path, home: home)
         _ = try installer3.install(third.1)
-        XCTAssertEqual(
-            try FileManager.default.destinationOfSymbolicLink(atPath: link.path),
-            home.appendingPathComponent(".local/lib/chr33s-shell/release-3/shell-control").path
-        )
+        #expect((try FileManager.default.destinationOfSymbolicLink(atPath: link.path)) == home.appendingPathComponent(".local/lib/chr33s-shell/release-3/shell-control").path)
 
         try FileManager.default.removeItem(at: link)
         try Data("foreign".utf8).write(to: link)
-        XCTAssertThrowsError(try installer2.install(second.1))
-        XCTAssertEqual(try String(contentsOf: link, encoding: .utf8), "foreign")
+        #expect(throws: (any Error).self){ try installer2.install(second.1) }
+        #expect((try String(contentsOf: link, encoding: .utf8)) == "foreign")
         let fourth = try bundle("r4", releaseID: "release-4")
         let installer4 = NativeBundleInstaller(executablePath: fourth.0.appendingPathComponent("shell-control").path, home: home)
-        XCTAssertThrowsError(try installer4.install(fourth.1))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: home.appendingPathComponent(".local/lib/chr33s-shell/release-4").path))
-        XCTAssertEqual(try String(contentsOf: link, encoding: .utf8), "foreign")
+        #expect(throws: (any Error).self){ try installer4.install(fourth.1) }
+        #expect(!(FileManager.default.fileExists(atPath: home.appendingPathComponent(".local/lib/chr33s-shell/release-4").path)))
+        #expect((try String(contentsOf: link, encoding: .utf8)) == "foreign")
     }
 
+    @Test
     func testAtomicFilesArePrivate() throws {
         let root = directory(); defer { try? FileManager.default.removeItem(at: root) }
         let store = InstallationStore(root: root), lock = try store.lock(); defer { lock.release() }
         _ = try store.create(releaseID: "r", mode: .loopback, publicURL: nil, port: 8443)
         for path in [store.paths.installation.path, store.paths.secrets.path, store.paths.runtime.path] {
             guard let mode = (try FileManager.default.attributesOfItem(atPath: path)[.posixPermissions] as? NSNumber)?.intValue else {
-                XCTFail("Missing POSIX permissions for \(path)")
+                Issue.record("Missing POSIX permissions for \(path)")
                 return
             }
-            XCTAssertEqual(mode, 0o600)
+            #expect(mode == 0o600)
         }
     }
 }

@@ -14,14 +14,14 @@ import Foundation
 
 @MainActor
 enum TmuxGatewaySessionStore {
-    private static let defaultsKey = "tmuxLastSessionByConnection"
+    nonisolated private static let defaultsKey = "tmuxLastSessionByConnection"
 
     /// Stable identity for a connection: "user@host:port".
-    static func connectionKey(host: String, port: Int, username: String) -> String {
+    nonisolated static func connectionKey(host: String, port: Int, username: String) -> String {
         "\(username)@\(host):\(port)"
     }
 
-    static func lastSessionName(forConnection key: String) -> String? {
+    nonisolated static func lastSessionName(forConnection key: String) -> String? {
         let dict = UserDefaults.standard.dictionary(forKey: defaultsKey) as? [String: String]
         return dict?[key]
     }

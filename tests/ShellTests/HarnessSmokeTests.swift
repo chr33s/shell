@@ -1,4 +1,5 @@
-import XCTest
+import Foundation
+import Testing
 
 @testable import Shell
 
@@ -18,9 +19,11 @@ import XCTest
 ///    all on a Catalyst destination. If someone repoints `scripts/test.sh` at
 ///    Catalyst, this is the tripwire.
 @MainActor
-final class HarnessSmokeTests: XCTestCase {
+@Suite
+final class HarnessSmokeTests {
+    @Test
     func testTestableImportReachesInternalShellTypes() throws {
         let parser = ShellParser(tokenizer: ShellTokenizer(source: "echo hi"))
-        XCTAssertNoThrow(try parser.parse())
+        do { _ = try parser.parse() } catch { Issue.record("unexpected error: \(error)") }
     }
 }

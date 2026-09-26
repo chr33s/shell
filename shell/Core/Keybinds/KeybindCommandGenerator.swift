@@ -5,20 +5,22 @@
 //  Generates UIKeyCommands from KeybindManager bindings
 //
 
+import Observation
 import UIKit
 import Combine
 import os
 
 /// Generates UIKeyCommands from the active keybindings
 @MainActor
-final class KeybindCommandGenerator: ObservableObject {
+@Observable
+final class KeybindCommandGenerator {
     private static let logger = Logger(subsystem: "dev.chr33s.shell", category: "KeybindCommandGenerator")
 
     private let keybindManager: KeybindManager
     private var cancellables = Set<AnyCancellable>()
 
     /// Generated UIKeyCommands (cached, regenerated on keybind changes)
-    @Published private(set) var keyCommands: [UIKeyCommand] = []
+    private(set) var keyCommands: [UIKeyCommand] = []
 
     /// Cached filtered commands (regenerated on keybind changes)
     private var _menuAwareKeyCommands: [UIKeyCommand]?

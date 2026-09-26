@@ -23,15 +23,16 @@ import UIKit
 /// Uses visual offset approach: doesn't reorder during drag, only on drop
 /// Window-aware: only applies visual changes to the window that initiated the drag
 @MainActor
-final class TabDragState: ObservableObject {
+@Observable
+final class TabDragState {
     static let shared = TabDragState()
 
     /// ID of the window currently dragging (nil if no drag in progress)
-    @Published var draggingWindowId: String?
+    var draggingWindowId: String?
     /// Index of the tab being dragged (in original array order)
-    @Published var draggedIndex: Int?
+    var draggedIndex: Int?
     /// Current drag offset from the starting position
-    @Published var dragOffset: CGFloat = 0
+    var dragOffset: CGFloat = 0
     /// Average width of tabs for calculating target position
     var tabWidth: CGFloat = 150
 
@@ -45,7 +46,7 @@ final class TabDragState: ObservableObject {
     }
 
     func updateOffset(_ offset: CGFloat) {
-        // DragGesture fires per-pixel during drag; @Published would invalidate
+        // DragGesture fires per-pixel during drag; would invalidate
         // every TabDragModifier on every tab on every frame. Equality-guard so
         // a non-moving update is a no-op (e.g. pointer hold without movement).
         if self.dragOffset != offset { self.dragOffset = offset }
@@ -132,7 +133,7 @@ struct TabDragModifier: ViewModifier {
     let usesTitlebarTabs: Bool
 
 #if targetEnvironment(macCatalyst)
-    @ObservedObject private var dragState = TabDragState.shared
+    @State private var dragState = TabDragState.shared
 #endif
 
     func body(content: Content) -> some View {

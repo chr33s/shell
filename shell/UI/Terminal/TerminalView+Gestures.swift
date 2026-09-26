@@ -6,7 +6,7 @@
 //  Extracted from TerminalView.swift for build parallelization
 //
 
-import UIKit
+@preconcurrency import UIKit
 import SwiftUI
 import os
 import GhosttyKit
@@ -15,6 +15,30 @@ import UniformTypeIdentifiers
 #if targetEnvironment(macCatalyst)
 import AppKit
 #endif
+
+/// One paste load. `NSItemProvider` is not `Sendable`; the provider callbacks
+/// only stash results, and the view uses them on the main actor.
+private nonisolated final class PasteLoadBox: @unchecked Sendable {
+    let candidates: [(provider: NSItemProvider, typeIdentifier: String)]
+    let completion: ((Bool) -> Void)?
+    weak var view: Ghostty.TerminalView?
+
+    init(
+        candidates: [(provider: NSItemProvider, typeIdentifier: String)],
+        completion: ((Bool) -> Void)?,
+        view: Ghostty.TerminalView
+    ) {
+        self.candidates = candidates
+        self.completion = completion
+        self.view = view
+    }
+
+    static func text(from item: NSSecureCoding?) -> String? {
+        if let text = item as? String { return text }
+        if let string = item as? NSString { return String(string) }
+        return nil
+    }
+}
 
 // MARK: - Touch-Only Gesture Delegate
 
@@ -890,7 +914,7 @@ extension Ghostty.TerminalView {
         #if targetEnvironment(macCatalyst)
         // Catalyst's `.string` bridge may synthesize HTML/RTF bytes for rich-
         // only content. Keep the strict UTI reader used before this refactor.
-        if let text = pasteboard.getOpinionatedStringContents(), !text.isEmpty {
+        if let text = pasteboard.opinionatedStringContents(), !text.isEmpty {
             _ = insertPastedText(text)
             return
         }
@@ -1031,80 +1055,68 @@ extension Ghostty.TerminalView {
         at index: Int,
         completion: ((Bool) -> Void)?
     ) {
-        guard index < candidates.count else {
-            completion?(false)
+        // NSItemProvider completions are `@Sendable` and the provider is not.
+        // The box is the one transfer; every use of it happens on the main actor.
+        let box = PasteLoadBox(candidates: candidates, completion: completion, view: self)
+        loadPastedPlainText(box: box, at: index)
+    }
+
+    private func loadPastedPlainText(box: PasteLoadBox, at index: Int) {
+        guard index < box.candidates.count else {
+            box.completion?(false)
             return
         }
-        let candidate = candidates[index]
-
-        func tryNextCandidate() {
-            DispatchQueue.main.async { [weak self] in
-                guard let self else {
-                    completion?(false)
-                    return
-                }
-                self.loadPastedPlainText(
-                    candidates: candidates,
-                    at: index + 1,
-                    completion: completion
-                )
+        let candidate = box.candidates[index]
+        let typeIdentifier = candidate.typeIdentifier
+        candidate.provider.loadDataRepresentation(forTypeIdentifier: typeIdentifier) { data, _ in
+            let payload = data
+            Task { @MainActor in
+                box.view?.continuePastedData(payload, typeIdentifier: typeIdentifier, box: box, index: index)
             }
         }
+    }
 
-        func finish(with text: String?) {
-            guard let text, !text.isEmpty else {
-                tryNextCandidate()
-                return
-            }
-            DispatchQueue.main.async { [weak self] in
-                guard let self else {
-                    completion?(false)
-                    return
-                }
-                let inserted = self.insertPastedText(text)
-                completion?(inserted)
-            }
+    private func continuePastedData(
+        _ data: Data?,
+        typeIdentifier: String,
+        box: PasteLoadBox,
+        index: Int
+    ) {
+        if let data,
+           let text = decodePastedText(data, typeIdentifier: typeIdentifier),
+           !text.isEmpty {
+            finishPastedText(text, box: box, nextIndex: index + 1)
+            return
         }
-
-        candidate.provider.loadDataRepresentation(
-            forTypeIdentifier: candidate.typeIdentifier
-        ) { [weak self] data, _ in
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                if let data,
-                   let text = self.decodePastedText(
-                       data,
-                       typeIdentifier: candidate.typeIdentifier
-                   ),
-                   !text.isEmpty {
-                    finish(with: text)
-                    return
-                }
-
-                // Some providers vend an NSString through loadItem but do not
-                // supply a data representation. Try that representation before
-                // advancing to the next type or provider.
-                candidate.provider.loadItem(
-                    forTypeIdentifier: candidate.typeIdentifier,
-                    options: nil
-                ) { item, _ in
-                    DispatchQueue.main.async {
-                        if let text = item as? String {
-                            finish(with: text)
-                        } else if let string = item as? NSString {
-                            finish(with: String(string))
-                        } else if let data = item as? Data {
-                            finish(with: self.decodePastedText(
-                                data,
-                                typeIdentifier: candidate.typeIdentifier
-                            ))
-                        } else {
-                            tryNextCandidate()
-                        }
-                    }
+        guard index < box.candidates.count else {
+            box.completion?(false)
+            return
+        }
+        let candidate = box.candidates[index]
+        candidate.provider.loadItem(forTypeIdentifier: typeIdentifier, options: nil) { item, _ in
+            let text = PasteLoadBox.text(from: item)
+            let data = item as? Data
+            Task { @MainActor in
+                if let text, !text.isEmpty {
+                    box.view?.finishPastedText(text, box: box, nextIndex: index + 1)
+                } else if let data,
+                          let decoded = box.view?.decodePastedText(data, typeIdentifier: typeIdentifier),
+                          !decoded.isEmpty {
+                    box.view?.finishPastedText(decoded, box: box, nextIndex: index + 1)
+                } else {
+                    box.view?.loadPastedPlainText(box: box, at: index + 1)
                 }
             }
         }
+    }
+
+    private func finishPastedText(_ text: String?, box: PasteLoadBox, nextIndex: Int) {
+        guard let text, !text.isEmpty else {
+            loadPastedPlainText(box: box, at: nextIndex)
+            return
+        }
+        let inserted = insertPastedText(text)
+        box.completion?(inserted)
     }
 
     private func decodePastedText(_ data: Data, typeIdentifier: String) -> String? {

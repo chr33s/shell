@@ -123,7 +123,7 @@ nonisolated enum GenerateKeyType: String, CaseIterable, Hashable, Sendable {
 ///
 /// `nonisolated` so callers can hand off generation to a background task
 /// (RSA-3072/4096 takes multiple seconds — running on the MainActor would
-/// freeze the UI even when invoked from `Task.detached`, because the
+/// freeze the UI even when invoked from a `@concurrent` task, because the
 /// project-wide default isolation would otherwise hop the static call
 /// back to MainActor).
 nonisolated enum SSHKeyGenerator {

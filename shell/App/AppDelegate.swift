@@ -53,16 +53,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         // and players activate the session themselves when they start.
         // (No UserDefaults dependency — safe to run before unlock.)
         let logger = Self.logger
-        DispatchQueue.global(qos: .userInitiated).async {
-            do {
-                try AVAudioSession.sharedInstance().setCategory(
-                    .playback,
-                    mode: .default,
-                    options: [.mixWithOthers]
-                )
-            } catch {
-                logger.warning("Failed to configure audio session: \(error.localizedDescription)")
-            }
+        Task(priority: .userInitiated) {
+            await Self.configureAudioSession(logger: logger)
         }
 
         SettingsRegistry.shared.assertInvariants()
@@ -213,10 +205,25 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             Ghostty.isSecureDrawProhibitedAtomic = true
         }
     }
+
+    /// Category changes round-trip to the audio server. `@concurrent` keeps that
+    /// off the main actor without detaching a task that drops cancellation.
+    @concurrent
+    private static func configureAudioSession(logger: Logger) async {
+        do {
+            try AVAudioSession.sharedInstance().setCategory(
+                .playback,
+                mode: .default,
+                options: [.mixWithOthers]
+            )
+        } catch {
+            logger.warning("Failed to configure audio session: \(error.localizedDescription)")
+        }
+    }
 }
 
-final class ForegroundActivationGate: Sendable {
-    nonisolated static let shared = ForegroundActivationGate()
+nonisolated final class ForegroundActivationGate: Sendable {
+    static let shared = ForegroundActivationGate()
 
     enum TimeoutPolicy: Sendable, Equatable {
         case drop
@@ -246,14 +253,20 @@ final class ForegroundActivationGate: Sendable {
 
     nonisolated func diagnosticFields() -> [(String, Any)] {
         let now = Date().timeIntervalSinceReferenceDate
-        return state.withLock { state in
-            [
-                ("activationGateUnsafe", state.activeToken != 0 || now < state.settlingUntil),
-                ("activationToken", state.activeToken),
-                ("activationLastEvent", state.lastEvent),
-                ("activationSettlingMs", max(0, (state.settlingUntil - now) * 1000))
-            ]
+        let snapshot = state.withLock { state in
+            (
+                unsafe: state.activeToken != 0 || now < state.settlingUntil,
+                token: state.activeToken,
+                event: state.lastEvent,
+                settlingMs: max(0, (state.settlingUntil - now) * 1000)
+            )
         }
+        return [
+            ("activationGateUnsafe", snapshot.unsafe),
+            ("activationToken", snapshot.token),
+            ("activationLastEvent", snapshot.event),
+            ("activationSettlingMs", snapshot.settlingMs)
+        ]
     }
 
     nonisolated func markWillEnterForeground(appState: String) {
@@ -362,8 +375,8 @@ final class ForegroundActivationGate: Sendable {
     }
 }
 
-private final class ForegroundTransitionWatchdog: Sendable {
-    nonisolated static let shared = ForegroundTransitionWatchdog()
+nonisolated private final class ForegroundTransitionWatchdog: Sendable {
+    static let shared = ForegroundTransitionWatchdog()
 
     private struct State: Sendable {
         var token: UInt64 = 0

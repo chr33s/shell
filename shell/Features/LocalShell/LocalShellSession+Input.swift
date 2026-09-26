@@ -447,7 +447,7 @@ extension LocalShellSession {
         // change the name, and operators can immediately follow it (f|cat).
         let functionTokenizer = ShellTokenizer(source: trimmedCommand)
         if case .word(let functionWord) = functionTokenizer.next(),
-           sharedShellEnvironment.getFunction(Self.stripPUAMarkers(functionWord)) != nil {
+           sharedShellEnvironment.function(Self.stripPUAMarkers(functionWord)) != nil {
             executeInteractiveScript(trimmedCommand)
             return
         }
@@ -501,7 +501,7 @@ extension LocalShellSession {
             expanded += " " + aliasInput.suffix
         }
 
-        if sharedShellEnvironment.getFunction(firstWord) != nil {
+        if sharedShellEnvironment.function(firstWord) != nil {
             return expanded
         }
 
@@ -639,7 +639,7 @@ extension LocalShellSession {
         let buffer = lineEditor.buffer
         let terminalWidth = Int(pty.windowSize.cols)
 
-        let prompt = getCurrentPromptResult()
+        let prompt = currentPromptResult()
 
         if prompt.secondLinePrefix > 0 {
             var out = prompt.text
@@ -807,7 +807,7 @@ extension LocalShellSession {
             let formattedPath = self.formatPathForTitle(currentPath)
             self.onTitleChange?(formattedPath)
 
-            let prompt = self.getCurrentPromptResult()
+            let prompt = self.currentPromptResult()
             if prompt.addsLeadingSeparator {
                 self.onOutput?("\r\n")
             }
@@ -967,7 +967,7 @@ extension LocalShellSession {
                 return
             }
 
-            let prompt = self.getCurrentPromptResult()
+            let prompt = self.currentPromptResult()
             let isMultiLine = prompt.secondLinePrefix > 0
 
             if isMultiLine {
@@ -1314,7 +1314,7 @@ extension LocalShellSession {
         // Shell functions are only visible through the interpreter. If the
         // expanded command name resolves to one, we MUST NOT route to ios_system
         // via a rebuilt string (it would become "command not found").
-        let resolvesToFunction = sharedShellEnvironment.getFunction(commandName) != nil
+        let resolvesToFunction = sharedShellEnvironment.function(commandName) != nil
 
         // Non-native commands (shell functions, ios_system externals, builtins)
         // are safely handled by the full interpreter, which dispatches builtins

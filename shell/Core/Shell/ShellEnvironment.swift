@@ -49,8 +49,8 @@ nonisolated final class ShellEnvironment: @unchecked Sendable {
     /// Trap handlers that persist with the environment (across interpreter instances).
     let trapRegistry = TrapRegistry()
 
-    /// Exit code of the last executed command.
-    private(set) var lastExitCode: Int32 = 0
+    /// Exit code of the last executed command. Read and written under `lock`.
+    private var storedExitCode: Int32 = 0
 
     /// Shell options (`set -e/-u/-x/-o pipefail`).
     private var shellOptions = ShellOptions()
@@ -59,7 +59,7 @@ nonisolated final class ShellEnvironment: @unchecked Sendable {
     private var positionalParams: [String] = []
 
     /// Script name ($0).
-    private var scriptName: String = "sh"
+    private var storedScriptName: String = "sh"
 
     /// Session ID for ios_getenv/ios_setenv calls.
     let sessionID: UUID
@@ -86,11 +86,11 @@ nonisolated final class ShellEnvironment: @unchecked Sendable {
     // MARK: - Exit Code
 
     func setLastExitCode(_ code: Int32) {
-        lock.withLock { lastExitCode = code }
+        lock.withLock { storedExitCode = code }
     }
 
-    func getLastExitCode() -> Int32 {
-        lock.withLock { lastExitCode }
+    func lastExitCode() -> Int32 {
+        lock.withLock { storedExitCode }
     }
 
     // MARK: - Current Line (`$LINENO`)
@@ -98,14 +98,14 @@ nonisolated final class ShellEnvironment: @unchecked Sendable {
     /// Line of the simple command currently executing, within the source unit
     /// it was parsed from (script file, `source`d file, `eval` string, or the
     /// submitted interactive command). 0 = unknown.
-    private var currentLineNumber: Int = 0
+    private var storedLineNumber: Int = 0
 
     func setCurrentLineNumber(_ line: Int) {
-        lock.withLock { currentLineNumber = line }
+        lock.withLock { storedLineNumber = line }
     }
 
-    func getCurrentLineNumber() -> Int {
-        lock.withLock { currentLineNumber }
+    func currentLineNumber() -> Int {
+        lock.withLock { storedLineNumber }
     }
 
     // MARK: - Shell Options
@@ -121,7 +121,7 @@ nonisolated final class ShellEnvironment: @unchecked Sendable {
     // MARK: - Variable Access
 
     /// Get a variable's value. Checks scope stack, then shell variables, then ios_getenv.
-    func getVariable(_ name: String) -> String? {
+    func variable(_ name: String) -> String? {
         lock.withLock {
             // Check scope stack (top first)
             for scope in scopeStack.reversed() {
@@ -132,7 +132,7 @@ nonisolated final class ShellEnvironment: @unchecked Sendable {
             if let val = variables[name] { return val }
 
             // Check process environment
-            return getEnvVar(name)
+            return envVar(name)
         }
     }
 
@@ -164,7 +164,7 @@ nonisolated final class ShellEnvironment: @unchecked Sendable {
             // Use provided value, or shell variable, or EXISTING ios_system env value.
             // The ios_system env fallback prevents clobbering inherited vars like PATH
             // when `export PATH` is called without a value.
-            let finalValue = value ?? variables[name] ?? getEnvVar(name) ?? ""
+            let finalValue = value ?? variables[name] ?? envVar(name) ?? ""
             if allowProcessEnvWrites {
                 setEnvVar(name, value: finalValue)
             }
@@ -234,7 +234,7 @@ nonisolated final class ShellEnvironment: @unchecked Sendable {
     }
 
     /// Look up a shell function.
-    func getFunction(_ name: String) -> ShellCommand? {
+    func function(_ name: String) -> ShellCommand? {
         lock.withLock {
             functions[name]
         }
@@ -253,7 +253,7 @@ nonisolated final class ShellEnvironment: @unchecked Sendable {
     func setPositionalParams(_ params: [String], scriptName: String) {
         lock.withLock {
             self.positionalParams = params
-            self.scriptName = scriptName
+            self.storedScriptName = scriptName
         }
     }
 
@@ -270,7 +270,7 @@ nonisolated final class ShellEnvironment: @unchecked Sendable {
     }
 
     /// Get a positional parameter by index (1-based).
-    func getPositionalParam(_ index: Int) -> String? {
+    func positionalParam(_ index: Int) -> String? {
         lock.withLock {
             guard index >= 1 && index <= positionalParams.count else { return nil }
             return positionalParams[index - 1]
@@ -278,7 +278,7 @@ nonisolated final class ShellEnvironment: @unchecked Sendable {
     }
 
     /// Get all positional parameters.
-    func getAllPositionalParams() -> [String] {
+    func allPositionalParams() -> [String] {
         lock.withLock { positionalParams }
     }
 
@@ -288,8 +288,8 @@ nonisolated final class ShellEnvironment: @unchecked Sendable {
     }
 
     /// Get the script name ($0).
-    func getScriptName() -> String {
-        lock.withLock { scriptName }
+    func scriptName() -> String {
+        lock.withLock { storedScriptName }
     }
 
     /// Resolve a path relative to the shell session.
@@ -298,7 +298,7 @@ nonisolated final class ShellEnvironment: @unchecked Sendable {
             return path
         }
 
-        let home = getVariable("HOME")
+        let home = variable("HOME")
             ?? FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].path
         if path == "~" {
             return home
@@ -307,7 +307,7 @@ nonisolated final class ShellEnvironment: @unchecked Sendable {
             return (home as NSString).appendingPathComponent(String(path.dropFirst(2)))
         }
 
-        let pwd = getVariable("PWD") ?? FileManager.default.currentDirectoryPath
+        let pwd = variable("PWD") ?? FileManager.default.currentDirectoryPath
         return (pwd as NSString).appendingPathComponent(path)
     }
 
@@ -317,19 +317,19 @@ nonisolated final class ShellEnvironment: @unchecked Sendable {
     func resolveSpecialVariable(_ name: String) -> String? {
         switch name {
         case "?":
-            return String(getLastExitCode())
+            return String(lastExitCode())
         case "#":
             return String(positionalParamCount())
         case "@":
             // Join with the field-separator sentinel so `"$@"` expands to one
             // field per parameter (split in the interpreter's field stage).
-            let params = getAllPositionalParams()
+            let params = allPositionalParams()
             if params.isEmpty { return String(ShellTokenizer.emptyAtMarker) }
             return params.joined(separator: String(ShellTokenizer.fieldSeparator))
         case "*":
             // POSIX: join with the first character of IFS (default space).
-            let sep = (getVariable("IFS") ?? " \t\n").first.map(String.init) ?? ""
-            return getAllPositionalParams().joined(separator: sep)
+            let sep = (variable("IFS") ?? " \t\n").first.map(String.init) ?? ""
+            return allPositionalParams().joined(separator: sep)
         case "$":
             return String(ProcessInfo.processInfo.processIdentifier)
         case "!":
@@ -337,15 +337,15 @@ nonisolated final class ShellEnvironment: @unchecked Sendable {
         case "-":
             return options.flagString
         case "0":
-            return getScriptName()
+            return scriptName()
         case "RANDOM":
             return String(Int.random(in: 0...32767))
         case "LINENO":
-            return String(getCurrentLineNumber())
+            return String(currentLineNumber())
         default:
             // Positional parameter $1-$9+
             if let n = Int(name), n >= 1 {
-                return getPositionalParam(n)
+                return positionalParam(n)
             }
             return nil
         }
@@ -384,7 +384,7 @@ nonisolated final class ShellEnvironment: @unchecked Sendable {
         case .variable(let name):
             // Check special variables first, then regular lookup
             if let special = resolveSpecialVariable(name) { return special }
-            if let value = getVariable(name) { return value }
+            if let value = variable(name) { return value }
             if options.nounset { throw ShellError.undefinedVariable(name) }
             return ""
 
@@ -470,7 +470,7 @@ nonisolated final class ShellEnvironment: @unchecked Sendable {
     /// a plain `$VAR` reference.
     private func lookupTransformable(_ name: String) throws -> String {
         if let special = resolveSpecialVariable(name) { return special }
-        if let value = getVariable(name) { return value }
+        if let value = variable(name) { return value }
         if options.nounset { throw ShellError.undefinedVariable(name) }
         return ""
     }
@@ -481,31 +481,31 @@ nonisolated final class ShellEnvironment: @unchecked Sendable {
         switch expansion {
         case .simple(let name):
             if let special = resolveSpecialVariable(name) { return special }
-            if let value = getVariable(name) { return value }
+            if let value = variable(name) { return value }
             if options.nounset { throw ShellError.undefinedVariable(name) }
             return ""
 
         case .defaultValue(let name, let word, let checkEmpty):
-            let val = resolveSpecialVariable(name) ?? getVariable(name)
+            let val = resolveSpecialVariable(name) ?? variable(name)
             if let v = val, !(checkEmpty && v.isEmpty) { return v }
             return try word.map { try expandWord($0, interpreter: interpreter) }.joined()
 
         case .assignDefault(let name, let word, let checkEmpty):
-            let val = resolveSpecialVariable(name) ?? getVariable(name)
+            let val = resolveSpecialVariable(name) ?? variable(name)
             if let v = val, !(checkEmpty && v.isEmpty) { return v }
             let defaultVal = try word.map { try expandWord($0, interpreter: interpreter) }.joined()
             setVariable(name, value: defaultVal)
             return defaultVal
 
         case .alternative(let name, let word, let checkEmpty):
-            let val = resolveSpecialVariable(name) ?? getVariable(name)
+            let val = resolveSpecialVariable(name) ?? variable(name)
             if let v = val, !(checkEmpty && v.isEmpty) {
                 return try word.map { try expandWord($0, interpreter: interpreter) }.joined()
             }
             return ""
 
         case .errorIfUnset(let name, let word, let checkEmpty):
-            let val = resolveSpecialVariable(name) ?? getVariable(name)
+            let val = resolveSpecialVariable(name) ?? variable(name)
             if let v = val, !(checkEmpty && v.isEmpty) { return v }
             let msg = try word.map { try expandWord($0, interpreter: interpreter) }.joined()
             throw ShellError.undefinedVariable(msg.isEmpty ? name : msg)
@@ -674,12 +674,12 @@ nonisolated final class ShellEnvironment: @unchecked Sendable {
             var values: [String: String] = [:]
             // Capture values for all exported names
             for name in exportedNames {
-                values[name] = variables[name] ?? getEnvVar(name) ?? ""
+                values[name] = variables[name] ?? envVar(name) ?? ""
             }
             // Also capture ios_system env values for shell variables that might
             // get exported during the subshell (e.g. PATH that only lives in env)
             for name in variables.keys {
-                if values[name] == nil, let envVal = getEnvVar(name) {
+                if values[name] == nil, let envVal = envVar(name) {
                     values[name] = envVal
                 }
             }
@@ -726,8 +726,8 @@ nonisolated final class ShellEnvironment: @unchecked Sendable {
     }
 
     /// Read the current exported value for a variable from ios_system env.
-    func getExportedEnvValue(_ name: String) -> String? {
-        lock.withLock { getEnvVar(name) }
+    func exportedEnvValue(_ name: String) -> String? {
+        lock.withLock { envVar(name) }
     }
 
     /// Snapshot the environment that should be visible to child external commands.
@@ -735,7 +735,7 @@ nonisolated final class ShellEnvironment: @unchecked Sendable {
         lock.withLock {
             var values: [String: String] = [:]
             for name in exportedNames {
-                values[name] = variables[name] ?? getEnvVar(name) ?? ""
+                values[name] = variables[name] ?? envVar(name) ?? ""
             }
             return values
         }
@@ -796,9 +796,9 @@ nonisolated final class ShellEnvironment: @unchecked Sendable {
         let scopes = snapshotScopeStack()
         let funcs = snapshotFunctions()
         let exports = snapshotExportedState()
-        let params = getAllPositionalParams()
-        let name = getScriptName()
-        let lastCode = getLastExitCode()
+        let params = allPositionalParams()
+        let name = scriptName()
+        let lastCode = lastExitCode()
         let traps = trapRegistry.snapshot()
 
         copy.restoreVariables(vars)
@@ -815,7 +815,7 @@ nonisolated final class ShellEnvironment: @unchecked Sendable {
         copy.setLastExitCode(lastCode)
         // A subshell inherits `$LINENO` until its own first simple command
         // publishes one, matching how `$?` is carried across above.
-        copy.setCurrentLineNumber(getCurrentLineNumber())
+        copy.setCurrentLineNumber(currentLineNumber())
         copy.trapRegistry.restore(traps)
         let opts = options
         copy.updateOptions { $0 = opts }
@@ -824,7 +824,7 @@ nonisolated final class ShellEnvironment: @unchecked Sendable {
 
     // MARK: - ios_system Environment Bridge
 
-    private func getEnvVar(_ name: String) -> String? {
+    private func envVar(_ name: String) -> String? {
         Self.processEnvLock.withLock {
             rawGetEnvVar(name)
         }

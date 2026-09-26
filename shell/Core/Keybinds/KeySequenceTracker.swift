@@ -5,6 +5,7 @@
 //  Tracks pending key sequences for multi-key shortcuts
 //
 
+import Observation
 import Foundation
 import Combine
 import os
@@ -23,7 +24,8 @@ enum KeySequenceResult: Sendable {
 
 /// Tracks pending key sequences for multi-key shortcuts like Ctrl+A > N
 @MainActor
-final class KeySequenceTracker: ObservableObject {
+@Observable
+final class KeySequenceTracker {
     private static let logger = Logger(subsystem: "dev.chr33s.shell", category: "KeySequenceTracker")
 
     /// Shared instance used by the runtime input path. One tracker suffices because
@@ -32,13 +34,13 @@ final class KeySequenceTracker: ObservableObject {
     static let shared = KeySequenceTracker()
 
     /// The first trigger of a pending sequence
-    @Published private(set) var pendingTrigger: KeyTrigger?
+    private(set) var pendingTrigger: KeyTrigger?
 
     /// Whether we're waiting for the second key in a sequence
-    @Published var isAwaitingSecondKey: Bool = false
+    var isAwaitingSecondKey: Bool = false
 
     /// Possible bindings that match the current prefix
-    @Published private(set) var possibleBindings: [Keybind] = []
+    private(set) var possibleBindings: [Keybind] = []
 
     /// Installed by the input path. Fires when a pending prefix times out and the
     /// prefix trigger also had a direct single-key binding — tmux-style semantics

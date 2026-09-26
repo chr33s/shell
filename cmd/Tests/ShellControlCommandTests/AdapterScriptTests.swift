@@ -1,11 +1,13 @@
-import XCTest
+import Foundation
+import Testing
 
 /// Drives `adapters/git-pre-push/pre-push` against a scratch repository with a
 /// stub `shell-control` that captures the request it would send.
-final class AdapterScriptTests: XCTestCase {
+@Suite
+final class AdapterScriptTests {
     private var directory: URL!
 
-    override func setUpWithError() throws {
+    init() throws {
         directory = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("shell-control-adapter-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory.appendingPathComponent("bin"), withIntermediateDirectories: true)
@@ -20,7 +22,7 @@ final class AdapterScriptTests: XCTestCase {
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: stub.path)
     }
 
-    override func tearDownWithError() throws {
+    deinit {
         try? FileManager.default.removeItem(at: directory)
     }
 
@@ -67,10 +69,8 @@ final class AdapterScriptTests: XCTestCase {
         return try run("git", ["rev-parse", "HEAD"]).1
     }
 
+    @Test(.enabled(if: FileManager.default.isExecutableFile(atPath: "/usr/bin/python3"), "the hook needs /usr/bin/python3"))
     func testRefUpdatesAreVisibleToTheReviewer() throws {
-        guard FileManager.default.isExecutableFile(atPath: "/usr/bin/python3") else {
-            throw XCTSkip("the hook needs /usr/bin/python3")
-        }
         try run("git", ["init", "-q"])
         let base = try commit("one")
         let ahead = try commit("two")
@@ -87,21 +87,21 @@ final class AdapterScriptTests: XCTestCase {
         ].joined(separator: "\n") + "\n"
 
         let (status, _) = try run("sh", [hook.path, "origin", "https://example.invalid/r.git"], input: updates)
-        XCTAssertEqual(status, 1, "a missing approval must block the push")
+        #expect(status == 1, "a missing approval must block the push")
 
-        let spec = try XCTUnwrap(JSONSerialization.jsonObject(
+        let spec = try #require(JSONSerialization.jsonObject(
             with: Data(contentsOf: directory.appendingPathComponent("spec.json"))
         ) as? [String: Any])
-        let summary = try XCTUnwrap(spec["summary"] as? String)
-        XCTAssertLessThanOrEqual(summary.unicodeScalars.count, 200)
-        XCTAssertTrue(summary.hasPrefix("Delete origin/old; Force-push side \u{2192} origin/main (non-fast-forward)"), summary)
-        XCTAssertTrue(summary.contains("Possible force-push x \u{2192} origin/x"), summary)
-        XCTAssertTrue(summary.contains("Create origin/new from new"), summary)
-        XCTAssertTrue(summary.contains("Push main \u{2192} origin/main"), summary)
+        let summary = try #require(spec["summary"] as? String)
+        #expect(summary.unicodeScalars.count <= 200)
+        #expect(summary.hasPrefix("Delete origin/old; Force-push side \u{2192} origin/main (non-fast-forward)"), "\(summary)")
+        #expect(summary.contains("Possible force-push x \u{2192} origin/x"), "\(summary)")
+        #expect(summary.contains("Create origin/new from new"), "\(summary)")
+        #expect(summary.contains("Push main \u{2192} origin/main"), "\(summary)")
 
-        let operation = try XCTUnwrap(spec["operation"] as? [String: Any])
-        let argv = try XCTUnwrap(operation["argv"] as? [String])
-        XCTAssertEqual(Array(argv.dropFirst()), [
+        let operation = try #require(spec["operation"] as? [String: Any])
+        let argv = try #require(operation["argv"] as? [String])
+        #expect(Array(argv.dropFirst()) == [
             "push", "origin",
             "refs/heads/main:refs/heads/main",
             "+refs/heads/side:refs/heads/main",
@@ -109,7 +109,7 @@ final class AdapterScriptTests: XCTestCase {
             "refs/heads/new:refs/heads/new",
             "+refs/heads/x:refs/heads/x"
         ])
-        let context = try XCTUnwrap(operation["context_sha256"] as? String)
-        XCTAssertEqual(context.count, 64)
+        let context = try #require(operation["context_sha256"] as? String)
+        #expect(context.count == 64)
     }
 }

@@ -1,11 +1,13 @@
-import XCTest
+import Foundation
+import Testing
 @testable import ShellControlProtocol
 @testable import ShellControlSecurity
 @testable import ShellControlClient
 
 /// Review capability and submission-outcome classification in the
 /// coordinator (docs/specs/control-protocol.md sections 11.2, 13.1 and 14).
-final class DecisionCoordinatorTests: XCTestCase {
+@Suite
+final class DecisionCoordinatorTests {
     private let phoneGrants = DeviceGrant.watchDefault
     private let watchGrants = DeviceGrant.watchReviewerDefault
 
@@ -47,56 +49,62 @@ final class DecisionCoordinatorTests: XCTestCase {
 
     // MARK: Review capability
 
+    @Test
     func testFullReviewRequestIsApprovableOnlyByAFullReviewClient() async throws {
         let full = try record(minimumReview: .full)
-        XCTAssertEqual(full.watchApprovability(at: full.spec.createdAt), .reviewElsewhere(reason: .policyRequiresFullReview))
-        XCTAssertEqual(full.approvability(at: full.spec.createdAt, review: .full), .approvable)
-        XCTAssertTrue(full.canApprove(at: full.spec.createdAt, review: .full))
-        XCTAssertFalse(full.canApprove(at: full.spec.createdAt))
+        #expect(full.watchApprovability(at: full.spec.createdAt) == .reviewElsewhere(reason: .policyRequiresFullReview))
+        #expect(full.approvability(at: full.spec.createdAt, review: .full) == .approvable)
+        #expect(full.canApprove(at: full.spec.createdAt, review: .full))
+        #expect(!(full.canApprove(at: full.spec.createdAt)))
 
         let service = StubDecisionService(record: full)
         let watchJournal = try journal(at: full)
         let watch = coordinator(service, journal: watchJournal, grants: watchGrants, review: .watch, at: full)
         do {
             _ = try await watch.decide(.approve, reviewed: full)
-            XCTFail("a Watch approved a full-review request")
+            Issue.record("a Watch approved a full-review request")
         } catch let error as DecisionCoordinator.CoordinatorError {
-            XCTAssertEqual(error, .notApprovableOnWatch(.policyRequiresFullReview))
+            #expect(error == .notApprovableOnWatch(.policyRequiresFullReview))
         }
         let watchPending = await watchJournal.pending
-        XCTAssertTrue(watchPending.isEmpty)
+        #expect(watchPending.isEmpty)
 
         let phone = coordinator(service, journal: try journal(at: full), grants: phoneGrants, review: .full, at: full)
         let state = try await phone.decide(.approve, reviewed: full)
-        guard case .decisionRecorded = state else { return XCTFail("unexpected \(state)") }
+        guard case .decisionRecorded = state else { Issue.record("unexpected \(state)")
+return }
     }
 
+    @Test
     func testPolicyWithheldWatchReviewStillAllowsFullReview() throws {
         let withheld = try record(minimumReview: .watch, watchReviewAllowed: false)
-        XCTAssertEqual(withheld.approvability(at: withheld.spec.createdAt, review: .watch), .reviewElsewhere(reason: .policyRequiresFullReview))
-        XCTAssertEqual(withheld.approvability(at: withheld.spec.createdAt, review: .full), .approvable)
+        #expect(withheld.approvability(at: withheld.spec.createdAt, review: .watch) == .reviewElsewhere(reason: .policyRequiresFullReview))
+        #expect(withheld.approvability(at: withheld.spec.createdAt, review: .full) == .approvable)
     }
 
     /// Everything but the review policy applies to a full-review client too.
+    @Test
     func testFullReviewStillRequiresPresence() throws {
         let full = try record(minimumReview: .full)
         let absent = try ApprovalRecord(spec: full.spec, projection: ApprovalProjection(presence: .absent))
-        XCTAssertEqual(absent.approvability(at: full.spec.createdAt, review: .full), .reviewElsewhere(reason: .sourceNotPresent))
+        #expect(absent.approvability(at: full.spec.createdAt, review: .full) == .reviewElsewhere(reason: .sourceNotPresent))
     }
 
-    func testDefaultReviewTreatsAGatewayReviewerAsAWatch() {
+    @Test
+    func testDefaultReviewTreatsAGatewayReviewerAsAWatch() throws {
         let reviewer = SignerIdentity(deviceID: .random(), audience: "a", grants: watchGrants)
-        XCTAssertEqual(DecisionCoordinator.defaultReview(for: reviewer), .watch)
+        #expect(DecisionCoordinator.defaultReview(for: reviewer) == .watch)
         let direct = SignerIdentity(deviceID: .random(), audience: "a", grants: phoneGrants)
         #if os(watchOS)
-        XCTAssertEqual(DecisionCoordinator.defaultReview(for: direct), .watch)
+        #expect(DecisionCoordinator.defaultReview(for: direct) == .watch)
         #else
-        XCTAssertEqual(DecisionCoordinator.defaultReview(for: direct), .full)
+        #expect(DecisionCoordinator.defaultReview(for: direct) == .full)
         #endif
     }
 
     // MARK: Submission outcomes
 
+    @Test
     func testFinalRejectionIsThrownAndDroppedFromTheJournal() async throws {
         let watchRecord = try record(minimumReview: .watch)
         for code in [ControlErrorCode.staleVersion, .challengeExpired, .originUnavailable, .notAuthorized, .fullReviewRequired] {
@@ -105,16 +113,17 @@ final class DecisionCoordinatorTests: XCTestCase {
             let coordinator = coordinator(service, journal: journal, grants: phoneGrants, at: watchRecord)
             do {
                 _ = try await coordinator.decide(.approve, reviewed: watchRecord)
-                XCTFail("\(code) was not surfaced")
+                Issue.record("\(code) was not surfaced")
             } catch let error as ControlError {
-                XCTAssertEqual(error.code, code)
-                XCTAssertTrue(error.provesCommandNotRecorded)
+                #expect(error.code == code)
+                #expect(error.provesCommandNotRecorded)
             }
             let pending = await journal.pending
-            XCTAssertTrue(pending.isEmpty, "\(code) left a command to be resent")
+            #expect(pending.isEmpty, "\(code) left a command to be resent")
         }
     }
 
+    @Test
     func testAmbiguousFailuresStayJournalledAsOutcomeUnknown() async throws {
         let watchRecord = try record(minimumReview: .watch)
         let failures: [any Error] = [
@@ -132,13 +141,15 @@ final class DecisionCoordinatorTests: XCTestCase {
             let journal = try journal(at: watchRecord)
             let coordinator = coordinator(service, journal: journal, grants: phoneGrants, at: watchRecord)
             let state = try await coordinator.decide(.approve, reviewed: watchRecord)
-            guard case .outcomeUnknown(let commandID, _) = state else { return XCTFail("\(failure): unexpected \(state)") }
+            guard case .outcomeUnknown(let commandID, _) = state else { Issue.record("\(failure): unexpected \(state)")
+return }
             let pending = await journal.pending
-            XCTAssertEqual(pending.map(\.commandID), [commandID])
-            XCTAssertEqual(pending.first?.status, .outcomeUnknown)
+            #expect(pending.map(\.commandID) == [commandID])
+            #expect(pending.first?.status == .outcomeUnknown)
         }
     }
 
+    @Test
     func testReconcileDropsACommandTheBrokerRejectsOnResend() async throws {
         let watchRecord = try record(minimumReview: .watch)
         let service = StubDecisionService(record: watchRecord, submitError: URLError(.networkConnectionLost))
@@ -146,29 +157,30 @@ final class DecisionCoordinatorTests: XCTestCase {
         let coordinator = coordinator(service, journal: journal, grants: phoneGrants, at: watchRecord)
         _ = try await coordinator.decide(.approve, reviewed: watchRecord)
         let journalled = await journal.pending
-        let pending = try XCTUnwrap(journalled.first)
+        let pending = try #require(journalled.first)
 
         await service.setSubmitError(ControlError(code: .originUnavailable, message: "not present"))
         do {
             _ = try await coordinator.reconcile(pending)
-            XCTFail("expected the rejection")
+            Issue.record("expected the rejection")
         } catch let error as ControlError {
-            XCTAssertEqual(error.code, .originUnavailable)
+            #expect(error.code == .originUnavailable)
         }
         let remaining = await journal.pending
-        XCTAssertTrue(remaining.isEmpty)
+        #expect(remaining.isEmpty)
         let sends = await service.submissions
-        XCTAssertEqual(sends, [pending.signedCommand, pending.signedCommand], "reconcile resends the identical JWS")
+        #expect(sends == [pending.signedCommand, pending.signedCommand], "reconcile resends the identical JWS")
     }
 
-    func testFinalRejectionClassification() {
+    @Test
+    func testFinalRejectionClassification() throws {
         for code in ControlErrorCode.allCases where code.provesCommandNotRecorded {
-            XCTAssertNotEqual(code.clientAction, .showRecordedState)
-            XCTAssertFalse(code.isRetryable)
+            #expect(code.clientAction != .showRecordedState)
+            #expect(!(code.isRetryable))
         }
-        XCTAssertFalse(ControlErrorCode.notFound.provesCommandNotRecorded)
-        XCTAssertFalse(ControlErrorCode.invalidPayload.provesCommandNotRecorded)
-        XCTAssertFalse(ControlErrorCode.alreadyResolved.provesCommandNotRecorded)
+        #expect(!(ControlErrorCode.notFound.provesCommandNotRecorded))
+        #expect(!(ControlErrorCode.invalidPayload.provesCommandNotRecorded))
+        #expect(!(ControlErrorCode.alreadyResolved.provesCommandNotRecorded))
     }
 }
 

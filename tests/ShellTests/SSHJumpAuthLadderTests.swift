@@ -1,4 +1,5 @@
-import XCTest
+import Foundation
+import Testing
 
 @testable import Shell
 
@@ -21,7 +22,8 @@ import XCTest
 /// private ladder, so the assertions are about what actually reaches
 /// `SSHConfig` — the value a session is built from.
 @MainActor
-final class SSHJumpAuthLadderTests: XCTestCase {
+@Suite
+final class SSHJumpAuthLadderTests {
 
     // MARK: - Fake credential store
 
@@ -51,10 +53,13 @@ final class SSHJumpAuthLadderTests: XCTestCase {
         )
     }
 
-    override func tearDown() {
-        SSHCommandParser.credentials = .live
+    deinit {
+        // The suite is nonisolated; XCTest used to run tearDown on the main
+        // thread, and the credential seam is main-actor state.
+        MainActor.assumeIsolated {
+            SSHCommandParser.credentials = .live
+        }
         savedPasswordQueries = []
-        super.tearDown()
     }
 
     // MARK: - Helpers
@@ -68,14 +73,14 @@ final class SSHJumpAuthLadderTests: XCTestCase {
     ) throws -> SSHConfig.JumpHostConfig {
         switch SSHCommandParser.parse(command: command) {
         case .success(let config):
-            return try XCTUnwrap(config.jumpHost, "expected a jump host", file: file, line: line)
+            return try #require(config.jumpHost, "expected a jump host")
         case .needsPassword(let partial):
-            return try XCTUnwrap(partial.jumpHost, "expected a jump host", file: file, line: line)
+            return try #require(partial.jumpHost, "expected a jump host")
         case .error(let message):
-            XCTFail("parse failed: \(message)", file: file, line: line)
+            Issue.record("parse failed: \(message)")
             throw UnexpectedParseResult()
         case .help:
-            XCTFail("parse returned .help", file: file, line: line)
+            Issue.record("parse returned .help")
             throw UnexpectedParseResult()
         }
     }
@@ -86,7 +91,7 @@ final class SSHJumpAuthLadderTests: XCTestCase {
         line: UInt = #line
     ) throws -> SSHConfig {
         guard case .success(let config) = SSHCommandParser.parse(command: command) else {
-            XCTFail("expected .success", file: file, line: line)
+            Issue.record("expected .success")
             throw UnexpectedParseResult()
         }
         return config
@@ -101,6 +106,7 @@ final class SSHJumpAuthLadderTests: XCTestCase {
     ///
     /// Goes red if `resolveJumpAuth` checks the saved password or the default
     /// key before the `-i` identity.
+    @Test
     func testExplicitIdentityOutranksSavedBastionPasswordAndDefaultKey() throws {
         installCredentials(
             identityPaths: ["/keys/work_ed25519": identityKeyID],
@@ -112,7 +118,7 @@ final class SSHJumpAuthLadderTests: XCTestCase {
             "ssh -i /keys/work_ed25519 -J admin@bastion.example.com user@target.example.com"
         )
 
-        XCTAssertEqual(jump.authMethod, .key(identityKeyID))
+        #expect(jump.authMethod == .key(identityKeyID))
     }
 
     /// Rung 2 beats rung 3: with no `-i`, a password saved for the bastion is
@@ -122,6 +128,7 @@ final class SSHJumpAuthLadderTests: XCTestCase {
     /// rung — which would present a key to a host the user had deliberately
     /// stored a password for, burning `MaxAuthTries` before the credential that
     /// works is ever offered.
+    @Test
     func testSavedBastionPasswordOutranksDefaultKey() throws {
         installCredentials(
             savedPasswordHosts: ["bastion.example.com:22:admin"],
@@ -130,7 +137,7 @@ final class SSHJumpAuthLadderTests: XCTestCase {
 
         let jump = try jumpConfig("ssh -J admin@bastion.example.com user@target.example.com")
 
-        XCTAssertEqual(jump.authMethod, .savedPassword)
+        #expect(jump.authMethod == .savedPassword)
     }
 
     /// Rung 3: nothing explicit, nothing saved — the PRIMARY default identity,
@@ -138,12 +145,13 @@ final class SSHJumpAuthLadderTests: XCTestCase {
     ///
     /// Goes red if the ladder starts picking a different default (last, or a
     /// name/host match) for the bastion.
+    @Test
     func testPrimaryDefaultKeyIsUsedWhenNothingElseIsStored() throws {
         installCredentials(defaultKeyIDs: [defaultKeyA, defaultKeyB, defaultKeyC])
 
         let jump = try jumpConfig("ssh -J admin@bastion.example.com user@target.example.com")
 
-        XCTAssertEqual(jump.authMethod, .key(defaultKeyA))
+        #expect(jump.authMethod == .key(defaultKeyA))
     }
 
     /// Rung 4 — exhausted. Nothing resolves, so the parser asks, and it asks for
@@ -154,19 +162,21 @@ final class SSHJumpAuthLadderTests: XCTestCase {
     /// Goes red if an empty password is invented for the bastion and the parse
     /// reports `.success` — i.e. if a connection is launched that silently sends
     /// `""` to a host the user was never asked about.
-    func testExhaustedLadderPromptsForTheBastionAndNotTheTarget() {
+    @Test
+    func testExhaustedLadderPromptsForTheBastionAndNotTheTarget() throws {
         installCredentials()
 
         guard case .needsPassword(let partial) =
                 SSHCommandParser.parse(command: "ssh -J admin@bastion.example.com user@target.example.com")
         else {
-            return XCTFail("expected .needsPassword when no credential resolves for either hop")
+            Issue.record("expected .needsPassword when no credential resolves for either hop")
+return
         }
 
-        XCTAssertEqual(partial.passwordSubject, .jumpHost)
-        XCTAssertNil(partial.targetAuthMethod)
-        XCTAssertEqual(partial.host, "target.example.com")
-        XCTAssertEqual(partial.jumpHost?.host, "bastion.example.com")
+        #expect(partial.passwordSubject == .jumpHost)
+        #expect((partial.targetAuthMethod) == nil)
+        #expect(partial.host == "target.example.com")
+        #expect(partial.jumpHost?.host == "bastion.example.com")
     }
 
     /// The bastion's saved-password lookup is keyed on the BASTION's own
@@ -180,6 +190,7 @@ final class SSHJumpAuthLadderTests: XCTestCase {
     /// Goes red if `resolveJumpAuth` is passed the target's host, port, or
     /// username — e.g. by reusing `finalHost`/`port`/`finalUsername` from the
     /// enclosing parse.
+    @Test
     func testBastionPasswordIsLookedUpUnderTheBastionsOwnHostPortUser() throws {
         installCredentials(defaultKeyIDs: [defaultKeyA])
 
@@ -188,10 +199,7 @@ final class SSHJumpAuthLadderTests: XCTestCase {
         // Exactly two probes, each under its OWN host:port:user, bastion first.
         // Any mix-up — the bastion probed on port 2222, or as `user` — shows up
         // here as a changed tuple rather than a passing `contains`.
-        XCTAssertEqual(
-            savedPasswordQueries,
-            ["bastion.example.com:2200:admin", "target.example.com:2222:user"]
-        )
+        #expect(savedPasswordQueries == ["bastion.example.com:2200:admin", "target.example.com:2222:user"])
     }
 
     /// An unqualified `-J bastion.example.com` inherits the target's username,
@@ -199,16 +207,14 @@ final class SSHJumpAuthLadderTests: XCTestCase {
     ///
     /// Goes red if the inheritance is dropped (the bastion would be probed under
     /// the device's local username instead) or applied after the lookup.
+    @Test
     func testUnqualifiedBastionInheritsTargetUsernameForItsOwnLookup() throws {
         installCredentials(defaultKeyIDs: [defaultKeyA])
 
         let jump = try jumpConfig("ssh -J bastion.example.com deploy@target.example.com")
 
-        XCTAssertEqual(jump.username, "deploy")
-        XCTAssertTrue(
-            savedPasswordQueries.contains("bastion.example.com:22:deploy"),
-            "queries were \(savedPasswordQueries)"
-        )
+        #expect(jump.username == "deploy")
+        #expect(savedPasswordQueries.contains("bastion.example.com:22:deploy"), "queries were \(savedPasswordQueries)")
     }
 
     // MARK: - The one-credential invariant (KEEP-LIST)
@@ -223,16 +229,14 @@ final class SSHJumpAuthLadderTests: XCTestCase {
     ///
     /// Goes red the moment anyone "makes the bastion consistent with the target"
     /// by handing `JumpHostConfig` a `fallbackKeyIDs` list.
+    @Test
     func testBastionGetsNoFallbackIdentitiesWhileTargetKeepsItsOwn() throws {
         installCredentials(defaultKeyIDs: [defaultKeyA, defaultKeyB, defaultKeyC])
 
         let config = try successConfig("ssh -J admin@bastion.example.com user@target.example.com")
 
-        XCTAssertEqual(config.fallbackKeyIDs, [defaultKeyB, defaultKeyC])
-        XCTAssertNil(
-            config.jumpHost?.fallbackKeyIDs,
-            "a bastion must be offered exactly one identity — MaxAuthTries is the scarce resource"
-        )
+        #expect(config.fallbackKeyIDs == [defaultKeyB, defaultKeyC])
+        #expect((config.jumpHost?.fallbackKeyIDs) == nil, "a bastion must be offered exactly one identity — MaxAuthTries is the scarce resource")
     }
 
     /// Same invariant on the `-i` path: naming an identity must not turn the
@@ -240,6 +244,7 @@ final class SSHJumpAuthLadderTests: XCTestCase {
     ///
     /// Goes red if fallbacks are synthesized for the jump host anywhere in the
     /// `-i` branch.
+    @Test
     func testBastionGetsNoFallbackIdentitiesOnTheExplicitIdentityPath() throws {
         installCredentials(
             identityPaths: ["/keys/work_ed25519": identityKeyID],
@@ -250,8 +255,8 @@ final class SSHJumpAuthLadderTests: XCTestCase {
             "ssh -i /keys/work_ed25519 -J admin@bastion.example.com user@target.example.com"
         )
 
-        XCTAssertEqual(config.jumpHost?.authMethod, .key(identityKeyID))
-        XCTAssertNil(config.jumpHost?.fallbackKeyIDs)
+        #expect(config.jumpHost?.authMethod == .key(identityKeyID))
+        #expect((config.jumpHost?.fallbackKeyIDs) == nil)
     }
 
     /// A resolved TARGET credential survives the bastion password prompt round
@@ -262,6 +267,7 @@ final class SSHJumpAuthLadderTests: XCTestCase {
     /// Goes red if `resultAwaitingJumpPassword` stops forwarding the target's
     /// method — the user would be prompted twice, and the second prompt would
     /// overwrite a working key with a password.
+    @Test
     func testTypedBastionPasswordIsAppliedToTheBastionAndLeavesTheTargetKeyIntact() throws {
         // Only the TARGET has a stored credential, so only the bastion needs a
         // prompt. No default keys: a default would resolve the bastion too.
@@ -273,18 +279,16 @@ final class SSHJumpAuthLadderTests: XCTestCase {
         guard case .needsPassword(let partial) =
                 SSHCommandParser.parse(command: "ssh -J admin@bastion.example.com user@target.example.com")
         else {
-            return XCTFail("expected a bastion-only prompt")
+            Issue.record("expected a bastion-only prompt")
+return
         }
 
-        XCTAssertEqual(partial.passwordSubject, .jumpHost)
-        XCTAssertEqual(partial.targetAuthMethod, .savedPassword)
+        #expect(partial.passwordSubject == .jumpHost)
+        #expect(partial.targetAuthMethod == .savedPassword)
 
         let resolved = partial.toSSHConfig(password: "bastion-secret")
-        XCTAssertEqual(resolved.jumpHost?.authMethod, .password("bastion-secret"))
-        XCTAssertEqual(
-            resolved.authMethod, .savedPassword,
-            "the typed bastion secret must never be written onto the target hop"
-        )
+        #expect(resolved.jumpHost?.authMethod == .password("bastion-secret"))
+        #expect(resolved.authMethod == .savedPassword, "the typed bastion secret must never be written onto the target hop")
     }
 
     /// No `-J` at all: the target ladder still runs, and no jump host is
@@ -292,14 +296,15 @@ final class SSHJumpAuthLadderTests: XCTestCase {
     /// implicit bastion.
     ///
     /// Goes red if `jumpHost` becomes non-nil without `-J`/`ProxyJump`.
+    @Test
     func testNoJumpHostConfiguredLeavesJumpConfigNil() throws {
         installCredentials(defaultKeyIDs: [defaultKeyA, defaultKeyB])
 
         let config = try successConfig("ssh user@target.example.com")
 
-        XCTAssertNil(config.jumpHost)
-        XCTAssertEqual(config.authMethod, .key(defaultKeyA))
-        XCTAssertEqual(config.fallbackKeyIDs, [defaultKeyB])
+        #expect((config.jumpHost) == nil)
+        #expect(config.authMethod == .key(defaultKeyA))
+        #expect(config.fallbackKeyIDs == [defaultKeyB])
     }
 
     /// `-o ProxyJump=` is the config-file spelling of `-J` and must take the same
@@ -307,6 +312,7 @@ final class SSHJumpAuthLadderTests: XCTestCase {
     ///
     /// Goes red if the `ProxyJump` option path bypasses `resolveJumpAuth` and
     /// builds a `JumpHostConfig` directly.
+    @Test
     func testProxyJumpOptionUsesTheSameSingleCredentialLadder() throws {
         installCredentials(defaultKeyIDs: [defaultKeyA, defaultKeyB, defaultKeyC])
 
@@ -314,8 +320,8 @@ final class SSHJumpAuthLadderTests: XCTestCase {
             "ssh -o ProxyJump=admin@bastion.example.com user@target.example.com"
         )
 
-        XCTAssertEqual(config.jumpHost?.host, "bastion.example.com")
-        XCTAssertEqual(config.jumpHost?.authMethod, .key(defaultKeyA))
-        XCTAssertNil(config.jumpHost?.fallbackKeyIDs)
+        #expect(config.jumpHost?.host == "bastion.example.com")
+        #expect(config.jumpHost?.authMethod == .key(defaultKeyA))
+        #expect((config.jumpHost?.fallbackKeyIDs) == nil)
     }
 }

@@ -1,4 +1,5 @@
-import XCTest
+import Foundation
+import Testing
 import CryptoKit
 @testable import ShellControlManagement
 import ShellControlHostSupport
@@ -45,7 +46,8 @@ struct FakePairingAdministration: PairingAdministration {
     }
 }
 
-final class TailscaleLifecycleTests: XCTestCase {
+@Suite
+final class TailscaleLifecycleTests {
     private func directory() -> URL {
         URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("shell-tailscale-\(UUID())")
     }
@@ -91,62 +93,65 @@ final class TailscaleLifecycleTests: XCTestCase {
         return Rig(manager: manager, tailnet: tailnet, origins: origins, services: services, state: state)
     }
 
+    @Test
     func testFreshSetupDefaultsToTailscaleServeOverLoopback() async throws {
         let root = directory(); defer { try? FileManager.default.removeItem(at: root) }
         let rig = try rig(root)
         let loaded = try await rig.manager.setup(SetupOptions(tailscalePath: "/usr/bin/true"))
-        XCTAssertEqual(loaded.installation.addressMode, .tailscale)
-        XCTAssertEqual(loaded.installation.publicURL, "https://macbook.example.ts.net")
+        #expect(loaded.installation.addressMode == .tailscale)
+        #expect(loaded.installation.publicURL == "https://macbook.example.ts.net")
         let configured = await rig.tailnet.configureCalls
-        XCTAssertEqual(configured, 1)
+        #expect(configured == 1)
         let calls = await rig.services.calls
-        XCTAssertFalse(calls.contains { $0.contains("tunnel") }, "no cloudflared in the tailnet profile")
+        #expect(!(calls.contains { $0.contains("tunnel") }), "no cloudflared in the tailnet profile")
 
         // The broker stays on loopback and is told the origin identity.
         let config = try JSONSerialization.jsonObject(with: Data(contentsOf: loaded.paths.services.appendingPathComponent("broker.json"))) as? [String: Any]
-        XCTAssertEqual(config?["bind_loopback"] as? Bool, true)
-        XCTAssertEqual(config?["origin_id"] as? String, loaded.secrets.originID?.uuidString.lowercased())
-        XCTAssertEqual(config?["origin_key_file"] as? String, loaded.paths.originKey.path)
+        #expect(config?["bind_loopback"] as? Bool == true)
+        #expect(config?["origin_id"] as? String == loaded.secrets.originID?.uuidString.lowercased())
+        #expect(config?["origin_key_file"] as? String == loaded.paths.originKey.path)
         let mode = try FileManager.default.attributesOfItem(atPath: loaded.paths.originKey.path)[.posixPermissions] as? NSNumber
-        XCTAssertEqual((mode?.intValue ?? 0o777) & 0o077, 0, "origin key is owner-only")
+        #expect((mode?.intValue ?? 0o777) & 0o077 == 0, "origin key is owner-only")
 
         let status = await rig.manager.status()
-        XCTAssertEqual(status.overall, "ready")
-        XCTAssertEqual(status.components["tailscale"]?.state, "connected")
-        XCTAssertEqual(status.components["serve"]?.state, "active")
-        XCTAssertEqual(status.origin?.fingerprint, loaded.secrets.originKeyFingerprint)
-        XCTAssertTrue(status.origin?.fingerprint.hasPrefix("SHA256:") ?? false)
+        #expect(status.overall == "ready")
+        #expect(status.components["tailscale"]?.state == "connected")
+        #expect(status.components["serve"]?.state == "active")
+        #expect(status.origin?.fingerprint == loaded.secrets.originKeyFingerprint)
+        #expect(status.origin?.fingerprint.hasPrefix("SHA256:") ?? false)
         let provisioned = await rig.origins.callCount()
-        XCTAssertEqual(provisioned, 1)
+        #expect(provisioned == 1)
 
         // Re-running setup reuses everything: no second origin, no new key.
         let again = try await rig.manager.setup(SetupOptions())
-        XCTAssertEqual(again.secrets.originKeyFingerprint, loaded.secrets.originKeyFingerprint)
+        #expect(again.secrets.originKeyFingerprint == loaded.secrets.originKeyFingerprint)
         let provisionedAgain = await rig.origins.callCount()
-        XCTAssertEqual(provisionedAgain, 1)
+        #expect(provisionedAgain == 1)
     }
 
+    @Test
     func testMissingTailscalePrerequisitesAreReported() async throws {
         let root = directory(); defer { try? FileManager.default.removeItem(at: root) }
         let stopped = try rig(root, tailnet: FakeTailnet(backendState: "NeedsLogin"))
         do {
             _ = try await stopped.manager.setup(SetupOptions(tailscalePath: "/usr/bin/true"))
-            XCTFail("setup must not proceed without a connected tailnet")
+            Issue.record("setup must not proceed without a connected tailnet")
         } catch let error as ManagementError {
-            XCTAssertTrue(error.description.contains("tailscale up"), error.description)
+            #expect(error.description.contains("tailscale up"), "\(error.description)")
         }
 
         let root2 = directory(); defer { try? FileManager.default.removeItem(at: root2) }
         let noDNS = try rig(root2, tailnet: FakeTailnet(dnsName: nil, magicDNS: false))
         do {
             _ = try await noDNS.manager.setup(SetupOptions(tailscalePath: "/usr/bin/true"))
-            XCTFail("setup must require MagicDNS")
+            Issue.record("setup must require MagicDNS")
         } catch let error as ManagementError {
-            XCTAssertTrue(error.description.contains("MagicDNS"), error.description)
+            #expect(error.description.contains("MagicDNS"), "\(error.description)")
         }
     }
 
     /// Setup validates the resulting Serve state rather than trusting the CLI.
+    @Test
     func testServeStateIsValidatedNotAssumed() async throws {
         let root = directory(); defer { try? FileManager.default.removeItem(at: root) }
         let tailnet = FakeTailnet()
@@ -154,12 +159,13 @@ final class TailscaleLifecycleTests: XCTestCase {
         let rig = try rig(root, tailnet: tailnet)
         do {
             _ = try await rig.manager.setup(SetupOptions(tailscalePath: "/usr/bin/true"))
-            XCTFail("an ineffective serve command must be caught")
+            Issue.record("an ineffective serve command must be caught")
         } catch let error as ManagementError {
-            XCTAssertTrue(error.description.contains("not proxying"), error.description)
+            #expect(error.description.contains("not proxying"), "\(error.description)")
         }
     }
 
+    @Test
     func testFunnelIsRefused() async throws {
         let root = directory(); defer { try? FileManager.default.removeItem(at: root) }
         let tailnet = FakeTailnet()
@@ -167,14 +173,15 @@ final class TailscaleLifecycleTests: XCTestCase {
         let rig = try rig(root, tailnet: tailnet)
         do {
             _ = try await rig.manager.setup(SetupOptions(tailscalePath: "/usr/bin/true"))
-            XCTFail("a public Funnel must be refused")
+            Issue.record("a public Funnel must be refused")
         } catch let error as ManagementError {
-            XCTAssertTrue(error.description.contains("Funnel"), error.description)
+            #expect(error.description.contains("Funnel"), "\(error.description)")
         }
     }
 
     /// A renamed Mac is a route change: the origin key, and so every pairing,
     /// survives, and the signed route update verifies under the same key.
+    @Test
     func testRenamedMacChangesRouteButNotTrust() async throws {
         let root = directory(); defer { try? FileManager.default.removeItem(at: root) }
         let rig = try rig(root)
@@ -183,15 +190,16 @@ final class TailscaleLifecycleTests: XCTestCase {
 
         await rig.tailnet.setDNSName("renamed.example.ts.net")
         let second = try await rig.manager.up()
-        XCTAssertEqual(second.installation.publicURL, "https://renamed.example.ts.net")
-        XCTAssertEqual(second.secrets.originKeyFingerprint, first.secrets.originKeyFingerprint)
-        XCTAssertEqual(second.secrets.originID, first.secrets.originID)
+        #expect(second.installation.publicURL == "https://renamed.example.ts.net")
+        #expect(second.secrets.originKeyFingerprint == first.secrets.originKeyFingerprint)
+        #expect(second.secrets.originID == first.secrets.originID)
 
         let update = try await rig.manager.routeUpdate()
-        XCTAssertEqual(update.route.url.absoluteString, "https://renamed.example.ts.net")
-        XCTAssertNoThrow(try update.verify(pinned: origin))
+        #expect(update.route.url.absoluteString == "https://renamed.example.ts.net")
+        do { _ = try update.verify(pinned: origin) } catch { Issue.record("unexpected error: \(error)") }
     }
 
+    @Test
     func testMissingOriginKeyIsNeverSilentlyRegenerated() async throws {
         let root = directory(); defer { try? FileManager.default.removeItem(at: root) }
         let rig = try rig(root)
@@ -199,41 +207,44 @@ final class TailscaleLifecycleTests: XCTestCase {
         try FileManager.default.removeItem(at: first.paths.originKey)
         do {
             _ = try await rig.manager.up()
-            XCTFail("a lost origin key must not be replaced implicitly")
+            Issue.record("a lost origin key must not be replaced implicitly")
         } catch let error as ManagementError {
-            XCTAssertTrue(error.description.contains("--reset-origin-key"), error.description)
+            #expect(error.description.contains("--reset-origin-key"), "\(error.description)")
         }
         let reset = try await rig.manager.setup(SetupOptions(resetOriginKey: true))
-        XCTAssertNotEqual(reset.secrets.originKeyFingerprint, first.secrets.originKeyFingerprint)
-        XCTAssertEqual(reset.secrets.originID, first.secrets.originID)
+        #expect(reset.secrets.originKeyFingerprint != first.secrets.originKeyFingerprint)
+        #expect(reset.secrets.originID == first.secrets.originID)
         // The broker's config changes with the key, so its job restarts and
         // it signs proofs with the new key.
         let config = try JSONSerialization.jsonObject(with: Data(contentsOf: reset.paths.services.appendingPathComponent("broker.json"))) as? [String: Any]
-        XCTAssertEqual(config?["origin_key_fingerprint"] as? String, reset.secrets.originKeyFingerprint)
+        #expect(config?["origin_key_fingerprint"] as? String == reset.secrets.originKeyFingerprint)
     }
 
+    @Test
     func testPairingInvitationPinsTheOriginAndItsRoute() async throws {
         let root = directory(); defer { try? FileManager.default.removeItem(at: root) }
         let rig = try rig(root)
         _ = try await rig.manager.setup(SetupOptions(tailscalePath: "/usr/bin/true"))
         let invitation = try await rig.manager.pairingInvitation(admin: FakePairingAdministration())
         let origin = try await rig.manager.originIdentity().identity
-        XCTAssertEqual(invitation.origin, origin)
-        XCTAssertEqual(invitation.route.url.absoluteString, "https://macbook.example.ts.net")
+        #expect(invitation.origin == origin)
+        #expect(invitation.route.url.absoluteString == "https://macbook.example.ts.net")
         let rendered = try PairingRenderer.invitationOutput(invitation, terminal: false)
-        XCTAssertTrue(rendered.contains(origin.fingerprint))
-        XCTAssertTrue(rendered.contains("shell-control://pair?invite="))
-        XCTAssertEqual(try PairingInvitation(scanned: try invitation.link().absoluteString), invitation)
+        #expect(rendered.contains(origin.fingerprint))
+        #expect(rendered.contains("shell-control://pair?invite="))
+        #expect((try PairingInvitation(scanned: try invitation.link().absoluteString)) == invitation)
     }
 
-    func testRouteValidationIsTailnetOnly() {
-        XCTAssertThrowsError(try AddressPolicy.validate("https://abc.trycloudflare.com", mode: .tailscale))
-        XCTAssertThrowsError(try AddressPolicy.validate("https://control.example", mode: .tailscale))
-        XCTAssertEqual(try AddressPolicy.validate("https://Mac.Example.ts.net/", mode: .tailscale), "https://mac.example.ts.net")
+    @Test
+    func testRouteValidationIsTailnetOnly() throws {
+        #expect(throws: (any Error).self){ try AddressPolicy.validate("https://abc.trycloudflare.com", mode: .tailscale) }
+        #expect(throws: (any Error).self){ try AddressPolicy.validate("https://control.example", mode: .tailscale) }
+        #expect((try AddressPolicy.validate("https://Mac.Example.ts.net/", mode: .tailscale)) == "https://mac.example.ts.net")
     }
 
     /// An installation written with a removed Cloudflare mode migrates to
     /// Tailscale, and setup withdraws the old cloudflared job and its files.
+    @Test
     func testLegacyTunnelInstallationMigratesToTailscale() async throws {
         let root = directory(); defer { try? FileManager.default.removeItem(at: root) }
         let rig = try rig(root)
@@ -252,27 +263,28 @@ final class TailscaleLifecycleTests: XCTestCase {
         try SecureFileSystem.atomicWrite(Data("tunnel: x\n".utf8), to: config)
 
         let loaded = try InstallationStore(root: rig.state).load()
-        XCTAssertEqual(loaded.installation.addressMode, .tailscale)
-        XCTAssertNil(loaded.installation.publicURL)
-        XCTAssertEqual(loaded.runtime.operation?.createdResources, [.broker])
+        #expect(loaded.installation.addressMode == .tailscale)
+        #expect((loaded.installation.publicURL) == nil)
+        #expect(loaded.runtime.operation?.createdResources == [.broker])
         let again = try await rig.manager.setup(SetupOptions())
-        XCTAssertEqual(again.installation.addressMode, .tailscale)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: config.path))
+        #expect(again.installation.addressMode == .tailscale)
+        #expect(!(FileManager.default.fileExists(atPath: config.path)))
         let data = try Data(contentsOf: again.paths.installation)
-        XCTAssertFalse(String(decoding: data, as: UTF8.self).contains("cloudflared"))
+        #expect(!(String(decoding: data, as: UTF8.self).contains("cloudflared")))
     }
 
+    @Test
     func testServeStatusParsingMatchesTailscaleJSON() throws {
         let json = #"{"TCP":{"443":{"HTTPS":true}},"Web":{"macbook.example.ts.net:443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:8443"}}}}}"#
         let state = try ServeState(json: Data(json.utf8))
-        XCTAssertTrue(state.servesBroker(host: "macbook.example.ts.net", port: 8443))
-        XCTAssertFalse(state.servesBroker(host: "macbook.example.ts.net", port: 9000))
-        XCTAssertFalse(state.isFunnelled(host: "macbook.example.ts.net"))
-        XCTAssertTrue(try ServeState(json: Data("{}".utf8)).proxies.isEmpty)
-        XCTAssertTrue(try ServeState(json: Data()).proxies.isEmpty)
-        XCTAssertTrue(ServeState(proxies: ["m.example.ts.net:443": "localhost:8443"]).servesBroker(host: "m.example.ts.net", port: 8443))
+        #expect(state.servesBroker(host: "macbook.example.ts.net", port: 8443))
+        #expect(!(state.servesBroker(host: "macbook.example.ts.net", port: 9000)))
+        #expect(!(state.isFunnelled(host: "macbook.example.ts.net")))
+        #expect(try ServeState(json: Data("{}".utf8)).proxies.isEmpty)
+        #expect(try ServeState(json: Data()).proxies.isEmpty)
+        #expect(ServeState(proxies: ["m.example.ts.net:443": "localhost:8443"]).servesBroker(host: "m.example.ts.net", port: 8443))
 
         let status = try TailnetStatus(json: Data(#"{"BackendState":"Running","Self":{"DNSName":"MacBook.example.ts.net.","Online":true},"CurrentTailnet":{"MagicDNSEnabled":true}}"#.utf8))
-        XCTAssertEqual(try TailscaleTools.requireReady(status), "macbook.example.ts.net")
+        #expect((try TailscaleTools.requireReady(status)) == "macbook.example.ts.net")
     }
 }

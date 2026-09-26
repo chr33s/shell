@@ -1,11 +1,13 @@
-import XCTest
+import Foundation
+import Testing
 import ShellControlProtocol
 import ShellControlSecurity
 @testable import ShellControlBroker
 
 /// The acceptance and failure table of docs/specs/control-protocol.md section 19, exercised
 /// against the broker's state machines.
-final class AcceptanceTests: XCTestCase {
+@Suite
+final class AcceptanceTests {
     private func makeHarness() async throws -> (BrokerHarness, ControlID, ControlID) {
         let harness = BrokerHarness()
         try await harness.bootstrap()
@@ -17,6 +19,7 @@ final class AcceptanceTests: XCTestCase {
 
     // MARK: Happy path
 
+    @Test
     func testApproveConsumeAndReceipt() async throws {
         let (harness, runID, jobID) = try await makeHarness()
         let device = try await harness.enrollDevice()
@@ -24,12 +27,12 @@ final class AcceptanceTests: XCTestCase {
         let current = try await harness.store.approval(record.spec.requestID, principal: device.principal)
 
         let outcome = try await harness.decide(.approve, device: device, record: current)
-        XCTAssertTrue(outcome.result.recorded)
-        XCTAssertFalse(outcome.isReplay)
-        XCTAssertEqual(outcome.result.resolution, .approved)
-        XCTAssertEqual(outcome.result.dispatch, .awaitingOrigin)
+        #expect(outcome.result.recorded)
+        #expect(!(outcome.isReplay))
+        #expect(outcome.result.resolution == .approved)
+        #expect(outcome.result.dispatch == .awaitingOrigin)
 
-        let decisionID = try XCTUnwrap(outcome.result.decisionID)
+        let decisionID = try #require(outcome.result.decisionID)
         let consumeID = ControlID.random()
         let permit = try await harness.store.consumeApproval(
             principal: harness.originPrincipal,
@@ -41,21 +44,18 @@ final class AcceptanceTests: XCTestCase {
                 runID: runID
             )
         )
-        XCTAssertEqual(permit.decision, .approve)
-        XCTAssertFalse(permit.decisionJWS.isEmpty)
+        #expect(permit.decision == .approve)
+        #expect(!(permit.decisionJWS.isEmpty))
         // apply_before is at most ten seconds out and never past the deadline.
-        XCTAssertLessThanOrEqual(permit.applyBefore.date, record.spec.expiresAt.date)
-        XCTAssertLessThanOrEqual(
-            permit.applyBefore.date.timeIntervalSince(harness.clock.now),
-            ApprovalPolicy.permitLifetime
-        )
+        #expect(permit.applyBefore.date <= record.spec.expiresAt.date)
+        #expect(permit.applyBefore.date.timeIntervalSince(harness.clock.now) <= ApprovalPolicy.permitLifetime)
         // Retrying the same consume ID returns the same permit and deadline.
         let retried = try await harness.store.consumeApproval(
             principal: harness.originPrincipal,
             requestID: record.spec.requestID,
             request: ConsumeRequest(consumeID: consumeID, decisionID: decisionID, requestHash: record.requestHash, runID: runID)
         )
-        XCTAssertEqual(retried.applyBefore, permit.applyBefore)
+        #expect(retried.applyBefore == permit.applyBefore)
 
         try await harness.store.recordReceipt(principal: harness.originPrincipal, receipt: Receipt(
             receiptID: .random(),
@@ -68,12 +68,13 @@ final class AcceptanceTests: XCTestCase {
             occurredAt: harness.timestamp
         ))
         let final = try await harness.store.approval(record.spec.requestID, principal: device.principal)
-        XCTAssertEqual(final.projection.dispatch, .applied)
-        XCTAssertEqual(final.projection.resolution, .approved)
+        #expect(final.projection.dispatch == .applied)
+        #expect(final.projection.resolution == .approved)
     }
 
     // MARK: Two devices approve/reject together
 
+    @Test
     func testExactlyOneResolutionTransition() async throws {
         let (harness, runID, jobID) = try await makeHarness()
         let first = try await harness.enrollDevice()
@@ -122,12 +123,13 @@ final class AcceptanceTests: XCTestCase {
             )
         }
         let final = try await harness.store.approval(record.spec.requestID, principal: first.principal)
-        XCTAssertEqual(final.projection.resolution, .approved)
-        XCTAssertEqual(final.projection.stateVersion, current.projection.stateVersion + 1)
+        #expect(final.projection.resolution == .approved)
+        #expect(final.projection.stateVersion == current.projection.stateVersion + 1)
     }
 
     // MARK: Idempotency
 
+    @Test
     func testConnectionLostAfterCommitRetrievesTheSameResult() async throws {
         let (harness, runID, jobID) = try await makeHarness()
         let device = try await harness.enrollDevice()
@@ -149,19 +151,20 @@ final class AcceptanceTests: XCTestCase {
         let jws = try harness.signDecision(.approve, device: device, record: current, challengeID: challenge.challengeID, commandID: commandID)
         let first = try await harness.store.submitCommand(principal: device.principal, signedCommand: jws, idempotencyKey: commandID)
         let replay = try await harness.store.submitCommand(principal: device.principal, signedCommand: jws, idempotencyKey: commandID)
-        XCTAssertFalse(first.isReplay)
-        XCTAssertTrue(replay.isReplay)
-        XCTAssertEqual(first.result.decisionID, replay.result.decisionID)
+        #expect(!(first.isReplay))
+        #expect(replay.isReplay)
+        #expect(first.result.decisionID == replay.result.decisionID)
 
         // The recorded result stays retrievable after the request expires.
         harness.clock.advance(ApprovalPolicy.defaultLifetime + 60)
         let afterExpiry = try await harness.store.submitCommand(principal: device.principal, signedCommand: jws, idempotencyKey: commandID)
-        XCTAssertTrue(afterExpiry.isReplay)
-        XCTAssertEqual(afterExpiry.result.decisionID, first.result.decisionID)
+        #expect(afterExpiry.isReplay)
+        #expect(afterExpiry.result.decisionID == first.result.decisionID)
         let byID = try await harness.store.commandResult(commandID, principal: device.principal)
-        XCTAssertEqual(byID.decisionID, first.result.decisionID)
+        #expect(byID.decisionID == first.result.decisionID)
     }
 
+    @Test
     func testSameCommandIDWithChangedBodyConflicts() async throws {
         let (harness, runID, jobID) = try await makeHarness()
         let device = try await harness.enrollDevice()
@@ -196,6 +199,7 @@ final class AcceptanceTests: XCTestCase {
 
     // MARK: Expiry, staleness, and policy
 
+    @Test
     func testExpiredRequestCannotBeAuthorizedEvenWithAVisibleButton() async throws {
         let (harness, runID, jobID) = try await makeHarness()
         let device = try await harness.enrollDevice()
@@ -217,9 +221,10 @@ final class AcceptanceTests: XCTestCase {
             )
         }
         let expired = try await harness.store.approval(record.spec.requestID, principal: device.principal)
-        XCTAssertEqual(expired.projection.resolution, .expired)
+        #expect(expired.projection.resolution == .expired)
     }
 
+    @Test
     func testChangedHashOrVersionRequiresFreshReview() async throws {
         let (harness, runID, jobID) = try await makeHarness()
         let device = try await harness.enrollDevice()
@@ -255,6 +260,7 @@ final class AcceptanceTests: XCTestCase {
         }
     }
 
+    @Test
     func testPolicyChangeInvalidatesOutstandingChallenges() async throws {
         let (harness, runID, jobID) = try await makeHarness()
         let device = try await harness.enrollDevice()
@@ -283,6 +289,7 @@ final class AcceptanceTests: XCTestCase {
         }
     }
 
+    @Test
     func testFullReviewRequestIsNotApprovableOnWatch() async throws {
         let (harness, runID, jobID) = try await makeHarness()
         let device = try await harness.enrollDevice()
@@ -312,6 +319,7 @@ final class AcceptanceTests: XCTestCase {
 
     // MARK: Presence
 
+    @Test
     func testRejectWorksOfflineButApproveNeedsPresence() async throws {
         let (harness, runID, jobID) = try await makeHarness()
         let device = try await harness.enrollDevice()
@@ -319,7 +327,7 @@ final class AcceptanceTests: XCTestCase {
         let record = try await harness.publish(spec)
         harness.clock.advance(ApprovalPolicy.presenceStaleAfter + 5)
         let current = try await harness.store.approval(record.spec.requestID, principal: device.principal)
-        XCTAssertFalse(current.projection.presence.isFresh(at: harness.timestamp))
+        #expect(!(current.projection.presence.isFresh(at: harness.timestamp)))
 
         let approveID = ControlID.random()
         let approveChallenge = try await harness.store.createChallenge(
@@ -342,11 +350,12 @@ final class AcceptanceTests: XCTestCase {
             )
         }
         let outcome = try await harness.decide(.reject, device: device, record: current)
-        XCTAssertEqual(outcome.result.resolution, .rejected)
+        #expect(outcome.result.resolution == .rejected)
     }
 
     // MARK: Revocation
 
+    @Test
     func testDeviceRevokedAfterDecisionCannotHaveItsGrantConsumed() async throws {
         let (harness, runID, jobID) = try await makeHarness()
         let device = try await harness.enrollDevice()
@@ -360,7 +369,7 @@ final class AcceptanceTests: XCTestCase {
                 requestID: record.spec.requestID,
                 request: ConsumeRequest(
                     consumeID: .random(),
-                    decisionID: try XCTUnwrap(outcome.result.decisionID),
+                    decisionID: try #require(outcome.result.decisionID),
                     requestHash: record.requestHash,
                     runID: runID
                 )
@@ -370,6 +379,7 @@ final class AcceptanceTests: XCTestCase {
 
     // MARK: Withdrawal and cancellation
 
+    @Test
     func testWithdrawalAfterApprovalMarksUnconsumedDispatchNotApplied() async throws {
         let (harness, runID, jobID) = try await makeHarness()
         let device = try await harness.enrollDevice()
@@ -384,10 +394,11 @@ final class AcceptanceTests: XCTestCase {
             requestHash: record.requestHash
         )
         // The historic approved resolution is preserved.
-        XCTAssertEqual(withdrawn.projection.resolution, .approved)
-        XCTAssertEqual(withdrawn.projection.dispatch, .notApplied)
+        #expect(withdrawn.projection.resolution == .approved)
+        #expect(withdrawn.projection.dispatch == .notApplied)
     }
 
+    @Test
     func testWithdrawalAfterClaimReportsAlreadyClaimed() async throws {
         let (harness, runID, jobID) = try await makeHarness()
         let device = try await harness.enrollDevice()
@@ -399,7 +410,7 @@ final class AcceptanceTests: XCTestCase {
             requestID: record.spec.requestID,
             request: ConsumeRequest(
                 consumeID: .random(),
-                decisionID: try XCTUnwrap(outcome.result.decisionID),
+                decisionID: try #require(outcome.result.decisionID),
                 requestHash: record.requestHash,
                 runID: runID
             )
@@ -415,6 +426,7 @@ final class AcceptanceTests: XCTestCase {
         }
     }
 
+    @Test
     func testJobCancellationRacesWithConsumeAndOnlyOneWins() async throws {
         let (harness, runID, jobID) = try await makeHarness()
         let device = try await harness.enrollDevice()
@@ -453,25 +465,26 @@ final class AcceptanceTests: XCTestCase {
                 requestID: record.spec.requestID,
                 request: ConsumeRequest(
                     consumeID: .random(),
-                    decisionID: try XCTUnwrap(outcome.result.decisionID),
+                    decisionID: try #require(outcome.result.decisionID),
                     requestHash: record.requestHash,
                     runID: runID
                 )
             )
         }
         let final = try await harness.store.approval(record.spec.requestID, principal: device.principal)
-        XCTAssertEqual(final.projection.dispatch, .notApplied)
+        #expect(final.projection.dispatch == .notApplied)
     }
 
     // MARK: Receipts
 
+    @Test
     func testHostCrashReportsUnknownAndReconcilesOnlyWithEvidence() async throws {
         let (harness, runID, jobID) = try await makeHarness()
         let device = try await harness.enrollDevice()
         let record = try await harness.publish(try harness.makeSpec(runID: runID, jobID: jobID))
         let current = try await harness.store.approval(record.spec.requestID, principal: device.principal)
         let outcome = try await harness.decide(.approve, device: device, record: current)
-        let decisionID = try XCTUnwrap(outcome.result.decisionID)
+        let decisionID = try #require(outcome.result.decisionID)
         let consumeID = ControlID.random()
         _ = try await harness.store.consumeApproval(
             principal: harness.originPrincipal,
@@ -489,7 +502,7 @@ final class AcceptanceTests: XCTestCase {
             occurredAt: harness.timestamp
         ))
         let afterCrash = try await harness.store.approval(record.spec.requestID, principal: device.principal)
-        XCTAssertEqual(afterCrash.projection.dispatch, .unknown)
+        #expect(afterCrash.projection.dispatch == .unknown)
         // Positive evidence may later reconcile unknown to applied.
         try await harness.store.recordReceipt(principal: harness.originPrincipal, receipt: Receipt(
             receiptID: .random(),
@@ -502,9 +515,10 @@ final class AcceptanceTests: XCTestCase {
             occurredAt: harness.timestamp
         ))
         let afterEvidence = try await harness.store.approval(record.spec.requestID, principal: device.principal)
-        XCTAssertEqual(afterEvidence.projection.dispatch, .applied)
+        #expect(afterEvidence.projection.dispatch == .applied)
     }
 
+    @Test
     func testReceiptForAnotherRunIsRejected() async throws {
         let (harness, runID, jobID) = try await makeHarness()
         let device = try await harness.enrollDevice()
@@ -516,7 +530,7 @@ final class AcceptanceTests: XCTestCase {
         await assertControlError(.hashMismatch) {
             try await harness.store.recordReceipt(principal: harness.originPrincipal, receipt: Receipt(
                 receiptID: .random(),
-                decisionID: try XCTUnwrap(outcome.result.decisionID),
+                decisionID: try #require(outcome.result.decisionID),
                 consumeID: .random(),
                 requestHash: record.requestHash,
                 runID: otherRunID,
@@ -529,6 +543,7 @@ final class AcceptanceTests: XCTestCase {
 
     // MARK: Isolation
 
+    @Test
     func testAnotherAccountGuessingARequestIDLearnsNothing() async throws {
         let (harness, runID, jobID) = try await makeHarness()
         let record = try await harness.publish(try harness.makeSpec(runID: runID, jobID: jobID))
@@ -538,6 +553,7 @@ final class AcceptanceTests: XCTestCase {
         }
     }
 
+    @Test
     func testTmuxOrPIDReuseHasNoBearingOnAuthority() async throws {
         // Authority is bound to run and request IDs only; re-registering the
         // same job under a new run cannot answer the old waiter.
@@ -554,7 +570,7 @@ final class AcceptanceTests: XCTestCase {
                 requestID: record.spec.requestID,
                 request: ConsumeRequest(
                     consumeID: .random(),
-                    decisionID: try XCTUnwrap(outcome.result.decisionID),
+                    decisionID: try #require(outcome.result.decisionID),
                     requestHash: record.requestHash,
                     runID: newRunID
                 )
@@ -564,6 +580,7 @@ final class AcceptanceTests: XCTestCase {
 
     // MARK: Request creation
 
+    @Test
     func testSameRequestIDWithADifferentSpecConflicts() async throws {
         let (harness, runID, jobID) = try await makeHarness()
         let requestID = ControlID.random()
@@ -571,7 +588,7 @@ final class AcceptanceTests: XCTestCase {
         _ = try await harness.publish(spec)
         // Identical spec returns the existing record.
         let again = try await harness.store.createApproval(principal: harness.originPrincipal, spec: spec)
-        XCTAssertEqual(again.requestHash, try spec.requestHash())
+        #expect(again.requestHash == (try spec.requestHash()))
         let changed = try harness.makeSpec(requestID: requestID, runID: runID, jobID: jobID, argv: ["/usr/bin/git", "push", "--force"])
         await assertControlError(.idempotencyConflict) {
             _ = try await harness.store.createApproval(principal: harness.originPrincipal, spec: changed)

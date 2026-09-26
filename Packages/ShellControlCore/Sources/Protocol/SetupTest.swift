@@ -27,9 +27,13 @@ public enum SetupTestFixture {
     public static let contextSHA256 = ContentDigest.sha256Hex(Data("shell-control-setup-test/1".utf8))
 
     public static var operation: ExecOperation {
-        // The literals above satisfy every ExecOperation rule.
-        // swiftlint:disable:next force_try
-        try! ExecOperation(argv: argv, cwd: cwd, contextSHA256: contextSHA256)
+        // The literals above satisfy every ExecOperation rule. A failure is a
+        // programmer mistake, not a recoverable error.
+        do {
+            return try ExecOperation(argv: argv, cwd: cwd, contextSHA256: contextSHA256)
+        } catch {
+            preconditionFailure("setup-test operation literals are invalid: \(error)")
+        }
     }
 
     /// The minimum review for a test through the given reviewer. An iPhone

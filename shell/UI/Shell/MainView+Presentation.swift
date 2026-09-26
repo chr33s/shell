@@ -145,7 +145,7 @@ extension MainView {
             }
             .sheet(isPresented: $showConnectionSidebar) {
                 connectionSheetContent
-                    .environmentObject(ghosttyApp)
+                    .environment(ghosttyApp)
                     .interactiveDismissDisabled(terminals.isEmpty)
                     .themedSheet(themeColors: sheetTheme.themeColors, accentColor: sheetTheme.accentColor, colorScheme: sheetTheme.colorScheme)
             }

@@ -1,3 +1,4 @@
+import Observation
 import Foundation
 import Combine
 import CoreText
@@ -17,7 +18,8 @@ struct FontFeature: Identifiable, Hashable {
 
 /// Manages font selection and registration for the app
 @MainActor
-final class FontManager: ObservableObject {
+@Observable
+final class FontManager {
     static let shared = FontManager()
 
     /// Per-font cell box adjustments (percentage deltas).
@@ -49,7 +51,7 @@ final class FontManager: ObservableObject {
     // MARK: - Published Properties
 
     /// Currently selected font size
-    @Published var currentFontSize: Double {
+    var currentFontSize: Double {
         didSet {
             guard ProtectedDataGuard.isAvailable else { return }
             saveFontSize()
@@ -58,7 +60,7 @@ final class FontManager: ObservableObject {
     }
 
     /// Currently selected font family (nil = Ghostty default)
-    @Published var currentFontFamily: String? {
+    var currentFontFamily: String? {
         didSet {
             guard ProtectedDataGuard.isAvailable else { return }
             saveFontFamily()
@@ -67,7 +69,7 @@ final class FontManager: ObservableObject {
     }
 
     /// Whether font ligatures are enabled
-    @Published var ligaturesEnabled: Bool {
+    var ligaturesEnabled: Bool {
         didSet {
             guard ProtectedDataGuard.isAvailable else { return }
             saveLigaturesEnabled()
@@ -76,11 +78,11 @@ final class FontManager: ObservableObject {
     }
 
     /// Per-font enabled feature tags: [fontFamilyName: Set<tag>]
-    @Published private(set) var enabledFontFeatures: [String: Set<String>] = [:]
+    private(set) var enabledFontFeatures: [String: Set<String>] = [:]
 
     /// Per-font cell box adjustments. Key is font family configName, or
     /// `defaultFontKey` for the Ghostty default font (nil family).
-    @Published private(set) var cellAdjustments: [String: CellAdjustments] = [:]
+    private(set) var cellAdjustments: [String: CellAdjustments] = [:]
 
     // MARK: - Publishers
 

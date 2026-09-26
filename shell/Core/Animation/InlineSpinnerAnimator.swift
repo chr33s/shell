@@ -42,7 +42,7 @@ final class InlineSpinnerAnimator {
     private var frameIndex: Int = 0
 
     /// Animation timer
-    private var timer: Timer?
+    nonisolated(unsafe) private var timer: Timer?
 
     /// Start time for elapsed time calculation
     private var startTime: Date?
@@ -80,7 +80,7 @@ final class InlineSpinnerAnimator {
 
     /// Returns the ANSI sequence needed to clear all spinner content.
     /// Call this before stop() to get valid cleanup.
-    func getCleanupSequence() -> String {
+    func cleanupSequence() -> String {
         guard lastLineCount > 0 else { return "" }
 
         // Cursor is at end of last line. Move up (lineCount-1) to reach first line,

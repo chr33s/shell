@@ -425,7 +425,7 @@ extension MainView {
 
         // Defer the heavier MainActor transition off the FrontBoard scene-update
         // transaction. The persistence work inside that transition is then
-        // dispatched to BackgroundPersistenceQueue rather than Task.detached /
+        // dispatched to BackgroundPersistenceQueue rather than a detached task /
         // beginBackgroundTask, which are suspected in lifecycle deadlocks.
         // The short remote-session grace task is registered above, before this
         // deferred body can be delayed or skipped by suspension.
@@ -488,14 +488,14 @@ extension MainView {
             // Never touch the scrollback key while protected data is unavailable.
             // The Keychain item is kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
             // so a locked device makes it invisible to SecItemCopyMatching and the
-            // read answers errSecItemNotFound — which getKey() reads as "first run"
+            // read answers errSecItemNotFound — which encryptionKey() reads as "first run"
             // and satisfies by minting a key that saveScrollbackEncryptionKey then
             // UPSERTS over the key still protecting every saved scrollback.
             // Backgrounding is exactly when the screen has just locked, so fail
             // closed: skip the save and keep the key.
             if ProtectedDataGuard.isAvailable {
                 do {
-                    encryptionKey = try ScrollbackEncryptionManager.shared.getKey()
+                    encryptionKey = try ScrollbackEncryptionManager.shared.encryptionKey()
                 } catch {
                     Ghostty.logger.warning("Failed to pre-fetch encryption key, scrollback will not be saved: \(error.localizedDescription)")
                     encryptionKey = nil
@@ -852,7 +852,7 @@ extension MainView {
         //
         // Note: this catches BG between Task scheduling and Task body firing
         // (the wide window). A subsequent BG that arrives during the
-        // `Task.detached` keychain read inside `refreshKeysAsync` would
+        // background keychain read inside `refreshKeysAsync` would
         // still apply — that residual gap is small (cached keychain reads
         // complete in ms) and would need a per-apply guard inside the
         // manager APIs to fully close.

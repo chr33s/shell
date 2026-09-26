@@ -310,9 +310,9 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
         let savedVars = environment.snapshotVariables()
         let savedFuncs = environment.snapshotFunctions()
         let savedExports = environment.snapshotExportedState()
-        let savedParams = environment.getAllPositionalParams()
-        let savedName = environment.getScriptName()
-        let savedPwd = environment.getVariable("PWD")
+        let savedParams = environment.allPositionalParams()
+        let savedName = environment.scriptName()
+        let savedPwd = environment.variable("PWD")
         let savedTraps = environment.trapRegistry.snapshot()
         let savedOptions = environment.options
 
@@ -473,9 +473,9 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
             let savedVars = environment.snapshotVariables()
             let savedFuncs = environment.snapshotFunctions()
             let savedExports = environment.snapshotExportedState()
-            let savedParams = environment.getAllPositionalParams()
-            let savedName = environment.getScriptName()
-            let savedPwd = environment.getVariable("PWD")
+            let savedParams = environment.allPositionalParams()
+            let savedName = environment.scriptName()
+            let savedPwd = environment.variable("PWD")
             let savedTraps = environment.trapRegistry.snapshot()
             let savedOptions = environment.options
             environment.pushScope()
@@ -577,7 +577,7 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
 
         // Check for shell functions. Their redirections route every builtin
         // in the body, and the stdout of external commands run from it.
-        if let funcBody = environment.getFunction(commandName) {
+        if let funcBody = environment.function(commandName) {
             return try withCommandRedirections(cmd, commandName: commandName) {
                 try executeFunction(commandName,
                                     args: Array(expandedWords.dropFirst()),
@@ -599,8 +599,8 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
                         ShellParser(tokenizer: ShellTokenizer(source: "")).parseShellWord(from: rawValue),
                         interpreter: self
                     )
-                    let oldEnvValue = environment.getExportedEnvValue(name)
-                    savedVars.append((name, environment.getVariable(name), environment.isExported(name), oldEnvValue))
+                    let oldEnvValue = environment.exportedEnvValue(name)
+                    savedVars.append((name, environment.variable(name), environment.isExported(name), oldEnvValue))
                     environment.exportVariable(name, value: value)
                 }
 
@@ -643,7 +643,7 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
                 environment.setLastExitCode(exitCode)
 
                 // Fire ERR trap on non-zero exit from builtins (with reentrancy guard)
-                if exitCode != 0, !inErrTrap, let errTrap = trapRegistry.getHandler(for: .err) {
+                if exitCode != 0, !inErrTrap, let errTrap = trapRegistry.handler(for: .err) {
                     inErrTrap = true
                     _ = try? execute(errTrap)
                     inErrTrap = false
@@ -680,7 +680,7 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
         // directory is process-wide, so running the command would silently
         // use the foreground directory. Refuse with a clear error instead.
         if environment.isIsolatedContext,
-           let logicalPwd = environment.getVariable("PWD"),
+           let logicalPwd = environment.variable("PWD"),
            let physicalNS = ios_getLogicalPWD(IOSSystemSessionKey.key(for: environment.sessionID)),
            (physicalNS as String) != logicalPwd {
             writeLine("sh: \(commandName): external commands cannot run after cd in a background job or pipeline stage (working directory is process-wide on iOS)")
@@ -707,8 +707,8 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
                 ShellParser(tokenizer: ShellTokenizer(source: "")).parseShellWord(from: rawValue),
                 interpreter: self
             )
-            let oldEnvValue = environment.getExportedEnvValue(name)
-            savedVars.append((name, environment.getVariable(name), environment.isExported(name), oldEnvValue))
+            let oldEnvValue = environment.exportedEnvValue(name)
+            savedVars.append((name, environment.variable(name), environment.isExported(name), oldEnvValue))
             environment.exportVariable(name, value: value)
         }
 
@@ -777,7 +777,7 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
         environment.setLastExitCode(exitCode)
 
         // Fire ERR trap on non-zero exit from external commands (with reentrancy guard)
-        if exitCode != 0, !inErrTrap, let errTrap = trapRegistry.getHandler(for: .err) {
+        if exitCode != 0, !inErrTrap, let errTrap = trapRegistry.handler(for: .err) {
             inErrTrap = true
             _ = try? execute(errTrap)
             inErrTrap = false
@@ -946,8 +946,8 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
                 ShellParser(tokenizer: ShellTokenizer(source: "")).parseShellWord(from: rawValue),
                 interpreter: self
             )
-            let oldEnvValue = environment.getExportedEnvValue(name)
-            savedVars.append((name, environment.getVariable(name), environment.isExported(name), oldEnvValue))
+            let oldEnvValue = environment.exportedEnvValue(name)
+            savedVars.append((name, environment.variable(name), environment.isExported(name), oldEnvValue))
             environment.exportVariable(name, value: value)
         }
         defer {
@@ -1097,7 +1097,7 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
         }
         environment.setLastExitCode(exitCode)
 
-        if exitCode != 0, !inErrTrap, let errTrap = trapRegistry.getHandler(for: .err) {
+        if exitCode != 0, !inErrTrap, let errTrap = trapRegistry.handler(for: .err) {
             inErrTrap = true
             _ = try? execute(errTrap)
             inErrTrap = false
@@ -1341,7 +1341,7 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
             return false
         }
         guard ShellBuiltins.lookup(commandName) == nil else { return false }
-        guard environment.getFunction(commandName) == nil else { return false }
+        guard environment.function(commandName) == nil else { return false }
         if let canStreamExternalCommand {
             do {
                 let rendered = try renderExternalSimpleCommand(simple)
@@ -1432,7 +1432,7 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
             if ShellBuiltins.lookup(commandName) != nil {
                 return true
             }
-            if let functionBody = environment.getFunction(commandName) {
+            if let functionBody = environment.function(commandName) {
                 guard !visitingFunctions.contains(commandName) else { return false }
                 return canRunWithoutExternal(functionBody, visitingFunctions: visitingFunctions.union([commandName]))
             }
@@ -1606,7 +1606,7 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
         if let wordList = clause.wordList {
             items = try expandForLoopWords(wordList)
         } else {
-            items = environment.getAllPositionalParams()
+            items = environment.allPositionalParams()
         }
 
         var lastCode: Int32 = 0
@@ -1738,8 +1738,8 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
         defer { functionDepth -= 1 }
 
         // Save and set positional parameters
-        let savedParams = environment.getAllPositionalParams()
-        let savedName = environment.getScriptName()
+        let savedParams = environment.allPositionalParams()
+        let savedName = environment.scriptName()
         environment.setPositionalParams(args, scriptName: name)
 
         // Push scope for local variables
@@ -2151,7 +2151,7 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
     /// whitespace and trims leading/trailing separators, which lets unquoted
     /// command substitutions expand into multiple loop items and arguments.
     private func splitFields(_ text: String) -> [String] {
-        let ifs = environment.getVariable("IFS") ?? " \t\n"
+        let ifs = environment.variable("IFS") ?? " \t\n"
         guard !ifs.isEmpty, !text.isEmpty else { return ifs.isEmpty ? [text] : [] }
 
         let whitespaceDelimiters = Set(ifs.filter { $0 == " " || $0 == "\t" || $0 == "\n" })
@@ -2272,7 +2272,7 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
             let isQuoted = wordContainsQuotedParts(word)
 
             if !isQuoted,
-               environment.getVariable("IFS") == nil,
+               environment.variable("IFS") == nil,
                bareCommandSubstitutionText(in: word) != nil {
                 let expanded = try environment.expandWord(word, interpreter: self)
                 let fields = splitForLoopLines(expanded)
@@ -2487,7 +2487,7 @@ nonisolated final class TrapRegistry: @unchecked Sendable {
         }
     }
 
-    func getHandler(for signal: Signal) -> ShellCommand? {
+    func handler(for signal: Signal) -> ShellCommand? {
         lock.withLock { handlers[signal] }
     }
 
@@ -3179,7 +3179,7 @@ nonisolated enum ShellArithmeticEvaluator {
 
         /// Resolve a variable name to an Int64 value. Unset or non-numeric variables default to 0.
         func resolveVariable(_ name: String) -> Int64 {
-            guard let val = environment.getVariable(name) else { return 0 }
+            guard let val = environment.variable(name) else { return 0 }
             return Int64(val) ?? 0
         }
     }

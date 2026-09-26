@@ -66,7 +66,7 @@ enum ControlNotifications {
         }
     }
 
-    static func intent(actionIdentifier: String, userInfo: [AnyHashable: Any]) -> ReviewIntent? {
+    nonisolated static func intent(actionIdentifier: String, userInfo: [AnyHashable: Any]) -> ReviewIntent? {
         guard let raw = userInfo["request_id"] as? String, let requestID = ControlID(raw) else { return nil }
         switch actionIdentifier {
         case PushCategory.Action.approve.rawValue: return .proposeApprove(requestID: requestID)

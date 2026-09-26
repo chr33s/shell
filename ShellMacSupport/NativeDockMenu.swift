@@ -68,7 +68,7 @@ final class NativeDockMenu: NSObject {
 /// `NativeMenuBuilder`, which builds menus this app owns outright.
 final class NativeServicesMenu: NSObject {
     private var title = ""
-    private var observer: NSObjectProtocol?
+    nonisolated(unsafe) private var observer: NSObjectProtocol?
     /// The submenu handed to AppKit, so a rebuild re-attaches the menu AppKit has
     /// already filled instead of a fresh empty one.
     private weak var installed: NSMenu?

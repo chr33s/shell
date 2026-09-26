@@ -13,7 +13,7 @@ import CCryptoBoringSSL
 /// All entry points are pure functions over `Data`/`String`: no shared
 /// mutable state, no UI access. Kept `nonisolated` so callers can run
 /// the heavy KDF + AES-CTR work off the main thread via
-/// `Task.detached`; previously `@MainActor`, which forced encrypted-key
+/// `@concurrent`; previously `@MainActor`, which forced encrypted-key
 /// decryption onto the UI thread for every SSH connection setup.
 ///
 /// The explicit `nonisolated` matters because the build sets

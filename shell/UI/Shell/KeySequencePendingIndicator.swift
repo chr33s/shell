@@ -16,7 +16,7 @@ import SwiftUI
 
 @MainActor
 struct KeySequencePendingIndicator: View {
-    @ObservedObject private var tracker = KeySequenceTracker.shared
+    @State private var tracker = KeySequenceTracker.shared
 
     var body: some View {
         // nil unless a prefix is armed; the tracker's own 1s timeout, its

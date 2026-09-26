@@ -3,7 +3,7 @@ import SwiftUI
 struct SSHKeyDetailView: View {
     @Environment(\.dismiss) var dismiss
     @Environment(\.sheetThemeColors) private var sheetThemeColors
-    @StateObject private var sshKeyManager = SSHKeyManager.shared
+    @State private var sshKeyManager = SSHKeyManager.shared
 
     let key: SSHKey
 

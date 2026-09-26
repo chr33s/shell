@@ -207,7 +207,7 @@ struct SSHConnectionView: View {
         // `onProfileConnect` handlers (MainView.connectToProfile) already call
         // `recordUsage`, and it is not idempotent (`useCount += 1`), so calling
         // it here too double-counted every profile launched from this list and
-        // skewed `ProfileSortOrder` / `getSuggestions` against profiles launched
+        // skewed `ProfileSortOrder` / `suggestions` against profiles launched
         // from other paths. Do not hoist this call back out of the `else`.
         if let onProfileConnect {
             onProfileConnect(profile, splitOption)

@@ -1,32 +1,39 @@
-import XCTest
+import Foundation
+import Testing
 @testable import ShellControlProtocol
 
 /// RFC 8785 behaviour the request digest depends on.
-final class CanonicalizationTests: XCTestCase {
+@Suite
+final class CanonicalizationTests {
+    @Test
     func testMemberOrderingUsesUTF16CodeUnits() throws {
         let value = try JSONValue.parse(#"{"€":"euro","é":"e","a":1}"#)
-        XCTAssertEqual(try JSONCanonicalization.canonicalString(value), #"{"a":1,"é":"e","€":"euro"}"#)
+        #expect((try JSONCanonicalization.canonicalString(value)) == #"{"a":1,"é":"e","€":"euro"}"#)
     }
 
+    @Test
     func testNonBMPNamesSortByUTF16NotScalar() throws {
         // U+1F600 encodes as the surrogate pair D83D DE00, which sorts before
         // U+FF01 in UTF-16 order but after it by scalar value.
         let value = JSONValue.object(["\u{1F600}": 1, "\u{FF01}": 2])
-        XCTAssertEqual(try JSONCanonicalization.canonicalString(value), "{\"\u{1F600}\":1,\"\u{FF01}\":2}")
+        #expect((try JSONCanonicalization.canonicalString(value)) == "{\"\u{1F600}\":1,\"\u{FF01}\":2}")
     }
 
+    @Test
     func testStringEscapingIsMinimal() throws {
         let value = JSONValue.string("line\nquote\"tab\ttext\u{7}")
-        XCTAssertEqual(try JSONCanonicalization.canonicalString(value), "\"line\\nquote\\\"tab\\ttext\\u0007\"")
+        #expect((try JSONCanonicalization.canonicalString(value)) == "\"line\\nquote\\\"tab\\ttext\\u0007\"")
     }
 
+    @Test
     func testIntegersSerializeExactly() throws {
-        XCTAssertEqual(try JSONCanonicalization.canonicalString(.number(.int(9_007_199_254_740_991))), "9007199254740991")
-        XCTAssertEqual(try JSONCanonicalization.canonicalString(.number(.double(1.0))), "1")
+        #expect((try JSONCanonicalization.canonicalString(.number(.int(9_007_199_254_740_991)))) == "9007199254740991")
+        #expect((try JSONCanonicalization.canonicalString(.number(.double(1.0)))) == "1")
     }
 
     /// RFC 8785 Appendix B: IEEE 754 bit patterns and their ECMAScript
     /// `Number::toString` forms.
+    @Test
     func testDoublesMatchRFC8785AppendixB() throws {
         let samples: [(UInt64, String)] = [
             (0x0000_0000_0000_0000, "0"),
@@ -56,12 +63,13 @@ final class CanonicalizationTests: XCTestCase {
         ]
         for (bits, expected) in samples {
             let value = Double(bitPattern: bits)
-            XCTAssertEqual(try JSONCanonicalization.canonicalString(.number(.double(value))), expected, "bits \(String(bits, radix: 16))")
+            #expect((try JSONCanonicalization.canonicalString(.number(.double(value)))) == expected, "bits \(String(bits, radix: 16))")
         }
     }
 
     /// The ES layout switches between plain and exponent form exactly at
     /// 1e-7 and 1e21, and never pads or signs the exponent like `%g` does.
+    @Test
     func testDoubleLayoutBoundaries() throws {
         let samples: [(Double, String)] = [
             (0.00001, "0.00001"),
@@ -79,73 +87,88 @@ final class CanonicalizationTests: XCTestCase {
             (0.1, "0.1")
         ]
         for (value, expected) in samples {
-            XCTAssertEqual(try JSONCanonicalization.canonicalString(.number(.double(value))), expected)
+            #expect((try JSONCanonicalization.canonicalString(.number(.double(value)))) == expected)
         }
-        XCTAssertThrowsError(try JSONCanonicalization.canonicalString(.number(.double(.nan))))
-        XCTAssertThrowsError(try JSONCanonicalization.canonicalString(.number(.double(.infinity))))
-        XCTAssertThrowsError(try JSONCanonicalization.canonicalString(.number(.double(-.infinity))))
+        #expect(throws: (any Error).self) { try JSONCanonicalization.canonicalString(.number(.double(.nan))) }
+        #expect(throws: (any Error).self) { try JSONCanonicalization.canonicalString(.number(.double(.infinity))) }
+        #expect(throws: (any Error).self) { try JSONCanonicalization.canonicalString(.number(.double(-.infinity))) }
     }
 
-    func testDuplicateNamesFailClosed() {
-        XCTAssertThrowsError(try JSONValue.parse(#"{"a":1,"a":2}"#)) { error in
-            XCTAssertEqual(error as? JSONError, .duplicateName("a"))
-        }
-    }
-
-    func testLoneSurrogateIsRejected() {
-        XCTAssertThrowsError(try JSONValue.parse(#"{"a":"\ud800"}"#)) { error in
-            XCTAssertEqual(error as? JSONError, .invalidUnicode)
+    @Test
+    func testDuplicateNamesFailClosed() throws {
+        do { _ = try JSONValue.parse(#"{"a":1,"a":2}"#)
+Issue.record("expected an error")
+} catch let error {
+            #expect(error as? JSONError == .duplicateName("a"))
         }
     }
 
-    func testOversizedDocumentIsRejected() {
+    @Test
+    func testLoneSurrogateIsRejected() throws {
+        do { _ = try JSONValue.parse(#"{"a":"\ud800"}"#)
+Issue.record("expected an error")
+} catch let error {
+            #expect(error as? JSONError == .invalidUnicode)
+        }
+    }
+
+    @Test
+    func testOversizedDocumentIsRejected() throws {
         let big = Data(repeating: UInt8(ascii: " "), count: JSONLimits.maxDocumentBytes + 1)
-        XCTAssertThrowsError(try JSONValue.parse(big))
+        #expect(throws: (any Error).self) { try JSONValue.parse(big) }
     }
 
-    func testDepthLimitIsEnforced() {
+    @Test
+    func testDepthLimitIsEnforced() throws {
         let nested = String(repeating: "[", count: 40) + String(repeating: "]", count: 40)
-        XCTAssertThrowsError(try JSONValue.parse(nested)) { error in
-            XCTAssertEqual(error as? JSONError, .depthExceeded(limit: 32))
+        do { _ = try JSONValue.parse(nested)
+Issue.record("expected an error")
+} catch let error {
+            #expect(error as? JSONError == .depthExceeded(limit: 32))
         }
     }
 
+    @Test
     func testTimestampsRoundTripThroughTheWireForm() throws {
-        let stamp = try XCTUnwrap(ControlTimestamp(rfc3339: "2026-09-07T09:00:00Z"))
-        XCTAssertEqual(stamp.rfc3339, "2026-09-07T09:00:00Z")
-        XCTAssertEqual(ControlTimestamp.lenient("2026-09-07T09:00:00.250Z")?.rfc3339, "2026-09-07T09:00:00Z")
-        XCTAssertNil(ControlTimestamp.lenient("2026-09-07T09:00:00+01:00"))
+        let stamp = try #require(ControlTimestamp(rfc3339: "2026-09-07T09:00:00Z"))
+        #expect(stamp.rfc3339 == "2026-09-07T09:00:00Z")
+        #expect(ControlTimestamp.lenient("2026-09-07T09:00:00.250Z")?.rfc3339 == "2026-09-07T09:00:00Z")
+        #expect((ControlTimestamp.lenient("2026-09-07T09:00:00+01:00")) == nil)
     }
 
-    func testControlIDRejectsNonCanonicalForms() {
-        XCTAssertNil(ControlID("10000000-0000-4000-8000-00000000ABCD"))
-        XCTAssertNotNil(ControlID("10000000-0000-4000-8000-00000000abcd"))
-        XCTAssertNil(ControlID("not-a-uuid"))
+    @Test
+    func testControlIDRejectsNonCanonicalForms() throws {
+        #expect((ControlID("10000000-0000-4000-8000-00000000ABCD")) == nil)
+        #expect((ControlID("10000000-0000-4000-8000-00000000abcd")) != nil)
+        #expect((ControlID("not-a-uuid")) == nil)
     }
 
-    func testLogSequenceRejectsLeadingZeros() {
-        XCTAssertNil(LogSequence(decimalString: "007"))
-        XCTAssertEqual(LogSequence(decimalString: "7")?.value, 7)
+    @Test
+    func testLogSequenceRejectsLeadingZeros() throws {
+        #expect((LogSequence(decimalString: "007")) == nil)
+        #expect(LogSequence(decimalString: "7")?.value == 7)
     }
 
     /// A number the parser accepts but cannot re-encode to the same bytes
     /// would break the digest a signature commits to.
-    func testNumbersOutsideTheJSONGrammarAreRejected() {
+    @Test
+    func testNumbersOutsideTheJSONGrammarAreRejected() throws {
         for text in ["01", "-01", "1.", ".5", "1e", "1e+", "+1", "-", "1.2.3"] {
-            XCTAssertThrowsError(try JSONValue.parse("{\"n\":\(text)}"), "accepted \(text)")
+            #expect(throws: (any Error).self, "accepted \(text)") { try JSONValue.parse("{\"n\":\(text)}") }
         }
-        XCTAssertNoThrow(try JSONValue.parse(#"{"n":0}"#))
-        XCTAssertNoThrow(try JSONValue.parse(#"{"n":-0.5e-2}"#))
-        XCTAssertNoThrow(try JSONValue.parse(#"{"n":10}"#))
+        do { _ = try JSONValue.parse(#"{"n":0}"#) } catch { Issue.record("unexpected error: \(error)") }
+        do { _ = try JSONValue.parse(#"{"n":-0.5e-2}"#) } catch { Issue.record("unexpected error: \(error)") }
+        do { _ = try JSONValue.parse(#"{"n":10}"#) } catch { Issue.record("unexpected error: \(error)") }
     }
 
     /// `2026-02-31` has no day 31, and accepting it would hand back a March
     /// date whose wire form differs from the text that was signed.
-    func testImpossibleCalendarDatesAreRejected() {
-        XCTAssertNil(ControlTimestamp.lenient("2026-02-31T00:00:00Z"))
-        XCTAssertNil(ControlTimestamp.lenient("2026-04-31T00:00:00Z"))
-        XCTAssertNil(ControlTimestamp.lenient("2025-02-29T00:00:00Z"))
-        XCTAssertEqual(ControlTimestamp.lenient("2024-02-29T00:00:00Z")?.rfc3339, "2024-02-29T00:00:00Z")
-        XCTAssertEqual(ControlTimestamp.lenient("2026-01-31T00:00:00Z")?.rfc3339, "2026-01-31T00:00:00Z")
+    @Test
+    func testImpossibleCalendarDatesAreRejected() throws {
+        #expect((ControlTimestamp.lenient("2026-02-31T00:00:00Z")) == nil)
+        #expect((ControlTimestamp.lenient("2026-04-31T00:00:00Z")) == nil)
+        #expect((ControlTimestamp.lenient("2025-02-29T00:00:00Z")) == nil)
+        #expect(ControlTimestamp.lenient("2024-02-29T00:00:00Z")?.rfc3339 == "2024-02-29T00:00:00Z")
+        #expect(ControlTimestamp.lenient("2026-01-31T00:00:00Z")?.rfc3339 == "2026-01-31T00:00:00Z")
     }
 }

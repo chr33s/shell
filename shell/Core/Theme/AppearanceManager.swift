@@ -9,7 +9,8 @@ import UIKit
 
 /// Manages appearance mode (light/dark/system) for the app UI
 @MainActor
-final class AppearanceManager: ObservableObject {
+@Observable
+final class AppearanceManager {
     static let shared = AppearanceManager()
 
     private nonisolated static let logger = Logger(subsystem: "dev.chr33s.shell", category: "AppearanceManager")
@@ -57,7 +58,7 @@ final class AppearanceManager: ObservableObject {
     private var isReloading = false
 
     /// Currently selected appearance mode
-    @Published var currentAppearanceMode: AppearanceMode {
+    var currentAppearanceMode: AppearanceMode {
         didSet {
             applyWindowOverrides()
             guard ProtectedDataGuard.isAvailable else { return }
@@ -66,7 +67,7 @@ final class AppearanceManager: ObservableObject {
     }
 
     /// Whether to apply terminal theme colors to sheets and settings
-    @Published var themedUIEnabled: Bool {
+    var themedUIEnabled: Bool {
         didSet {
             guard ProtectedDataGuard.isAvailable, !isReloading else { return }
             SettingsStore.shared.set(Settings.Theme.themedUI, themedUIEnabled)

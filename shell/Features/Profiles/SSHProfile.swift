@@ -15,7 +15,7 @@ import Foundation
 /// this type adds identity, naming, sync metadata, and usage stats. The
 /// profile references an identity by UUID (through `SSHConfig.authMethod`)
 /// and never duplicates certificate or private-key material.
-struct SSHProfile: Codable, Identifiable, Hashable, SyncableRecord {
+nonisolated struct SSHProfile: Codable, Identifiable, Hashable, SyncableRecord {
     let id: UUID
 
     /// User-assigned display name

@@ -16,7 +16,7 @@ import SwiftUI
 
 struct DeviceKeyOverridesView: View {
     @State private var overrideManager = DeviceKeyOverrideManager.shared
-    @StateObject private var keyManager = SSHKeyManager.shared
+    @State private var keyManager = SSHKeyManager.shared
     @State private var overrideToDelete: DeviceKeyOverride?
     @State private var showingDeleteConfirmation = false
 

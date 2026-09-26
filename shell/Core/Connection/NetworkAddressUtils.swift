@@ -7,8 +7,9 @@
 
 import Foundation
 
-/// Network address utilities for SSH connections
-enum NetworkAddressUtils {
+/// Network address utilities for SSH connections.
+/// `nonisolated`: pure address math and blocking DNS, neither of which belongs on the main actor.
+nonisolated enum NetworkAddressUtils {
 
     /// Default timeout for DNS resolution (5 seconds)
     private static let dnsTimeout: TimeInterval = 5.0
@@ -97,66 +98,48 @@ enum NetworkAddressUtils {
     /// Returns the first IPv4 address that matches the provided filter, or nil on timeout/failure.
     private static func withTimeoutResolution(
         hostname: String,
-        filter: @escaping (String) -> Bool
+        filter: @escaping @Sendable (String) -> Bool
     ) async -> String? {
-        // NOT a task group: a group awaits every child when its body returns,
-        // and the child here is a continuation resumed only when the blocking
-        // `getaddrinfo` on a global queue finishes. `getaddrinfo` ignores
-        // cancellation and can sit on a dead resolver far longer than
-        // `dnsTimeout`, so `cancelAll()` + return would have waited it out
-        // anyway and the "timeout" only chose which value won. `withTimeout`
-        // races unstructured tasks and hands control back on schedule.
+        // NOT a task group: a group awaits every child when its body returns.
+        // `getaddrinfo` ignores cancellation and can sit on a dead resolver far
+        // longer than `dnsTimeout`, so cancelling the child would still wait it
+        // out. `withTimeout` races the lookup and hands control back on schedule.
         let resolved = try? await withTimeout(seconds: dnsTimeout) {
             await performDNSResolution(hostname: hostname, filter: filter)
         }
         return resolved ?? nil
     }
 
-    /// Performs blocking DNS resolution on a background thread
+    /// Blocking `getaddrinfo` on the concurrent pool. It does not observe
+    /// cancellation; the caller bounds it with `withTimeout`.
+    @concurrent
     private static func performDNSResolution(
         hostname: String,
-        filter: @escaping (String) -> Bool
+        filter: @escaping @Sendable (String) -> Bool
     ) async -> String? {
-        return await withCheckedContinuation { continuation in
-            // Run getaddrinfo on background thread to avoid blocking main thread
-            DispatchQueue.global(qos: .userInitiated).async {
-                var hints = addrinfo()
-                hints.ai_family = AF_INET  // IPv4 only
-                hints.ai_socktype = SOCK_STREAM
+        var hints = addrinfo()
+        hints.ai_family = AF_INET
+        hints.ai_socktype = SOCK_STREAM
 
-                var result: UnsafeMutablePointer<addrinfo>?
-                let status = getaddrinfo(hostname, nil, &hints, &result)
+        var result: UnsafeMutablePointer<addrinfo>?
+        let status = getaddrinfo(hostname, nil, &hints, &result)
+        guard status == 0, let addrInfo = result else { return nil }
+        defer { freeaddrinfo(result) }
 
-                guard status == 0, let addrInfo = result else {
-                    continuation.resume(returning: nil)
-                    return
-                }
+        var current = addrInfo
+        while true {
+            if current.pointee.ai_family == AF_INET {
+                let addr = current.pointee.ai_addr.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { $0.pointee }
+                let ipData = withUnsafeBytes(of: addr.sin_addr) { Data($0) }
 
-                defer { freeaddrinfo(result) }
-
-                // Iterate through results to find a matching IPv4 address
-                var current = addrInfo
-                while true {
-                    if current.pointee.ai_family == AF_INET {
-                        let addr = current.pointee.ai_addr.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { $0.pointee }
-                        let ipData = withUnsafeBytes(of: addr.sin_addr) { Data($0) }
-
-                        var buffer = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
-                        inet_ntop(AF_INET, [UInt8](ipData), &buffer, socklen_t(INET_ADDRSTRLEN))
-                        let ipString = String(cString: buffer)
-
-                        if filter(ipString) {
-                            continuation.resume(returning: ipString)
-                            return
-                        }
-                    }
-
-                    guard let next = current.pointee.ai_next else { break }
-                    current = next
-                }
-
-                continuation.resume(returning: nil)
+                var buffer = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
+                inet_ntop(AF_INET, [UInt8](ipData), &buffer, socklen_t(INET_ADDRSTRLEN))
+                let ipString = String(cString: buffer)
+                if filter(ipString) { return ipString }
             }
+            guard let next = current.pointee.ai_next else { break }
+            current = next
         }
+        return nil
     }
 }

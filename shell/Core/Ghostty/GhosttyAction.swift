@@ -22,10 +22,11 @@ extension Ghostty.Action {
 extension Ghostty {
     /// Observable state for scrollback search
     @MainActor
-    final class SearchState: ObservableObject {
-        @Published var needle: String = ""
-        @Published var selected: UInt?
-        @Published var total: UInt?
+    @Observable
+    final class SearchState {
+        var needle: String = ""
+        var selected: UInt?
+        var total: UInt?
 
         init(from startSearch: Ghostty.Action.StartSearch) {
             self.needle = startSearch.needle ?? ""
@@ -34,8 +35,8 @@ extension Ghostty {
 }
 
 extension Ghostty.Action {
-    struct ProgressReport {
-        enum State: CustomStringConvertible {
+    struct ProgressReport: Equatable, Sendable {
+        enum State: Equatable, Sendable, CustomStringConvertible {
             case remove
             case set
             case error

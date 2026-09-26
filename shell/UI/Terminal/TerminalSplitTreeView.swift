@@ -92,8 +92,8 @@ final class SplitTreeHostingView: UIView {
     private var attachedContainers: [ObjectIdentifier: UIView] = [:]
 
     // Observer for layout invalidation notifications
-    private var layoutInvalidationObserver: NSObjectProtocol?
-    private var overlayPreservationEndedObserver: NSObjectProtocol?
+    nonisolated(unsafe) private var layoutInvalidationObserver: NSObjectProtocol?
+    nonisolated(unsafe) private var overlayPreservationEndedObserver: NSObjectProtocol?
 
     /// Re-pushes the tmux window size once a keyboard show/hide animation
     /// settles. `pushTmuxClientSizeIfNeeded` is gated off during the

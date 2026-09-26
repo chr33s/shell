@@ -1,6 +1,7 @@
 import Foundation
 import NIOSSH
 import NIOCore
+import Synchronization
 import os.log
 
 /// A single keyboard-interactive (RFC 4256) prompt to present to the user.
@@ -91,16 +92,23 @@ struct KeyboardInteractiveCancelledError: Error, LocalizedError {
 /// mirroring ``SSHHostKeyDelegate``. There is no timeout coordinator: the active
 /// Citadel path relies on its 5-minute login timeout, which covers human input.
 nonisolated final class KeyboardInteractiveAuthDelegate: NIOSSHClientUserAuthenticationDelegate, @unchecked Sendable {
+    private struct OfferState: Sendable {
+        var autoAnswerPassword: String?
+        var triedKeyboardInteractive = false
+    }
+
     private let username: String
     private let sessionName: String
+    /// Event-loop confined. The NIO protocol is not `Sendable`, which is the
+    /// only reason this type is `@unchecked`.
     private let inner: NIOSSHClientUserAuthenticationDelegate?
-    private nonisolated(unsafe) let onChallenge: (KeyboardInteractiveChallenge) async -> [String]?
-
+    /// Invoked only from a main-actor task. Not `Sendable` because callers
+    /// close over session state; the delegate does not call it on the event loop.
+    private let onChallenge: (KeyboardInteractiveChallenge) async -> [String]?
     /// One-shot password reused to auto-answer a single hidden prompt (OpenSSH
     /// parity for PAM-password servers). Consumed on first use, then nil so any
     /// further rounds (e.g. an OTP) always prompt the user.
-    private nonisolated(unsafe) var autoAnswerPassword: String?
-    private nonisolated(unsafe) var triedKeyboardInteractive = false
+    private let offerState: Mutex<OfferState>
 
     private static let logger = Logger(subsystem: "dev.chr33s.shell", category: "SSHKbdInteractive")
 
@@ -114,8 +122,8 @@ nonisolated final class KeyboardInteractiveAuthDelegate: NIOSSHClientUserAuthent
         self.username = username
         self.sessionName = sessionName
         self.inner = inner
-        self.autoAnswerPassword = autoAnswerPassword
         self.onChallenge = onChallenge
+        self.offerState = Mutex(OfferState(autoAnswerPassword: autoAnswerPassword))
     }
 
     func nextAuthenticationType(
@@ -131,7 +139,6 @@ nonisolated final class KeyboardInteractiveAuthDelegate: NIOSSHClientUserAuthent
         // As a fallback, only offer what the server actually advertised. The `none`
         // probe means this list is the server's own, not NIOSSH's initial placeholder.
         let serverOffersIt = availableMethods.contains(.keyboardInteractive)
-
         let eventLoop = nextChallengePromise.futureResult.eventLoop
         let wrapper = eventLoop.makePromise(of: NIOSSHUserAuthenticationOffer?.self)
         wrapper.futureResult.whenComplete { [self] result in
@@ -147,7 +154,7 @@ nonisolated final class KeyboardInteractiveAuthDelegate: NIOSSHClientUserAuthent
             case .failure(let error):
                 // Inner delegate failed hard. Try keyboard-interactive once before
                 // giving up, then propagate the original error.
-                if !self.triedKeyboardInteractive {
+                if !self.offerState.withLock({ $0.triedKeyboardInteractive }) {
                     self.offerKeyboardInteractiveOrFinish(promise: nextChallengePromise, serverOffersIt: serverOffersIt)
                 } else {
                     nextChallengePromise.fail(error)
@@ -165,12 +172,16 @@ nonisolated final class KeyboardInteractiveAuthDelegate: NIOSSHClientUserAuthent
         promise: EventLoopPromise<NIOSSHUserAuthenticationOffer?>,
         serverOffersIt: Bool
     ) {
-        guard !triedKeyboardInteractive, serverOffersIt else {
+        let shouldOffer = offerState.withLock { state -> Bool in
+            guard !state.triedKeyboardInteractive, serverOffersIt else { return false }
+            state.triedKeyboardInteractive = true
+            return true
+        }
+        guard shouldOffer else {
             // Already attempted, or the server never advertised it.
             promise.succeed(nil)
             return
         }
-        triedKeyboardInteractive = true
         Self.logger.info("Offering keyboard-interactive authentication")
         promise.succeed(NIOSSHUserAuthenticationOffer(
             username: username,
@@ -183,7 +194,7 @@ nonisolated final class KeyboardInteractiveAuthDelegate: NIOSSHClientUserAuthent
         // A prior method (e.g. the password) was accepted and the server now
         // requires a further factor. Drop the stored password so it is never
         // auto-submitted to the next keyboard-interactive prompt (e.g. an OTP).
-        autoAnswerPassword = nil
+        offerState.withLock { $0.autoAnswerPassword = nil }
     }
 
     func respondToKeyboardInteractiveChallenge(
@@ -202,10 +213,16 @@ nonisolated final class KeyboardInteractiveAuthDelegate: NIOSSHClientUserAuthent
 
         // Auto-answer OpenSSH-style: a single hidden prompt with a stored/typed
         // password. One-shot, so a later round (e.g. an OTP) still prompts.
-        if let password = autoAnswerPassword, prompts.count == 1, prompts[0].echo == false {
-            autoAnswerPassword = nil
+        let autoAnswer = offerState.withLock { state -> String? in
+            guard prompts.count == 1, prompts[0].echo == false, let password = state.autoAnswerPassword else {
+                return nil
+            }
+            state.autoAnswerPassword = nil
+            return password
+        }
+        if let autoAnswer {
             Self.logger.info("Auto-answering single hidden keyboard-interactive prompt with stored password")
-            responsePromise.succeed([password])
+            responsePromise.succeed([autoAnswer])
             return
         }
 
@@ -239,10 +256,10 @@ nonisolated final class KeyboardInteractiveAuthDelegate: NIOSSHClientUserAuthent
 /// `.custom` delegates. Routing password auth through this delegate (wrapped in
 /// ``KeyboardInteractiveAuthDelegate``) makes keyboard-interactive reachable for
 /// PAM-password servers while preserving plain password auth.
-nonisolated final class PasswordAuthDelegate: NIOSSHClientUserAuthenticationDelegate, @unchecked Sendable {
+nonisolated final class PasswordAuthDelegate: NIOSSHClientUserAuthenticationDelegate, Sendable {
     private let username: String
     private let password: String
-    private nonisolated(unsafe) var tried = false
+    private let tried = Mutex(false)
 
     init(username: String, password: String) {
         self.username = username
@@ -253,11 +270,15 @@ nonisolated final class PasswordAuthDelegate: NIOSSHClientUserAuthenticationDele
         availableMethods: NIOSSHAvailableUserAuthenticationMethods,
         nextChallengePromise: EventLoopPromise<NIOSSHUserAuthenticationOffer?>
     ) {
-        guard !tried, availableMethods.contains(.password) else {
+        let shouldOffer = tried.withLock { tried -> Bool in
+            guard !tried, availableMethods.contains(.password) else { return false }
+            tried = true
+            return true
+        }
+        guard shouldOffer else {
             nextChallengePromise.succeed(nil)
             return
         }
-        tried = true
         nextChallengePromise.succeed(NIOSSHUserAuthenticationOffer(
             username: username,
             serviceName: "",

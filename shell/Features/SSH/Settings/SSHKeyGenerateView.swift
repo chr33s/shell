@@ -32,7 +32,7 @@ struct SSHKeyGenerateView: View {
     private nonisolated static let logger = Logger(subsystem: "dev.chr33s.shell", category: "SSHKeyGenerate")
     @Environment(\.dismiss) var dismiss
     @Environment(\.sheetThemeColors) private var sheetThemeColors
-    @StateObject private var sshKeyManager = SSHKeyManager.shared
+    @State private var sshKeyManager = SSHKeyManager.shared
 
     @State private var keyName = ""
     @State private var showingError = false
@@ -411,9 +411,7 @@ struct SSHKeyGenerateView: View {
             // below without importing the key.
             let generated: GeneratedSSHKey
             do {
-                generated = try await Task.detached(priority: .userInitiated) {
-                    try SSHKeyGenerator.generate(type: keyType, comment: name)
-                }.value
+                generated = try await generateSSHKeyOffMain(type: keyType, comment: name)
             } catch {
                 errorMessage = error.localizedDescription
                 showingError = true
@@ -447,6 +445,11 @@ struct SSHKeyGenerateView: View {
 
 #Preview {
     SSHKeyGenerateView()
+}
+
+@concurrent
+private func generateSSHKeyOffMain(type: GenerateKeyType, comment: String) async throws -> GeneratedSSHKey {
+    try SSHKeyGenerator.generate(type: type, comment: comment)
 }
 
 /// A small "Hardware" capsule used to flag the Secure Enclave option.
@@ -663,4 +666,5 @@ private struct GeneratedSecureEnclaveKeyResultView: View {
             }
         }
     }
+
 }

@@ -159,7 +159,7 @@ extension LocalShellSession {
     /// Stop inline spinner and emit cleanup sequence if needed.
     func cleanupInlineSpinner(emitIfEmpty: Bool = true) {
         guard let spinner = inlineSpinnerAnimator else { return }
-        let cleanup = spinner.getCleanupSequence()
+        let cleanup = spinner.cleanupSequence()
         spinner.stop()
         inlineSpinnerAnimator = nil
         if emitIfEmpty || !cleanup.isEmpty {

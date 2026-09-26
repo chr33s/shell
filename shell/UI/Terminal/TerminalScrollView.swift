@@ -80,7 +80,7 @@ extension Ghostty {
     private static let staleLiveScrollGraceInterval: TimeInterval = 0.2
 
     /// Work item used to restore UIKit's native indicator after silent core sync.
-    private var restoreNativeScrollIndicatorWorkItem: DispatchWorkItem?
+    nonisolated(unsafe) private var restoreNativeScrollIndicatorWorkItem: DispatchWorkItem?
 
     #if !targetEnvironment(macCatalyst)
     /// One-shot: the next scrollbar sync came from the iOS status-bar
@@ -91,7 +91,7 @@ extension Ghostty {
     #endif
 
     /// Work item used to release a selection-driven native indicator hold.
-    private var selectionScrollIndicatorHoldWorkItem: DispatchWorkItem?
+    nonisolated(unsafe) private var selectionScrollIndicatorHoldWorkItem: DispatchWorkItem?
 
     #if targetEnvironment(macCatalyst)
     /// Original offset for an in-flight Catalyst indicator nudge.
@@ -133,7 +133,7 @@ extension Ghostty {
     private static let selectionScrollIndicatorRevealInterval: TimeInterval = 0.25
 
     /// Notification observers
-    private var observers: [NSObjectProtocol] = []
+    nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
 
     /// Document view height constraint (stored for efficient updates)
     private var documentHeightConstraint: NSLayoutConstraint?
@@ -149,17 +149,17 @@ extension Ghostty {
     /// current report can be restored immediately when routing ends.
     private var isProgressBarPresentationSuppressed = false
 
-    /// Cancellable for observing progress report changes
-    private var progressReportCancellable: AnyCancellable?
+    /// Observation of OSC progress report changes.
+    private var progressReportTask: Task<Void, Never>?
 
-    /// Cancellable for observing mouse capture state changes
-    private var mouseCapturedCancellable: AnyCancellable?
+    /// Observation of mouse capture state changes.
+    private var mouseCapturedTask: Task<Void, Never>?
 
     /// Coalesces capture-state refreshes requested during hit testing.
     private var mouseCaptureRefreshPending = false
 
-    /// Cancellable for observing multiplexer scroll-active state changes
-    private var multiplexerScrollActiveCancellable: AnyCancellable?
+    /// Observation of multiplexer scroll-active state changes.
+    private var multiplexerScrollActiveTask: Task<Void, Never>?
 
     /// SSH auth-banner card host view (shows SSH_MSG_USERAUTH_BANNER live
     /// during authentication)
@@ -215,6 +215,9 @@ extension Ghostty {
     }
 
     deinit {
+        progressReportTask?.cancel()
+        mouseCapturedTask?.cancel()
+        multiplexerScrollActiveTask?.cancel()
         authBannerObserveTask?.cancel()
         restoreNativeScrollIndicatorWorkItem?.cancel()
         selectionScrollIndicatorHoldWorkItem?.cancel()
@@ -619,70 +622,69 @@ extension Ghostty {
     }
 
     private func setupProgressBar() {
-        // Observe progress report changes on the terminal view
-        progressReportCancellable = terminalView.$progressReport
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] report in
+        progressReportTask = SurfaceObservation.task(
+            { [weak terminalView] in terminalView?.progressReport },
+            onChange: { [weak self] report in
                 self?.updateProgressBar(report: report)
             }
+        )
     }
 
     private func setupMouseCaptureObserver() {
-        // Observe mouse capture state to toggle scroll behavior
-        mouseCapturedCancellable = terminalView.$isMouseCaptured
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] isCaptured in
-                guard let self = self else { return }
-
-                // In mouse capture mode (tmux, vim):
-                // - Disable UIScrollView scrolling AND its pan gesture
-                // - Disable canCancelContentTouches so touches reach TerminalView
-                // - Remove UIContextMenuInteraction (its gesture cancels touches)
-                // - TerminalView's gesture recognizer handles scroll wheel → mouse_scroll
-                //
-                // In non-capture mode:
-                // - iOS/iPadOS: UIScrollView handles scrolling with native momentum
-                // - Mac Catalyst: UIScrollView handles native momentum while
-                //   TerminalView stays pinned under its blank range model
-                // - scrollViewDidScroll → scroll_to_row for Ghostty scrollback
-                // - Context menu available for copy/paste
-                // Prevent scroll view from cancelling touches delivered to terminal
-                self.scrollView.canCancelContentTouches = !isCaptured
-
-                #if targetEnvironment(macCatalyst)
-                self.scrollView.panGestureRecognizer.isEnabled = !isCaptured
-                #else
-                self.scrollView.panGestureRecognizer.isEnabled = !isCaptured
-                // Remove/add context menu interaction on iOS/iPadOS only
-                // UIContextMenuInteraction's internal gesture recognizer cancels touches,
-                // which breaks tmux divider dragging on iPad
-                // On Mac Catalyst, we keep the interaction to intercept right-clicks
-                // Note: UIEditMenuInteraction is now transient (created on demand), so no
-                // management needed here.
-                if isCaptured {
-                    if let interaction = self.terminalView.contextMenuInteraction {
-                        self.terminalView.removeInteraction(interaction)
-                    }
-                    // Remove any transient edit menu interaction
-                    if let editInteraction = self.terminalView.editMenuInteraction {
-                        self.terminalView.removeInteraction(editInteraction)
-                        self.terminalView.editMenuInteraction = nil
-                    }
-                } else {
-                    // Re-add context menu interaction if not present
-                    let hasContextMenu = self.terminalView.interactions.contains(where: { $0 is UIContextMenuInteraction })
-                    if !hasContextMenu {
-                        let newInteraction = UIContextMenuInteraction(delegate: self.terminalView)
-                        self.terminalView.addInteraction(newInteraction)
-                        self.terminalView.contextMenuInteraction = newInteraction
-                    }
-                    // Respect touch mode for scroll view settings
-                    let scrollMode = SettingsStore.shared.value(Settings.Gestures.scrollMode)
-                    self.scrollView.panGestureRecognizer.minimumNumberOfTouches = scrollMode ? 1 : 2
-                }
-                #endif
-                self.applyVerticalScrollState(isCaptured: isCaptured)
+        mouseCapturedTask = SurfaceObservation.task(
+            { [weak terminalView] in terminalView?.isMouseCaptured ?? false },
+            onChange: { [weak self] isCaptured in
+                self?.applyMouseCapture(isCaptured)
             }
+        )
+    }
+
+    private func applyMouseCapture(_ isCaptured: Bool) {
+        // In mouse capture mode (tmux, vim):
+        // - Disable UIScrollView scrolling AND its pan gesture
+        // - Disable canCancelContentTouches so touches reach TerminalView
+        // - Remove UIContextMenuInteraction (its gesture cancels touches)
+        // - TerminalView's gesture recognizer handles scroll wheel → mouse_scroll
+        //
+        // In non-capture mode:
+        // - iOS/iPadOS: UIScrollView handles scrolling with native momentum
+        // - Mac Catalyst: UIScrollView handles native momentum while
+        //   TerminalView stays pinned under its blank range model
+        // - scrollViewDidScroll → scroll_to_row for Ghostty scrollback
+        // - Context menu available for copy/paste
+        // Prevent scroll view from cancelling touches delivered to terminal
+        scrollView.canCancelContentTouches = !isCaptured
+
+        #if targetEnvironment(macCatalyst)
+        scrollView.panGestureRecognizer.isEnabled = !isCaptured
+        #else
+        scrollView.panGestureRecognizer.isEnabled = !isCaptured
+        // Remove/add context menu interaction on iOS/iPadOS only.
+        // UIContextMenuInteraction's internal gesture recognizer cancels touches,
+        // which breaks tmux divider dragging on iPad.
+        // On Mac Catalyst, we keep the interaction to intercept right-clicks.
+        // Note: UIEditMenuInteraction is now transient (created on demand), so no
+        // management needed here.
+        if isCaptured {
+            if let interaction = terminalView.contextMenuInteraction {
+                terminalView.removeInteraction(interaction)
+            }
+            if let editInteraction = terminalView.editMenuInteraction {
+                terminalView.removeInteraction(editInteraction)
+                terminalView.editMenuInteraction = nil
+            }
+        } else {
+            let hasContextMenu = terminalView.interactions.contains(where: { $0 is UIContextMenuInteraction })
+            if !hasContextMenu {
+                let newInteraction = UIContextMenuInteraction(delegate: terminalView)
+                terminalView.addInteraction(newInteraction)
+                terminalView.contextMenuInteraction = newInteraction
+            }
+            let scrollMode = SettingsStore.shared.value(Settings.Gestures.scrollMode)
+            scrollView.panGestureRecognizer.minimumNumberOfTouches = scrollMode ? 1 : 2
+        }
+        #endif
+        applyVerticalScrollState(isCaptured: isCaptured)
     }
 
     private func setupMultiplexerScrollActiveObserver() {
@@ -691,15 +693,12 @@ extension Ghostty {
         // real UIScrollView enabled so its native scrollbar can represent
         // and accept interaction for the multiplexer's scroll position.
         //
-        // `removeDuplicates()` ensures we only react to genuine
-        // transitions; @Published emits on every assignment even if the
-        // value is unchanged, and apply(sample) sets
-        // `multiplexerScrollActive = true` on every emitted sample (~30 Hz).
-        multiplexerScrollActiveCancellable = terminalView.$multiplexerScrollActive
-            .removeDuplicates()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] active in
-                guard let self = self else { return }
+        // The setter equality-guards, so a 30 Hz `apply(sample)` that keeps
+        // writing `true` does not wake this task.
+        multiplexerScrollActiveTask = SurfaceObservation.task(
+            { [weak terminalView] in terminalView?.multiplexerScrollActive ?? false },
+            onChange: { [weak self] active in
+                guard let self else { return }
                 self.applyVerticalScrollState(
                     isCaptured: self.terminalView.isMouseCaptured
                 )
@@ -709,6 +708,7 @@ extension Ghostty {
                     self.lastMultiplexerScrollIndicatorRevealTime = 0
                 }
             }
+        )
     }
 
     /// Compute and apply the native scroll state from current mode.

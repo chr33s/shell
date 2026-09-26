@@ -33,11 +33,20 @@ enum HostKeyValidationResult {
 /// Custom SSH server authentication delegate that validates host keys against known hosts
 /// Marked nonisolated and @unchecked Sendable because NIO requires access from any thread.
 /// All MainActor interactions are handled internally via Task { @MainActor in ... }.
+/// One-way transfer of a NIO host key off the event loop. The sender does not
+/// use the key again; NIO does not mark the type `Sendable`.
+nonisolated struct HostKeyTransfer: @unchecked Sendable {
+    let key: NIOSSHPublicKey
+    init(_ key: NIOSSHPublicKey) { self.key = key }
+}
+
 nonisolated final class SSHHostKeyDelegate: NIOSSHClientServerAuthenticationDelegate, @unchecked Sendable {
     private let hostname: String
     private let port: Int
     private let manager: KnownHostsManager
-    private nonisolated(unsafe) let onValidationRequired: (HostKeyValidationRequest) async -> HostKeyValidationResult
+    /// Invoked only from a main-actor task. Not `Sendable` because the caller
+    /// closes over the session; the event loop never calls it directly.
+    private let onValidationRequired: (HostKeyValidationRequest) async -> HostKeyValidationResult
     private let logger = Logger(subsystem: "dev.chr33s.shell", category: "SSHHostKey")
     private let timeoutCoordinator: SSHTimeoutCoordinator?
 
@@ -56,9 +65,12 @@ nonisolated final class SSHHostKeyDelegate: NIOSSHClientServerAuthenticationDele
     }
 
     func validateHostKey(hostKey: NIOSSHPublicKey, validationCompletePromise: EventLoopPromise<Void>) {
+        // The event loop does not touch the key after this handoff. NIO's
+        // public key type is not `Sendable`, so the transfer is explicit.
+        let boxed = HostKeyTransfer(hostKey)
         Task { @MainActor in
             do {
-                let result = try await performValidation(hostKey: hostKey)
+                let result = try await performValidation(hostKey: boxed.key)
                 if result {
                     validationCompletePromise.succeed(())
                 } else {
@@ -90,7 +102,7 @@ nonisolated final class SSHHostKeyDelegate: NIOSSHClientServerAuthenticationDele
         // Generate fingerprint and key info
         // Force proper String copies to avoid memory corruption
         let fingerprint = String(generateFingerprint(for: hostKey))
-        let keyType = String(getKeyType(from: hostKey))
+        let keyType = String(keyType(from: hostKey))
         let publicKeyData = try serializePublicKey(hostKey)
         let hostnameCopy = String(hostname)
         let portCopy = port
@@ -98,7 +110,7 @@ nonisolated final class SSHHostKeyDelegate: NIOSSHClientServerAuthenticationDele
         logger.info("Validating host key for \(hostnameCopy):\(portCopy) - Type: \(keyType), Fingerprint: \(fingerprint)")
 
         // Check if we have a known host entry
-        if let knownHost = manager.getHost(hostname: hostname, port: port) {
+        if let knownHost = manager.host(hostname: hostname, port: port) {
             // Compare fingerprints for robustness (survives serialization format changes)
             // Also compare publicKeyData as a fallback for older entries
             let fingerprintsMatch = knownHost.fingerprint == fingerprint
@@ -246,7 +258,7 @@ nonisolated final class SSHHostKeyDelegate: NIOSSHClientServerAuthenticationDele
     }
 
     /// Get the key type as a string
-    private func getKeyType(from hostKey: NIOSSHPublicKey) -> String {
+    private func keyType(from hostKey: NIOSSHPublicKey) -> String {
         // Extract from OpenSSH format
         let openSSHString = String(openSSHPublicKey: hostKey)
         let components = openSSHString.split(separator: " ")

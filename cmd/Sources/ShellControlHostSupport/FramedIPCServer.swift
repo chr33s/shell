@@ -63,40 +63,76 @@ public final class FramedIPCServer: Sendable {
                     continue
                 }
             }
+            // Kick the connection off the queue so its QoS matches the
+            // caller-supplied queue, then leave that thread immediately. The
+            // handler is async; blocking it here would pin a pool thread for
+            // the whole of a native wait.
             queue.async { [self] in
-                defer {
-                    close(client)
-                    if maximumConnections != nil { connections.wrappingSubtract(1, ordering: .acquiringAndReleasing) }
+                Task {
+                    await self.serve(client)
                 }
-                serve(client)
             }
         }
     }
 
-    private func serve(_ client: Int32) {
+    private func serve(_ client: Int32) async {
+        defer {
+            close(client)
+            if maximumConnections != nil { connections.wrappingSubtract(1, ordering: .acquiringAndReleasing) }
+        }
         var buffer = Data()
         while isRunning {
-            guard let value = try? FrameIO.readFrame(client, buffer: &buffer) else { return }
+            let snapshot = buffer
+            let read = await BlockingWork.run { () -> (buffer: Data, value: JSONValue?) in
+                var local = snapshot
+                let value = try? FrameIO.readFrame(client, buffer: &local)
+                return (local, value)
+            }
+            buffer = read.buffer
+            guard let value = read.value else { return }
             guard let request = try? IPCRequest(json: value) else {
-                _ = try? FrameIO.writeFrame(client, IPCResponse(
+                let rejected = IPCResponse(
                     messageID: .random(),
                     ok: false,
                     errorCode: ControlErrorCode.invalidPayload.rawValue,
                     errorMessage: "unreadable frame"
-                ).json)
+                )
+                await BlockingWork.run { _ = try? FrameIO.writeFrame(client, rejected.json) }
                 return
             }
-            let semaphore = DispatchSemaphore(value: 0)
-            nonisolated(unsafe) var response = IPCResponse(messageID: request.messageID, ok: false)
-            let work = Task { [handler] in
-                response = await handler(request)
-                semaphore.signal()
-            }
-            while semaphore.wait(timeout: .now() + 1) == .timedOut {
-                if SocketPeer.hasClosed(client) { work.cancel() }
-            }
-            try? FrameIO.writeFrame(client, response.json)
+            let response = await response(to: request, client: client)
+            let json = response.json
+            await BlockingWork.run { _ = try? FrameIO.writeFrame(client, json) }
         }
+    }
+
+    /// Runs the handler and a peer-close watch together. Closing the socket
+    /// cancels the handler; the handler's response still wins if it finished
+    /// first. The placeholder is what used to be written when cancellation
+    /// won before the handler assigned a response.
+    private func response(to request: IPCRequest, client: Int32) async -> IPCResponse {
+        let placeholder = IPCResponse(messageID: request.messageID, ok: false)
+        let produced: IPCResponse? = await withTaskGroup(of: IPCResponse?.self) { group -> IPCResponse? in
+            group.addTask { [handler] in
+                await handler(request)
+            }
+            group.addTask {
+                while !Task.isCancelled {
+                    if SocketPeer.hasClosed(client) { return nil }
+                    try? await Task.sleep(for: .seconds(1))
+                }
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            if let first { return first }
+            var late: IPCResponse?
+            for await value in group {
+                if let value { late = value }
+            }
+            return late
+        }
+        return produced ?? placeholder
     }
 
     /// A persistent failure such as EMFILE would otherwise spin the loop.
@@ -134,18 +170,33 @@ public final class HealthSocketServer: Sendable {
                 FramedIPCServer.backOffAfterAcceptFailure()
                 continue
             }
-            defer { close(client) }
-            guard UnixSocketServer.verifyPeer(client) else { continue }
-            let done = DispatchSemaphore(value: 0)
-            nonisolated(unsafe) var body = Data("{}".utf8)
-            Task { [snapshot] in
-                let json = await snapshot()
-                body = (try? JSONCanonicalization.canonicalize(json)) ?? body
-                done.signal()
+            guard UnixSocketServer.verifyPeer(client) else {
+                close(client)
+                continue
             }
-            done.wait()
-            _ = body.withUnsafeBytes { raw in
-                send(client, raw.baseAddress, raw.count, 0)
+            let snapshot = self.snapshot
+            Task {
+                let json = await snapshot()
+                let body = (try? JSONCanonicalization.canonicalize(json)) ?? Data("{}".utf8)
+                await BlockingWork.run {
+                    _ = body.withUnsafeBytes { raw in
+                        send(client, raw.baseAddress, raw.count, 0)
+                    }
+                    close(client)
+                }
+            }
+        }
+    }
+}
+
+/// Blocking socket IO off the cooperative pool. The continuation resumes
+/// exactly once; callers suspend instead of joining an unstructured task
+/// with a semaphore.
+private enum BlockingWork {
+    static func run<T: Sendable>(_ work: @escaping @Sendable () -> T) async -> T {
+        await withCheckedContinuation { continuation in
+            Thread.detachNewThread {
+                continuation.resume(returning: work())
             }
         }
     }

@@ -91,7 +91,10 @@ final class CloudKitSyncManager {
         return decoder
     }()
 
-    /// Network path monitor
+    /// Network path monitor. Callbacks stay off the main actor; the queue is
+    /// private because `NWPathMonitor.start` requires a `DispatchQueue`.
+    @ObservationIgnored
+    private static let pathMonitorQueue = DispatchQueue(label: "dev.chr33s.shell.cloudkit.path", qos: .utility)
     @ObservationIgnored
     private var pathMonitor: NWPathMonitor?
 
@@ -1629,7 +1632,7 @@ final class CloudKitSyncManager {
                 }
             }
         }
-        monitor.start(queue: DispatchQueue.global(qos: .utility))
+        monitor.start(queue: Self.pathMonitorQueue)
     }
 
     func pauseNetworkMonitoringForBackground() {

@@ -1,10 +1,12 @@
+import Observation
 import Foundation
 import Combine
 import os.log
 
 /// Manages known SSH hosts with sync-ready file-based persistence
 @MainActor
-final class KnownHostsManager: ObservableObject {
+@Observable
+final class KnownHostsManager {
     /// Shared singleton instance
     static let shared = KnownHostsManager()
 
@@ -64,7 +66,7 @@ final class KnownHostsManager: ObservableObject {
     }
 
     /// Get the known host entry for a specific hostname and port
-    func getHost(hostname: String, port: Int) -> KnownHost? {
+    func host(hostname: String, port: Int) -> KnownHost? {
         guard let uuid = identityToUUID[Self.identity(hostname: hostname, port: port)] else {
             return nil
         }
@@ -74,7 +76,7 @@ final class KnownHostsManager: ObservableObject {
     }
 
     /// Get a host by UUID
-    func getHost(id: UUID) -> KnownHost? {
+    func host(id: UUID) -> KnownHost? {
         let host = store.record(for: id)
         return host?.isDeleted == false ? host : nil
     }

@@ -16,11 +16,11 @@ import UIKit
 extension MainView {
 
     /// Returns the reconnection overlay if needed for the current focused terminal.
-    /// - Note: The `restorationVersion` check forces SwiftUI to re-evaluate when restoration state changes
-    ///   (TerminalView is a class, so @State doesn't observe its @Published properties)
+    /// - Note: `restorationVersion` remains as an explicit invalidation for the existing notification path;
+    ///   the terminal's observed state is also tracked directly.
     @ViewBuilder
     var reconnectionOverlay: some View {
-        // Note: restorationVersion check forces SwiftUI re-evaluation when state changes
+        // Retain the explicit notification-based invalidation while the state also tracks directly.
         let _ = restorationVersion
         if terminals.indices.contains(selectedTabIndex),
            let focusedTerminal = terminals[selectedTabIndex].focusedTerminal,
@@ -60,7 +60,7 @@ extension MainView {
     /// contents must come back unchanged after a recovery (AC-18).
     @ViewBuilder
     var recoveryStatusOverlay: some View {
-        // Same class-not-observable dance as `reconnectionOverlay`.
+        // Keep the explicit notification-based invalidation used by the recovery-status path.
         let _ = restorationVersion
         if terminals.indices.contains(selectedTabIndex),
            let focusedTerminal = terminals[selectedTabIndex].focusedTerminal,

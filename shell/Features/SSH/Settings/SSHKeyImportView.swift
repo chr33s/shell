@@ -5,7 +5,7 @@ import os.log
 struct SSHKeyImportView: View {
     private nonisolated static let logger = Logger(subsystem: "dev.chr33s.shell", category: "SSHKeyImport")
     @Environment(\.dismiss) var dismiss
-    @StateObject private var sshKeyManager = SSHKeyManager.shared
+    @State private var sshKeyManager = SSHKeyManager.shared
 
     @State private var importMethod: ImportMethod = .paste
     @State private var keyName = ""

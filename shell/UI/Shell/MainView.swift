@@ -43,7 +43,7 @@ struct MainView: View {
 
     // MARK: - Properties
 
-    @EnvironmentObject var ghosttyApp: Ghostty.App
+    @Environment(Ghostty.App.self) var ghosttyApp
     @Environment(\.openWindow) var openWindow
     @Environment(\.dismissWindow) var dismissWindow
     @SceneStorage("windowId") var sceneWindowId: String = UUID().uuidString
@@ -224,7 +224,7 @@ struct MainView: View {
     @State var searchStateVersion: Int = 0
     @State var composeStateVersion: Int = 0
     // Restoration state change trigger - incremented to force re-render when restoration state changes
-    // (TerminalView is a class, so @State doesn't observe its @Published properties)
+    // (Legacy explicit invalidation; TerminalView's observable state also tracks directly.)
     @State var restorationVersion: Int = 0
     @State var windowSceneSessionID: String?
     @State var windowSafeAreaInsets: EdgeInsets = EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0)
@@ -505,5 +505,5 @@ struct MainView: View {
 
 #Preview {
     MainView()
-        .environmentObject(Ghostty.App())
+        .environment(Ghostty.App())
 }

@@ -370,7 +370,7 @@ nonisolated final class ShellTokenizer: @unchecked Sendable {
 
     /// Retrieve and consume the next collected here-document matching a delimiter.
     /// Consumes the first match so repeated delimiters return different bodies.
-    func getHeredocContent(delimiter: String) -> (content: String, quoted: Bool)? {
+    func heredocContent(delimiter: String) -> (content: String, quoted: Bool)? {
         guard let idx = collectedHeredocs.firstIndex(where: { $0.delimiter == delimiter }) else {
             return nil
         }

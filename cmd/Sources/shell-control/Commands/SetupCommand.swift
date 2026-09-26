@@ -99,7 +99,9 @@ enum GuidedSetupCommand {
     /// Cancellation stops the guide only: pairings, keys, and services stay.
     /// Say what is still running (docs/specs/control-setup.md 4.4).
     private static func reportLeftRunning(_ manager: LifecycleCoordinator) async {
-        let status = await Task.detached { await manager.status() }.value
+        // A fresh task, not a detached one: cancellation must not abort the
+        // status read, and a detached task would drop priority and task-locals.
+        let status = await Task { await manager.status() }.value
         stderr("\nGuide cancelled. Nothing already set up was undone.")
         if manager.store.exists() {
             stderr("Control services: \(status.overall) (desired \(status.desiredState)). Stop them with shell-control down; resume with shell-control setup --guided.")

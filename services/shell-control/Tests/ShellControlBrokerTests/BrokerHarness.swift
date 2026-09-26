@@ -1,5 +1,5 @@
 import Foundation
-import XCTest
+import Testing
 import ShellControlProtocol
 import ShellControlSecurity
 @testable import ShellControlBroker
@@ -184,17 +184,16 @@ final class BrokerHarness {
 
 func assertControlError(
     _ expected: ControlErrorCode,
-    file: StaticString = #filePath,
-    line: UInt = #line,
+    sourceLocation: SourceLocation = #_sourceLocation,
     _ body: () async throws -> Void
 ) async {
     do {
         try await body()
-        XCTFail("expected \(expected.rawValue)", file: file, line: line)
+        Issue.record("expected \(expected.rawValue)", sourceLocation: sourceLocation)
     } catch let error as ControlError {
-        XCTAssertEqual(error.code, expected, file: file, line: line)
+        #expect(error.code == expected, sourceLocation: sourceLocation)
     } catch {
-        XCTFail("expected \(expected.rawValue), got \(error)", file: file, line: line)
+        Issue.record("expected \(expected.rawValue), got \(error)", sourceLocation: sourceLocation)
     }
 }
 

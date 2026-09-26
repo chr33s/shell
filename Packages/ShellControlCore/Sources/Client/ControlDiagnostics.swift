@@ -320,8 +320,7 @@ public final class DiagnosticRedactor: @unchecked Sendable {
     private static let rules: [(NSRegularExpression, String)] = {
         func rule(_ pattern: String, _ replacement: String) -> (NSRegularExpression, String) {
             // The patterns are literals; a bad one is a programming error.
-            // swiftlint:disable:next force_try
-            (try! NSRegularExpression(pattern: pattern, options: [.caseInsensitive]), replacement)
+            (DiagnosticRedactor.regex(pattern, options: [.caseInsensitive]), replacement)
         }
         return [
             // Links of any scheme, including shell-control:// pairing links.
@@ -343,10 +342,15 @@ public final class DiagnosticRedactor: @unchecked Sendable {
         ]
     }()
 
-    private static let uuid: NSRegularExpression = {
-        // swiftlint:disable:next force_try
-        try! NSRegularExpression(pattern: #"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b"#)
-    }()
+    private static let uuid = regex(#"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b"#, options: [])
+
+    /// A literal pattern that does not compile is a programmer mistake.
+    private static func regex(_ pattern: String, options: NSRegularExpression.Options) -> NSRegularExpression {
+        guard let expression = try? NSRegularExpression(pattern: pattern, options: options) else {
+            preconditionFailure("invalid diagnostic redaction pattern: \(pattern)")
+        }
+        return expression
+    }
 
     /// A stable per-export stand-in for an identifier.
     public func pseudonym(_ identifier: String) -> String {

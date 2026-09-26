@@ -1,4 +1,5 @@
-import XCTest
+import Foundation
+import Testing
 
 @testable import Shell
 
@@ -10,7 +11,8 @@ import XCTest
 /// `Range` for `subdata(in:)`. A key file is untrusted input — pasted,
 /// imported from disk, or restored from a backup — so a crafted one took the
 /// whole app down. Lengths are now bounded before anything indexes with them.
-final class SSHKeyParserHardeningTests: XCTestCase {
+@Suite
+final class SSHKeyParserHardeningTests {
     private func pem(_ der: [UInt8]) -> String {
         """
         -----BEGIN RSA PRIVATE KEY-----
@@ -19,36 +21,41 @@ final class SSHKeyParserHardeningTests: XCTestCase {
         """
     }
 
-    func testAnOverflowingASN1LengthIsRejected() {
+    @Test
+    func testAnOverflowingASN1LengthIsRejected() throws {
         // SEQUENCE(10) { INTEGER with a long-form length of eight 0xFF bytes }.
         // That length wrapped to -1, passed the "is it in range?" guard, and
         // produced the range 12..<11.
         let der: [UInt8] = [0x30, 0x0A, 0x02, 0x88, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]
-        XCTAssertThrowsError(try SSHKeyParser.parse(keyString: pem(der)))
+        #expect(throws: (any Error).self) { try SSHKeyParser.parse(keyString: pem(der)) }
     }
 
-    func testAnASN1LengthLongerThanTheDocumentIsRejected() {
+    @Test
+    func testAnASN1LengthLongerThanTheDocumentIsRejected() throws {
         // A four-byte length claiming 16 MiB inside a 9-byte document.
         let der: [UInt8] = [0x30, 0x07, 0x02, 0x84, 0x01, 0x00, 0x00, 0x00, 0x00]
-        XCTAssertThrowsError(try SSHKeyParser.parse(keyString: pem(der)))
+        #expect(throws: (any Error).self) { try SSHKeyParser.parse(keyString: pem(der)) }
     }
 
-    func testTheIndefiniteLengthFormIsRejected() {
+    @Test
+    func testTheIndefiniteLengthFormIsRejected() throws {
         // 0x80 is the indefinite form, which DER forbids.
         let der: [UInt8] = [0x30, 0x80, 0x02, 0x01, 0x00]
-        XCTAssertThrowsError(try SSHKeyParser.parse(keyString: pem(der)))
+        #expect(throws: (any Error).self) { try SSHKeyParser.parse(keyString: pem(der)) }
     }
 
-    func testATruncatedLongFormLengthIsRejected() {
+    @Test
+    func testATruncatedLongFormLengthIsRejected() throws {
         // Declares eight length bytes and supplies two.
         let der: [UInt8] = [0x30, 0x04, 0x02, 0x88, 0xFF, 0xFF]
-        XCTAssertThrowsError(try SSHKeyParser.parse(keyString: pem(der)))
+        #expect(throws: (any Error).self) { try SSHKeyParser.parse(keyString: pem(der)) }
     }
 
-    func testGarbageAndEmptyInputAreRejected() {
-        XCTAssertThrowsError(try SSHKeyParser.parse(keyString: ""))
-        XCTAssertThrowsError(try SSHKeyParser.parse(keyString: "not a key"))
-        XCTAssertThrowsError(try SSHKeyParser.parse(keyString: pem([])))
-        XCTAssertThrowsError(try SSHKeyParser.parse(keyString: pem([0x30])))
+    @Test
+    func testGarbageAndEmptyInputAreRejected() throws {
+        #expect(throws: (any Error).self) { try SSHKeyParser.parse(keyString: "") }
+        #expect(throws: (any Error).self) { try SSHKeyParser.parse(keyString: "not a key") }
+        #expect(throws: (any Error).self) { try SSHKeyParser.parse(keyString: pem([])) }
+        #expect(throws: (any Error).self) { try SSHKeyParser.parse(keyString: pem([0x30])) }
     }
 }

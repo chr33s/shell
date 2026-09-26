@@ -41,7 +41,10 @@ final class WatchConnectivityGateway: NSObject, WCSessionDelegate {
     }
 
     private func updateReachability(_ session: WCSession) {
-        let reachable = session.activationState == .activated && session.isReachable
+        applyReachability(session.activationState == .activated && session.isReachable)
+    }
+
+    private func applyReachability(_ reachable: Bool) {
         guard reachable != isReachable else { return }
         isReachable = reachable
         onReachabilityChange?(reachable)
@@ -53,14 +56,16 @@ final class WatchConnectivityGateway: NSObject, WCSessionDelegate {
         error: (any Error)?
     ) {
         let context = WatchGatewayContext(applicationContext: session.receivedApplicationContext)
+        let reachable = activationState == .activated && session.isReachable
         Task { @MainActor in
-            updateReachability(session)
+            applyReachability(reachable)
             adopt(context)
         }
     }
 
     nonisolated func sessionReachabilityDidChange(_ session: WCSession) {
-        Task { @MainActor in updateReachability(session) }
+        let reachable = session.activationState == .activated && session.isReachable
+        Task { @MainActor in applyReachability(reachable) }
     }
 
     /// Background context is display state only: a pending count, request

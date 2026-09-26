@@ -199,7 +199,9 @@ public struct SetupReviewTest: Sendable {
     /// Best-effort withdrawal of an abandoned test, outside the cancelled task.
     private func withdraw(requestID: ControlID, requestHash: String, capability: String) async {
         let adapter = adapter
-        await Task.detached {
+        // Unstructured, not detached: the withdrawal must outlive the cancelled
+        // caller, and `Task` does not inherit that cancellation.
+        await Task {
             _ = try? await adapter.exchange(IPCRequest(messageID: .random(), type: .approvalWithdraw, runCapability: capability, body: .object([
                 "request_id": JSONValue(requestID),
                 "request_hash": .string(requestHash)

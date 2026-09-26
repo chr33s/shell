@@ -1,4 +1,5 @@
-import XCTest
+import Foundation
+import Testing
 import ShellControlProtocol
 import ShellControlSecurity
 import ShellControlClient
@@ -9,7 +10,8 @@ import ShellControlBroker
 /// The experimental managed Codex profile against a scripted app-server and
 /// the real in-process broker and daemon (docs/specs/agent-relay.md sections 10.2,
 /// 11.3, 16; A15, A16, A35, A36).
-final class ManagedCodexTests: XCTestCase {
+@Suite
+final class ManagedCodexTests {
     /// A scripted `codex app-server`: answers our requests as the documented
     /// protocol does, records everything we send, and emits server requests
     /// and notifications on demand.
@@ -66,7 +68,7 @@ final class ManagedCodexTests: XCTestCase {
                 if let found = messages.first(where: predicate) { return found }
                 try await Task.sleep(nanoseconds: 10_000_000)
             }
-            throw XCTSkip("expected message never sent")
+            throw ManagedCodexMessageTimeout()
         }
     }
 
@@ -88,14 +90,16 @@ final class ManagedCodexTests: XCTestCase {
 
     typealias Relay = AgentRelayEndToEndTests.Relay
 
-    func makeSession(_ relay: Relay, server: FakeAppServer, terminal: FakeTerminal) -> CodexManagedSession {
+    func makeSession(_ relay: Relay, server: FakeAppServer, terminal: FakeTerminal,
+                     daemon: (any AdapterDaemon)? = nil) -> CodexManagedSession {
         let configuration = AdapterConfiguration(
             provider: .codex,
             routes: [.appServerCommandApproval, .appServerFileChangeApproval, .appServerUserInput, .appServerTurnControl],
             userAttestedBuilds: ["0.156.1"]
         )
         let environment = ManagedEnvironment(
-            configuration: configuration, build: "0.156.1", daemon: AgentRelayEndToEndTests.InProcessDaemon(core: relay.core),
+            configuration: configuration, build: "0.156.1",
+            daemon: daemon ?? AgentRelayEndToEndTests.InProcessDaemon(core: relay.core),
             cwd: FileManager.default.temporaryDirectory.resolvingSymlinksInPath().path, ownerPID: getpid(), ownerAlive: { true },
             effectiveUserID: geteuid(), policyFingerprint: { _ in String(repeating: "c", count: 64) }, terminalLocation: { nil },
             fileSystem: LocalFileSystem(), log: { _ in }, commandWaitSeconds: 1
@@ -105,7 +109,7 @@ final class ManagedCodexTests: XCTestCase {
 
     func session(_ relay: Relay, for principal: Principal) async throws -> AgentSessionProjection {
         let page = try await relay.store.agentSnapshot(principal: principal, pageToken: nil, limit: 50)
-        return try XCTUnwrap(page.sessions.first { $0.registration.profile == .managed })
+        return try #require(page.sessions.first { $0.registration.profile == .managed })
     }
 
     func sendCommand(_ relay: Relay, action: AgentSessionAction, device: (id: ControlID, key: InMemoryDeviceKey, principal: Principal)) async throws -> ControlID {
@@ -137,6 +141,7 @@ final class ManagedCodexTests: XCTestCase {
         DeviceGrant.watchDefault.union(DeviceGrant.agentPhone).union([.agentMessagesSend, .agentTurnsCancel])
     }
 
+    @Test
     func testManagedSessionRegistersAndRunsMobileTurnsSteeringAndCancellation() async throws {
         let relay = try await Relay()
         let phone = try await relay.device(grants: phoneGrants)
@@ -146,19 +151,19 @@ final class ManagedCodexTests: XCTestCase {
         defer { Task { await managed.stop() } }
 
         var projection = try await session(relay, for: phone.principal)
-        XCTAssertEqual(projection.turnState, .idle)
-        XCTAssertTrue(projection.offers(AgentFeature.messages))
-        XCTAssertTrue(projection.offers(AgentFeature.turnCancel))
+        #expect(projection.turnState == .idle)
+        #expect(projection.offers(AgentFeature.messages))
+        #expect(projection.offers(AgentFeature.turnCancel))
         // Approvals must reach the gate.
-        XCTAssertEqual(server.messages.first { $0["method"] == "thread/start" }?["params"]?["approvalPolicy"], "untrusted", "a value the 0.156.1 enum accepts")
+        #expect(server.messages.first { $0["method"] == "thread/start" }?["params"]?["approvalPolicy"] == "untrusted", "a value the 0.156.1 enum accepts")
 
         // A new instruction from the phone starts a turn with exactly the text.
         let start = try await sendCommand(relay, action: try AgentSessionCoordinator.messageAction("Run the tests", session: projection), device: phone)
         let started = try await server.waitFor { $0["method"] == "turn/start" }
-        XCTAssertEqual(started["params"]?["input"]?.arrayValue?.first?["text"], "Run the tests")
-        XCTAssertEqual(started["params"]?.objectValue?.keys.sorted(), ["input", "threadId"], "no caller overrides")
+        #expect(started["params"]?["input"]?.arrayValue?.first?["text"] == "Run the tests")
+        #expect(started["params"]?.objectValue?.keys.sorted() == ["input", "threadId"], "no caller overrides")
         let startDispatch = try await dispatch(relay, start, device: phone.principal, until: .accepted)
-        XCTAssertEqual(startDispatch, .accepted)
+        #expect(startDispatch == .accepted)
 
         // The session now reports the active turn; a second new turn is refused.
         for _ in 0..<200 {
@@ -166,7 +171,7 @@ final class ManagedCodexTests: XCTestCase {
             if projection.turnState == .active { break }
             try await Task.sleep(nanoseconds: 10_000_000)
         }
-        XCTAssertEqual(projection.activeTurnID, "turn_1")
+        #expect(projection.activeTurnID == "turn_1")
         await assertControlError(.staleVersion) {
             _ = try await self.sendCommand(relay, action: .message(
                 agentSessionID: projection.registration.agentSessionID, runID: projection.registration.runID,
@@ -177,25 +182,26 @@ final class ManagedCodexTests: XCTestCase {
         // Steering names the exact active turn (A35).
         let steer = try await sendCommand(relay, action: try AgentSessionCoordinator.messageAction("Only unit tests", session: projection), device: phone)
         let steered = try await server.waitFor { $0["method"] == "turn/steer" }
-        XCTAssertEqual(steered["params"]?["expectedTurnId"], "turn_1")
+        #expect(steered["params"]?["expectedTurnId"] == "turn_1")
         let steerDispatch = try await dispatch(relay, steer, device: phone.principal, until: .accepted)
-        XCTAssertEqual(steerDispatch, .accepted)
+        #expect(steerDispatch == .accepted)
 
         // Cancellation is acknowledged, not proof of termination (A36).
         projection = try await session(relay, for: phone.principal)
         let cancel = try await sendCommand(relay, action: try AgentSessionCoordinator.cancelAction(session: projection), device: phone)
         let interrupted = try await server.waitFor { $0["method"] == "turn/interrupt" }
-        XCTAssertEqual(interrupted["params"]?["turnId"], "turn_1")
+        #expect(interrupted["params"]?["turnId"] == "turn_1")
         let cancelDispatch = try await dispatch(relay, cancel, device: phone.principal, until: .accepted)
-        XCTAssertEqual(cancelDispatch, .accepted)
+        #expect(cancelDispatch == .accepted)
         for _ in 0..<200 {
             projection = try await session(relay, for: phone.principal)
             if projection.turnState == .idle { break }
             try await Task.sleep(nanoseconds: 10_000_000)
         }
-        XCTAssertEqual(projection.turnState, .idle)
+        #expect(projection.turnState == .idle)
     }
 
+    @Test
     func testDevicesWithoutTheGrantCannotCommandASession() async throws {
         let relay = try await Relay()
         let phone = try await relay.device()
@@ -209,6 +215,7 @@ final class ManagedCodexTests: XCTestCase {
         }
     }
 
+    @Test
     func testRemoteApprovalAnswersTheExactRPCRequestAndCorrelatesAcceptance() async throws {
         let relay = try await Relay()
         let phone = try await relay.device(grants: phoneGrants)
@@ -224,14 +231,15 @@ final class ManagedCodexTests: XCTestCase {
             "approvalId": .null, "networkApprovalContext": .null
         ])]))
         let record = try await relay.pendingApproval(for: phone.principal)
-        guard case .agentTool(let operation) = record.spec.operation else { return XCTFail("operation") }
-        XCTAssertEqual(operation.shellRequest?.representation, .commandString, "one command string, never split")
-        XCTAssertEqual(operation.shellRequest?.command, "npm test")
-        XCTAssertEqual(operation.providerRequestID, .integer(100), "native id type preserved")
-        XCTAssertEqual(operation.connectionEpoch, managed.connectionEpoch)
+        guard case .agentTool(let operation) = record.spec.operation else { Issue.record("operation")
+return }
+        #expect(operation.shellRequest?.representation == .commandString, "one command string, never split")
+        #expect(operation.shellRequest?.command == "npm test")
+        #expect(operation.providerRequestID == .integer(100), "native id type preserved")
+        #expect(operation.connectionEpoch == managed.connectionEpoch)
         try await relay.decide(.approve, record: record, device: phone)
         let response = try await server.waitFor { $0["id"] == 100 && $0["result"] != nil }
-        XCTAssertEqual(response["result"], .object(["decision": "accept"]), "never acceptForSession")
+        #expect(response["result"] == .object(["decision": "accept"]), "never acceptForSession")
         // Resolution names only the request; acceptance comes from the item.
         server.emit(.object(["method": "serverRequest/resolved", "params": .object(["requestId": 100, "threadId": "thr_1"])]))
         server.emit(.object(["method": "item/started", "params": .object([
@@ -244,9 +252,10 @@ final class ManagedCodexTests: XCTestCase {
             if dispatch == .applied { break }
             try await Task.sleep(nanoseconds: 10_000_000)
         }
-        XCTAssertEqual(dispatch, .applied, "correlated acceptance is the only path to applied")
+        #expect(dispatch == .applied, "correlated acceptance is the only path to applied")
     }
 
+    @Test
     func testLocalDecisionWithdrawsTheRemoteRequest() async throws {
         // A16: the local terminal answers first; the phone cannot revive it.
         let relay = try await Relay()
@@ -263,13 +272,47 @@ final class ManagedCodexTests: XCTestCase {
         let record = try await relay.pendingApproval(for: phone.principal)
         terminal.input.yield("/deny 1")
         let response = try await server.waitFor { $0["id"] == "req-a" && $0["result"] != nil }
-        XCTAssertEqual(response["result"], .object(["decision": "decline"]))
+        #expect(response["result"] == .object(["decision": "decline"]))
         let final = try await relay.store.approval(record.spec.requestID, principal: phone.principal)
-        XCTAssertEqual(final.projection.resolution, .cancelled)
+        #expect(final.projection.resolution == .cancelled)
         do {
             try await relay.decide(.approve, record: record, device: phone)
-            XCTFail("a locally answered request must not be approvable")
+            Issue.record("a locally answered request must not be approvable")
         } catch is ControlError {}
+    }
+
+    @Test
+    func testInvalidLocalAnswerLeavesRemoteInputOpen() async throws {
+        let relay = try await Relay()
+        let phone = try await relay.device(grants: phoneGrants)
+        let server = FakeAppServer(), terminal = FakeTerminal()
+        let managed = makeSession(relay, server: server, terminal: terminal)
+        try await managed.start()
+        let runner = Task { await managed.runTerminal() }
+        defer { Task { await managed.stop(); runner.cancel() } }
+        server.emit(.object(["method": "item/tool/requestUserInput", "id": 103, "params": .object([
+            "threadId": "thr_1", "turnId": "turn_4", "itemId": "item_6", "isBlocking": true,
+            "questions": [
+                .object(["id": "first", "question": "First?", "options": .null]),
+                .object(["id": "second", "question": "Second?", "options": .null])
+            ]
+        ])]))
+        let record = try await relay.pendingInput(for: phone.principal)
+        terminal.input.yield("/deny 1")
+        terminal.input.yield("/answer 1 only-one")
+        for _ in 0..<100 where !terminal.text.contains("give 2 answers") {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(terminal.text.contains("that command does not answer #1"))
+        #expect(terminal.text.contains("give 2 answers"))
+        let open = try await relay.store.input(record.spec.requestID, principal: phone.principal)
+        #expect(open.projection.resolution == .pending)
+        #expect(!(server.messages.contains { $0["id"] == 103 && $0["result"] != nil }))
+        terminal.input.yield("/answer 1 first || second")
+        let response = try await server.waitFor { $0["id"] == 103 && $0["result"] != nil }
+        #expect(response["result"] == .object(["answers": .object([
+            "first": .object(["answers": ["first"]]), "second": .object(["answers": ["second"]])
+        ])]))
     }
 
     /// Delays the dispatch_started receipt so a local answer can race it.
@@ -281,6 +324,7 @@ final class ManagedCodexTests: XCTestCase {
         }
     }
 
+    @Test
     func testLocalAnswerDuringRemoteDispatchNeverAnswersTwice() async throws {
         let relay = try await Relay()
         let phone = try await relay.device(grants: phoneGrants)
@@ -311,10 +355,11 @@ final class ManagedCodexTests: XCTestCase {
         _ = try await server.waitFor { $0["id"] == 44 && $0["result"] != nil }
         try await Task.sleep(nanoseconds: 600_000_000)
         let answers = server.messages.filter { $0["id"] == 44 && $0["result"] != nil }
-        XCTAssertEqual(answers.count, 1, "one native request, one answer")
-        XCTAssertEqual(answers.first?["result"], .object(["decision": "decline"]))
+        #expect(answers.count == 1, "one native request, one answer")
+        #expect(answers.first?["result"] == .object(["decision": "decline"]))
     }
 
+    @Test
     func testScopeWideningApprovalsStayLocal() async throws {
         let relay = try await Relay()
         let phone = try await relay.device(grants: phoneGrants)
@@ -339,12 +384,13 @@ final class ManagedCodexTests: XCTestCase {
         // A request this client cannot answer is refused at once, not left hanging.
         server.emit(.object(["method": "item/permissions/requestApproval", "id": 6, "params": .object([:])]))
         let refused = try await server.waitFor { $0["id"] == 6 && $0["error"] != nil }
-        XCTAssertEqual(refused["error"]?["code"], -32601)
+        #expect(refused["error"]?["code"] == -32601)
         try await Task.sleep(nanoseconds: 200_000_000)
         let snapshot = try await relay.store.snapshot(principal: phone.principal)
-        XCTAssertTrue(snapshot.approvals.isEmpty)
+        #expect(snapshot.approvals.isEmpty)
     }
 
+    @Test
     func testCapturedLiveApprovalShapeIsRemotelyAnswerable() async throws {
         // Captured from codex-cli 0.156.1: environmentId "local", a zsh
         // command string, and availableDecisions without "decline".
@@ -356,18 +402,20 @@ final class ManagedCodexTests: XCTestCase {
         defer { Task { await managed.stop() } }
         let captured = try JSONValue.parse(try Data(contentsOf: AdapterContractTests.repository
             .appendingPathComponent("adapters/codex/fixtures/captured-0.156.1/app-server.command-approval.json")))
-        var params = try XCTUnwrap(captured["params"]?.objectValue)
+        var params = try #require(captured["params"]?.objectValue)
         params["threadId"] = "thr_1"
         params["cwd"] = .string(FileManager.default.temporaryDirectory.resolvingSymlinksInPath().path)
         server.emit(.object(["method": "item/commandExecution/requestApproval", "id": 0, "params": .object(params)]))
         let record = try await relay.pendingApproval(for: phone.principal)
-        guard case .agentTool(let operation) = record.spec.operation else { return XCTFail("operation") }
-        XCTAssertEqual(operation.shellRequest?.command, "/bin/zsh -lc 'touch codex-denied.txt'")
+        guard case .agentTool(let operation) = record.spec.operation else { Issue.record("operation")
+return }
+        #expect(operation.shellRequest?.command == "/bin/zsh -lc 'touch codex-denied.txt'")
         try await relay.decide(.reject, record: record, device: phone)
         let response = try await server.waitFor { $0["id"] == 0 && $0["result"] != nil }
-        XCTAssertEqual(response["result"], .object(["decision": "cancel"]), "decline was not offered, so the offered denial is used")
+        #expect(response["result"] == .object(["decision": "cancel"]), "decline was not offered, so the offered denial is used")
     }
 
+    @Test
     func testFileChangeApprovalJoinsTheObservedItem() async throws {
         let relay = try await Relay()
         let phone = try await relay.device(grants: phoneGrants)
@@ -385,14 +433,15 @@ final class ManagedCodexTests: XCTestCase {
             "threadId": "thr_1", "turnId": "t", "itemId": "fc_1", "reason": "Create a file", "startedAtMs": 2
         ])]))
         let record = try await relay.pendingApproval(for: phone.principal)
-        guard case .agentTool(let operation) = record.spec.operation else { return XCTFail("operation") }
-        XCTAssertEqual(operation.kind, .fileChange)
-        XCTAssertEqual(operation.fileChanges?.first?.change, .create)
-        XCTAssertEqual(operation.fileChanges?.first?.diff, "+hello\n")
-        XCTAssertEqual(record.spec.minimumReview, .full)
+        guard case .agentTool(let operation) = record.spec.operation else { Issue.record("operation")
+return }
+        #expect(operation.kind == .fileChange)
+        #expect(operation.fileChanges?.first?.change == .create)
+        #expect(operation.fileChanges?.first?.diff == "+hello\n")
+        #expect(record.spec.minimumReview == .full)
         try await relay.decide(.reject, record: record, device: phone)
         let response = try await server.waitFor { $0["id"] == 9 && $0["result"] != nil }
-        XCTAssertEqual(response["result"], .object(["decision": "decline"]))
+        #expect(response["result"] == .object(["decision": "decline"]))
         server.emit(.object(["method": "serverRequest/resolved", "params": .object(["requestId": 9, "threadId": "thr_1"])]))
         server.emit(.object(["method": "item/completed", "params": .object([
             "threadId": "thr_1", "turnId": "t", "completedAtMs": 3,
@@ -404,9 +453,10 @@ final class ManagedCodexTests: XCTestCase {
             if dispatch == .applied { break }
             try await Task.sleep(nanoseconds: 10_000_000)
         }
-        XCTAssertEqual(dispatch, .applied, "the declined status correlates the decline")
+        #expect(dispatch == .applied, "the declined status correlates the decline")
     }
 
+    @Test
     func testUnknownApprovalFieldsStayLocal() async throws {
         let relay = try await Relay()
         let phone = try await relay.device(grants: phoneGrants)
@@ -420,10 +470,11 @@ final class ManagedCodexTests: XCTestCase {
         ])]))
         try await Task.sleep(nanoseconds: 200_000_000)
         let snapshot = try await relay.store.snapshot(principal: phone.principal)
-        XCTAssertTrue(snapshot.approvals.isEmpty)
-        XCTAssertTrue(terminal.text.contains("stays local"))
+        #expect(snapshot.approvals.isEmpty)
+        #expect(terminal.text.contains("stays local"))
     }
 
+    @Test
     func testRemoteAnswerToRequestUserInput() async throws {
         let relay = try await Relay()
         let phone = try await relay.device(grants: phoneGrants)
@@ -431,7 +482,7 @@ final class ManagedCodexTests: XCTestCase {
         let managed = makeSession(relay, server: server, terminal: terminal)
         try await managed.start()
         defer { Task { await managed.stop() } }
-        XCTAssertEqual(server.messages.first { $0["method"] == "initialize" }?["params"]?["capabilities"]?["experimentalApi"], true)
+        #expect(server.messages.first { $0["method"] == "initialize" }?["params"]?["capabilities"]?["experimentalApi"] == true)
         server.emit(.object(["method": "item/tool/requestUserInput", "id": 102, "params": .object([
             "threadId": "thr_1", "turnId": "turn_4", "itemId": "item_5", "isBlocking": true, "autoResolutionMs": 120000,
             "questions": [
@@ -441,8 +492,8 @@ final class ManagedCodexTests: XCTestCase {
             ]
         ])]))
         let record = try await relay.pendingInput(for: phone.principal)
-        XCTAssertEqual(record.spec.source.providerRequestID, .integer(102))
-        XCTAssertLessThanOrEqual(record.spec.expiresAt.date.timeIntervalSince(record.spec.createdAt.date), 115, "the native auto-resolution shortens the deadline")
+        #expect(record.spec.source.providerRequestID == .integer(102))
+        #expect(record.spec.expiresAt.date.timeIntervalSince(record.spec.createdAt.date) <= 115, "the native auto-resolution shortens the deadline")
         let challenge = try await relay.store.createAgentChallenge(principal: phone.principal, request: try AgentReviewChallengeRequest(
             requestID: record.spec.requestID, requestHash: record.requestHash,
             expectedStateVersion: record.projection.stateVersion, policyVersion: record.projection.policyVersion
@@ -461,11 +512,63 @@ final class ManagedCodexTests: XCTestCase {
                                                      signedCommand: try ControlJWS.sign(payload: command.json, deviceID: phone.id, key: phone.key),
                                                      idempotencyKey: commandID)
         let response = try await server.waitFor { $0["id"] == 102 && $0["result"] != nil }
-        XCTAssertEqual(response["result"], .object(["answers": .object([
+        #expect(response["result"] == .object(["answers": .object([
             "target": .object(["answers": ["1.5.0"]]), "notes": .object(["answers": ["Keep compat"]])
         ])]))
     }
 
+    struct WrongInputPermitDaemon: AdapterDaemon {
+        let inner: any AdapterDaemon
+
+        func exchange(_ type: IPCMessageType, capability: String?, body: JSONValue, timeout: TimeInterval) async throws -> JSONValue {
+            let response = try await inner.exchange(type, capability: capability, body: body, timeout: timeout)
+            guard type == .inputWait, response["outcome"] == "answered",
+                  var fields = response.objectValue, var permit = fields["permit"]?.objectValue else { return response }
+            permit["request_id"] = JSONValue(ControlID.random())
+            permit["request_hash"] = .string(String(repeating: "0", count: 64))
+            fields["permit"] = .object(permit)
+            return .object(fields)
+        }
+    }
+
+    @Test
+    func testManagedInputRejectsPermitForAnotherRequest() async throws {
+        let relay = try await Relay()
+        let phone = try await relay.device(grants: phoneGrants)
+        let server = FakeAppServer(), terminal = FakeTerminal()
+        let daemon = WrongInputPermitDaemon(inner: AgentRelayEndToEndTests.InProcessDaemon(core: relay.core))
+        let managed = makeSession(relay, server: server, terminal: terminal, daemon: daemon)
+        try await managed.start()
+        defer { Task { await managed.stop() } }
+        server.emit(.object(["method": "item/tool/requestUserInput", "id": 104, "params": .object([
+            "threadId": "thr_1", "turnId": "turn_4", "itemId": "item_7", "isBlocking": true,
+            "questions": [.object(["id": "notes", "question": "Notes?", "options": .null])]
+        ])]))
+        let record = try await relay.pendingInput(for: phone.principal)
+        let challenge = try await relay.store.createAgentChallenge(principal: phone.principal, request: try AgentReviewChallengeRequest(
+            requestID: record.spec.requestID, requestHash: record.requestHash,
+            expectedStateVersion: record.projection.stateVersion, policyVersion: record.projection.policyVersion
+        ))
+        let commandID = ControlID.random()
+        let command = try InputRespondCommand(
+            envelope: try AgentCommandEnvelope(type: .inputRespond, commandID: commandID, deviceID: phone.id,
+                                               audience: "shell-control:\(relay.accountID.rawValue)", issuedAt: ControlTimestamp(Date()),
+                                               notAfter: challenge.expiresAt),
+            requestID: record.spec.requestID, requestHash: record.requestHash,
+            expectedStateVersion: record.projection.stateVersion, policyVersion: record.projection.policyVersion,
+            challengeID: challenge.challengeID, response: .answer([.text(questionID: "q1", text: "answer")])
+        )
+        _ = try await relay.store.submitAgentCommand(principal: phone.principal,
+                                                     signedCommand: try ControlJWS.sign(payload: command.json, deviceID: phone.id, key: phone.key),
+                                                     idempotencyKey: commandID)
+        for _ in 0..<100 where !terminal.text.contains("no remote answer") {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(terminal.text.contains("no remote answer"))
+        #expect(!(server.messages.contains { $0["id"] == 104 && $0["result"] != nil }))
+    }
+
+    @Test
     func testRefusedSteeringIsNotApplied() async throws {
         let relay = try await Relay()
         let phone = try await relay.device(grants: phoneGrants)
@@ -483,22 +586,25 @@ final class ManagedCodexTests: XCTestCase {
         }
         let steer = try await sendCommand(relay, action: try AgentSessionCoordinator.messageAction("more", session: projection), device: phone)
         let result = try await dispatch(relay, steer, device: phone.principal, until: .notApplied)
-        XCTAssertEqual(result, .notApplied, "an explicit provider refusal is not applied, never retried")
+        #expect(result == .notApplied, "an explicit provider refusal is not applied, never retried")
     }
+}
+
+private struct ManagedCodexMessageTimeout: Error, CustomStringConvertible {
+    var description: String { "expected message never sent" }
 }
 
 func assertControlError(
     _ expected: ControlErrorCode,
-    file: StaticString = #filePath,
-    line: UInt = #line,
+    sourceLocation: SourceLocation = #_sourceLocation,
     _ body: () async throws -> Void
 ) async {
     do {
         try await body()
-        XCTFail("expected \(expected.rawValue)", file: file, line: line)
+        Issue.record("expected \(expected.rawValue)", sourceLocation: sourceLocation)
     } catch let error as ControlError {
-        XCTAssertEqual(error.code, expected, file: file, line: line)
+        #expect(error.code == expected, sourceLocation: sourceLocation)
     } catch {
-        XCTFail("expected \(expected.rawValue), got \(error)", file: file, line: line)
+        Issue.record("expected \(expected.rawValue), got \(error)", sourceLocation: sourceLocation)
     }
 }

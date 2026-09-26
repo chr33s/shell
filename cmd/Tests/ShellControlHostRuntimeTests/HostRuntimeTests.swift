@@ -1,4 +1,4 @@
-import XCTest
+import Testing
 import Foundation
 #if canImport(Darwin)
 import Darwin
@@ -70,7 +70,9 @@ enum HostTestSupport {
     }
 }
 
-final class HostRuntimeTests: XCTestCase {
+@Suite
+final class HostRuntimeTests {
+    @Test
     func testStartsBrokerAndAdapterIngressAndReportsReady() async throws {
         let root = try HostTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -80,19 +82,19 @@ final class HostRuntimeTests: XCTestCase {
         defer { Task { await runtime.shutdown() } }
 
         let status = await runtime.status()
-        XCTAssertEqual(status.phase, .ready)
-        XCTAssertTrue(status.acceptingWork)
-        XCTAssertEqual(status.brokerPort, Int(port))
-        XCTAssertEqual(status.route.state, .notConfigured)
-        XCTAssertNotNil(status.originFingerprint)
+        #expect(status.phase == .ready)
+        #expect(status.acceptingWork)
+        #expect(status.brokerPort == Int(port))
+        #expect(status.route.state == .notConfigured)
+        #expect((status.originFingerprint) != nil)
         let layout = HostStorageLayout(developmentRoot: root)
-        XCTAssertEqual(status.adapterSocketPath, layout.adapterSocketPath)
-        XCTAssertTrue(UnixSocketServer(path: layout.adapterSocketPath).isServedByLiveInstance())
+        #expect(status.adapterSocketPath == layout.adapterSocketPath)
+        #expect(UnixSocketServer(path: layout.adapterSocketPath).isServedByLiveInstance())
 
         // The loopback broker is this host's, not a standalone one.
         let (body, _) = try await URLSession.shared.data(from: URL(string: "http://127.0.0.1:\(port)/v1/capabilities")!)
         var reader = try JSONReader(try JSONValue.parse(body))
-        XCTAssertEqual(try reader.string("service_identity", maxLength: 200), "shell-control-host")
+        #expect((try reader.string("service_identity", maxLength: 200)) == "shell-control-host")
 
         // An adapter registers a run through the composed daemon, which
         // authenticates to the in-process broker with the host's origin.
@@ -106,15 +108,16 @@ final class HostRuntimeTests: XCTestCase {
                 "operation_schemas": JSONValue(strings: [ExecOperation.schema])
             ])
         ), timeout: 10)
-        XCTAssertTrue(hello.ok, "\(hello.errorCode ?? "") \(hello.errorMessage ?? "")")
+        #expect(hello.ok, "\(hello.errorCode ?? "") \(hello.errorMessage ?? "")")
 
         // Private state is owner-only.
         let attributes = try FileManager.default.attributesOfItem(atPath: layout.privateDirectory.path)
-        XCTAssertEqual((attributes[.posixPermissions] as? NSNumber)?.intValue, 0o700)
+        #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o700)
         let keyMode = try FileManager.default.attributesOfItem(atPath: layout.originKeyURL.path)[.posixPermissions] as? NSNumber
-        XCTAssertEqual(keyMode?.intValue, 0o600)
+        #expect(keyMode?.intValue == 0o600)
     }
 
+    @Test
     func testJournalRecoveryCompletesBeforeReadinessWithBoundedRetry() async throws {
         let root = try HostTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -126,20 +129,21 @@ final class HostRuntimeTests: XCTestCase {
         let runtime = HostTestSupport.runtime(root: root, port: try HostTestSupport.freePort())
         let starting = Task { try await runtime.start() }
         let recovering = await HostTestSupport.eventually { await runtime.currentPhase == .recovering }
-        XCTAssertTrue(recovering)
+        #expect(recovering)
         let early = await runtime.status()
-        XCTAssertFalse(early.acceptingWork)
-        XCTAssertNil(early.adapterSocketPath)
-        XCTAssertFalse(UnixSocketServer(path: layout.adapterSocketPath).isServedByLiveInstance())
+        #expect(!(early.acceptingWork))
+        #expect((early.adapterSocketPath) == nil)
+        #expect(!(UnixSocketServer(path: layout.adapterSocketPath).isServedByLiveInstance()))
 
         chmod(layout.journalURL.path, 0o600)
         try await starting.value
         let ready = await HostTestSupport.eventually { await runtime.currentPhase == .ready }
-        XCTAssertTrue(ready)
-        XCTAssertTrue(UnixSocketServer(path: layout.adapterSocketPath).isServedByLiveInstance())
+        #expect(ready)
+        #expect(UnixSocketServer(path: layout.adapterSocketPath).isServedByLiveInstance())
         await runtime.shutdown()
     }
 
+    @Test
     func testCorruptJournalIsQuarantinedBeforeReadiness() async throws {
         let root = try HostTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -149,11 +153,12 @@ final class HostRuntimeTests: XCTestCase {
         let runtime = HostTestSupport.runtime(root: root, port: try HostTestSupport.freePort())
         try await runtime.start()
         let status = await runtime.status()
-        XCTAssertEqual(status.phase, .ready)
-        XCTAssertTrue(status.journalQuarantined)
+        #expect(status.phase == .ready)
+        #expect(status.journalQuarantined)
         await runtime.shutdown()
     }
 
+    @Test
     func testSecondInstanceIsRefused() async throws {
         let root = try HostTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -162,9 +167,10 @@ final class HostRuntimeTests: XCTestCase {
         let second = HostTestSupport.runtime(root: root, port: try HostTestSupport.freePort())
         do {
             try await second.start()
-            XCTFail("a second host must not start against the same ledger")
+            Issue.record("a second host must not start against the same ledger")
         } catch let error as HostRuntime.OwnershipError {
-            guard case .duplicateInstance = error else { return XCTFail("\(error)") }
+            guard case .duplicateInstance = error else { Issue.record("\(error)")
+return }
         }
         await first.shutdown()
         // Once released, a new instance may own it.
@@ -172,6 +178,7 @@ final class HostRuntimeTests: XCTestCase {
         await second.shutdown()
     }
 
+    @Test
     func testIdentitySurvivesRestartAndMissingKeyIsNeverRegenerated() async throws {
         let root = try HostTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -179,22 +186,25 @@ final class HostRuntimeTests: XCTestCase {
         try layout.prepare()
         let first = try HostIdentity.loadOrCreate(layout: layout)
         let again = try HostIdentity.loadOrCreate(layout: layout)
-        XCTAssertEqual(first, again)
-        XCTAssertEqual(first.origin.fingerprint, again.origin.fingerprint)
+        #expect(first == again)
+        #expect(first.origin.fingerprint == again.origin.fingerprint)
 
         try FileManager.default.removeItem(at: layout.originKeyURL)
-        XCTAssertThrowsError(try HostIdentity.loadOrCreate(layout: layout)) { error in
-            XCTAssertEqual(error as? HostIdentity.LoadError, .originKeyMissing)
+        do { _ = try HostIdentity.loadOrCreate(layout: layout)
+Issue.record("expected an error")
+} catch let error {
+            #expect(error as? HostIdentity.LoadError == .originKeyMissing)
         }
         // The host reports it instead of minting a new origin.
         let runtime = HostTestSupport.runtime(root: root, port: try HostTestSupport.freePort())
         try await runtime.start()
         let status = await runtime.status()
-        XCTAssertEqual(status.phase, .degraded)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: layout.originKeyURL.path))
+        #expect(status.phase == .degraded)
+        #expect(!(FileManager.default.fileExists(atPath: layout.originKeyURL.path)))
         await runtime.shutdown()
     }
 
+    @Test
     func testStopAndResumeAcceptingWorkPersistsIntent() async throws {
         let root = try HostTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -204,26 +214,27 @@ final class HostRuntimeTests: XCTestCase {
         try await runtime.start()
         try await runtime.stopAcceptingWork()
         var status = await runtime.status()
-        XCTAssertEqual(status.phase, .stopped)
-        XCTAssertFalse(status.acceptingWork)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: layout.adapterSocketPath))
-        XCTAssertFalse(try HostSettings.load(layout.settingsURL).acceptingWork)
+        #expect(status.phase == .stopped)
+        #expect(!(status.acceptingWork))
+        #expect(!(FileManager.default.fileExists(atPath: layout.adapterSocketPath)))
+        #expect(!(try HostSettings.load(layout.settingsURL).acceptingWork))
         await runtime.shutdown()
 
         // A launchd restart before unregistration completes stays stopped.
         let restarted = HostTestSupport.runtime(root: root, port: port)
         try await restarted.start()
         status = await restarted.status()
-        XCTAssertEqual(status.phase, .stopped)
-        XCTAssertFalse(UnixSocketServer(path: layout.adapterSocketPath).isServedByLiveInstance())
+        #expect(status.phase == .stopped)
+        #expect(!(UnixSocketServer(path: layout.adapterSocketPath).isServedByLiveInstance()))
 
         try await restarted.resumeAcceptingWork()
         status = await restarted.status()
-        XCTAssertEqual(status.phase, .ready)
-        XCTAssertTrue(UnixSocketServer(path: layout.adapterSocketPath).isServedByLiveInstance())
+        #expect(status.phase == .ready)
+        #expect(UnixSocketServer(path: layout.adapterSocketPath).isServedByLiveInstance())
         await restarted.shutdown()
     }
 
+    @Test
     func testPairingNeedsAVerifiedRouteAndPinsThisOrigin() async throws {
         let root = try HostTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -236,62 +247,65 @@ final class HostRuntimeTests: XCTestCase {
 
         do {
             _ = try await runtime.mintPairingInvitation()
-            XCTFail("no invitation without a verified route")
+            Issue.record("no invitation without a verified route")
         } catch let error as HostOperationError {
-            XCTAssertEqual(error.code, .routeUnavailable)
+            #expect(error.code == .routeUnavailable)
         }
         let route = try await runtime.setRoute("http://127.0.0.1:\(port)")
-        XCTAssertEqual(route.state, .verified, route.detail ?? "")
+        #expect(route.state == .verified, "\(route.detail ?? "")")
         let invitation = try await runtime.mintPairingInvitation()
         let parsed = try PairingInvitation(scanned: invitation.link)
         let status = await runtime.status()
-        XCTAssertEqual(parsed.origin.fingerprint, status.originFingerprint)
-        XCTAssertEqual(parsed.route.url.absoluteString, "http://127.0.0.1:\(port)")
+        #expect(parsed.origin.fingerprint == status.originFingerprint)
+        #expect(parsed.route.url.absoluteString == "http://127.0.0.1:\(port)")
         let devices = try await runtime.listDevices()
-        XCTAssertEqual(devices, [])
+        #expect(devices == [])
         let pending = try await runtime.listPendingPairings()
-        XCTAssertEqual(pending, [])
+        #expect(pending == [])
         let unknown = await HostXPCService.dispatch(
             ControlHostRequest(.setAgentGrants, deviceID: ControlID.random().rawValue, enabled: true), runtime: runtime
         )
-        XCTAssertEqual(unknown.errorCode, ControlHostErrorCode.notFound.rawValue)
+        #expect(unknown.errorCode == ControlHostErrorCode.notFound.rawValue)
         do {
             try await runtime.revokeDevice("not-a-uuid")
-            XCTFail("invalid id")
+            Issue.record("invalid id")
         } catch let error as HostOperationError {
-            XCTAssertEqual(error.code, .invalidArgument)
+            #expect(error.code == .invalidArgument)
         }
     }
 }
 
-final class LegacyConflictTests: XCTestCase {
+@Suite
+final class LegacyConflictTests {
+    @Test
     func testStandaloneBrokerOnThePortBlocksAuthority() async throws {
         let root = try HostTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let port = try HostTestSupport.freePort()
         let legacy = StubProbe { url in
-            XCTAssertEqual(url.path, "/v1/capabilities")
+            #expect(url.path == "/v1/capabilities")
             return (200, Data(#"{"service_identity":"shell-control:0b0a2f5e-0000-4000-8000-000000000000"}"#.utf8))
         }
         let runtime = HostTestSupport.runtime(root: root, port: port, legacyProbe: legacy)
         try await runtime.start()
         let status = await runtime.status()
-        XCTAssertEqual(status.phase, .legacyConflict)
-        XCTAssertTrue(status.detail?.contains("shell-control down") ?? false)
-        XCTAssertFalse(status.acceptingWork)
+        #expect(status.phase == .legacyConflict)
+        #expect(status.detail?.contains("shell-control down") ?? false)
+        #expect(!(status.acceptingWork))
         // No second authority: nothing is bound and no admin operation runs.
-        XCTAssertFalse(FileManager.default.fileExists(atPath: HostStorageLayout(developmentRoot: root).ledgerURL.path))
+        #expect(!(FileManager.default.fileExists(atPath: HostStorageLayout(developmentRoot: root).ledgerURL.path)))
         do {
             _ = try await runtime.listDevices()
-            XCTFail("administration must be refused")
+            Issue.record("administration must be refused")
         } catch let error as HostOperationError {
-            XCTAssertEqual(error.code, .legacyConflict)
+            #expect(error.code == .legacyConflict)
         }
         let reply = await HostXPCService.dispatch(ControlHostRequest(.mintPairing), runtime: runtime)
-        XCTAssertEqual(reply.errorCode, ControlHostErrorCode.legacyConflict.rawValue)
+        #expect(reply.errorCode == ControlHostErrorCode.legacyConflict.rawValue)
         await runtime.shutdown()
     }
 
+    @Test
     func testLiveStandaloneDaemonIsDetected() async throws {
         let root = try HostTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -302,14 +316,15 @@ final class LegacyConflictTests: XCTestCase {
         defer { close(listener) }
         let detector = LegacyInstallationDetector(probe: StubProbe.silent, standaloneStateDirectory: standalone)
         let conflict = await detector.detect(port: 1, ownServiceIdentity: "shell-control-host")
-        XCTAssertEqual(conflict?.evidence, .liveStandaloneDaemon)
+        #expect(conflict?.evidence == .liveStandaloneDaemon)
 
         // A stopped standalone installation is not a conflict.
         close(listener)
         let none = await detector.detect(port: 1, ownServiceIdentity: "shell-control-host")
-        XCTAssertNil(none)
+        #expect((none) == nil)
     }
 
+    @Test
     func testOccupiedPortIsAConflictNotACrash() async throws {
         let root = try HostTestSupport.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -326,23 +341,24 @@ final class LegacyConflictTests: XCTestCase {
         let bound = withUnsafePointer(to: &address) {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
         }
-        XCTAssertEqual(bound, 0)
-        XCTAssertEqual(listen(fd, 1), 0)
+        #expect(bound == 0)
+        #expect(listen(fd, 1) == 0)
 
         let runtime = HostTestSupport.runtime(root: root, port: port)
         try await runtime.start()
         let status = await runtime.status()
-        XCTAssertEqual(status.phase, .legacyConflict)
+        #expect(status.phase == .legacyConflict)
         await runtime.shutdown()
     }
 
-    func testOwnIdentityOnThePortIsNotAConflict() async {
+    @Test
+    func testOwnIdentityOnThePortIsNotAConflict() async throws {
         let probe = StubProbe { _ in (200, Data(#"{"service_identity":"shell-control-host"}"#.utf8)) }
         let detector = LegacyInstallationDetector(probe: probe, standaloneStateDirectory: nil)
         let conflict = await detector.detect(port: 1, ownServiceIdentity: "shell-control-host")
-        XCTAssertNil(conflict)
+        #expect((conflict) == nil)
         let other = await LegacyInstallationDetector(probe: StubProbe { _ in (404, Data("nope".utf8)) }, standaloneStateDirectory: nil)
             .detect(port: 1, ownServiceIdentity: "shell-control-host")
-        XCTAssertEqual(other?.evidence, .portInUse)
+        #expect(other?.evidence == .portInUse)
     }
 }

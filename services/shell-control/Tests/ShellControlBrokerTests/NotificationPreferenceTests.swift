@@ -1,5 +1,5 @@
 import Foundation
-import XCTest
+import Testing
 import ShellControlProtocol
 import ShellControlSecurity
 import ShellControlClient
@@ -7,7 +7,8 @@ import ShellControlClient
 
 /// The per-device notification preference: an additive API that changes
 /// delivery, never authorization (docs/specs/control-setup.md 7.3).
-final class NotificationPreferenceTests: XCTestCase {
+@Suite
+final class NotificationPreferenceTests {
     private func raw(_ fixture: GatewayFixture, _ method: String, token: String?, body: Data?) async throws -> ControlHTTPResponse {
         var headers = ["Content-Type": "application/json"]
         if let token { headers["Authorization"] = "Bearer \(token)" }
@@ -16,16 +17,18 @@ final class NotificationPreferenceTests: XCTestCase {
         ), baseURL: fixture.route.url)
     }
 
+    @Test
     func testAnAbsentPreferenceIsVersionZeroWithItsLegacyValue() async throws {
         let fixture = GatewayFixture()
         try await fixture.harness.bootstrap()
         let phone = try await fixture.pairPhone()
         let preference = try await phone.client.notificationPreference()
-        XCTAssertEqual(preference, NotificationPreference(enabled: true, version: 0))
+        #expect(preference == NotificationPreference(enabled: true, version: 0))
         let capabilities = try await phone.client.capabilities()
-        XCTAssertTrue(capabilities.requiredFeatures.contains(ControlFeature.notificationPreference))
+        #expect(capabilities.requiredFeatures.contains(ControlFeature.notificationPreference))
     }
 
+    @Test
     func testOffRemovesDeliveryMaterialAndSuppressesRelayAndDirectSends() async throws {
         let fixture = GatewayFixture()
         try await fixture.harness.bootstrap()
@@ -39,29 +42,30 @@ final class NotificationPreferenceTests: XCTestCase {
         )
 
         let off = try await phone.client.setNotificationPreference(.init(enabled: false, expectedVersion: 0))
-        XCTAssertEqual(off, NotificationPreference(enabled: false, version: 1))
+        #expect(off == NotificationPreference(enabled: false, version: 1))
 
         _ = try await fixture.publishApproval()
         let relayed = await fixture.harness.store.drainRelayOutbox()
         let direct = await fixture.harness.store.drainOutbox()
-        XCTAssertTrue(relayed.isEmpty, "no relay send to a suppressed reviewer")
-        XCTAssertTrue(direct.isEmpty, "no direct-APNs send to a suppressed reviewer")
+        #expect(relayed.isEmpty, "no relay send to a suppressed reviewer")
+        #expect(direct.isEmpty, "no direct-APNs send to a suppressed reviewer")
 
         // Registration never implicitly re-enables an explicit off.
         do {
             try await phone.client.registerPushCapability("capability.v1.late")
-            XCTFail("a late registration must not restore delivery")
+            Issue.record("a late registration must not restore delivery")
         } catch let error as ControlError {
-            XCTAssertEqual(error.code, .notAuthorized)
+            #expect(error.code == .notAuthorized)
         }
         let after = try await phone.client.notificationPreference()
-        XCTAssertEqual(after, off)
+        #expect(after == off)
         let summary = await fixture.harness.store.deviceSummary()
         let row = summary["devices"]?.arrayValue?.first { $0["device_id"]?.stringValue == phone.session.deviceID.rawValue }
-        XCTAssertEqual(row?["push"]?.boolValue, false, "stored delivery material was removed")
-        XCTAssertEqual(row?["alerts_enabled"]?.boolValue, false)
+        #expect(row?["push"]?.boolValue == false, "stored delivery material was removed")
+        #expect(row?["alerts_enabled"]?.boolValue == false)
     }
 
+    @Test
     func testTurningAlertsOffNeverChangesReviewerAuthority() async throws {
         let fixture = GatewayFixture()
         try await fixture.harness.bootstrap()
@@ -69,9 +73,10 @@ final class NotificationPreferenceTests: XCTestCase {
         _ = try await phone.client.setNotificationPreference(.init(enabled: false, expectedVersion: 0))
         let record = try await fixture.publishApproval()
         let snapshot = try await phone.client.snapshot()
-        XCTAssertTrue(snapshot.approvals.contains { $0.spec.requestID == record.spec.requestID }, "review still works with alerts off")
+        #expect(snapshot.approvals.contains { $0.spec.requestID == record.spec.requestID }, "review still works with alerts off")
     }
 
+    @Test
     func testAStaleWriteIsAConflictAndCannotUndoALaterChoice() async throws {
         let fixture = GatewayFixture()
         try await fixture.harness.bootstrap()
@@ -81,16 +86,17 @@ final class NotificationPreferenceTests: XCTestCase {
         // A delayed enable written against version 1 arrives last.
         let response = try await raw(fixture, "PUT", token: phone.session.accessToken,
                                      body: try JSONCanonicalization.canonicalize(NotificationPreferenceUpdate(enabled: true, expectedVersion: 1).json))
-        XCTAssertEqual(response.status, 409)
+        #expect(response.status == 409)
         let error = try ControlError(json: try JSONValue.parse(response.body))
-        XCTAssertEqual(error.code, .idempotencyConflict)
+        #expect(error.code == .idempotencyConflict)
         let current = try await phone.client.notificationPreference()
-        XCTAssertEqual(current, NotificationPreference(enabled: false, version: 2))
+        #expect(current == NotificationPreference(enabled: false, version: 2))
         // Repeating an off at the current version is accepted and stays off.
         let again = try await phone.client.setNotificationPreference(.init(enabled: false, expectedVersion: 2))
-        XCTAssertEqual(again, NotificationPreference(enabled: false, version: 3))
+        #expect(again == NotificationPreference(enabled: false, version: 3))
     }
 
+    @Test
     func testDisablingOneIPhoneLeavesAnotherReviewersAlerts() async throws {
         let fixture = GatewayFixture()
         try await fixture.harness.bootstrap()
@@ -101,25 +107,27 @@ final class NotificationPreferenceTests: XCTestCase {
         _ = try await first.client.setNotificationPreference(.init(enabled: false, expectedVersion: 0))
         _ = try await fixture.publishApproval()
         let relayed = await fixture.harness.store.drainRelayOutbox()
-        XCTAssertEqual(relayed.map(\.capability), ["capability.v1.second"])
+        #expect(relayed.map(\.capability) == ["capability.v1.second"])
     }
 
+    @Test
     func testMalformedAndUnauthenticatedCallsAreRejected() async throws {
         let fixture = GatewayFixture()
         try await fixture.harness.bootstrap()
         let phone = try await fixture.pairPhone()
         let unknownField = try await raw(fixture, "PUT", token: phone.session.accessToken,
                                          body: Data(#"{"enabled":false,"expected_version":0,"device_id":"x"}"#.utf8))
-        XCTAssertEqual(unknownField.status, 400)
+        #expect(unknownField.status == 400)
         let wrongType = try await raw(fixture, "PUT", token: phone.session.accessToken,
                                       body: Data(#"{"enabled":"no","expected_version":0}"#.utf8))
-        XCTAssertEqual(wrongType.status, 400)
+        #expect(wrongType.status == 400)
         let unauthenticated = try await raw(fixture, "GET", token: nil, body: nil)
-        XCTAssertEqual(unauthenticated.status, 401)
+        #expect(unauthenticated.status == 401)
         let untouched = try await phone.client.notificationPreference()
-        XCTAssertEqual(untouched.version, 0)
+        #expect(untouched.version == 0)
     }
 
+    @Test
     func testTheExplicitChoiceSurvivesARestart() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -134,6 +142,6 @@ final class NotificationPreferenceTests: XCTestCase {
         try await restored.restore()
         let principal = try await restored.authenticate(bearer: phone.session.accessToken)
         let preference = try await restored.notificationPreference(principal: principal)
-        XCTAssertEqual(preference, NotificationPreference(enabled: false, version: 1))
+        #expect(preference == NotificationPreference(enabled: false, version: 1))
     }
 }

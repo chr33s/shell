@@ -19,10 +19,11 @@ import Combine
 /// This is separate from KeybindManager to avoid the iPadOS 26 issue with
 /// @ObservedObject in CommandGroup(replacing:)
 @MainActor
-final class MenuShortcutState: ObservableObject {
+@Observable
+final class MenuShortcutState {
     static let shared = MenuShortcutState()
 
-    @Published var shortcuts: [KeybindAction: KeyboardShortcut] = [:]
+    var shortcuts: [KeybindAction: KeyboardShortcut] = [:]
     /// Nested count so overlapping capture views don't restore the menu rail
     /// while another is still recording.
     private var recordingCaptureCount = 0
@@ -101,7 +102,7 @@ final class MenuShortcutState: ObservableObject {
 // MARK: - Main Commands Structure
 
 struct AppCommands: Commands {
-    @ObservedObject var shortcutState = MenuShortcutState.shared
+    @State private var shortcutState = MenuShortcutState.shared
 
     var body: some Commands {
         // These are the only menu rail: the UIMenuBuilder path is gone.
@@ -120,7 +121,7 @@ struct AppCommands: Commands {
 // MARK: - File Commands
 
 struct FileCommands: Commands {
-    @ObservedObject var shortcutState: MenuShortcutState
+    var shortcutState: MenuShortcutState
 
     var body: some Commands {
         // Shell is not document-based, and macOS's default Save As/Duplicate
@@ -257,9 +258,9 @@ final class MenuFocusState {
     /// bumping `windowRevision` only when this actually changes keeps a stream
     /// of key/main notifications from becoming a stream of menu rebuilds.
     @ObservationIgnored private weak var lastResolvedTabs: TabsModel?
-    /// The pane whose `isMouseCaptured` is currently sunk.
+    /// The pane whose `isMouseCaptured` is currently observed.
     @ObservationIgnored private weak var trackedTerminal: Ghostty.TerminalView?
-    @ObservationIgnored private var mouseCaptureSink: AnyCancellable?
+    @ObservationIgnored private var mouseCaptureTask: Task<Void, Never>?
 
     private init() {
         // Which window is key. These are exactly the notifications
@@ -293,7 +294,7 @@ final class MenuFocusState {
         // Moving focus between panes and tabs changes which pane the
         // pane-scoped items describe. The read itself is already covered by
         // `@Observable` (`TabsModel.selectedTabID`, `TabModel.focusedPane`);
-        // this only re-points the mouse-capture sink, and never bumps on its
+        // this only re-points the mouse-capture observation, and never bumps on its
         // own. These fire as the change is requested, so re-arm a turn later.
         for name in [
             Notification.Name.focusSplit,
@@ -402,23 +403,29 @@ final class MenuFocusState {
         }
     }
 
-    /// Points the `isMouseCaptured` sink at the currently focused pane.
+    /// Points the `isMouseCaptured` observation at the currently focused pane.
     ///
-    /// `isMouseCaptured` is ghostty's own truth and is written without any
-    /// notification — `updateMouseCaptureState()` flips it when the program
-    /// enables mouse reporting. It is `@Published`, so a sink is the one way to
-    /// see that from here. Re-arming is identity-guarded, so the sink calling
-    /// back into `notePaneStateChanged()` cannot recurse.
+    /// `isMouseCaptured` is ghostty's own truth. `updateMouseCaptureState()`
+    /// flips it when the program enables mouse reporting, and the setter also
+    /// notifies the menu. This subscription covers writes that happen after
+    /// focus is already settled. Re-arming is identity-guarded, so the
+    /// callback into `notePaneStateChanged()` cannot recurse.
     private func refreshPaneTracking() {
         let terminal = Self.activeTabs()?.selectedTab?.focusedTerminal
         guard terminal !== trackedTerminal else { return }
         trackedTerminal = terminal
-        mouseCaptureSink = terminal?.$isMouseCaptured
-            .dropFirst()
-            .removeDuplicates()
-            .sink { [weak self] _ in
-                Task { @MainActor in self?.notePaneStateChanged() }
+        mouseCaptureTask?.cancel()
+        guard let terminal else {
+            mouseCaptureTask = nil
+            return
+        }
+        mouseCaptureTask = SurfaceObservation.task(
+            droppingFirst: true,
+            { [weak terminal] in terminal?.isMouseCaptured ?? false },
+            onChange: { [weak self] _ in
+                self?.notePaneStateChanged()
             }
+        )
     }
 
     private func onNextMainQueueTurn(_ work: @escaping @MainActor @Sendable () -> Void) {
@@ -580,7 +587,7 @@ struct MenuToggleItem: View {
 // MARK: - Edit Commands
 
 struct EditCommands: Commands {
-    @ObservedObject var shortcutState: MenuShortcutState
+    var shortcutState: MenuShortcutState
 
     var body: some Commands {
         // System provides Copy/Paste/Select All via .pasteboard - don't duplicate them
@@ -610,7 +617,7 @@ struct EditCommands: Commands {
 // MARK: - View Commands (injected into system View menu)
 
 struct AppViewCommands: Commands {
-    @ObservedObject var shortcutState: MenuShortcutState
+    var shortcutState: MenuShortcutState
 
     var body: some Commands {
         // Inject view/appearance items into the system View menu after toolbar items
@@ -672,7 +679,7 @@ struct AppViewCommands: Commands {
 // MARK: - Terminal Commands
 
 struct TerminalCommands: Commands {
-    @ObservedObject var shortcutState: MenuShortcutState
+    var shortcutState: MenuShortcutState
 
     var body: some Commands {
         CommandMenu("Terminal") {
@@ -808,7 +815,7 @@ struct TerminalCommands: Commands {
 // MARK: - Shell Commands
 
 struct ShellCommands: Commands {
-    @ObservedObject var shortcutState: MenuShortcutState
+    var shortcutState: MenuShortcutState
 
     var body: some Commands {
         CommandMenu("Shell") {
@@ -847,7 +854,7 @@ struct ShellCommands: Commands {
 // MARK: - Window Commands
 
 struct WindowCommands: Commands {
-    @ObservedObject var shortcutState: MenuShortcutState
+    var shortcutState: MenuShortcutState
 
     var body: some Commands {
         // Use "Tabs" menu to avoid conflict with system Window menu
