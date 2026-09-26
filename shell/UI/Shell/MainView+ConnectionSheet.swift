@@ -21,11 +21,9 @@ extension MainView {
     @ViewBuilder
     var connectionSheetContent: some View {
         SSHConnectionView(
-            initialConfig: reconnectConfig,
-            connectionError: reconnectingTabIndex.flatMap { index in
-                guard terminals.indices.contains(index) else { return nil }
-                return terminals[index].focusedTerminal?.error?.localizedDescription
-            },
+            initialConfig: connectionSheetPrefill?.config,
+            connectionError: connectionSheetPrefill?.reconnectTarget?
+                .resolve(in: terminals)?.pane.asTerminal?.error?.localizedDescription,
             onConnect: { (config: SSHConfig?, splitOption: SSHConnectionView.SplitOption) in
                 handleSSHOrLocalConnection(config: config, splitOption: splitOption)
             },
@@ -37,43 +35,39 @@ extension MainView {
             onClose: { showConnectionSidebar = false },
             initialTab: connectionSidebarInitialTab
         )
-        // Reconnect state is one-shot: it belongs to the presentation that armed
-        // it. It used to be cleared only by a *successful* connect, so backing
-        // out of a reconnect sheet left `reconnectConfig`/`reconnectingTabIndex`
-        // armed for the life of the window — the next open of this sheet (⌘T,
-        // Duplicate Tab, Browse Hosts) popped the editor pre-filled with the
-        // failed host, and connecting from it replaced whatever tab now sat at
-        // the stale index instead of opening a new one. Clearing on disappear
-        // covers every dismissal path, including the interactive swipe-down and
-        // the deep-link prefill in `presentPrefilledConnection`, neither of
-        // which routes through `onClose`. Connect handlers run before the sheet
-        // actually disappears, so they still observe the armed state.
+        // The prefill is one-shot: it belongs to the presentation that armed
+        // it. Clearing on disappear covers every dismissal path, including the
+        // interactive swipe-down and the deep-link prefill in
+        // `presentPrefilledConnection`, neither of which routes through
+        // `onClose`. Connect handlers run before the sheet actually
+        // disappears, so they still observe the armed state.
         .onDisappear {
-            reconnectingTabIndex = nil
-            reconnectConfig = nil
+            connectionSheetPrefill = nil
         }
     }
 
     private func handleSSHOrLocalConnection(config: SSHConfig?, splitOption: SSHConnectionView.SplitOption) {
+        // A reconnect-armed sheet replaces only the pane whose authentication
+        // failed, resolved by identity now — tabs may have been reordered,
+        // closed, or moved to another window while the sheet was open. A target
+        // that no longer resolves is cancelled, never redirected to whatever
+        // tab now sits at its old position or to a new session.
+        let reconnectTarget = connectionSheetPrefill?.reconnectTarget
+        connectionSheetPrefill = nil
+        if let config, let reconnectTarget {
+            if !reconnectPane(reconnectTarget, with: config) {
+                alerts.reportStaleReconnect(host: config.displayName)
+            }
+            return
+        }
         if let config {
-            // The index was captured when auth failed; tabs can be closed or
-            // reordered while the sheet is open. A stale index used to be passed
-            // straight to `reconnectTab`, whose bounds `guard` returns silently —
-            // the user pressed Connect and nothing happened at all. Reconnect
-            // only while the index still addresses a live tab; otherwise honour
-            // the placement the user asked for.
-            if let tabIndex = reconnectingTabIndex, terminals.indices.contains(tabIndex) {
-                // Reconnecting an existing tab
-                reconnectTab(at: tabIndex, with: config)
-            } else {
-                switch splitOption {
-                case .newTab:
-                    createSSHTab(with: config)
-                case .splitRight:
-                    createSSHSplit(with: config, direction: .right)
-                case .splitDown:
-                    createSSHSplit(with: config, direction: .down)
-                }
+            switch splitOption {
+            case .newTab:
+                createSSHTab(with: config)
+            case .splitRight:
+                createSSHSplit(with: config, direction: .right)
+            case .splitDown:
+                createSSHSplit(with: config, direction: .down)
             }
         } else {
             switch splitOption {
@@ -85,9 +79,6 @@ extension MainView {
                 createLocalShellSplit(direction: .down)
             }
         }
-        // Clear reconnection state
-        reconnectingTabIndex = nil
-        reconnectConfig = nil
     }
 
     // MARK: - Profiles
@@ -111,12 +102,12 @@ extension MainView {
         case .resolved(let resolvedConfig):
             config = resolvedConfig
         case .unresolved(let partialConfig, let unresolvedKeys):
-            keyResolutionConfig = partialConfig
-            keyResolutionUnresolvedKeys = unresolvedKeys
-            keyResolutionProfileID = profile.id
-            keyResolutionConnectionIdentity = nil
-            keyResolutionSplitOption = splitOption
-            showKeyResolutionSheet = true
+            keyResolution = KeyResolutionRequest(
+                config: partialConfig,
+                unresolvedKeys: unresolvedKeys,
+                profileID: profile.id,
+                splitOption: splitOption
+            )
             return
         }
 
@@ -167,9 +158,7 @@ extension MainView {
     }
 
     private func promptForPassword(profile: SSHProfile, splitOption: SSHConnectionView.SplitOption) {
-        passwordPromptProfile = profile
-        passwordPromptSplitOption = splitOption
-        showPasswordPromptSheet = true
+        passwordPrompt = PasswordPromptRequest(profile: profile, splitOption: splitOption)
     }
 
     func connectWithConfig(
@@ -184,12 +173,12 @@ extension MainView {
                 connectWithConfig(resolvedConfig, splitOption: splitOption, sourceProfileID: sourceProfileID)
                 return
             case .unresolved(let partialConfig, let unresolvedKeys):
-                keyResolutionConfig = partialConfig
-                keyResolutionUnresolvedKeys = unresolvedKeys
-                keyResolutionProfileID = nil
-                keyResolutionConnectionIdentity = nil
-                keyResolutionSplitOption = splitOption
-                showKeyResolutionSheet = true
+                keyResolution = KeyResolutionRequest(
+                    config: partialConfig,
+                    unresolvedKeys: unresolvedKeys,
+                    profileID: nil,
+                    splitOption: splitOption
+                )
                 return
             }
         }
@@ -204,9 +193,9 @@ extension MainView {
         }
     }
 
-    func handlePasswordSubmit(profile: SSHProfile, password: String, shouldSave: Bool) {
-        showPasswordPromptSheet = false
-        passwordPromptProfile = nil
+    func handlePasswordSubmit(_ request: PasswordPromptRequest, password: String, shouldSave: Bool) {
+        passwordPrompt = nil
+        let profile = request.profile
 
         var config = profile.sshConfig
 
@@ -232,6 +221,6 @@ extension MainView {
         try? ConnectionProfileManager.shared.updateProfile(updatedProfile)
 
         config.authMethod = .password(password)
-        connectWithConfig(config, splitOption: passwordPromptSplitOption, sourceProfileID: profile.id)
+        connectWithConfig(config, splitOption: request.splitOption, sourceProfileID: profile.id)
     }
 }

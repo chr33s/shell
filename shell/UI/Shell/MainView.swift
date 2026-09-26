@@ -112,32 +112,22 @@ struct MainView: View {
     @State var settingsDestination: SettingsDestination?
     @State var showConnectionSidebar = false
     @State var connectionSidebarInitialTab: ConnectionSidebarTab = .lastUsed
-    @State var showPasswordPromptSheet = false
-    @State var passwordPromptProfile: ConnectionProfile?
-    @State var passwordPromptSplitOption: SSHConnectionView.SplitOption = .newTab
-    @State var showKeyResolutionSheet = false
-    @State var keyResolutionUnresolvedKeys: [UnresolvedKeyInfo] = []
-    @State var keyResolutionConfig: SSHConfig?
-    @State var keyResolutionProfileID: UUID?
-    @State var keyResolutionConnectionIdentity: String?
-    @State var keyResolutionSplitOption: SSHConnectionView.SplitOption = .newTab
+    @State var passwordPrompt: PasswordPromptRequest?
+    @State var keyResolution: KeyResolutionRequest?
     /// "Ask Each Time" tmux tab-close: the tab whose ⌘W/✕ is awaiting the
     /// user's choice in the close action sheet. (id=tmux-tab-close-action)
     @State var pendingTmuxCloseTabID: UUID?
     /// "Ask Each Time" tmux new-tab (⌘T): the tmux tab whose new-tab choice is
     /// awaiting the user (local shell vs new tmux window). (id=tmux-new-tab-action)
     @State var pendingTmuxNewTabTabID: UUID?
-    /// Reconnect arming for the connection sheet, set by
-    /// `handleAuthenticationRequired` (and, for `reconnectConfig` alone, by the
-    /// `ssh://` deep-link prefill). Both are one-shot state owned by a single
-    /// presentation of the sheet: `handleSSHOrLocalConnection` clears them after
-    /// a connect, and `connectionSheetContent`'s `.onDisappear` clears them on
-    /// every dismissal path. Nothing may leave them armed across presentations —
-    /// a stale `reconnectingTabIndex` makes the next connect replace an
-    /// unrelated live tab, and a stale `reconnectConfig` reopens the sheet
-    /// straight into the editor for a host the user already backed out of.
-    @State var reconnectingTabIndex: Int?
-    @State var reconnectConfig: SSHConfig?
+    /// Prefill for the connection sheet, set by `handleAuthenticationRequired`
+    /// (with a reconnect target) and by the `ssh://` deep-link prefill
+    /// (without one). One-shot state owned by a single presentation of the
+    /// sheet: `handleSSHOrLocalConnection` clears it after a connect, and
+    /// `connectionSheetContent`'s `.onDisappear` clears it on every dismissal
+    /// path. A stale prefill would reopen the sheet straight into the editor
+    /// for a host the user already backed out of.
+    @State var connectionSheetPrefill: ConnectionSheetPrefill?
     /// Source-compat shim around `tabsModel.draggingTabID`.
     var draggingTab: TerminalTab? {
         get {

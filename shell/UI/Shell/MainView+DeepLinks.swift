@@ -65,12 +65,12 @@ extension MainView {
             case .resolved(let resolvedConfig):
                 createSSHTab(with: resolvedConfig, sourceProfileID: profile.id)
             case .unresolved(let partialConfig, let unresolvedKeys):
-                keyResolutionConfig = partialConfig
-                keyResolutionUnresolvedKeys = unresolvedKeys
-                keyResolutionProfileID = profile.id
-                keyResolutionConnectionIdentity = nil
-                keyResolutionSplitOption = .newTab
-                showKeyResolutionSheet = true
+                keyResolution = KeyResolutionRequest(
+                    config: partialConfig,
+                    unresolvedKeys: unresolvedKeys,
+                    profileID: profile.id,
+                    splitOption: .newTab
+                )
             }
         case .password, .unknown:
             // A typed password is never persisted, and an auth method from a
@@ -81,7 +81,7 @@ extension MainView {
     }
 
     private func presentPrefilledConnection(_ config: SSHConfig) {
-        reconnectConfig = config
+        connectionSheetPrefill = ConnectionSheetPrefill(config: config, reconnectTarget: nil)
         showConnectionSidebar = true
     }
 }

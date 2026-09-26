@@ -124,14 +124,14 @@ extension MainView {
     @ViewBuilder
     private func applyRemainingHandlers<V: View>(_ view: V) -> some View {
         let chained = view
-            .onChange(of: showPasswordPromptSheet) { oldValue, newValue in
+            .onChange(of: passwordPrompt != nil) { oldValue, newValue in
                 if newValue {
                     resignFirstResponderForSheetPresentation()
                 } else if oldValue {
                     restoreFirstResponderAfterSheetDismissal()
                 }
             }
-            .onChange(of: showKeyResolutionSheet) { oldValue, newValue in
+            .onChange(of: keyResolution != nil) { oldValue, newValue in
                 if newValue {
                     resignFirstResponderForSheetPresentation()
                 } else if oldValue {

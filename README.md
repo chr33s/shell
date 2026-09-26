@@ -37,6 +37,7 @@ Watch, and the terminal app builds and runs without it.
 | [control-setup.md](docs/specs/control-setup.md) | Guided setup, `doctor` diagnostics, safe test review, no-relay mode |
 | [control-cli.md](docs/specs/control-cli.md) | The native `shell-control` CLI: install state, launchd lifecycle, Tailscale Serve, status |
 | [agent-relay.md](docs/specs/agent-relay.md) | Answering Claude Code and Codex permission prompts and questions from iPhone and Watch |
+| [simplification.md](docs/specs/simplification.md) | Implementation simplification: stable action targets, connection-flow and session ownership, typed commands, sync durability |
 
 ## Requirements
 

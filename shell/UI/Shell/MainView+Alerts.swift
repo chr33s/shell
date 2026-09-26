@@ -19,6 +19,8 @@ extension MainView {
             return alerts.validationData?.alertTitle ?? String(localized: "New SSH Host", comment: "Host key alert title")
         case .keyChanged:
             return alerts.validationData?.alertTitle ?? String(localized: "⚠️ WARNING: Host Key Changed", comment: "Host key alert title")
+        case .staleReconnect:
+            return String(localized: "Reconnect Cancelled", comment: "Alert title when the pane being reconnected no longer exists")
         case nil:
             return ""
         }
@@ -35,6 +37,8 @@ extension MainView {
                 switch alerts.presentedKind {
                 case .newHost, .keyChanged:
                     alerts.respondToHostKeyValidation(with: .reject)
+                case .staleReconnect:
+                    alerts.completePresented(clearBackingState: true)
                 case nil:
                     break
                 }
@@ -70,6 +74,11 @@ extension MainView {
                         alerts.respondToHostKeyValidation(with: .accept)
                     }
                     .keyboardShortcut(.defaultAction)
+                case .staleReconnect:
+                    Button("OK", role: .cancel) {
+                        alerts.completePresented(clearBackingState: true)
+                    }
+                    .keyboardShortcut(.defaultAction)
                 case nil:
                     EmptyView()
                 }
@@ -79,6 +88,8 @@ extension MainView {
                     if let message = alerts.validationData?.message {
                         Text(message)
                     }
+                case .staleReconnect:
+                    Text("The session for \(alerts.staleReconnectHost ?? "this host") was closed or moved to another window before you connected. No other tab was changed.")
                 case nil:
                     EmptyView()
                 }

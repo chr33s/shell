@@ -28,7 +28,7 @@
 //  nothing in this file names a Swift symbol, so deleting a notification and
 //  its observer together cannot delete the check. The scan is derived from the
 //  source at run time, so it needs no allowlist to maintain — at the time of
-//  writing all 66 declared names are both posted and observed, with no
+//  writing every declared name is both posted and observed, with no
 //  exceptions, and it is worth keeping that number at zero.
 //
 //  If a name is ever *deliberately* posted for an external consumer with no
@@ -91,14 +91,18 @@ final class NotificationWiringTests {
     private static let contextWindow = 200
 
     private func scan() -> Wiring {
+        Self.scan(sources: SourceTree.swiftFiles().compactMap {
+            try? String(contentsOf: $0, encoding: .utf8)
+        })
+    }
+
+    private static func scan(sources: [String]) -> Wiring {
         var wiring = Wiring()
-        let files = SourceTree.swiftFiles()
         var texts: [String] = []
 
-        for file in files {
-            guard let text = try? String(contentsOf: file, encoding: .utf8) else { continue }
+        for text in sources {
             let range = NSRange(text.startIndex..., in: text)
-            for match in Self.declaration.matches(in: text, range: range) {
+            for match in declaration.matches(in: text, range: range) {
                 guard let symbol = Range(match.range(at: 1), in: text),
                       let raw = Range(match.range(at: 2), in: text) else { continue }
                 wiring.declared[String(text[symbol])] = String(text[raw])
@@ -106,7 +110,7 @@ final class NotificationWiringTests {
             // Blank out the declarations so a name is never counted as a use
             // of itself, keeping offsets (and therefore windows) intact.
             texts.append(
-                Self.declaration.stringByReplacingMatches(
+                declaration.stringByReplacingMatches(
                     in: text, range: range,
                     withTemplate: String(repeating: " ", count: 40)
                 )
@@ -117,7 +121,7 @@ final class NotificationWiringTests {
             let full = NSRange(text.startIndex..., in: text)
 
             // Values of a post table are posts.
-            for table in Self.postTable.matches(in: text, range: full) {
+            for table in postTable.matches(in: text, range: full) {
                 guard let block = Range(table.range, in: text) else { continue }
                 let body = String(text[block])
                 for symbol in wiring.declared.keys where body.contains(".\(symbol)") {
@@ -135,8 +139,8 @@ final class NotificationWiringTests {
                 for use in uses.matches(in: text, range: full) {
                     let start = use.range.location
                     let window = NSRange(
-                        location: max(0, start - Self.contextWindow),
-                        length: min(Self.contextWindow, start)
+                        location: max(0, start - contextWindow),
+                        length: min(contextWindow, start)
                     )
                     guard let before = Range(window, in: text) else { continue }
                     let context = String(text[before])
@@ -145,7 +149,7 @@ final class NotificationWiringTests {
                     // `postAppTabSwipeNotification` helper all match.
                     if context.lowercased().contains("post") {
                         wiring.posted.insert(symbol)
-                    } else if Self.observeContext.firstMatch(
+                    } else if observeContext.firstMatch(
                         in: context, range: NSRange(context.startIndex..., in: context)
                     ) != nil {
                         wiring.observed.insert(symbol)
@@ -158,6 +162,51 @@ final class NotificationWiringTests {
 
     // MARK: - Tests
 
+    /// Scanner health, checked against a fixture rather than the size of the
+    /// production source: routing internal commands through typed handlers is
+    /// supposed to shrink the number of declared names, and a floor on that
+    /// count would fail exactly the refactors this lint exists to support.
+    @Test func testScannerClassifiesFixture() {
+        // Each reference is classified by the call within `contextWindow`
+        // characters before it, so the sections are padded apart the way
+        // unrelated call sites are in real files.
+        let padding = "\n// " + String(repeating: "-", count: Self.contextWindow) + "\n"
+        let fixture = [
+            """
+            extension Notification.Name {
+                static let fixturePosted = Notification.Name("fixture.posted")
+                static let fixtureObserved = Notification.Name("fixture.observed")
+                static let fixtureTabled = Notification.Name("fixture.tabled")
+                static let fixtureUnused = Notification.Name("fixture.unused")
+            }
+            """,
+            """
+            func send() {
+                NotificationCenter.default.post(name: .fixturePosted, object: nil)
+            }
+            """,
+            """
+            func listen() {
+                NotificationCenter.default.addObserver(forName: .fixtureObserved, object: nil, queue: nil) { _ in }
+            }
+            """,
+            """
+            let table: [String: Notification.Name] = [
+                "a": .fixtureTabled
+            ]
+            """,
+        ].joined(separator: padding)
+        let wiring = Self.scan(sources: [fixture])
+        #expect(wiring.declared == [
+            "fixturePosted": "fixture.posted",
+            "fixtureObserved": "fixture.observed",
+            "fixtureTabled": "fixture.tabled",
+            "fixtureUnused": "fixture.unused",
+        ])
+        #expect(wiring.posted == ["fixturePosted", "fixtureTabled"])
+        #expect(wiring.observed == ["fixtureObserved"])
+    }
+
     /// A notification with no observer is a command that does nothing when the
     /// user invokes it. This is the check that found nine dead command chains
     /// in this codebase when it was run by hand.
@@ -165,7 +214,6 @@ final class NotificationWiringTests {
     func testEveryPostedNotificationHasAnObserver() throws {
         try SourceTree.requireSources()
         let wiring = scan()
-        #expect(wiring.declared.count > 50, "Scanner found almost no notifications; it has stopped working.")
 
         let dead = wiring.posted
             .subtracting(wiring.observed)

@@ -21,6 +21,7 @@ import os
     enum Kind: Equatable {
         case newHost
         case keyChanged
+        case staleReconnect
     }
 
     /// The alert currently on screen (nil = none). Writes go through
@@ -45,6 +46,11 @@ import os
     var showKeyChangedAlert = false
     var validationData: MainView.ValidationData?
 
+    // Stale reconnect notice: the pane a reconnect sheet was armed for was
+    // closed, replaced, or moved to another window before Connect.
+    var showStaleReconnectAlert = false
+    var staleReconnectHost: String?
+
     struct PendingHostKeyRequest {
         let data: MainView.ValidationData
         let isKeyChanged: Bool
@@ -68,6 +74,7 @@ import os
         switch kind {
         case .newHost: return showNewHostAlert
         case .keyChanged: return showKeyChangedAlert
+        case .staleReconnect: return showStaleReconnectAlert
         }
     }
 
@@ -101,7 +108,18 @@ import os
             showNewHostAlert = false
         case .keyChanged:
             showKeyChangedAlert = false
+        case .staleReconnect:
+            showStaleReconnectAlert = false
+            staleReconnectHost = nil
         }
+    }
+
+    // MARK: - Stale Reconnect
+
+    func reportStaleReconnect(host: String) {
+        staleReconnectHost = host
+        showStaleReconnectAlert = true
+        enqueue(.staleReconnect)
     }
 
     // MARK: - SSH Host Key Validation

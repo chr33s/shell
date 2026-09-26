@@ -1,7 +1,7 @@
 # Shell
 
 **Status:** Implemented. The minimal fork of `kitknox/rootshell` has been extracted (all four phases landed); device sign-off of the acceptance checklist (section 14) is partly outstanding.
-**Scope:** The fork itself — local terminal, SSH, SSH identity, native tmux control mode, and iCloud sync — plus the Apple configuration, Mac build, and architectural rules that bound it. Extended by [`mobile-connectivity.md`](mobile-connectivity.md); the optional Control companion is specified in [`control-protocol.md`](control-protocol.md).
+**Scope:** The fork itself — local terminal, SSH, SSH identity, native tmux control mode, and iCloud sync — plus the Apple configuration, Mac build, and architectural rules that bound it. Extended by [`mobile-connectivity.md`](mobile-connectivity.md); the optional Control companion is specified in [`control-protocol.md`](control-protocol.md). Internal refactoring constraints and progress: [`simplification.md`](simplification.md).
 
 Capitalized MUST, MUST NOT, SHOULD, and MAY are normative.
 

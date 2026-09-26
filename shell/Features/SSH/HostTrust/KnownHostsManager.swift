@@ -248,11 +248,14 @@ final class KnownHostsManager {
         return (applied, failures)
     }
 
-    /// Apply remote deletions from CloudKit change sets
-    func applyRemoteDeletions(recordNames: Set<String>) {
-        guard !recordNames.isEmpty else { return }
+    /// Apply remote deletions from CloudKit change sets.
+    /// - Returns: false when any tombstone failed to persist.
+    @discardableResult
+    func applyRemoteDeletions(recordNames: Set<String>) -> Bool {
+        guard !recordNames.isEmpty else { return true }
 
         var deletedCount = 0
+        var allPersisted = true
 
         for host in store.activeRecords {
             let recordName = CloudKitRecordName.make(
@@ -263,15 +266,21 @@ final class KnownHostsManager {
                 var deleted = host
                 deleted.isDeleted = true
                 deleted.modifiedAt = Date()
-                try? store.save(deleted, updateTimestamp: false, notifySync: false)
-                identityToUUID.removeValue(forKey: Self.identity(of: host))
-                deletedCount += 1
+                do {
+                    try store.save(deleted, updateTimestamp: false, notifySync: false)
+                    identityToUUID.removeValue(forKey: Self.identity(of: host))
+                    deletedCount += 1
+                } catch {
+                    allPersisted = false
+                    logger.error("Failed to persist remote deletion of known host \(host.id.uuidString): \(error.localizedDescription)")
+                }
             }
         }
 
         if deletedCount > 0 {
             logger.info("Applied \(deletedCount) remote deletions to known_hosts")
         }
+        return allPersisted
     }
 
     /// Get hosts modified after a given date (for sync)

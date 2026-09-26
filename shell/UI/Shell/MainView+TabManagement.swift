@@ -45,7 +45,7 @@ extension MainView {
     /// (prevents focus races during view lifecycle / first launch).
     /// `app` is passed in rather than guarded here so each caller keeps its
     /// own guard/log ordering (split creators guard app before the
-    /// focused-terminal resolution side effect; reconnectTab guards silently).
+    /// focused-terminal resolution side effect; reconnectPane guards silently).
     private func makeConnectedTerminalView(
         app: ghostty_app_t,
         config: ConnectionConfig,
@@ -720,30 +720,60 @@ extension MainView {
 
 extension MainView {
 
-    func handleAuthenticationRequired(for index: Int, config: SSHConfig) {
-        // Set reconnection state and show connection sheet
-        reconnectingTabIndex = index
-        reconnectConfig = config
+    /// Arm the connection sheet to reconnect `terminal` with new credentials.
+    /// The target is captured by tab UUID and pane identity, never by index,
+    /// because the sheet can stay open across tab reorders and closes.
+    func handleAuthenticationRequired(for terminal: Ghostty.TerminalView, config: SSHConfig) {
+        guard let tab = terminals.first(where: { $0.splitTree.contains(terminal) }) else { return }
+        connectionSheetPrefill = ConnectionSheetPrefill(
+            config: config,
+            reconnectTarget: ReconnectTarget(tabID: tab.id, pane: terminal)
+        )
         showConnectionSidebar = true
     }
 
-    func reconnectTab(at index: Int, with config: SSHConfig) {
-        guard index < terminals.count, let app = ghosttyApp.app else { return }
+    /// Replace the target pane's session in place: same tab (identity,
+    /// position, group, metadata), same split geometry, sibling panes
+    /// untouched. The old session is retired through the normal pane-close
+    /// cleanup exactly once. Returns false — changing nothing — when the target
+    /// no longer resolves in this window.
+    @discardableResult
+    func reconnectPane(_ target: ReconnectTarget, with config: SSHConfig) -> Bool {
+        guard let app = ghosttyApp.app, let resolved = target.resolve(in: terminals) else { return false }
+        let tab = resolved.tab
+        let oldPane = resolved.pane
 
-        let terminalView = makeConnectedTerminalView(app: app, config: .ssh(config))
+        let terminalView = makeConnectedTerminalView(
+            app: app,
+            config: .ssh(config),
+            sourceProfileID: oldPane.asTerminal?.sourceProfileID
+        )
+        terminalView.containingTabID = tab.id
 
-        // Create a new tab with updated config and window ID
-        let updatedTab = TerminalTab(terminalView: terminalView, title: config.displayName, windowId: windowId)
-        terminalView.containingTabID = updatedTab.id
+        do {
+            tab.splitTree = try tab.splitTree.replacingLeaf(oldPane, with: terminalView)
+        } catch {
+            return false
+        }
 
-        // Replace the old tab
-        terminals[index] = updatedTab
+        // Retire the old session only after the swap succeeded.
+        if oldPane.isFirstResponder {
+            oldPane.resignFirstResponder()
+        }
+        oldPane.isLogicallyFocused = false
+        if let oldTerminal = oldPane.asTerminal {
+            withdrawKeyboardInteractive(for: oldTerminal)
+            oldTerminal.cleanup(reason: .userClose)
+        } else {
+            oldPane.prepareForClose()
+        }
 
-        // Set up title observation to sync terminal title changes to tab title
-        setupTitleObservation(at: index)
-
-        // Make sure this tab is selected
-        selectedTabIndex = index
-        setFocusedTerminal(terminalView, inTab: index)
+        if tab.splitTree.count == 1, !tab.isTmuxWindow {
+            tab.title = config.displayName
+        }
+        selectedTabIndex = resolved.tabIndex
+        setFocusedTerminal(terminalView, inTab: resolved.tabIndex)
+        setupTitleObservation(at: resolved.tabIndex)
+        return true
     }
 }

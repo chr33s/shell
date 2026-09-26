@@ -134,28 +134,46 @@ final class SSHIdentityMetadataStore {
 
     @discardableResult
     func applyRemoteChanges(_ remote: [SSHIdentityMetadata]) -> Int {
-        let applied = (try? store.applyRemoteChanges(remote)) ?? 0
-        updateEntriesFromStore()
-        return applied
+        applyRemoteChangesWithFailures(remote).applied
     }
 
-    func applyRemoteDeletions(recordNames: Set<String>) {
-        guard !recordNames.isEmpty else { return }
+    /// Apply remote changes, reporting whether any record failed to persist.
+    func applyRemoteChangesWithFailures(_ remote: [SSHIdentityMetadata]) -> (applied: Int, failed: Bool) {
+        defer { updateEntriesFromStore() }
+        do {
+            return (try store.applyRemoteChanges(remote), false)
+        } catch {
+            Self.logger.error("Failed to persist remote identity metadata: \(error.localizedDescription)")
+            return (0, true)
+        }
+    }
+
+    /// - Returns: false when any tombstone failed to persist.
+    @discardableResult
+    func applyRemoteDeletions(recordNames: Set<String>) -> Bool {
+        guard !recordNames.isEmpty else { return true }
         var deleted = 0
+        var allPersisted = true
         for entry in entries {
             let recordName = CloudKitRecordName.make(
                 recordType: SSHIdentityMetadata.recordType,
                 identity: entry.id.uuidString
             )
             if recordNames.contains(recordName) {
-                try? store.softDelete(id: entry.id)
-                deleted += 1
+                do {
+                    try store.softDelete(id: entry.id)
+                    deleted += 1
+                } catch {
+                    allPersisted = false
+                    Self.logger.error("Failed to persist remote deletion of identity metadata \(entry.id.uuidString): \(error.localizedDescription)")
+                }
             }
         }
         if deleted > 0 {
             Self.logger.info("Applied \(deleted) remote deletions to identity metadata")
             updateEntriesFromStore()
         }
+        return allPersisted
     }
 
     func reload() {

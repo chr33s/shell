@@ -174,11 +174,14 @@ final class ConnectionProfileManager {
         return (applied, failures)
     }
 
-    /// Apply remote deletions from CloudKit change sets
-    func applyRemoteDeletions(recordNames: Set<String>) {
-        guard !recordNames.isEmpty else { return }
+    /// Apply remote deletions from CloudKit change sets.
+    /// - Returns: false when any tombstone failed to persist.
+    @discardableResult
+    func applyRemoteDeletions(recordNames: Set<String>) -> Bool {
+        guard !recordNames.isEmpty else { return true }
 
         var deletedCount = 0
+        var allPersisted = true
 
         for profile in profiles {
             let recordName = CloudKitRecordName.make(
@@ -189,8 +192,13 @@ final class ConnectionProfileManager {
                 var deleted = profile
                 deleted.isDeleted = true
                 deleted.modifiedAt = Date()
-                try? persistProfile(deleted, updateTimestamp: false, notifySync: false)
-                deletedCount += 1
+                do {
+                    try persistProfile(deleted, updateTimestamp: false, notifySync: false)
+                    deletedCount += 1
+                } catch {
+                    allPersisted = false
+                    Self.logger.error("Failed to persist remote deletion of profile \(profile.id.uuidString): \(error.localizedDescription)")
+                }
             }
         }
 
@@ -198,6 +206,7 @@ final class ConnectionProfileManager {
             Self.logger.info("Applied \(deletedCount) remote deletions to profiles")
             updateProfilesFromStore()
         }
+        return allPersisted
     }
 
     /// Get profiles modified after a given date (for sync)

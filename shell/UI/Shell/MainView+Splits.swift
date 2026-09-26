@@ -74,8 +74,8 @@ extension MainView {
         if connectionConfig.requiresSSHCallbacks {
             let sshSplitTerminal = newTerminalView
             newTerminalView.onAuthenticationRequired = { @MainActor @Sendable [weak sshSplitTerminal] config in
-                if let index = terminals.firstIndex(where: { $0.splitTree.contains { $0 === sshSplitTerminal } }) {
-                    handleAuthenticationRequired(for: index, config: config)
+                if let sshSplitTerminal {
+                    handleAuthenticationRequired(for: sshSplitTerminal, config: config)
                 }
             }
             newTerminalView.onHostKeyValidationRequired = { @MainActor @Sendable request, validatedTerminal in

@@ -687,6 +687,7 @@
 			buildSettings = {
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = shell/Entitlements/ShellCatalyst.entitlements;
 				DEVELOPMENT_TEAM = 72KB9YQR7B;
+				ENABLE_APP_SANDBOX = NO;
 				INFOPLIST_KEY_CFBundleDisplayName = Shell;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
@@ -710,6 +711,7 @@
 			buildSettings = {
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = shell/Entitlements/ShellCatalyst.entitlements;
 				DEVELOPMENT_TEAM = 72KB9YQR7B;
+				ENABLE_APP_SANDBOX = NO;
 				INFOPLIST_KEY_CFBundleDisplayName = Shell;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";

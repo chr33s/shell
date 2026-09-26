@@ -34,9 +34,9 @@ extension MainView {
         showSettings ||
             showToolbarSettings ||
             showConnectionSidebar ||
-            showPasswordPromptSheet ||
+            passwordPrompt != nil ||
             showKeyboardInteractivePrompt ||
-            showKeyResolutionSheet ||
+            keyResolution != nil ||
             connectionInfoToShow != nil ||
             tmuxDashboardRequest != nil
     }
@@ -149,22 +149,19 @@ extension MainView {
                     .interactiveDismissDisabled(terminals.isEmpty)
                     .themedSheet(themeColors: sheetTheme.themeColors, accentColor: sheetTheme.accentColor, colorScheme: sheetTheme.colorScheme)
             }
-            .sheet(isPresented: $showPasswordPromptSheet) {
-                if let profile = passwordPromptProfile {
-                    PasswordPromptSheet(
-                        host: profile.sshConfig.host,
-                        port: profile.sshConfig.port,
-                        username: profile.sshConfig.username,
-                        onSubmit: { password, shouldSave in
-                            handlePasswordSubmit(profile: profile, password: password, shouldSave: shouldSave)
-                        },
-                        onCancel: {
-                            showPasswordPromptSheet = false
-                            passwordPromptProfile = nil
-                        }
-                    )
-                    .themedSheet(themeColors: sheetTheme.themeColors, accentColor: sheetTheme.accentColor, colorScheme: sheetTheme.colorScheme)
-                }
+            .sheet(item: $passwordPrompt) { request in
+                PasswordPromptSheet(
+                    host: request.profile.sshConfig.host,
+                    port: request.profile.sshConfig.port,
+                    username: request.profile.sshConfig.username,
+                    onSubmit: { password, shouldSave in
+                        handlePasswordSubmit(request, password: password, shouldSave: shouldSave)
+                    },
+                    onCancel: {
+                        passwordPrompt = nil
+                    }
+                )
+                .themedSheet(themeColors: sheetTheme.themeColors, accentColor: sheetTheme.accentColor, colorScheme: sheetTheme.colorScheme)
             }
             .sheet(isPresented: $showKeyboardInteractivePrompt) {
                 if let entry = keyboardInteractiveQueue.first {
@@ -186,23 +183,24 @@ extension MainView {
                     .id(entry.id)
                 }
             }
-            .sheet(isPresented: $showKeyResolutionSheet) {
-                if let config = keyResolutionConfig {
-                    KeyResolutionSheet(
-                        unresolvedKeys: keyResolutionUnresolvedKeys,
-                        config: config,
-                        profileID: keyResolutionProfileID,
-                        connectionIdentity: keyResolutionConnectionIdentity,
-                        onResolved: { resolvedConfig in
-                            showKeyResolutionSheet = false
-                            connectWithConfig(resolvedConfig, splitOption: keyResolutionSplitOption, sourceProfileID: keyResolutionProfileID)
-                        },
-                        onCancel: {
-                            showKeyResolutionSheet = false
-                        }
-                    )
-                    .themedSheet(themeColors: sheetTheme.themeColors, accentColor: sheetTheme.accentColor, colorScheme: sheetTheme.colorScheme)
-                }
+            .sheet(item: $keyResolution) { request in
+                KeyResolutionSheet(
+                    unresolvedKeys: request.unresolvedKeys,
+                    config: request.config,
+                    profileID: request.profileID,
+                    connectionIdentity: nil,
+                    onResolved: { resolvedConfig in
+                        // Only the request still on screen may connect; a
+                        // late callback from a replaced sheet is ignored.
+                        guard keyResolution?.id == request.id else { return }
+                        keyResolution = nil
+                        connectWithConfig(resolvedConfig, splitOption: request.splitOption, sourceProfileID: request.profileID)
+                    },
+                    onCancel: {
+                        if keyResolution?.id == request.id { keyResolution = nil }
+                    }
+                )
+                .themedSheet(themeColors: sheetTheme.themeColors, accentColor: sheetTheme.accentColor, colorScheme: sheetTheme.colorScheme)
             }
     }
 

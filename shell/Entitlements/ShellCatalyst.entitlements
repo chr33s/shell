@@ -5,8 +5,7 @@
 	<!-- Shell Control approval hints arrive from the optional push relay. -->
 	<key>aps-environment</key>
 	<string>development</string>
-	<key>com.apple.security.app-sandbox</key>
-	<true/>
+	<!-- Native local shells require fork/exec, which the App Sandbox denies. -->
 	<key>com.apple.security.network.client</key>
 	<true/>
 	<key>com.apple.security.files.user-selected.read-write</key>
