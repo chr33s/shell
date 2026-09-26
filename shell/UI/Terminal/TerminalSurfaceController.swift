@@ -56,7 +56,7 @@ final class TerminalSurfaceController: NSObject {
 
     private(set) var hasRenderedFirstFrame = false
     private var firstFrameCallbacks: [@MainActor () -> Void] = []
-    nonisolated(unsafe) private var firstFramePollLink: CADisplayLink?
+    private var firstFramePollLink: CADisplayLink?
     private var firstFramePollTarget: FirstFramePollTarget?
     private var firstFramePollStart: CFTimeInterval = 0
 
@@ -72,7 +72,7 @@ final class TerminalSurfaceController: NSObject {
         super.init()
     }
 
-    deinit {
+    isolated deinit {
         firstFramePollLink?.invalidate()
     }
 
@@ -691,20 +691,6 @@ final class TerminalSurfaceController: NSObject {
         return ghostty_surface_drain_renderer_to_idle(surface, timeoutNanoseconds)
     }
 
-    func requestRendererDrainToIdleAsync(
-        terminalID: String,
-        connection: String,
-        timeoutNanoseconds: UInt64 = 200_000_000
-    ) {
-        host.surfaceIsTabVisible = false
-        suspendFirstFramePolling()
-        guard let surface else { return }
-        let surfaceAddress = Int(bitPattern: surface)
-        Task(priority: .utility) {
-            await Self.drainRendererOffMain(surfaceAddress: surfaceAddress, timeoutNanoseconds: timeoutNanoseconds)
-        }
-    }
-
     func teardownSurface() {
         guard let surface else {
             resetFirstFrameTracking()
@@ -736,14 +722,6 @@ final class TerminalSurfaceController: NSObject {
         }
 
         resetFirstFrameTracking()
-    }
-
-    /// Bounded renderer drain. `@concurrent` so it leaves the main actor; the
-    /// timeout is the bound, and the pointer is only used for this call.
-    @concurrent
-    private static func drainRendererOffMain(surfaceAddress: Int, timeoutNanoseconds: UInt64) async {
-        guard let surfacePtr = UnsafeMutableRawPointer(bitPattern: surfaceAddress) else { return }
-        _ = ghostty_surface_drain_renderer_to_idle(surfacePtr, timeoutNanoseconds)
     }
 }
 

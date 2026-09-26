@@ -13,13 +13,6 @@ import GhosttyKit
 import os
 import UniformTypeIdentifiers
 
-/// Main-queue notification handoff. `Notification` is not `Sendable`; the
-/// observer is registered on the main queue, so this is a same-thread transfer.
-private nonisolated struct WindowKeyNotification: @unchecked Sendable {
-    let notification: Notification
-    init(_ notification: Notification) { self.notification = notification }
-}
-
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -59,7 +52,7 @@ final class WindowSceneReportingView: UIView {
     private var cachedKeyState: Bool?
     private var lastSceneSnapshot: SceneSnapshot?
     private var lastTopSafeAreaInset: CGFloat?
-    nonisolated(unsafe) private var safeAreaDebounceWorkItem: DispatchWorkItem?
+    private var safeAreaDebounceWorkItem: DispatchWorkItem?
     #if targetEnvironment(macCatalyst)
     private var lastReportedFrame: CGRect?
     #endif
@@ -120,13 +113,10 @@ final class WindowSceneReportingView: UIView {
         lastTopSafeAreaInset = currentTopInset
     }
 
-    deinit {
+    isolated deinit {
         safeAreaDebounceWorkItem?.cancel()
-        let sceneSessionID = lastSceneSnapshot?.sceneSessionID
-        if let sceneSessionID {
-            Task { @MainActor in
-                WindowFocusRegistry.shared.remove(sceneSessionId: sceneSessionID)
-            }
+        if let sceneSessionID = lastSceneSnapshot?.sceneSessionID {
+            WindowFocusRegistry.shared.remove(sceneSessionId: sceneSessionID)
         }
         unregisterWindowObservers()
     }
@@ -175,9 +165,9 @@ final class WindowSceneReportingView: UIView {
         ) { [weak self] notification in
             // Delivered on the main queue. The notification is not Sendable;
             // the box is the handoff into the main-actor handler.
-            let boxed = WindowKeyNotification(notification)
+            let boxed = UncheckedSendableBox(notification)
             MainActor.assumeIsolated {
-                self?.handleUIWindowKeyNotification(boxed.notification, becameKey: true)
+                self?.handleUIWindowKeyNotification(boxed.value, becameKey: true)
             }
         }
         let didResignKey = center.addObserver(
@@ -185,9 +175,9 @@ final class WindowSceneReportingView: UIView {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            let boxed = WindowKeyNotification(notification)
+            let boxed = UncheckedSendableBox(notification)
             MainActor.assumeIsolated {
-                self?.handleUIWindowKeyNotification(boxed.notification, becameKey: false)
+                self?.handleUIWindowKeyNotification(boxed.value, becameKey: false)
             }
         }
         windowObserverTokens = [didBecomeKey, didResignKey]

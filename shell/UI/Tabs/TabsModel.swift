@@ -190,12 +190,6 @@ nonisolated struct TabOrderProjection: Equatable, Sendable {
 
 // MARK: - TabModel
 
-/// A single tab in a window, replacing the value-type `MainView.TerminalTab`
-/// struct. As an `@Observable` class, per-tab UI (tab buttons, indicators)
-/// reads its properties directly and is invalidated only on changes to the
-/// properties it actually reads.
-@MainActor
-@Observable
 /// Restoration drops fallback titles until a real OSC title arrives. The
 /// flag is mutated from the observation task, which is `@Sendable`.
 private final class TitleObservationGate: @unchecked Sendable {
@@ -205,6 +199,12 @@ private final class TitleObservationGate: @unchecked Sendable {
     }
 }
 
+/// A single tab in a window, replacing the value-type `MainView.TerminalTab`
+/// struct. As an `@Observable` class, per-tab UI (tab buttons, indicators)
+/// reads its properties directly and is invalidated only on changes to the
+/// properties it actually reads.
+@MainActor
+@Observable
 final class TabModel: Identifiable {
     /// Stable identity for `ForEach` and reorder/cleanup operations.
     let id = UUID()

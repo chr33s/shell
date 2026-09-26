@@ -33,13 +33,6 @@ enum HostKeyValidationResult {
 /// Custom SSH server authentication delegate that validates host keys against known hosts
 /// Marked nonisolated and @unchecked Sendable because NIO requires access from any thread.
 /// All MainActor interactions are handled internally via Task { @MainActor in ... }.
-/// One-way transfer of a NIO host key off the event loop. The sender does not
-/// use the key again; NIO does not mark the type `Sendable`.
-nonisolated struct HostKeyTransfer: @unchecked Sendable {
-    let key: NIOSSHPublicKey
-    init(_ key: NIOSSHPublicKey) { self.key = key }
-}
-
 nonisolated final class SSHHostKeyDelegate: NIOSSHClientServerAuthenticationDelegate, @unchecked Sendable {
     private let hostname: String
     private let port: Int
@@ -67,10 +60,10 @@ nonisolated final class SSHHostKeyDelegate: NIOSSHClientServerAuthenticationDele
     func validateHostKey(hostKey: NIOSSHPublicKey, validationCompletePromise: EventLoopPromise<Void>) {
         // The event loop does not touch the key after this handoff. NIO's
         // public key type is not `Sendable`, so the transfer is explicit.
-        let boxed = HostKeyTransfer(hostKey)
+        let boxed = UncheckedSendableBox(hostKey)
         Task { @MainActor in
             do {
-                let result = try await performValidation(hostKey: boxed.key)
+                let result = try await performValidation(hostKey: boxed.value)
                 if result {
                     validationCompletePromise.succeed(())
                 } else {

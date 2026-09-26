@@ -38,14 +38,6 @@ private struct ScreenControlDetector: Sendable {
     }
 }
 
-private struct SendableBox<T>: @unchecked Sendable {
-    nonisolated(unsafe) let value: T
-
-    nonisolated init(_ value: T) {
-        self.value = value
-    }
-}
-
 extension LocalShellSession {
     /// Checks if data appears to be a terminal response (cursor position report, etc.)
     /// Terminal responses are escape sequences that the terminal sends back to the application
@@ -556,8 +548,8 @@ extension LocalShellSession {
         // Flush batcher and display prompt AFTER all output is delivered
         // This ensures proper ordering: command output → prompt
         // flush() runs its completion on the batcher's serial queue — one MainActor hop to prompt
-        let boxedSelf = SendableBox(self)
-        let boxedCommand = SendableBox(command)
+        let boxedSelf = UncheckedSendableBox(self)
+        let boxedCommand = UncheckedSendableBox(command)
         batcher.flush { [boxedSelf, boxedCommand] in
             Task { @MainActor in
                 let session = boxedSelf.value

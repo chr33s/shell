@@ -42,7 +42,7 @@ final class InlineSpinnerAnimator {
     private var frameIndex: Int = 0
 
     /// Animation timer
-    nonisolated(unsafe) private var timer: Timer?
+    private var timer: Timer?
 
     /// Start time for elapsed time calculation
     private var startTime: Date?
@@ -234,7 +234,7 @@ final class InlineSpinnerAnimator {
         }
     }
 
-    deinit {
+    isolated deinit {
         timer?.invalidate()
     }
 }

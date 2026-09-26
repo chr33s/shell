@@ -137,7 +137,7 @@ struct KeyboardToolbarRepresentable: UIViewRepresentable {
         weak var focusedTerminal: Ghostty.TerminalView?
         weak var toolbar: KeyboardToolbarView?
         var onHeightChanged: ((CGFloat) -> Void)?
-        nonisolated(unsafe) private var layoutChangeObserver: NSObjectProtocol?
+        private var layoutChangeObserver: NSObjectProtocol?
 
         func observeLayoutChanges() {
             layoutChangeObserver = NotificationCenter.default.addObserver(
@@ -152,7 +152,7 @@ struct KeyboardToolbarRepresentable: UIViewRepresentable {
             }
         }
 
-        deinit {
+        isolated deinit {
             if let observer = layoutChangeObserver {
                 NotificationCenter.default.removeObserver(observer)
             }

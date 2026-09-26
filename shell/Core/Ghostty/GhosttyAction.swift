@@ -4,7 +4,7 @@ import Combine
 
 extension Ghostty.Action {
     /// Wrapper for the start_search action from C API
-    struct StartSearch {
+    nonisolated struct StartSearch: Sendable {
         let needle: String?
 
         init(c: ghostty_action_start_search_s) {
@@ -35,7 +35,7 @@ extension Ghostty {
 }
 
 extension Ghostty.Action {
-    struct ProgressReport: Equatable, Sendable {
+    nonisolated struct ProgressReport: Equatable, Sendable {
         enum State: Equatable, Sendable, CustomStringConvertible {
             case remove
             case set

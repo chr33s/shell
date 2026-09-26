@@ -4,6 +4,7 @@ import Glibc
 #else
 import Darwin
 #endif
+import ShellControlProtocol
 import Synchronization
 
 /// A minimal HTTP/1.1 server, shared by the broker and the push relay.
@@ -128,7 +129,7 @@ public final class HTTPServer: Sendable {
             // One task per connection. Long polls suspend (`Task.sleep`); they
             // must not occupy a thread, or enough of them would stop short
             // requests from being served. Blocking `recv`/`send` hop to a
-            // dedicated thread inside `blocking` and resume a continuation —
+            // per-connection queue (`BlockingIO`) and resume a continuation —
             // the accept thread never waits on the handler.
             let handler = self.handler
             let peerAddress = HTTPServer.address(peer)
@@ -138,24 +139,15 @@ public final class HTTPServer: Sendable {
         }
     }
 
-    /// Blocking socket IO off the cooperative pool. Resumes the continuation
-    /// exactly once; the caller suspends instead of waiting on a semaphore.
-    private static func blocking<T: Sendable>(_ work: @escaping @Sendable () -> T) async -> T {
-        await withCheckedContinuation { continuation in
-            Thread.detachNewThread {
-                continuation.resume(returning: work())
-            }
-        }
-    }
-
     private static func serve(client: Int32, peerAddress: String?, handler: Handler) async {
         defer { close(client) }
-        guard let request = await blocking({ readRequest(client, peer: peerAddress) }) else {
-            await blocking { write(client, Response(status: 400, body: Data("bad request".utf8))) }
+        let io = BlockingIO(label: "dev.chr33s.shell.http.connection")
+        guard let request = await io.perform({ readRequest(client, peer: peerAddress) }) else {
+            await io.perform { write(client, Response(status: 400, body: Data("bad request".utf8))) }
             return
         }
         let response = await handler(request)
-        await blocking { write(client, response) }
+        await io.perform { write(client, response) }
     }
 
     public func stop() {

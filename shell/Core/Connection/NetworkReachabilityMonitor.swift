@@ -66,10 +66,8 @@ final class NetworkReachabilityMonitor {
 
     // MARK: - Private Properties
 
-    /// `deinit` cancels this off the main actor. `NWPathMonitor.cancel()` is
-    /// thread-safe; the rest of the class only touches it on the main actor.
     @ObservationIgnored
-    nonisolated(unsafe) private var pathMonitor: NWPathMonitor?
+    private var pathMonitor: NWPathMonitor?
     private let monitorQueue = DispatchQueue(label: "dev.chr33s.shell.network-monitor", qos: .utility)
     private var isMonitoring = false
     private var previouslyConnected: Bool = true
@@ -153,8 +151,7 @@ final class NetworkReachabilityMonitor {
         start()
     }
 
-    deinit {
-        // Note: Can't call stop() here due to @MainActor isolation
+    isolated deinit {
         pathMonitor?.cancel()
     }
 

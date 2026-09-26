@@ -80,7 +80,7 @@ extension Ghostty {
     private static let staleLiveScrollGraceInterval: TimeInterval = 0.2
 
     /// Work item used to restore UIKit's native indicator after silent core sync.
-    nonisolated(unsafe) private var restoreNativeScrollIndicatorWorkItem: DispatchWorkItem?
+    private var restoreNativeScrollIndicatorWorkItem: DispatchWorkItem?
 
     #if !targetEnvironment(macCatalyst)
     /// One-shot: the next scrollbar sync came from the iOS status-bar
@@ -91,7 +91,7 @@ extension Ghostty {
     #endif
 
     /// Work item used to release a selection-driven native indicator hold.
-    nonisolated(unsafe) private var selectionScrollIndicatorHoldWorkItem: DispatchWorkItem?
+    private var selectionScrollIndicatorHoldWorkItem: DispatchWorkItem?
 
     #if targetEnvironment(macCatalyst)
     /// Original offset for an in-flight Catalyst indicator nudge.
@@ -133,7 +133,7 @@ extension Ghostty {
     private static let selectionScrollIndicatorRevealInterval: TimeInterval = 0.25
 
     /// Notification observers
-    nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
+    private var observers: [NSObjectProtocol] = []
 
     /// Document view height constraint (stored for efficient updates)
     private var documentHeightConstraint: NSLayoutConstraint?
@@ -214,7 +214,7 @@ extension Ghostty {
         fatalError("init(coder:) has not been implemented")
     }
 
-    deinit {
+    isolated deinit {
         progressReportTask?.cancel()
         mouseCapturedTask?.cancel()
         multiplexerScrollActiveTask?.cancel()

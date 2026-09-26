@@ -30,7 +30,11 @@ let package = Package(
             dependencies: ["ShellControlProtocol", "ShellControlSecurity"],
             path: "Sources/Client"
         ),
-        .target(name: "ShellControlHTTPServer", path: "Sources/HTTPServer"),
+        .target(
+            name: "ShellControlHTTPServer",
+            dependencies: ["ShellControlProtocol"],
+            path: "Sources/HTTPServer"
+        ),
         .testTarget(
             name: "ShellControlCoreTests",
             dependencies: ["ShellControlProtocol", "ShellControlSecurity", "ShellControlClient"],

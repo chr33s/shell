@@ -4287,7 +4287,7 @@ extension Ghostty.TerminalView {
 /// payload holds viewer-pane refcounts (Zig id=viewer-snapshot-refcount) that
 /// keep the raw `viewerTerminal`/`viewerPane` pointers in `ops` alive until the
 /// main-actor apply has consumed them.
-struct TmuxReconcileDelivery: @unchecked Sendable {
+nonisolated struct TmuxReconcileDelivery: @unchecked Sendable {
     let owner: Ghostty.TerminalView
     let ops: [TmuxReconcileOp]
     let payload: UnsafeMutableRawPointer

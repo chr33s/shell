@@ -186,10 +186,14 @@ extension LocalShellSession {
         // RC file timeout: 30 seconds
         let rcLFNormalizer = LFNormalizer()
         let rcToken = CancellationToken()
-        Task {
+        // Detached so the timer runs off the main actor: `execute(ast)` below
+        // blocks the main thread, so a main-actor task could never fire.
+        let rcTimeout = Task.detached {
             try? await Task.sleep(for: .seconds(30))
+            guard !Task.isCancelled else { return }
             rcToken.cancel()
         }
+        defer { rcTimeout.cancel() }
 
         let interpreter = ShellInterpreter(
             environment: environment,

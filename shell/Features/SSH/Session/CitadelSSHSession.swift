@@ -30,14 +30,6 @@ nonisolated private final class BootstrapCancelBox: @unchecked Sendable {
 final class CitadelSSHSession: SSHTerminalSession {
     private nonisolated static let logger = Logger(subsystem: "dev.chr33s.shell", category: "CitadelSSHSession")
 
-    /// Cancellation handler must not be main-actor isolated: it runs concurrently
-    /// with the task it cancels.
-
-
-    /// Overall connection timeout for Citadel connections
-    /// This is generous (5 minutes) to allow time for host key approval
-    /// since Citadel doesn't expose granular timeout control
-
     let pty: TerminalPTY
     let config: SSHConfig
 
@@ -1788,11 +1780,11 @@ nonisolated final class CitadelHostKeyValidatorDelegate: NIOSSHClientServerAuthe
         let labelCopy = label
         let validationCallback = onValidation
 
-        let boxed = HostKeyTransfer(hostKey)
+        let boxed = UncheckedSendableBox(hostKey)
         Task { @MainActor in
             do {
                 let result = try await performValidation(
-                    hostKey: boxed.key,
+                    hostKey: boxed.value,
                     hostname: hostnameCopy,
                     port: portCopy,
                     label: labelCopy,

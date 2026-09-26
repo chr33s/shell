@@ -55,13 +55,10 @@ extension Ghostty {
             self.config = ghostty_config_clone(config)
         }
 
-        deinit {
-            // @Observable isolates this class to the main actor. Swift 6 runs
-            // that deinit on the main actor; assumeIsolated frees the config
-            // without hopping, and traps if that assumption is ever wrong.
-            MainActor.assumeIsolated {
-                self.config = nil
-            }
+        isolated deinit {
+            // Runs on the main actor even when the last reference is
+            // dropped elsewhere, so `config`'s free happens there too.
+            self.config = nil
         }
 
         /// Initializes a new configuration and loads all the values

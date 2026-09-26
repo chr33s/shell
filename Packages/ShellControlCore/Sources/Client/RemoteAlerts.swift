@@ -356,7 +356,13 @@ public actor RemoteAlertCoordinator {
         let task = Task { try await service.registerPushCapability(capability) }
         registrationTasks[id] = task
         defer { registrationTasks[id] = nil }
-        try await task.value
+        // The upload runs unstructured so choose()/invalidateRegistration()
+        // can cancel it; forward the caller's cancellation to it as well.
+        try await withTaskCancellationHandler {
+            try await task.value
+        } onCancel: {
+            task.cancel()
+        }
         return beginRegistration() == generation
     }
 

@@ -68,6 +68,8 @@ final class NativeDockMenu: NSObject {
 /// `NativeMenuBuilder`, which builds menus this app owns outright.
 final class NativeServicesMenu: NSObject {
     private var title = ""
+    /// Read by the nonisolated deinit; `removeObserver` is thread-safe and the
+    /// token is otherwise only touched on the main thread.
     nonisolated(unsafe) private var observer: NSObjectProtocol?
     /// The submenu handed to AppKit, so a rebuild re-attaches the menu AppKit has
     /// already filled instead of a fresh empty one.

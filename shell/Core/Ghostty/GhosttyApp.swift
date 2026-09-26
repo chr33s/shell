@@ -209,7 +209,7 @@ extension Ghostty {
         private nonisolated(unsafe) static var appInstances: [Int: Weak<App>] = [:]
 
         /// Weak wrapper for App instances
-        private struct Weak<T: AnyObject> {
+        private nonisolated struct Weak<T: AnyObject> {
             weak var value: T?
         }
 
@@ -351,22 +351,7 @@ extension Ghostty {
             Ghostty.App.shared = self
 
             // Create runtime configuration with callbacks
-            var runtime_cfg = ghostty_runtime_config_s(
-                userdata: Unmanaged.passUnretained(self).toOpaque(),
-                supports_selection_clipboard: true,
-                wakeup_cb: { userdata in App.wakeup(userdata) },
-                action_cb: { app, target, action in return App.action(app!, target: target, action: action) },
-                read_clipboard_cb: { userdata, loc, state in App.readClipboard(userdata, location: loc, state: state) },
-                confirm_read_clipboard_cb: { userdata, str, state, request in
-                    App.confirmReadClipboard(userdata, string: str, state: state, request: request)
-                },
-                write_clipboard_cb: { userdata, loc, content, len, confirm in
-                    App.writeClipboard(userdata, location: loc, content: content, len: len, confirm: confirm)
-                },
-                close_surface_cb: { userdata, processAlive in
-                    App.closeSurface(userdata, processAlive: processAlive)
-                }
-            )
+            var runtime_cfg = Self.makeRuntimeConfig(userdata: Unmanaged.passUnretained(self).toOpaque())
 
             // Create the ghostty app
             guard let app = ghostty_app_new(&runtime_cfg, config.config) else {
@@ -1253,7 +1238,7 @@ extension Ghostty {
             var coalescedDuringBurst: Int = 0
         }
 
-        private static func wakeup(_ userdata: UnsafeMutableRawPointer?) {
+        private nonisolated static func wakeup(_ userdata: UnsafeMutableRawPointer?) {
             guard let userdata = userdata else { return }
             let app = Unmanaged<App>.fromOpaque(userdata).takeUnretainedValue()
 
@@ -1391,7 +1376,7 @@ extension Ghostty {
             }
         }
 
-        private static func action(_ app: ghostty_app_t, target: ghostty_target_s, action: ghostty_action_s) -> Bool {
+        private nonisolated static func action(_ app: ghostty_app_t, target: ghostty_target_s, action: ghostty_action_s) -> Bool {
             // Look up the App instance using raw pointer address
             let appId = Int(bitPattern: app)
 
@@ -1902,8 +1887,10 @@ extension Ghostty {
 
                     // Call delegate synchronously — probeForLink() depends on this
                     // being resolved before ghostty_surface_mouse_pos() returns.
-                    if let delegate = appInstance.surfaceDelegates[surfaceId]?.delegate {
-                        delegate.handleMouseOverLink(url: url)
+                    // That call is made on the main thread; a mouse position
+                    // sent from the surface API queue hops instead.
+                    Self.onMain {
+                        appInstance.surfaceDelegates[surfaceId]?.delegate?.handleMouseOverLink(url: url)
                     }
                 }
 
@@ -1927,7 +1914,7 @@ extension Ghostty {
             }
         }
 
-        private static func readClipboard(
+        private nonisolated static func readClipboard(
             _ userdata: UnsafeMutableRawPointer?,
             location: ghostty_clipboard_e,
             state: UnsafeMutableRawPointer?
@@ -1940,29 +1927,41 @@ extension Ghostty {
                 return false
             }
             let terminalView = Unmanaged<TerminalView>.fromOpaque(userdata).takeUnretainedValue()
-            guard let surface = terminalView.surface else {
-                Ghostty.logger.warning("readClipboard: surface is nil")
-                return false
-            }
-
-            // Return false if there is no text-like clipboard content so
-            // performable paste bindings can pass through to the terminal.
-            guard let text = UIPasteboard.general.opinionatedStringContents() else {
-                return false
-            }
+            nonisolated(unsafe) let state = state
 
             // Complete the clipboard request with the data
             // This triggers Ghostty's paste encoding (bracketed paste, newline conversion, etc.)
-            text.withCString { ptr in
-                ghostty_surface_complete_clipboard_request(surface, ptr, state, false)
+            @MainActor func complete() -> Bool {
+                guard let surface = terminalView.surface else {
+                    Ghostty.logger.warning("readClipboard: surface is nil")
+                    return false
+                }
+                // Return false if there is no text-like clipboard content so
+                // performable paste bindings can pass through to the terminal.
+                guard let text = UIPasteboard.general.opinionatedStringContents() else {
+                    return false
+                }
+                text.withCString { ptr in
+                    ghostty_surface_complete_clipboard_request(surface, ptr, state, false)
+                }
+                return true
             }
+
+            if Thread.isMainThread {
+                return MainActor.assumeIsolated { complete() }
+            }
+            // Off the main thread (a paste binding sent from the surface API
+            // queue): UIPasteboard and the view are main-actor state, so the
+            // request completes asynchronously, which Ghostty supports. The
+            // binding is treated as performed.
+            Task { @MainActor in _ = complete() }
             return true
             #else
             return false
             #endif
         }
 
-        private static func confirmReadClipboard(
+        private nonisolated static func confirmReadClipboard(
             _ userdata: UnsafeMutableRawPointer?,
             string: UnsafePointer<CChar>?,
             state: UnsafeMutableRawPointer?,
@@ -1977,14 +1976,21 @@ extension Ghostty {
             guard let string = string else { return }
 
             let terminalView = Unmanaged<TerminalView>.fromOpaque(userdata).takeUnretainedValue()
-            guard let surface = terminalView.surface else { return }
+            // `string` is only valid for this call; copy it before any hop.
+            let text = String(cString: string)
+            nonisolated(unsafe) let state = state
 
             // Complete the request with confirmation (last parameter = true)
-            ghostty_surface_complete_clipboard_request(surface, string, state, true)
+            Self.onMain {
+                guard let surface = terminalView.surface else { return }
+                text.withCString { ptr in
+                    ghostty_surface_complete_clipboard_request(surface, ptr, state, true)
+                }
+            }
             #endif
         }
 
-        private static func writeClipboard(
+        private nonisolated static func writeClipboard(
             _ userdata: UnsafeMutableRawPointer?,
             location: ghostty_clipboard_e,
             content: UnsafePointer<ghostty_clipboard_content_s>?,
@@ -2063,7 +2069,7 @@ extension Ghostty {
 
         /// Map a Ghostty clipboard mime type to the corresponding UIPasteboard UTI.
         /// Mirrors the macOS mapping in `NSPasteboard+Extension.swift`.
-        private static func pasteboardUTI(forMime mime: String) -> String? {
+        private nonisolated static func pasteboardUTI(forMime mime: String) -> String? {
             switch mime {
             case "text/plain":
                 return UTType.utf8PlainText.identifier
@@ -2075,10 +2081,44 @@ extension Ghostty {
         }
         #endif
 
+        /// Built outside the main-actor `init` so the callback closures are
+        /// nonisolated. Ghostty invokes them on whichever thread called into it,
+        /// including the surface API queue; closures formed inside `init` would
+        /// inherit main-actor isolation and trap there under Swift 6.
+        private nonisolated static func makeRuntimeConfig(userdata: UnsafeMutableRawPointer) -> ghostty_runtime_config_s {
+            ghostty_runtime_config_s(
+                userdata: userdata,
+                supports_selection_clipboard: true,
+                wakeup_cb: { userdata in App.wakeup(userdata) },
+                action_cb: { app, target, action in return App.action(app!, target: target, action: action) },
+                read_clipboard_cb: { userdata, loc, state in App.readClipboard(userdata, location: loc, state: state) },
+                confirm_read_clipboard_cb: { userdata, str, state, request in
+                    App.confirmReadClipboard(userdata, string: str, state: state, request: request)
+                },
+                write_clipboard_cb: { userdata, loc, content, len, confirm in
+                    App.writeClipboard(userdata, location: loc, content: content, len: len, confirm: confirm)
+                },
+                close_surface_cb: { userdata, processAlive in
+                    App.closeSurface(userdata, processAlive: processAlive)
+                }
+            )
+        }
+
+        /// Runs `body` synchronously when a Ghostty callback arrives on the main
+        /// thread, and on the next main-actor turn when it arrives on the
+        /// surface API queue (config pushes, key and mouse events sent there).
+        private nonisolated static func onMain(_ body: @escaping @MainActor @Sendable () -> Void) {
+            if Thread.isMainThread {
+                MainActor.assumeIsolated(body)
+            } else {
+                Task { @MainActor in body() }
+            }
+        }
+
         /// Required by `ghostty_runtime_config_s`, but intentionally a no-op:
         /// every surface is created with `use_external_io`, so libghostty owns no
         /// child process whose exit could raise this. Tab/pane teardown is driven
         /// entirely by the app's own session-end path posting `.closeSplit`.
-        private static func closeSurface(_ userdata: UnsafeMutableRawPointer?, processAlive: Bool) {}
+        private nonisolated static func closeSurface(_ userdata: UnsafeMutableRawPointer?, processAlive: Bool) {}
     }
 }

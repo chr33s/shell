@@ -177,9 +177,9 @@ public final class ReconnectionManager {
 
     // MARK: - Private
 
-    nonisolated(unsafe) private var networkCancellable: AnyCancellable?
+    private var networkCancellable: AnyCancellable?
     private var lastReason: DisconnectReason = .networkLost
-    nonisolated(unsafe) private var statusTicker: Timer?
+    private var statusTicker: Timer?
 
     // MARK: - Initialization
 
@@ -206,7 +206,7 @@ public final class ReconnectionManager {
         subscribeToNetworkChanges()
     }
 
-    deinit {
+    isolated deinit {
         networkCancellable?.cancel()
         statusTicker?.invalidate()
     }

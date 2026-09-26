@@ -19,7 +19,7 @@ enum MacDockMenu {
 
     static func install() {
         guard let bridge = MacSupport.bridge else { return }
-        if !bridge.installDockMenu({ MainActor.assumeIsolated { entries() } }) {
+        if !bridge.installDockMenu({ MainActor.assumeIsolated { UncheckedSendableBox(entries()) }.value }) {
             logger.warning("Dock menu could not be installed")
         }
     }

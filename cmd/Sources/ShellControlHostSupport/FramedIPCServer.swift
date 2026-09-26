@@ -80,10 +80,11 @@ public final class FramedIPCServer: Sendable {
             close(client)
             if maximumConnections != nil { connections.wrappingSubtract(1, ordering: .acquiringAndReleasing) }
         }
+        let io = BlockingIO(label: "dev.chr33s.shell.ipc.connection")
         var buffer = Data()
         while isRunning {
             let snapshot = buffer
-            let read = await BlockingWork.run { () -> (buffer: Data, value: JSONValue?) in
+            let read = await io.perform { () -> (buffer: Data, value: JSONValue?) in
                 var local = snapshot
                 let value = try? FrameIO.readFrame(client, buffer: &local)
                 return (local, value)
@@ -97,12 +98,12 @@ public final class FramedIPCServer: Sendable {
                     errorCode: ControlErrorCode.invalidPayload.rawValue,
                     errorMessage: "unreadable frame"
                 )
-                await BlockingWork.run { _ = try? FrameIO.writeFrame(client, rejected.json) }
+                await io.perform { _ = try? FrameIO.writeFrame(client, rejected.json) }
                 return
             }
             let response = await response(to: request, client: client)
             let json = response.json
-            await BlockingWork.run { _ = try? FrameIO.writeFrame(client, json) }
+            await io.perform { _ = try? FrameIO.writeFrame(client, json) }
         }
     }
 
@@ -178,25 +179,12 @@ public final class HealthSocketServer: Sendable {
             Task {
                 let json = await snapshot()
                 let body = (try? JSONCanonicalization.canonicalize(json)) ?? Data("{}".utf8)
-                await BlockingWork.run {
+                await BlockingIO(label: "dev.chr33s.shell.ipc.health").perform {
                     _ = body.withUnsafeBytes { raw in
                         send(client, raw.baseAddress, raw.count, 0)
                     }
                     close(client)
                 }
-            }
-        }
-    }
-}
-
-/// Blocking socket IO off the cooperative pool. The continuation resumes
-/// exactly once; callers suspend instead of joining an unstructured task
-/// with a semaphore.
-private enum BlockingWork {
-    static func run<T: Sendable>(_ work: @escaping @Sendable () -> T) async -> T {
-        await withCheckedContinuation { continuation in
-            Thread.detachNewThread {
-                continuation.resume(returning: work())
             }
         }
     }

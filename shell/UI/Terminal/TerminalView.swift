@@ -394,13 +394,9 @@ extension Ghostty {
 
         var surface: ghostty_surface_t? {
             didSet {
-                surfaceForTeardown = surface
                 if surface != oldValue { invalidateInputDocument(resetDocument: true) }
             }
         }
-        /// Mirror of `surface` for the nonisolated deinit. The live property
-        /// stays main-actor isolated so its didSet can invalidate input.
-        nonisolated(unsafe) private var surfaceForTeardown: ghostty_surface_t?
         var ghosttyApp: Ghostty.App?
 
         /// When set, this view renders a tmux control mode PANE rather than
@@ -1417,47 +1413,38 @@ extension Ghostty {
             fatalError("init(coder:) is not supported for this view")
         }
 
-        nonisolated deinit {
+        isolated deinit {
             // Safety net - surface should already be freed by cleanup()
             // This handles edge cases where cleanup() wasn't called
-            if let surface = self.surfaceForTeardown {
-                // Capture as Int to satisfy Sendable requirement (raw pointers aren't Sendable)
-                let surfaceAddress = Int(bitPattern: surface)
-                Task { @MainActor in
-                    guard let ptr = UnsafeMutableRawPointer(bitPattern: surfaceAddress) else { return }
+            if let surface {
+                // Drop the surface from the registry before freeing it.
+                // teardownSurface() normally does this; if it didn't run, a
+                // stale entry would keep taking config pushes after the free
+                // and double-free the surface's link regexes.
+                if let app = Ghostty.App.shared {
+                    app.unregisterSurfaceTab(surface)
+                    app.unregisterSurfaceWindow(surface)
+                    app.unregisterSurfaceDelegate(surface)
+                    app.unregisterSurface(surface)
+                }
 
-                    // Drop the surface from the registry before freeing it.
-                    // teardownSurface() normally does this; if it didn't run, a
-                    // stale entry would keep taking config pushes after the free
-                    // and double-free the surface's link regexes.
-                    if let app = Ghostty.App.shared {
-                        app.unregisterSurfaceTab(ptr)
-                        app.unregisterSurfaceWindow(ptr)
-                        app.unregisterSurfaceDelegate(ptr)
-                        app.unregisterSurface(ptr)
-                    }
-
-                    // Free on background queue - may block on IO thread join
-                    nonisolated(unsafe) let surfacePtr = ptr
-                    Self.ghosttyAPIQueue.async {
-                        // Wait (bounded) for any in-flight background save before
-                        // freeing. If the save doesn't finish within 500 ms, leak
-                        // the surface rather than risk a use-after-free — the
-                        // save dumps `ghostty_surface_dump_primary_screen` and
-                        // freeing under it crashes. A wedged save would also
-                        // saturate this serial queue and stall every queued
-                        // occlusion/render call behind it.
-                        let saveCompleted = ScrollbackPersistenceManager.waitForSurfaceSave(surfacePtr)
-                        if saveCompleted {
-                            ghostty_surface_free(surfacePtr)
-                        }
+                // Free on background queue - may block on IO thread join
+                nonisolated(unsafe) let surfacePtr = surface
+                Self.ghosttyAPIQueue.async {
+                    // Wait (bounded) for any in-flight background save before
+                    // freeing. If the save doesn't finish within 500 ms, leak
+                    // the surface rather than risk a use-after-free — the
+                    // save dumps `ghostty_surface_dump_primary_screen` and
+                    // freeing under it crashes. A wedged save would also
+                    // saturate this serial queue and stall every queued
+                    // occlusion/render call behind it.
+                    let saveCompleted = ScrollbackPersistenceManager.waitForSurfaceSave(surfacePtr)
+                    if saveCompleted {
+                        ghostty_surface_free(surfacePtr)
                     }
                 }
             }
-            // Note: windowFocusObservers cleanup is handled by cleanup() which should be called
-            // before deallocation. We don't call unregisterWindowFocusObservers() here because:
-            // 1. It's a MainActor-isolated method that can't be called from nonisolated deinit
-            // 2. NotificationCenter observer tokens are automatically invalidated when deallocated
+            windowFocus.stop()
         }
 
         // MARK: - Cleanup
@@ -2096,23 +2083,6 @@ extension Ghostty {
             windowFocus.isActive(for: self)
         }
 
-        /// Ground-truth "this window is the active/usable one" from live UIKit
-        /// state, bypassing the `windowActiveOverride`. Used both as the override-nil
-        /// fallback above and by `reassertVisibleIfNeeded` to detect (and heal) a
-        /// `windowActiveOverride` stuck `false` after a missed `setWindowActive`.
-        ///
-        /// Mirrors `MainView.currentWindowIsKey`: on iPadOS/visionOS multi-window
-        /// `isKeyWindow` is UNRELIABLE — multiple scenes can be `.foregroundActive`
-        /// at once and it can false-positive on an inactive window. Since this signal
-        /// can heal a (correctly) `false` override and then drive
-        /// `focusDidChange(true)` from the delayed tab-switch backstop, trusting
-        /// `isKeyWindow` here would let an inactive window steal first responder. So
-        /// non-Catalyst requires the authoritative `activeAppearance` trait only;
-        /// Catalyst keeps `isKeyWindow` (reliable there, matching MainView).
-        private func windowGenuineFocusSignal() -> Bool {
-            windowFocus.genuineSignal(for: self)
-        }
-
         override func setWindowActive(_ active: Bool) {
             // Don't let false poison the override before it has ever been true.
             // During cold start, isWindowFocused starts as false and every terminal
@@ -2267,10 +2237,6 @@ extension Ghostty {
                     self.syncFocusForWindowStateChange(sceneIsDeactivating: true)
                 }
             }
-        }
-
-        private func unregisterWindowFocusObservers() {
-            windowFocus.stop()
         }
 
         /// Background queue for Ghostty surface API calls that may block on the termio mailbox.
@@ -2594,7 +2560,7 @@ extension Ghostty {
                 // so focus can land — the focus-half of the freeze on non-active
                 // tabs. `setWindowActive` itself reconciles first responder, and the
                 // explicit retry below is belt-and-suspenders.
-                if !winActive, windowGenuineFocusSignal() {
+                if !winActive, windowFocus.genuineSignal(for: self) {
                     setWindowActive(true)
                     winActive = windowIsActiveForFocus()
                 }
@@ -2648,17 +2614,6 @@ extension Ghostty {
         func drainRendererToIdleSync(timeoutNanoseconds: UInt64 = 200_000_000) -> Bool {
             isTabVisible = false
             return surfaceController.drainRendererToIdleSync(timeoutNanoseconds: timeoutNanoseconds)
-        }
-
-        func requestRendererDrainToIdleAsync(timeoutNanoseconds: UInt64 = 200_000_000) {
-            isTabVisible = false
-            let terminalID = uuid.uuidString
-            let connection = connectionConfig.lifecycleDebugKind
-            surfaceController.requestRendererDrainToIdleAsync(
-                terminalID: terminalID,
-                connection: connection,
-                timeoutNanoseconds: timeoutNanoseconds
-            )
         }
 
         // MARK: - Background Lifecycle
@@ -3000,7 +2955,7 @@ extension Ghostty {
 
             if window == nil {
                 Ghostty.logger.warning("didMoveToWindow called but window is nil!")
-                unregisterWindowFocusObservers()
+                windowFocus.stop()
                 applyGhosttyFocus(false)
                 resetKeyboardInteractionState(sendSyntheticKeyReleases: true)
                 #if !targetEnvironment(macCatalyst)

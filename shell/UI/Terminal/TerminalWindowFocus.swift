@@ -26,6 +26,12 @@ final class TerminalWindowFocus {
         return activeOverride ?? genuineSignal(for: view)
     }
 
+    /// Ground-truth "this window is the active/usable one" from live UIKit
+    /// state, bypassing the override. Used as the override-nil fallback and by
+    /// `reassertVisibleIfNeeded` to heal an override stuck `false`. Because it
+    /// can heal a correct `false` and drive `focusDidChange(true)`, trusting
+    /// `isKeyWindow` on iPadOS/visionOS would let an inactive window steal first
+    /// responder; only Catalyst, where it is reliable, uses it.
     func genuineSignal(for view: UIView) -> Bool {
         guard let window = view.window else { return false }
         if let scene = window.windowScene, scene.activationState != .foregroundActive {

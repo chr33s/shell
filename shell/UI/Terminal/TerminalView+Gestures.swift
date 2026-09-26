@@ -3516,7 +3516,10 @@ struct DimensionOverlayView: View {
         }
     }
 }
+#endif
 
+// Shared with `InputModeOverlayView`, which Catalyst also uses (mouse-capture
+// and input-mode messages through `TerminalTransientOverlay`).
 private extension View {
     @ViewBuilder
     func dimensionOverlayBackground() -> some View {
@@ -3548,7 +3551,6 @@ struct InputModeOverlayView: View {
             .dimensionOverlayBackground()
     }
 }
-#endif
 
 // MARK: - Apple Pencil Interactions
 

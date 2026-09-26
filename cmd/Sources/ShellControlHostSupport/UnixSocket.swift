@@ -186,17 +186,6 @@ public struct UnixSocketClient: Sendable {
     }
 }
 
-/// Blocking socket IO runs on a thread of its own: a `recv` that waits out a
-/// long `approval.wait` must not occupy a cooperative-pool thread, which the
-/// rest of the process needs to make progress.
-package enum BlockingIO {
-    package static func run<T: Sendable>(_ work: @escaping @Sendable () throws -> T) async throws -> T {
-        try await withCheckedThrowingContinuation { continuation in
-            Thread.detachNewThread { continuation.resume(with: Result(catching: work)) }
-        }
-    }
-}
-
 /// The mutex protects the descriptor/cancel race.
 private final class CancellableSocketDescriptor: Sendable {
     private let state = Mutex<(descriptor: Int32?, cancelled: Bool)>((nil, false))

@@ -226,12 +226,14 @@ final class CatalystAppDelegate: AppDelegate {
         let block: @convention(block) (
             NSObject, NSString?, NSString?
         ) -> AnyObject? = { application, sendType, returnType in
+            // AppKit calls this on the main thread; the box carries the
+            // non-Sendable receiver out of the isolated closure.
             if let receiver = MainActor.assumeIsolated({
-                CatalystContinuityPasteboardBridge.shared.makeReceiver(
+                UncheckedSendableBox(CatalystContinuityPasteboardBridge.shared.makeReceiver(
                     sendType: sendType as String?,
                     returnType: returnType as String?
-                )
-            }) {
+                ))
+            }).value {
                 logger.info(
                     "Routing native Services result to terminal (return type: \((returnType as String?) ?? "nil", privacy: .public))"
                 )
