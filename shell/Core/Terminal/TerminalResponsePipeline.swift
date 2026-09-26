@@ -130,7 +130,11 @@ final class TerminalResponsePipeline {
             }
         }
 
-        source.setEventHandler { [coalescer, gatewayFastPath, continuation] in
+        // Both handlers run on the read queue, never on the MainActor. They
+        // must be @Sendable so they do not inherit this method's @MainActor
+        // isolation; an inherited isolation trips the runtime executor check
+        // (dispatch_assert_queue) the first time the pipe becomes readable.
+        source.setEventHandler { @Sendable [coalescer, gatewayFastPath, continuation] in
             let bufferSize = 4096
             let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
             defer { buffer.deallocate() }
@@ -175,7 +179,7 @@ final class TerminalResponsePipeline {
             }
         }
 
-        source.setCancelHandler {
+        source.setCancelHandler { @Sendable in
             Ghostty.logger.info("Terminal response monitoring stopped")
         }
 

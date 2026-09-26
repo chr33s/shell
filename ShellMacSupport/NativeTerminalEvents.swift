@@ -37,12 +37,15 @@ final class NativeTerminalEvents: NSObject {
             options: [.inVisibleRect, .activeInKeyWindow, .mouseMoved, .mouseEnteredAndExited],
             owner: self, userInfo: nil))
     }
-    @objc func mouseMoved(with event: NSEvent) {
+    // NSTrackingArea messages its owner with the plain AppKit selectors
+    // (`mouseMoved:` etc.); the Swift default would export `mouseMovedWith:`
+    // and raise an unrecognized-selector exception on every hover.
+    @objc(mouseMoved:) func mouseMoved(with event: NSEvent) {
         guard let window = event.window, let point = normalizedPoint(event) else { return }
         hover?(window, point)
     }
-    @objc func mouseEntered(with event: NSEvent) { mouseMoved(with: event) }
-    @objc func mouseExited(with event: NSEvent) { hover?(nil, .zero) }
+    @objc(mouseEntered:) func mouseEntered(with event: NSEvent) { mouseMoved(with: event) }
+    @objc(mouseExited:) func mouseExited(with event: NSEvent) { hover?(nil, .zero) }
 
     private func normalizedPoint(_ event: NSEvent) -> CGPoint? {
         guard let view = event.window?.contentView, view.bounds.width > 0, view.bounds.height > 0 else { return nil }

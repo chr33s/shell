@@ -39,10 +39,10 @@ final class ModTapStateTests {
     func testRepeatDoesNotRestartThresholdOrResolveHoldTwice() throws {
         var state = commandControl()
         let early = state.advance(to: 10.1)
-        let crossed = state.advance(to: 10.21)
-        let later = state.advance(to: 10.3)
         #expect(!early)
         #expect(state.phase == .pending)
+        let crossed = state.advance(to: 10.21)
+        let later = state.advance(to: 10.3)
         #expect(crossed)
         #expect(!later)
         #expect(state.resolution(onRelease: .keyboardLeftGUI) == .hold)

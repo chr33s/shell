@@ -53,13 +53,10 @@ final class SSHJumpAuthLadderTests {
         )
     }
 
-    deinit {
-        // The suite is nonisolated; XCTest used to run tearDown on the main
-        // thread, and the credential seam is main-actor state.
-        MainActor.assumeIsolated {
-            SSHCommandParser.credentials = .live
-        }
-        savedPasswordQueries = []
+    isolated deinit {
+        // Swift Testing releases the suite on a cooperative thread; the
+        // credential seam is main-actor state.
+        SSHCommandParser.credentials = .live
     }
 
     // MARK: - Helpers

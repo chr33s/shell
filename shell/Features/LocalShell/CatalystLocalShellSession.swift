@@ -122,7 +122,10 @@ public final class CatalystLocalShellSession: TerminalSession {
         // This mimics poll() in macOS Ghostty's threadMainPosix
         let source = DispatchSource.makeReadSource(fileDescriptor: masterFD, queue: readQueue)
 
-        source.setEventHandler {
+        // Handlers run on readQueue; @Sendable keeps them from inheriting this
+        // class's @MainActor isolation, which would fail the runtime executor
+        // check on first PTY output.
+        source.setEventHandler { @Sendable in
             let (output, didExit) = Self.readFromPTY(masterFD: masterFD)
             if !output.isEmpty {
                 // Emit directly without batching for immediate response
@@ -142,7 +145,7 @@ public final class CatalystLocalShellSession: TerminalSession {
         // libdispatch invokes the cancel handler only once the event handler is
         // guaranteed finished, so this is the only safe place to close. It still hops to
         // writeQueue so the close stays serialized after any pending writes.
-        source.setCancelHandler {
+        source.setCancelHandler { @Sendable in
             Ghostty.logger.info("PTY read source canceled for session \(sessionID.uuidString)")
             writeQueue.async { close(masterFD) }
         }
