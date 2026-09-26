@@ -43,6 +43,43 @@ extension MainView {
         // disappears, so they still observe the armed state.
         .onDisappear {
             connectionSheetPrefill = nil
+            DispatchQueue.main.async {
+                if let host = pendingStaleReconnectHost {
+                    pendingStaleReconnectHost = nil
+                    alerts.reportStaleReconnect(host: host)
+                } else {
+                    presentNextQueuedConnectionSheet()
+                }
+            }
+        }
+    }
+
+    /// Open the connection sheet with a prefill. When the sheet is already up
+    /// — for another reconnect, a deep link, or plain browsing — its editor
+    /// has consumed its initial state, so swapping the prefill underneath it
+    /// would pair this request's target with a config the editor is not
+    /// showing. Queue it instead; it opens when the current sheet closes.
+    func presentConnectionSheet(with prefill: ConnectionSheetPrefill) {
+        guard !showConnectionSidebar else {
+            if let pane = prefill.reconnectTarget?.pane {
+                if connectionSheetPrefill?.reconnectTarget?.pane === pane { return }
+                queuedConnectionSheetPrefills.removeAll { $0.reconnectTarget?.pane === pane }
+            }
+            queuedConnectionSheetPrefills.append(prefill)
+            return
+        }
+        connectionSheetPrefill = prefill
+        showConnectionSidebar = true
+    }
+
+    /// Open the next queued prefill, skipping reconnects whose pane is gone.
+    func presentNextQueuedConnectionSheet() {
+        guard !showConnectionSidebar, alerts.presentedKind == nil else { return }
+        while !queuedConnectionSheetPrefills.isEmpty {
+            let next = queuedConnectionSheetPrefills.removeFirst()
+            if let target = next.reconnectTarget, target.resolve(in: terminals) == nil { continue }
+            presentConnectionSheet(with: next)
+            return
         }
     }
 
@@ -56,7 +93,7 @@ extension MainView {
         connectionSheetPrefill = nil
         if let config, let reconnectTarget {
             if !reconnectPane(reconnectTarget, with: config) {
-                alerts.reportStaleReconnect(host: config.displayName)
+                pendingStaleReconnectHost = config.displayName
             }
             return
         }

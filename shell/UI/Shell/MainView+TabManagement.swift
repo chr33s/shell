@@ -725,11 +725,10 @@ extension MainView {
     /// because the sheet can stay open across tab reorders and closes.
     func handleAuthenticationRequired(for terminal: Ghostty.TerminalView, config: SSHConfig) {
         guard let tab = terminals.first(where: { $0.splitTree.contains(terminal) }) else { return }
-        connectionSheetPrefill = ConnectionSheetPrefill(
+        presentConnectionSheet(with: ConnectionSheetPrefill(
             config: config,
             reconnectTarget: ReconnectTarget(tabID: tab.id, pane: terminal)
-        )
-        showConnectionSidebar = true
+        ))
     }
 
     /// Replace the target pane's session in place: same tab (identity,
@@ -739,7 +738,18 @@ extension MainView {
     /// no longer resolves in this window.
     @discardableResult
     func reconnectPane(_ target: ReconnectTarget, with config: SSHConfig) -> Bool {
-        guard let app = ghosttyApp.app, let resolved = target.resolve(in: terminals) else { return false }
+        guard let app = ghosttyApp.app, var resolved = target.resolve(in: terminals) else { return false }
+
+        // tmux -CC gateway: tear down the window tabs it projected before the
+        // gateway's own cleanup, exactly as closeSplit does — cleanup frees the
+        // surface and nils tmuxController first otherwise, orphaning those
+        // tabs. forceQuit prunes tabs, so re-resolve the target afterwards.
+        // ROOTSHELL-TMUX (id=tmux-gateway-close-cascade)
+        if let controller = resolved.pane.asTerminal?.tmuxController, controller.hasProjectedWindows {
+            controller.forceQuit()
+            guard let reresolved = target.resolve(in: terminals) else { return false }
+            resolved = reresolved
+        }
         let tab = resolved.tab
         let oldPane = resolved.pane
 

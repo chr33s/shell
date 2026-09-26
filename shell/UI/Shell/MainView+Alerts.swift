@@ -38,12 +38,18 @@ extension MainView {
                 case .newHost, .keyChanged:
                     alerts.respondToHostKeyValidation(with: .reject)
                 case .staleReconnect:
-                    alerts.completePresented(clearBackingState: true)
+                    finishStaleReconnectAlert()
                 case nil:
                     break
                 }
             }
         )
+    }
+
+    /// Queued connection sheets resume from the `presentedKind` change
+    /// handler once the alert queue drains.
+    private func finishStaleReconnectAlert() {
+        alerts.completePresented(clearBackingState: true)
     }
 
     // MARK: - Alert Modifiers
@@ -76,7 +82,7 @@ extension MainView {
                     .keyboardShortcut(.defaultAction)
                 case .staleReconnect:
                     Button("OK", role: .cancel) {
-                        alerts.completePresented(clearBackingState: true)
+                        finishStaleReconnectAlert()
                     }
                     .keyboardShortcut(.defaultAction)
                 case nil:

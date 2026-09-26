@@ -3,39 +3,69 @@ import Testing
 
 @testable import Shell
 
-/// Pins the zone-change checkpoint rule (SYNC-01..03).
+/// Pins the zone-change checkpoint rules (SYNC-01..03).
 ///
 /// The token returned by a zone-changes fetch used to be persisted before the
 /// fetched records were applied, so a crash or a local write failure between
-/// the two skipped those changes permanently: the next fetch started after
-/// them. The token is now committed by `applyFetchedChanges` only once every
-/// record and tombstone of an enabled class persisted and every record in the
-/// fetched pages actually downloaded. Otherwise the old token stays and the
-/// range is re-delivered; local apply is last-write-wins, so replay is safe.
+/// the two skipped those changes permanently. The token is now committed by
+/// `applyFetchedChanges` after local application, and anything that failed to
+/// download or persist is first written to the durable unapplied-records
+/// journal, which every sync retries by record ID. Holding the checkpoint
+/// instead would stall forever on a record that always fails.
 ///
-/// The fetch/apply sequence itself awaits `CKDatabase`, which a unit test
-/// cannot reach, so the decision was extracted and is pinned here.
+/// The fetch/apply sequence awaits `CKDatabase`, which a unit test cannot
+/// reach, so the journal is tested directly and the ordering by source text.
+@MainActor
 @Suite
-struct CloudKitCheckpointTests {
+final class CloudKitCheckpointTests {
+    private let suiteName = "dev.chr33s.shell.tests.unapplied.\(UUID().uuidString)"
+    nonisolated(unsafe) private let defaults: UserDefaults
 
-    @Test func advancesOnlyWhenEverythingApplied() {
-        #expect(CloudKitSyncManager.shouldAdvanceCheckpoint(
-            recordsApplied: true, deletionsApplied: true, hadRecordFailures: false))
+    init() throws {
+        defaults = try #require(UserDefaults(suiteName: suiteName))
     }
 
-    @Test func localRecordFailureHoldsCheckpoint() {
-        #expect(!CloudKitSyncManager.shouldAdvanceCheckpoint(
-            recordsApplied: false, deletionsApplied: true, hadRecordFailures: false))
+    deinit {
+        defaults.removePersistentDomain(forName: suiteName)
     }
 
-    @Test func localTombstoneFailureHoldsCheckpoint() {
-        #expect(!CloudKitSyncManager.shouldAdvanceCheckpoint(
-            recordsApplied: true, deletionsApplied: false, hadRecordFailures: false))
+    private func record(_ name: String, _ type: String? = "Profile") -> CloudKitUnappliedRecord {
+        CloudKitUnappliedRecord(recordName: name, recordType: type)
     }
 
-    @Test func undownloadedRecordHoldsCheckpoint() {
-        #expect(!CloudKitSyncManager.shouldAdvanceCheckpoint(
-            recordsApplied: true, deletionsApplied: true, hadRecordFailures: true))
+    @Test func journalStartsEmpty() {
+        #expect(CloudKitUnappliedRecords(defaults: defaults).records.isEmpty)
+    }
+
+    @Test func journalSurvivesReload() {
+        CloudKitUnappliedRecords(defaults: defaults).add([record("a"), record("b", nil)])
+        // A fresh instance reads what the previous one persisted.
+        let reloaded = CloudKitUnappliedRecords(defaults: defaults).records
+        #expect(reloaded == [record("a"), record("b", nil)])
+    }
+
+    @Test func addMergesWithoutDroppingPendingWork() {
+        let journal = CloudKitUnappliedRecords(defaults: defaults)
+        journal.add([record("a")])
+        journal.add([record("b")])
+        #expect(journal.records == [record("a"), record("b")])
+    }
+
+    @Test func retryReplacesWithStillFailing() {
+        let journal = CloudKitUnappliedRecords(defaults: defaults)
+        journal.add([record("a"), record("b")])
+        journal.replace(with: [record("b")])
+        #expect(journal.records == [record("b")])
+        journal.replace(with: [])
+        #expect(journal.records.isEmpty)
+        #expect(defaults.data(forKey: CloudKitUnappliedRecords.defaultsKey) == nil)
+    }
+
+    @Test func clearDropsEverything() {
+        let journal = CloudKitUnappliedRecords(defaults: defaults)
+        journal.add([record("a")])
+        journal.clear()
+        #expect(journal.records.isEmpty)
     }
 
     /// Source tripwire: `fetchZoneChanges` must not persist the token it
@@ -51,5 +81,9 @@ struct CloudKitCheckpointTests {
         let applyRange = try #require(source.range(of: "private func applyFetchedChanges"))
         let adoptRange = try #require(source.range(of: "zoneChangeToken = changes.newChangeToken"))
         #expect(adoptRange.lowerBound > applyRange.lowerBound)
+        // Failures are journaled before the token that skips them is saved.
+        let journalRange = try #require(source.range(of: "unappliedRecords.add(failed)"))
+        #expect(journalRange.lowerBound > applyRange.lowerBound)
+        #expect(journalRange.lowerBound < adoptRange.lowerBound)
     }
 }

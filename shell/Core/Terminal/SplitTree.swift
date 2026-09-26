@@ -142,6 +142,13 @@ extension SplitTree {
     }
 
     /// Replace a node in the tree with a new node.
+    ///
+    /// Zoom is carried by path, not by node value. A zoomed ancestor embeds
+    /// the replaced node, so its old value matches nothing in the rebuilt tree
+    /// and comparing values dropped the zoom whenever a split or leaf under
+    /// it changed (a divider resize, a pane reconnect). The zoomed node's
+    /// position is re-read from the new tree; a path the new shape no longer
+    /// has clears the zoom.
     func replace(node: Node, with newNode: Node) throws -> Self {
         guard let root else { throw SplitError.viewNotFound }
 
@@ -149,10 +156,9 @@ extension SplitTree {
             throw SplitError.viewNotFound
         }
 
+        let zoomedPath = zoomed.flatMap { root.path(to: $0) }
         let newRoot = try root.replaceNode(at: path, with: newNode)
-        let newZoomed = (zoomed == node) ? newNode : zoomed
-
-        return .init(root: newRoot, zoomed: newZoomed)
+        return .init(root: newRoot, zoomed: zoomedPath.flatMap { newRoot.node(at: $0) })
     }
 
     /// Find the next view to focus based on the current focused node and direction.

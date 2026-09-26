@@ -45,15 +45,9 @@ struct ReconnectTarget {
 
 extension SplitTree {
     /// Swap one leaf for another in place, keeping every sibling, the split
-    /// geometry, and the zoom state. Zoom is carried by path, not node value:
-    /// a zoomed ancestor split embeds the old leaf, so its old node value would
-    /// no longer match anything in the rebuilt tree.
+    /// geometry, and the zoom state.
     func replacingLeaf(_ oldView: ViewType, with newView: ViewType) throws -> Self {
-        guard let root,
-              let node = root.node(view: oldView),
-              let path = root.path(to: node) else { throw SplitError.viewNotFound }
-        let zoomedPath = zoomed.flatMap { root.path(to: $0) }
-        let newRoot = try root.replaceNode(at: path, with: .leaf(view: newView))
-        return .init(root: newRoot, zoomed: zoomedPath.flatMap { newRoot.node(at: $0) })
+        guard let node = root?.node(view: oldView) else { throw SplitError.viewNotFound }
+        return try replace(node: node, with: .leaf(view: newView))
     }
 }

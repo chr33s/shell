@@ -127,6 +127,46 @@ struct ReconnectTargetTests {
         #expect(replaced.zoomed == .leaf(view: replacement))
     }
 
+    /// A zoomed ancestor split embeds the replaced leaf; comparing node
+    /// values used to drop the zoom.
+    @Test func replacingLeafUnderZoomedAncestorKeepsZoom() throws {
+        let a = SplitPaneView()
+        let b = SplitPaneView()
+        let c = SplitPaneView()
+        let replacement = SplitPaneView()
+        var tree = SplitTree<SplitPaneView>(view: a)
+        tree = try tree.insert(view: b, at: a, direction: .right)
+        tree = try tree.insert(view: c, at: b, direction: .down)
+        // Shape: split(a, split(b, c)); zoom the inner split.
+        guard case .split(let outer) = try #require(tree.root) else {
+            Issue.record("expected a split root")
+            return
+        }
+        let ancestor = outer.right
+        #expect(ancestor.contains(b) && ancestor.contains(c))
+        tree = SplitTree(root: tree.root, zoomed: ancestor)
+
+        let replaced = try tree.replacingLeaf(c, with: replacement)
+
+        let zoomed = try #require(replaced.zoomed)
+        #expect(zoomed.contains(b))
+        #expect(zoomed.contains(replacement))
+        #expect(!zoomed.contains(a))
+    }
+
+    @Test func replacingUnrelatedNodeKeepsSiblingZoom() throws {
+        let a = SplitPaneView()
+        let b = SplitPaneView()
+        let replacement = SplitPaneView()
+        var tree = SplitTree<SplitPaneView>(view: a)
+        tree = try tree.insert(view: b, at: a, direction: .right)
+        tree = SplitTree(root: tree.root, zoomed: .leaf(view: a))
+
+        let replaced = try tree.replace(node: .leaf(view: b), with: .leaf(view: replacement))
+
+        #expect(replaced.zoomed == .leaf(view: a))
+    }
+
     @Test func replacingMissingLeafThrows() {
         let tree = SplitTree<SplitPaneView>(view: SplitPaneView())
         #expect(throws: (any Error).self) {

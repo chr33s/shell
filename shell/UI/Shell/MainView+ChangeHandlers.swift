@@ -131,6 +131,13 @@ extension MainView {
                     restoreFirstResponderAfterSheetDismissal()
                 }
             }
+            .onChange(of: alerts.presentedKind == nil) { _, alertQueueIdle in
+                // A connection sheet queued behind an alert opens once no
+                // alert is on screen.
+                if alertQueueIdle {
+                    presentNextQueuedConnectionSheet()
+                }
+            }
             .onChange(of: keyResolution != nil) { oldValue, newValue in
                 if newValue {
                     resignFirstResponderForSheetPresentation()

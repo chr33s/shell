@@ -128,6 +128,13 @@ struct MainView: View {
     /// path. A stale prefill would reopen the sheet straight into the editor
     /// for a host the user already backed out of.
     @State var connectionSheetPrefill: ConnectionSheetPrefill?
+    /// Prefills that arrived while the connection sheet was already up; each
+    /// opens its own presentation once the current one closes.
+    @State var queuedConnectionSheetPrefills: [ConnectionSheetPrefill] = []
+    /// Host of a reconnect cancelled because its target vanished. Reported
+    /// after the sheet has fully dismissed, never while it is still animating
+    /// out, so the alert cannot be dropped and wedge the alert queue.
+    @State var pendingStaleReconnectHost: String?
     /// Source-compat shim around `tabsModel.draggingTabID`.
     var draggingTab: TerminalTab? {
         get {

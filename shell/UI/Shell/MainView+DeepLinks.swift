@@ -81,7 +81,6 @@ extension MainView {
     }
 
     private func presentPrefilledConnection(_ config: SSHConfig) {
-        connectionSheetPrefill = ConnectionSheetPrefill(config: config, reconnectTarget: nil)
-        showConnectionSidebar = true
+        presentConnectionSheet(with: ConnectionSheetPrefill(config: config, reconnectTarget: nil))
     }
 }

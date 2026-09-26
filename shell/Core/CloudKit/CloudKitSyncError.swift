@@ -37,6 +37,9 @@ enum CloudKitSyncError: LocalizedError, Sendable {
     /// A per-type toggle was used while master sync is off
     case notEnabled
 
+    /// Some records in a fetch could not be downloaded
+    case incompleteFetch
+
     /// Unknown error
     case unknown(Error)
 
@@ -60,6 +63,8 @@ enum CloudKitSyncError: LocalizedError, Sendable {
             return "Permission denied. Check iCloud settings."
         case .invalidPayload(let reason):
             return "Invalid sync payload: \(reason)"
+        case .incompleteFetch:
+            return "Some iCloud records could not be downloaded."
         case .unknown(let error):
             return "Sync error: \(error.localizedDescription)"
         }
@@ -85,6 +90,8 @@ enum CloudKitSyncError: LocalizedError, Sendable {
             return "Enable iCloud for this app in Settings."
         case .invalidPayload:
             return "The change will be skipped. Try syncing again."
+        case .incompleteFetch:
+            return "Try again in a moment."
         case .unknown:
             return "Try again later."
         }

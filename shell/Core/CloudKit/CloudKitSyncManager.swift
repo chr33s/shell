@@ -115,6 +115,11 @@ final class CloudKitSyncManager {
     @ObservationIgnored
     private var zoneCheckpointGeneration = 0
 
+    /// Fetched changes that could not be applied, retried by record ID on
+    /// every sync so the checkpoint can advance past them.
+    @ObservationIgnored
+    private let unappliedRecords = CloudKitUnappliedRecords()
+
     // MARK: - Initialization
 
     private init() {
@@ -207,9 +212,7 @@ final class CloudKitSyncManager {
         guard previous != identity else { return }
 
         Self.logger.warning("Apple Account changed; resetting sync state and pausing settings sync")
-        zoneCheckpointGeneration += 1
-        zoneChangeToken = nil
-        saveChangeToken()
+        resetZoneCheckpoint()
         offlineQueue.clearAll()
         invalidateSettingsSync()
         coordinator.resetSyncState()
@@ -564,7 +567,10 @@ final class CloudKitSyncManager {
             syncState = .fetchingChanges
             let shouldPushAll = try await ensureCustomZoneReady()
             let changes = try await fetchZoneChanges(resetToken: true)
-            await applyFetchedChanges(changes)
+            guard await applyFetchedChanges(changes) else {
+                settleAfterStaleFetch()
+                return
+            }
 
             if shouldPushAll {
                 // ensureCustomZoneReady may have just created the zone —
@@ -662,9 +668,7 @@ final class CloudKitSyncManager {
             try? await removeSubscriptions()
 
             // Clear change token
-            zoneCheckpointGeneration += 1
-            zoneChangeToken = nil
-            saveChangeToken()
+            resetZoneCheckpoint()
 
             // Clear offline queue
             offlineQueue.clearAll()
@@ -696,7 +700,7 @@ final class CloudKitSyncManager {
         UserDefaults.standard.set(enabled, forKey: CloudKitSyncSettings.syncHistoryKey)
         UserDefaults.standard.set(enabled, forKey: CloudKitSyncSettings.syncIdentityMetadataKey)
         guard enabled, isSyncEnabled else { return }
-        Task { await backfill(SSHIdentityMetadataStore.shared.allRecordsForSync) }
+        Task { await resyncAfterReenable { SSHIdentityMetadataStore.shared.allRecordsForSync } }
     }
 
     /// Set whether known hosts sync is enabled
@@ -705,7 +709,7 @@ final class CloudKitSyncManager {
         isKnownHostsSyncEnabled = enabled
         UserDefaults.standard.set(enabled, forKey: CloudKitSyncSettings.syncKnownHostsKey)
         guard enabled, isSyncEnabled else { return }
-        Task { await backfill(KnownHostsManager.shared.allRecordsForSync) }
+        Task { await resyncAfterReenable { KnownHostsManager.shared.allRecordsForSync } }
     }
 
     /// Set whether connection profiles sync is enabled
@@ -714,7 +718,21 @@ final class CloudKitSyncManager {
         isProfilesSyncEnabled = enabled
         UserDefaults.standard.set(enabled, forKey: CloudKitSyncSettings.syncProfilesKey)
         guard enabled, isSyncEnabled else { return }
-        Task { await backfill(ConnectionProfileManager.shared.allRecordsForSync) }
+        Task { await resyncAfterReenable { ConnectionProfileManager.shared.allRecordsForSync } }
+    }
+
+    /// A class that was switched off had its remote changes dropped while the
+    /// checkpoint moved past them, so re-enabling it first refetches the whole
+    /// zone (last-write-wins with tombstones, so safe against any local state)
+    /// and only then backfills local edits made while it was off.
+    private func resyncAfterReenable<T: CloudKitSyncable>(_ localRecords: @MainActor () -> [T]) async {
+        resetZoneCheckpoint()
+        do {
+            try await performSync()
+        } catch {
+            Self.logger.error("Refetch after re-enabling \(T.recordType) failed: \(error.localizedDescription); the next sync refetches the zone")
+        }
+        await backfill(localRecords())
     }
 
     /// Re-push a record class that was just switched back on, so edits made
@@ -883,7 +901,12 @@ final class CloudKitSyncManager {
 
             // Fetch remote changes from the custom zone
             let changes = try await fetchZoneChanges()
-            await applyFetchedChanges(changes)
+            guard await applyFetchedChanges(changes) else {
+                // Sync was disabled or the account switched mid-fetch: pushing
+                // or reporting success now would act on the new context.
+                settleAfterStaleFetch()
+                return
+            }
 
             // Push local changes
             syncState = .pushingChanges
@@ -924,7 +947,9 @@ final class CloudKitSyncManager {
 
         // Fetch all existing records from the custom zone
         let changes = try await fetchZoneChanges(resetToken: true)
-        await applyFetchedChanges(changes)
+        guard await applyFetchedChanges(changes) else {
+            throw CancellationError()
+        }
 
         // Push all local records to seed the zone
         try await pushAllLocalRecords()
@@ -942,9 +967,9 @@ final class CloudKitSyncManager {
         let records: [CKRecord]
         let deletedRecords: [DeletedRecord]
         let newChangeToken: CKServerChangeToken?
-        /// A record in the fetched pages could not be downloaded, so the
-        /// token also covers a change this device never received.
-        var hadRecordFailures = false
+        /// Records in the fetched pages that could not be downloaded; the
+        /// token also covers these changes, so they must be journaled.
+        var failedDownloads: [CKRecord.ID] = []
         /// `zoneCheckpointGeneration` when the fetch started.
         var generation = 0
     }
@@ -1032,41 +1057,102 @@ final class CloudKitSyncManager {
     }
 
     /// Apply fetched changes locally, then — and only then — persist the
-    /// checkpoint that covers them (SYNC-01..04). The token is left where it
-    /// was when any record failed to download or to persist locally, so the
-    /// next sync re-delivers the whole range; local application is
-    /// last-write-wins with tombstones, so the replay is safe. A fetch that
+    /// checkpoint that covers them (SYNC-01..04). Records that failed to
+    /// download or to persist are written to the durable unapplied-records
+    /// journal first, so the checkpoint can advance past them without losing
+    /// them; the journal is retried by record ID on every sync. A fetch that
     /// started before an account switch or disable applies and commits nothing.
-    private func applyFetchedChanges(_ changes: ZoneChanges) async {
+    /// - Returns: false when the fetch belongs to a previous sync context; the
+    ///   caller must stop rather than push or report success.
+    private func applyFetchedChanges(_ changes: ZoneChanges) async -> Bool {
         guard changes.generation == zoneCheckpointGeneration else {
             Self.logger.warning("Discarding zone changes fetched for a previous sync context")
-            return
+            return false
         }
-        let changesApplied = await processChangedRecords(changes.records)
-        let deletionsApplied = await processDeletedRecords(changes.deletedRecords)
+        var failed = await processChangedRecords(changes.records)
+        failed.formUnion(await processDeletedRecords(changes.deletedRecords))
+        failed.formUnion(changes.failedDownloads.map {
+            CloudKitUnappliedRecord(recordName: $0.recordName, recordType: nil)
+        })
         guard changes.generation == zoneCheckpointGeneration else {
             Self.logger.warning("Sync context changed while applying zone changes; checkpoint not advanced")
-            return
+            return false
         }
-        guard Self.shouldAdvanceCheckpoint(
-            recordsApplied: changesApplied,
-            deletionsApplied: deletionsApplied,
-            hadRecordFailures: changes.hadRecordFailures
-        ) else {
-            Self.logger.error("Zone changes not fully applied (records: \(changesApplied), deletions: \(deletionsApplied), fetch failures: \(changes.hadRecordFailures)); checkpoint not advanced")
-            return
+        if !failed.isEmpty {
+            Self.logger.error("Journaling \(failed.count) zone changes that could not be applied")
+            unappliedRecords.add(failed)
         }
         zoneChangeToken = changes.newChangeToken
         saveChangeToken()
+
+        await retryUnappliedRecords(generation: changes.generation)
+        return changes.generation == zoneCheckpointGeneration
     }
 
-    /// The checkpoint may advance only past work that is durably applied.
-    nonisolated static func shouldAdvanceCheckpoint(
-        recordsApplied: Bool,
-        deletionsApplied: Bool,
-        hadRecordFailures: Bool
-    ) -> Bool {
-        recordsApplied && deletionsApplied && !hadRecordFailures
+    /// Re-read journaled records by ID and apply the server's current version.
+    /// A record the server no longer has is applied as a deletion. Anything
+    /// that still fails stays journaled for the next sync.
+    private func retryUnappliedRecords(generation: Int) async {
+        let journaled = unappliedRecords.records
+        guard !journaled.isEmpty else { return }
+        let zoneID = CloudKitSyncSettings.zoneID
+        let ids = journaled.map { CKRecord.ID(recordName: $0.recordName, zoneID: zoneID) }
+        let results: [CKRecord.ID: Result<CKRecord, Error>]
+        do {
+            results = try await database.records(for: ids)
+        } catch {
+            Self.logger.warning("Retrying unapplied zone changes failed: \(error.localizedDescription)")
+            return
+        }
+        guard generation == zoneCheckpointGeneration else { return }
+
+        var fetched: [CKRecord] = []
+        var deleted: [DeletedRecord] = []
+        var stillFailing: Set<CloudKitUnappliedRecord> = []
+        for entry in journaled {
+            let id = CKRecord.ID(recordName: entry.recordName, zoneID: zoneID)
+            switch results[id] {
+            case .success(let record):
+                fetched.append(record)
+            case .failure(let error as CKError) where error.code == .unknownItem:
+                // Gone server-side. With the type unknown, offer the deletion
+                // to every class; each store only tombstones its own names.
+                let types = entry.recordType.map { [$0] } ?? Self.deletableRecordTypes
+                deleted.append(contentsOf: types.map { DeletedRecord(recordID: id, recordType: $0) })
+            case .failure, nil:
+                stillFailing.insert(entry)
+            }
+        }
+        stillFailing.formUnion(await processChangedRecords(fetched))
+        stillFailing.formUnion(await processDeletedRecords(deleted))
+        guard generation == zoneCheckpointGeneration else { return }
+        unappliedRecords.replace(with: stillFailing)
+        Self.logger.info("Retried \(journaled.count) unapplied zone changes; \(stillFailing.count) still pending")
+    }
+
+    private static let deletableRecordTypes: [CKRecord.RecordType] = [
+        SSHIdentityMetadata.recordType,
+        KnownHost.recordType,
+        ConnectionProfile.recordType
+    ]
+
+    /// Reset the checkpoint for a new sync context. In-flight fetches see the
+    /// generation move and neither apply nor commit; the journal is dropped
+    /// because the full refetch that follows supersedes it.
+    private func resetZoneCheckpoint() {
+        zoneCheckpointGeneration += 1
+        zoneChangeToken = nil
+        saveChangeToken()
+        unappliedRecords.clear()
+    }
+
+    /// Leave the sync state honest after a fetch was discarded as stale.
+    private func settleAfterStaleFetch() {
+        if isSyncEnabled {
+            syncState = .idle
+        } else {
+            syncState = .disabled
+        }
     }
 
     /// Read every `AppSetting` record currently in the zone, without disturbing
@@ -1093,6 +1179,12 @@ final class CloudKitSyncManager {
     private func fetchSettingRecordsFromScratch() async throws -> [CKRecord] {
         do {
             let changes = try await fetchZoneChangesInternal(previousToken: nil)
+            // Any record that failed to download could be a setting; a merge
+            // built without it would treat that cloud value as absent.
+            guard changes.failedDownloads.isEmpty else {
+                Self.logger.error("\(changes.failedDownloads.count) records failed to download while reading cloud settings")
+                throw CloudKitSyncError.incompleteFetch
+            }
             return changes.records.filter { $0.recordType == AppSettingRecord.recordType }
         } catch let ckError as CKError where ckError.code == .zoneNotFound {
             // `ensureCustomZoneReady()` runs first, so this means the zone was
@@ -1106,7 +1198,7 @@ final class CloudKitSyncManager {
         let zoneID = CloudKitSyncSettings.zoneID
         var changedRecords: [CKRecord] = []
         var deletedRecords: [DeletedRecord] = []
-        var hadRecordFailures = false
+        var failedDownloads: [CKRecord.ID] = []
 
         Self.logger.debug("Fetching zone changes (hasToken: \(previousToken != nil))")
 
@@ -1125,7 +1217,7 @@ final class CloudKitSyncManager {
                     changedRecords.append(modification.record)
                     Self.logger.debug("Received changed record: \(modification.record.recordType)/\(recordID.recordName)")
                 case .failure(let error):
-                    hadRecordFailures = true
+                    failedDownloads.append(recordID)
                     Self.logger.warning("Record modification fetch failed for \(recordID.recordName): \(error.localizedDescription)")
                 }
             }
@@ -1158,20 +1250,25 @@ final class CloudKitSyncManager {
             records: changedRecords,
             deletedRecords: deletedRecords,
             newChangeToken: currentToken,
-            hadRecordFailures: hadRecordFailures
+            failedDownloads: failedDownloads
         )
     }
 
     /// Process changed records from CloudKit.
-    /// - Returns: false when any record of an enabled class failed to persist
-    ///   locally. Records of a disabled class are intentionally dropped and do
-    ///   not count as failures.
+    /// - Returns: records of an enabled class that failed to persist locally.
+    ///   Records of a disabled class are intentionally dropped; re-enabling
+    ///   the class refetches the zone (`resyncAfterReenable`).
     @discardableResult
-    private func processChangedRecords(_ records: [CKRecord]) async -> Bool {
+    private func processChangedRecords(_ records: [CKRecord]) async -> Set<CloudKitUnappliedRecord> {
         // Settings are merged as one batch so managers reload and the terminal
         // config rewrites once, not once per key.
         var settingRecords: [AppSettingRecord] = []
-        var allApplied = true
+        var failed: Set<CloudKitUnappliedRecord> = []
+        func note(_ applied: Bool, _ record: CKRecord) {
+            if !applied {
+                failed.insert(CloudKitUnappliedRecord(recordName: record.recordID.recordName, recordType: record.recordType))
+            }
+        }
         for record in records {
             switch record.recordType {
             case AppSettingRecord.recordType:
@@ -1183,34 +1280,41 @@ final class CloudKitSyncManager {
             case SSHIdentityMetadata.recordType:
                 guard isIdentityMetadataSyncEnabled else { continue }
                 if let entry = SSHIdentityMetadata.from(record) {
-                    allApplied = applyRemoteRecords([entry], type: SSHIdentityMetadata.self) && allApplied
+                    note(applyRemoteRecords([entry], type: SSHIdentityMetadata.self), record)
                 }
             case KnownHost.recordType:
                 guard isKnownHostsSyncEnabled else { continue }
                 if let host = KnownHost.from(record) {
-                    allApplied = applyRemoteRecords([host], type: KnownHost.self) && allApplied
+                    note(applyRemoteRecords([host], type: KnownHost.self), record)
                 }
             case ConnectionProfile.recordType:
                 guard isProfilesSyncEnabled else { continue }
                 if let profile = ConnectionProfile.from(record) {
-                    allApplied = applyRemoteRecords([profile], type: ConnectionProfile.self) && allApplied
+                    note(applyRemoteRecords([profile], type: ConnectionProfile.self), record)
                 }
             default:
                 Self.logger.warning("Unknown record type: \(record.recordType)")
             }
         }
         if !settingRecords.isEmpty {
-            allApplied = applyRemoteRecords(settingRecords, type: AppSettingRecord.self) && allApplied
+            applyRemoteRecords(settingRecords, type: AppSettingRecord.self)
         }
-        return allApplied
+        return failed
     }
 
     /// Process deleted records from CloudKit.
-    /// - Returns: false when any tombstone failed to persist locally.
+    /// - Returns: deletions that failed to persist locally. A store reports
+    ///   failure per batch, so the whole batch is returned; re-applying a
+    ///   tombstone is idempotent.
     @discardableResult
-    private func processDeletedRecords(_ records: [DeletedRecord]) async -> Bool {
-        guard !records.isEmpty else { return true }
-        var allApplied = true
+    private func processDeletedRecords(_ records: [DeletedRecord]) async -> Set<CloudKitUnappliedRecord> {
+        guard !records.isEmpty else { return [] }
+        var failed: Set<CloudKitUnappliedRecord> = []
+        func note(_ applied: Bool, _ names: Set<String>, _ type: CKRecord.RecordType) {
+            if !applied {
+                failed.formUnion(names.map { CloudKitUnappliedRecord(recordName: $0, recordType: type) })
+            }
+        }
 
         var identityDeletions: Set<String> = []
         var hostDeletions: Set<String> = []
@@ -1238,19 +1342,22 @@ final class CloudKitSyncManager {
 
         if !identityDeletions.isEmpty {
             offlineQueue.dequeueRecords(identityDeletions)
-            allApplied = SSHIdentityMetadataStore.shared.applyRemoteDeletions(recordNames: identityDeletions) && allApplied
+            note(SSHIdentityMetadataStore.shared.applyRemoteDeletions(recordNames: identityDeletions),
+                 identityDeletions, SSHIdentityMetadata.recordType)
         }
 
         if !hostDeletions.isEmpty {
             offlineQueue.dequeueRecords(hostDeletions)
-            allApplied = KnownHostsManager.shared.applyRemoteDeletions(recordNames: hostDeletions) && allApplied
+            note(KnownHostsManager.shared.applyRemoteDeletions(recordNames: hostDeletions),
+                 hostDeletions, KnownHost.recordType)
         }
 
         if !profileDeletions.isEmpty {
             offlineQueue.dequeueRecords(profileDeletions)
-            allApplied = ConnectionProfileManager.shared.applyRemoteDeletions(recordNames: profileDeletions) && allApplied
+            note(ConnectionProfileManager.shared.applyRemoteDeletions(recordNames: profileDeletions),
+                 profileDeletions, ConnectionProfile.recordType)
         }
-        return allApplied
+        return failed
     }
 
     /// Apply remote records to local stores.

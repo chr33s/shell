@@ -214,6 +214,9 @@ final class NotificationWiringTests {
     func testEveryPostedNotificationHasAnObserver() throws {
         try SourceTree.requireSources()
         let wiring = scan()
+        // Not a size floor — routing reduction may shrink this a lot — but a
+        // scan that finds nothing would pass every check below vacuously.
+        #expect(!wiring.declared.isEmpty, "Scanner found no notification declarations; its pattern no longer matches the source.")
 
         let dead = wiring.posted
             .subtracting(wiring.observed)
