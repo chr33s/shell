@@ -1,4 +1,3 @@
-#if !targetEnvironment(macCatalyst)
 //
 //  LocalShellBanner.swift
 //  shell
@@ -195,4 +194,3 @@ enum LocalShellBanner {
     }
 }
 
-#endif

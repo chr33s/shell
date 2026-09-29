@@ -1,4 +1,3 @@
-#if !targetEnvironment(macCatalyst)
 
 import Foundation
 
@@ -213,4 +212,3 @@ usage: ssh [-p port] [-l user] [-i identity] [-J jumphost] [--tmux] [-o option] 
     }
 
 }
-#endif

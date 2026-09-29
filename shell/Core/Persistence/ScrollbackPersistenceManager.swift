@@ -278,15 +278,11 @@ final class ScrollbackPersistenceManager {
                   let surface = terminal.surface else { continue }
 
             let isAtPrompt: Bool = {
-                #if targetEnvironment(macCatalyst)
-                return false
-                #else
                 guard let localSession = terminal.session as? LocalShellSession else { return false }
                 let mode = localSession.stdinLock.withLock { localSession.inputMode }
                 guard mode == .lineEditor else { return false }
                 if case .localShell = localSession.sessionMode { return true }
                 return false
-                #endif
             }()
 
             refs.append(BackgroundTerminalRef(
@@ -447,15 +443,11 @@ final class ScrollbackPersistenceManager {
 
         // Check if the local shell is at a prompt (for seamless restore)
         let isAtPrompt: Bool = {
-            #if targetEnvironment(macCatalyst)
-            return false
-            #else
             guard let localSession = terminal.session as? LocalShellSession else { return false }
             let mode = localSession.stdinLock.withLock { localSession.inputMode }
             guard mode == .lineEditor else { return false }
             if case .localShell = localSession.sessionMode { return true }
             return false
-            #endif
         }()
 
         // Dump the primary screen with ANSI styling

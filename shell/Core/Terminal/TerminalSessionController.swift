@@ -173,14 +173,17 @@ final class TerminalSessionController {
             return true
         case .shellLaunchedSSH(let sshConfig, let shellCwd):
             #if targetEnvironment(macCatalyst)
-            Ghostty.logger.warning("Shell-launched SSH not supported on Catalyst, falling back to local shell")
-            startCatalystLocalSession(workingDirectory: host.terminalConnectionConfig.workingDirectory)
-            #else
+            if LocalShellBackend.current == .nativePTY {
+                // The native shell is a real zsh; only the interpreter can host an embedded session.
+                Ghostty.logger.warning("Shell-launched SSH not supported by the native PTY, falling back to local shell")
+                startCatalystLocalSession(workingDirectory: host.terminalConnectionConfig.workingDirectory)
+                return true
+            }
+            #endif
             startShellLaunchedSession(shellWorkingDirectory: shellCwd) { localSession, _ in
                 Ghostty.logger.info("Local shell started, launching embedded SSH to \(sshConfig.displayName)")
                 await localSession.startEmbeddedSSHSession(config: sshConfig)
             }
-            #endif
             return true
         }
     }
@@ -300,8 +303,11 @@ final class TerminalSessionController {
 
     private func startLocalShellSession(workingDirectory: String?) {
         #if targetEnvironment(macCatalyst)
-        startCatalystLocalSession(workingDirectory: workingDirectory)
-        #else
+        if LocalShellBackend.current == .nativePTY {
+            startCatalystLocalSession(workingDirectory: workingDirectory)
+            return
+        }
+        #endif
         guard let host else { return }
         guard let surfaceSize = host.terminalSurfaceGridSize else {
             Ghostty.logger.error("Surface not ready, cannot start local shell")
@@ -321,10 +327,8 @@ final class TerminalSessionController {
                 : false
         )
         adoptAndStart(localSession, pty: pty, connectionConfig: host.terminalConnectionConfig)
-        #endif
     }
 
-    #if !targetEnvironment(macCatalyst)
     private func startShellLaunchedSession(
         shellWorkingDirectory: String?,
         launchEmbeddedSession: @escaping @MainActor (LocalShellSession, Bool) async -> Void
@@ -408,7 +412,6 @@ final class TerminalSessionController {
         }
         return localSession
     }
-    #endif
 
     #if targetEnvironment(macCatalyst)
     private func startCatalystLocalSession(workingDirectory: String?) {
@@ -597,7 +600,6 @@ final class TerminalSessionController {
     }
 
     private func configureLocalSessionCallbacksIfNeeded(_ session: TerminalSession) {
-        #if !targetEnvironment(macCatalyst)
         guard let localSession = session as? LocalShellSession else { return }
         localSession.onTerminalReset = { [weak self] in
             self?.host?.terminalPerformResetAction()
@@ -606,7 +608,6 @@ final class TerminalSessionController {
             guard let self, let host = self.host else { return nil }
             return await host.terminalHandleKeyboardInteractive(challenge)
         }
-        #endif
     }
 
     private func setupReconnection(for session: TerminalSession) {
@@ -904,7 +905,6 @@ final class TerminalSessionController {
     func teardown(reason: Ghostty.TerminalView.CleanupReason) {
         responsePipeline.cancel()
 
-        #if !targetEnvironment(macCatalyst)
         if let localSession = session as? LocalShellSession,
            localSession.hasActiveEmbeddedSession,
            reason == .sceneTeardown {
@@ -912,9 +912,6 @@ final class TerminalSessionController {
         } else {
             session?.stop()
         }
-        #else
-        session?.stop()
-        #endif
         session = nil
 
         pty?.close()

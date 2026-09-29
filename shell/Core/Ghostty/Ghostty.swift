@@ -54,12 +54,15 @@ enum Ghostty {
             logger.info("Set XDG_CONFIG_HOME to: \(appSupport.path)")
         }
 
-        // Mac Catalyst: Set up environment variables for PTY-based shell spawning
-        // On Catalyst, Ghostty spawns the shell directly via PTY (like macOS) and needs
-        // proper environment variables set before ghostty_init() is called.
-        // On iOS/visionOS, these are handled by LocalShellSession via ios_setenv().
+        // Mac Catalyst with the native PTY: set up environment variables for the
+        // spawned shell before ghostty_init() is called. Wherever the interpreter is
+        // the backend (iOS, visionOS, sandboxed Catalyst) ios_system owns these
+        // variables: initializeEnvironment() has already run and LocalShellSession
+        // sets the rest per session via ios_setenv().
         #if targetEnvironment(macCatalyst)
-        setupCatalystEnvironment()
+        if LocalShellBackend.current == .nativePTY {
+            setupCatalystEnvironment()
+        }
         #endif
 
         // Call ghostty_init with empty arguments

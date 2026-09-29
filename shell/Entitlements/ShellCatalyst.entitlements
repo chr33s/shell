@@ -5,7 +5,17 @@
 	<!-- Shell Control approval hints arrive from the optional push relay. -->
 	<key>aps-environment</key>
 	<string>development</string>
-	<!-- Native local shells require fork/exec, which the App Sandbox denies. -->
+	<!-- Sandboxed, like every other platform. The local shell is then the
+	     in-process interpreter (LocalShellBackend): application.sb allows
+	     process-fork, pseudo-tty, and exec of system binaries, but file-ioctl
+	     only on /dev/ptmx, never on the /dev/ttysN slave, so a native shell
+	     inheriting the sandbox cannot TIOCSCTTY, tcsetattr, or tcsetpgrp its
+	     own terminal: no controlling tty, no raw mode, no job control, ^C never
+	     reaches the foreground job. Verified 2026-09-29 (docs/specs/shell.md
+	     section 9.6). Removing this key gives a Developer ID build the native
+	     PTY shell instead; the binary picks at launch. -->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
 	<key>com.apple.security.network.client</key>
 	<true/>
 	<key>com.apple.security.files.user-selected.read-write</key>

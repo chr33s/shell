@@ -1,4 +1,3 @@
-#if !targetEnvironment(macCatalyst)
 
 import Foundation
 
@@ -1048,4 +1047,3 @@ nonisolated enum ShellBuiltins {
     }
 }
 
-#endif

@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SettingsTerminalSection: View {
     @Setting(Settings.Font.size) private var fontSize: Double
@@ -23,6 +24,10 @@ struct SettingsTerminalSection: View {
     /// half-typed name happened to match a preset.
     @State private var localTypeIsCustom: Bool?
     @State private var remoteTypeIsCustom: Bool?
+
+    /// Folder grants for the sandboxed Catalyst build's interpreter shell.
+    @State private var showsFolderPicker = false
+    @State private var folderErrorMessage: String?
 
     private static let scrollbackChoices = [1_000, 5_000, 10_000, 50_000, 100_000]
 
@@ -93,6 +98,12 @@ struct SettingsTerminalSection: View {
                 SettingGroupHeader("Session", group: .sessionRestore)
             }
 
+            #if targetEnvironment(macCatalyst)
+            if LocalShellBackend.current == .interpreter {
+                LocalShellFoldersSection(showsFolderPicker: $showsFolderPicker, errorMessage: $folderErrorMessage)
+            }
+            #endif
+
             Section {
                 terminalTypeRows(
                     title: "Local",
@@ -149,6 +160,23 @@ struct SettingsTerminalSection: View {
         .task {
             await themeManager.ensureThemesLoaded()
         }
+        #if targetEnvironment(macCatalyst)
+        .fileImporter(isPresented: $showsFolderPicker, allowedContentTypes: [.folder]) { result in
+            do {
+                try LocalShellFolders.shared.add(try result.get())
+            } catch {
+                folderErrorMessage = error.localizedDescription
+            }
+        }
+        .alert("Folder Not Added", isPresented: Binding(
+            get: { folderErrorMessage != nil },
+            set: { if !$0 { folderErrorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) { folderErrorMessage = nil }
+        } message: {
+            Text(folderErrorMessage ?? "")
+        }
+        #endif
     }
 
     // MARK: - TERM

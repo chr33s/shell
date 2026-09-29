@@ -1,4 +1,3 @@
-#if !targetEnvironment(macCatalyst)
 
 import Foundation
 import OSLog
@@ -278,12 +277,13 @@ extension LocalShellSession {
             documentsPath,
             "\(documentsPath)/bin"
         ]
-        // The simulator can read the Mac's /usr/bin/cd (a #!/bin/sh script).
-        // ios_system gives PATH scripts precedence over its builtins and tries
-        // to launch that script with dash, which we don't bundle. Keep host
-        // tools out of the simulator's PATH so cd and other builtins resolve
-        // exactly as they do on a device.
-        #if !targetEnvironment(simulator)
+        // The simulator and Mac Catalyst can read the Mac's /usr/bin/cd (a
+        // #!/bin/sh script). ios_system gives PATH scripts precedence over its
+        // builtins and tries to launch that script with dash, which we don't
+        // bundle. Keep host tools out of PATH there so cd and other builtins
+        // resolve exactly as they do on a device; on Catalyst this also keeps
+        // the interpreter from appearing to offer host binaries it cannot run.
+        #if !targetEnvironment(simulator) && !targetEnvironment(macCatalyst)
         paths += [
             "/usr/bin",
             "/bin",
@@ -749,4 +749,3 @@ extension LocalShellSession {
 
 }
 
-#endif // !targetEnvironment(macCatalyst)

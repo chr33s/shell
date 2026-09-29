@@ -1,4 +1,3 @@
-#if !targetEnvironment(macCatalyst)
 
 import Foundation
 
@@ -247,4 +246,3 @@ nonisolated struct CaseItem: Sendable {
     let body: ShellCommand?
 }
 
-#endif

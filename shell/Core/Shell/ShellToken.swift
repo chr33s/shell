@@ -1,4 +1,3 @@
-#if !targetEnvironment(macCatalyst)
 
 import Foundation
 
@@ -94,4 +93,3 @@ nonisolated enum RedirectOp: Equatable, Sendable {
     case heredocStripOp     // <<- (strip leading tabs)
 }
 
-#endif

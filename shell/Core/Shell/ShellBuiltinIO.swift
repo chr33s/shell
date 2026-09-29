@@ -1,4 +1,3 @@
-#if !targetEnvironment(macCatalyst)
 
 import Foundation
 
@@ -72,4 +71,3 @@ nonisolated final class BuiltinTextInput {
     }
 }
 
-#endif

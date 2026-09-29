@@ -1,4 +1,3 @@
-#if !targetEnvironment(macCatalyst)
 
 import Foundation
 
@@ -320,4 +319,3 @@ private nonisolated struct DoubleBracketParser {
     }
 }
 
-#endif

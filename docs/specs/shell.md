@@ -270,11 +270,43 @@ Every touch affordance MUST be fenced with `!targetEnvironment(macCatalyst)`. Se
 
 ### 9.4 Native macOS is out of scope
 
-libghostty ships no native macOS slice (`GhosttyKitAppStore.xcframework`: iOS, iOS simulator, Mac Catalyst, visionOS, visionOS simulator; `scripts/build-framework.sh` audits only for the Catalyst library), and the UIKit-based UI layer would be a multi-month rewrite. A second application target MUST NOT be added. Accepted Catalyst limitations: `UIKeyCommand` key handling (dead keys, some Option-composed and non-Latin input slightly off versus `NSTextInputClient`), `UITextInput` candidate handling approximated, UIKit-derived VoiceOver.
+libghostty ships no native macOS slice (`GhosttyKitAppStore.xcframework`: iOS, iOS simulator, Mac Catalyst, visionOS, visionOS simulator; `scripts/build-framework.sh` audits only for the Catalyst library), and the UIKit-based UI layer would be a multi-month rewrite. A second application target MUST NOT be added. Accepted Catalyst limitations: the sandboxed build's local shell is the interpreter, not the account's zsh (section 9.6); `UIKeyCommand` key handling (dead keys, some Option-composed and non-Latin input slightly off versus `NSTextInputClient`), `UITextInput` candidate handling approximated, UIKit-derived VoiceOver.
 
 ### 9.5 Unverified on Catalyst
 
 A general human review (2026-09-06) found the app working, but these have no per-item outcome recorded: titlebar, glass backdrop, native scroll, context and Dock menus, multi-window and Settings-window restore across relaunch, duplicate "Close Tab"/"Close" in File, the Services item (present, enabled, surviving menu rebuilds), `Toggle` checkmarks and `DynamicShortcut` glyphs in `CommandGroup` menus (the load-bearing assumption of section 9.2), and checkmarks tracking focus. Catalyst-only behavior has no unit-test home (section 14) and is verified by hand.
+
+### 9.6 Local shell and App Sandbox
+
+The Mac Catalyst build is sandboxed like every other platform (`ShellCatalyst.entitlements`). Its local shell is therefore the in-process interpreter, the same `LocalShellSession` over ios_system that iOS and visionOS run; the native PTY exists only for an unsandboxed (Developer ID) build. `LocalShellBackend.current` decides once per process from `APP_SANDBOX_CONTAINER_ID`, never from a build setting, so one binary serves both channels:
+
+| Backend | Session | When |
+| --- | --- | --- |
+| `interpreter` | `LocalShellSession` + ios_system (`awk`, `files`, `shell`, `text` frameworks, all with Catalyst slices) | iOS, visionOS, and Catalyst under App Sandbox |
+| `nativePTY` | `CatalystLocalShellSession` via `ShellMacSupport/PTYSpawn.c` | Catalyst without the sandbox entitlement |
+
+Rules that follow:
+
+- The interpreter sources and `ios_system` compile and link on every platform; no `!targetEnvironment(macCatalyst)` fence may return to `Features/LocalShell`, `Core/Shell`, the bridging header, or `GhosttyApp`'s `initializeEnvironment()` call. The only Catalyst-only files are `CatalystLocalShellSession` and `MacLocalShellManager`.
+- Whoever owns the process environment before `ghostty_init` is the backend: `initializeEnvironment()` for the interpreter, `Ghostty.setupCatalystEnvironment()` for the native PTY, never both.
+- The interpreter's PATH excludes host directories on Catalyst (as on the simulator): ios_system cannot execute host binaries, and PATH scripts would shadow its builtins.
+- The interpreter's home is the app's Documents directory (the container's under the sandbox). The user's own folders reach it only through `files.user-selected.read-write` grants: Settings ▸ Terminal ▸ Folders (`LocalShellFoldersSection`, Catalyst + interpreter only) stores security-scoped bookmarks (`LocalShellFolders`), re-opens them at launch, and passes them to `ios_setAllowedPaths` so ios_system's `cd` admits them. Nothing else grants access.
+- `Base.xcconfig` MUST NOT exclude `commandDictionary.plist` / `extraCommandsDictionary.plist` on the macOS SDK; the interpreter has no commands without them.
+- Shell-launched SSH (`.shellLaunchedSSH`) is real under the interpreter on Catalyst; only the native PTY downgrades it to a plain local shell.
+
+Why the native PTY cannot run sandboxed, measured 2026-09-29 by running the `PTYSpawn.c` sequence under `/System/Library/Sandbox/Profiles/application.sb` with the app's parameters:
+
+| Operation | Sandboxed result |
+| --- | --- |
+| `fork`, `openpty`, `execve` of `/bin/zsh` | Allowed (`process-fork`, `pseudo-tty`, `process-exec` of `/bin`, `/sbin`, `/usr/bin`, `/usr/sbin`, `/System`, `/Library`, app bundle) |
+| `TIOCSWINSZ`, `tcgetattr` on the master | Allowed (`file-ioctl` on `/dev/ptmx`) |
+| `tcgetattr`, `TIOCGWINSZ` on the slave | Allowed (kernel safe-ioctl list) |
+| `TIOCSCTTY`, `tcsetattr`, `tcsetpgrp` on the slave | Denied, EPERM: the profile grants `/dev/ttysN` only `file-read*`/`file-write*` via the `com.apple.sandbox.pty` extension |
+| Controlling tty by re-`open`ing the slave after `setsid` | Not acquired; `/dev/tty` reports ENXIO |
+| Interactive `zsh -i` | "can't set tty pgrp", every keystroke echoed twice (no raw mode), `^C` never delivered to `sleep`, shell hangs |
+| `posix_spawn` with `POSIX_SPAWN_SETSID` and `addopen` of the slave (no `fork`, no `TIOCSCTTY`) | Same denials for the spawned zsh; and even unsandboxed the kernel-side open acquires no controlling tty (`ps` shows `TTY ??`, `^C` ignored), so this variant needs `TIOCSCTTY` regardless |
+
+No public entitlement widens this: `com.apple.security.device.serial` excludes `/dev/tty*` and `/dev/pty*`, and the `temporary-exception.files.*` grants add read/write, not `file-ioctl`. A `posix_spawn` launcher with `com.apple.security.inherit`, a sandboxed XPC service, or the sandboxed Control host all inherit the same profile. Verified for the interpreter on the sandboxed Catalyst build the same day: the four command frameworks `dlopen` through the bundle rpath, and `ls`, `uname`, a `tr` pipeline, and `awk` run with no sandbox denials.
 
 ## 10. Source Tree and Dependency Rule
 
@@ -361,7 +393,7 @@ Plain SSH has no continuity: a replacement transport is a new shell and MUST be 
 
 Extraction ran in four phases, each gating the next: (1) local terminal plus the identity subsystem — software keys, Secure Enclave, certificates — working independently of any SSH session; (2) SSH wired to that identity system; (3) tmux control mode; (4) sync. Unused source and targets were deleted only after all four worked. All have landed.
 
-The build MUST be green with no errors and no warnings. `./scripts/test.sh` runs `ShellTests` (`tests/ShellTests/`) and MUST target the iOS Simulator, never Mac Catalyst, because the local-shell stack (`shell/Core/Shell/`, `Features/LocalShell/`) is behind `#if !targetEnvironment(macCatalyst)`. `tests/MacSupportSmoke.swift` is a standalone AppKit binary run by hand.
+The build MUST be green with no errors and no warnings. `./scripts/test.sh` runs `ShellTests` (`tests/ShellTests/`) on the iOS Simulator by default and on My Mac with `--catalyst`; the local-shell stack (`shell/Core/Shell/`, `Features/LocalShell/`) compiles on both (section 9.6), and `HarnessSmokeTests` is the tripwire if a Catalyst fence returns. Both destinations MUST pass. `tests/MacSupportSmoke.swift` is a standalone AppKit binary run by hand.
 
 A box is ticked only where the claim was checked; unticked means sign-off not yet recorded, not a known gap.
 

@@ -3576,7 +3576,6 @@ extension Ghostty {
                 Ghostty.logger.debug("TerminalView.insertText: Applying modifiers rawValue=\(self.activeKeyboardModifiers.rawValue) to '\(text)'")
 
                 // Ctrl-C: interrupt local shell (matches hardware keyboard behavior in TerminalViewKeyboard.swift)
-                #if !targetEnvironment(macCatalyst)
                 if activeKeyboardModifiers.contains(.control), text.lowercased() == "c",
                    let localSession = session as? LocalShellSession,
                    !localSession.hasActiveEmbeddedSession {
@@ -3584,7 +3583,6 @@ extension Ghostty {
                     activeToolbarView?.clearOneShotModifiers()
                     return
                 }
-                #endif
 
                 // Try routing through Ghostty's key encoder first
                 if text.count == 1, let char = text.first,
@@ -3671,13 +3669,11 @@ extension Ghostty {
             }
 
             // Check for Ctrl-C (ASCII 3) and interrupt local shell if applicable
-            #if !targetEnvironment(macCatalyst)
             if finalText == "\u{03}", let localSession = session as? LocalShellSession,
                !localSession.hasActiveEmbeddedSession {
                 localSession.interrupt()
                 return
             }
-            #endif
 
             // Send input to Ghostty which will route it appropriately
             guard let data = finalText.data(using: .utf8) else { return }
@@ -4852,14 +4848,12 @@ extension Ghostty.TerminalView: KeyboardButtonDelegate {
         // modes (legacy, fixterms/CSI u, kitty) and handles keys like Ctrl+;,
         // Ctrl+-, Ctrl+Shift+- that have no legacy control character mapping.
         // Ctrl-C: interrupt local shell (matches hardware keyboard behavior in TerminalViewKeyboard.swift)
-        #if !targetEnvironment(macCatalyst)
         if modifiers.contains(.control), key.count == 1, key.lowercased() == "c",
            let localSession = session as? LocalShellSession,
            !localSession.hasActiveEmbeddedSession {
             localSession.interrupt()
             return
         }
-        #endif
 
         if !modifiers.isEmpty, key.count == 1, let char = key.first {
             if sendViaGhosttyKeyEvent(char, modifiers: modifiers) {

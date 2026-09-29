@@ -1,4 +1,3 @@
-#if !targetEnvironment(macCatalyst)
 
 import Foundation
 
@@ -304,4 +303,3 @@ nonisolated extension ShellBuiltins {
     }
 }
 
-#endif

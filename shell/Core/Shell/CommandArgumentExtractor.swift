@@ -1,4 +1,3 @@
-#if !targetEnvironment(macCatalyst)
 
 import Foundation
 
@@ -363,4 +362,3 @@ struct HostCompletionState {
     }
 }
 
-#endif // !targetEnvironment(macCatalyst)

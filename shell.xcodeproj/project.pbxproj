@@ -17,7 +17,7 @@
 		AB00000000000000000027 /* libc++.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = AB0000000000000000001A /* libc++.tbd */; };
 		AB00000000000000000028 /* GhosttyKitAppStore in Frameworks */ = {isa = PBXBuildFile; productRef = AB00000000000000000053 /* GhosttyKitAppStore */; };
 		AB00000000000000000029 /* Citadel in Frameworks */ = {isa = PBXBuildFile; productRef = AB00000000000000000054 /* Citadel */; };
-		AB0000000000000000002A /* ios_system in Frameworks */ = {isa = PBXBuildFile; platformFilters = (ios, xros, ); productRef = AB00000000000000000055 /* ios_system */; };
+		AB0000000000000000002A /* ios_system in Frameworks */ = {isa = PBXBuildFile; productRef = AB00000000000000000055 /* ios_system */; };
 		AC00000000000000000001 /* Shared/MacBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC00000000000000000011 /* Shared/MacBridge.swift */; };
 		AC00000000000000000002 /* Shared/MacBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC00000000000000000011 /* Shared/MacBridge.swift */; };
 		AC00000000000000000003 /* ShellMacSupport/ShellMacSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC00000000000000000012 /* ShellMacSupport/ShellMacSupport.swift */; };
@@ -687,7 +687,6 @@
 			buildSettings = {
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = shell/Entitlements/ShellCatalyst.entitlements;
 				DEVELOPMENT_TEAM = 72KB9YQR7B;
-				ENABLE_APP_SANDBOX = NO;
 				INFOPLIST_KEY_CFBundleDisplayName = Shell;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
@@ -711,7 +710,6 @@
 			buildSettings = {
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = shell/Entitlements/ShellCatalyst.entitlements;
 				DEVELOPMENT_TEAM = 72KB9YQR7B;
-				ENABLE_APP_SANDBOX = NO;
 				INFOPLIST_KEY_CFBundleDisplayName = Shell;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
@@ -800,7 +798,7 @@
 				PRODUCT_NAME = ShellTests;
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
-				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MACCATALYST = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
@@ -832,7 +830,7 @@
 				PRODUCT_NAME = ShellTests;
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
-				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MACCATALYST = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
 				SWIFT_EMIT_LOC_STRINGS = NO;

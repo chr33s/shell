@@ -1,4 +1,3 @@
-#if !targetEnvironment(macCatalyst)
 
 import Foundation
 
@@ -210,4 +209,3 @@ struct PromptCache {
 // platform-independent `Core/Utilities/CursorTracker.swift` so the embedded
 // sftp prompt can share it on Mac Catalyst too.
 
-#endif // !targetEnvironment(macCatalyst)

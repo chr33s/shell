@@ -10,7 +10,7 @@ import Foundation
 
 /// Unified connection configuration for terminal sessions
 enum ConnectionConfig: Equatable {
-    /// Local shell (ios_system on iOS, PTY on Catalyst)
+    /// Local shell: the ios_system interpreter, or a native PTY on unsandboxed Catalyst (`LocalShellBackend`)
     /// workingDirectory: Initial CWD for the shell (nil = user's home directory)
     case local(workingDirectory: String? = nil)
 

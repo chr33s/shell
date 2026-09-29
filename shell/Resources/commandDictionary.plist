@@ -16,13 +16,6 @@
 		<string>dhiflM:N:nsuw</string>
 		<string>file</string>
 	</array>
-	<key>bat</key>
-	<array>
-		<string>bat_ios.framework/bat_ios</string>
-		<string>bat_main</string>
-		<string>A:l:r:m:p:#:d:fHn:s:t:u:wW:</string>
-		<string>file</string>
-	</array>
 	<key>cat</key>
 	<array>
 		<string>text.framework/text</string>
@@ -44,18 +37,18 @@
 		<string>HLPRfhv</string>
 		<string>file</string>
 	</array>
-	<key>cksum</key>
-	<array>
-		<string>files.framework/files</string>
-		<string>chksum_main</string>
-		<string>o:</string>
-		<string>file</string>
-	</array>
 	<key>chmod</key>
 	<array>
 		<string>files.framework/files</string>
 		<string>chmod_main</string>
 		<string>ACEHILNPRVXafghinorstuvwx</string>
+		<string>file</string>
+	</array>
+	<key>cksum</key>
+	<array>
+		<string>files.framework/files</string>
+		<string>chksum_main</string>
+		<string>o:</string>
 		<string>file</string>
 	</array>
 	<key>compress</key>
@@ -72,13 +65,6 @@
 		<string>cHLPRXafinprv</string>
 		<string>file</string>
 	</array>
-	<key>curl</key>
-	<array>
-		<string>curl_ios.framework/curl_ios</string>
-		<string>curl_main</string>
-		<string>2346aAbBcCdDeEfgGhHiIjJkKlLmMnNoOpPqQrRsStTuUvVwxXYyz#</string>
-		<string>file</string>
-	</array>
 	<key>date</key>
 	<array>
 		<string>shell.framework/shell</string>
@@ -92,13 +78,6 @@
 		<string>diff_main</string>
 		<string>0123456789aBbC:cdD:efHhI:iL:lnNPpqrS:sTtU:uwX:x:</string>
 		<string>file</string>
-	</array>
-	<key>dig</key>
-	<array>
-		<string>network_ios.framework/network_ios</string>
-		<string>dig_main</string>
-		<string></string>
-		<string>no</string>
 	</array>
 	<key>du</key>
 	<array>
@@ -126,6 +105,13 @@
 		<string>shell.framework/shell</string>
 		<string>env_main</string>
 		<string>-iP:S:u:v</string>
+		<string>no</string>
+	</array>
+	<key>export</key>
+	<array>
+		<string>shell.framework/shell</string>
+		<string>export_main</string>
+		<string></string>
 		<string>no</string>
 	</array>
 	<key>fgrep</key>
@@ -170,40 +156,12 @@
 		<string>n:c:</string>
 		<string>file</string>
 	</array>
-	<key>jq</key>
+	<key>imgtext</key>
 	<array>
-		<string>jq_ios.framework/jq_ios</string>
-		<string>jq_main</string>
-		<string>cCeEfhijMnNrRsStV</string>
+		<string>SELF</string>
+		<string>imgtext_main</string>
+		<string>h</string>
 		<string>file</string>
-	</array>
-	<key>vim</key>
-	<array>
-		<string>vim.framework/vim</string>
-		<string>main</string>
-		<string>bCc:dDeEfgHhi:lLmMnNoOpPqrRsSTu:UvVwW:xXyZ</string>
-		<string>file</string>
-	</array>
-	<key>vi</key>
-	<array>
-		<string>vim.framework/vim</string>
-		<string>main</string>
-		<string>bCc:dDeEfgHhi:lLmMnNoOpPqrRsSTu:UvVwW:xXyZ</string>
-		<string>file</string>
-	</array>
-	<key>host</key>
-	<array>
-		<string>network_ios.framework/network_ios</string>
-		<string>host_main</string>
-		<string>46ac:dilnm:rst:vVwCDN:R:TW:</string>
-		<string>no</string>
-	</array>
-	<key>ifconfig</key>
-	<array>
-		<string>network_ios.framework/network_ios</string>
-		<string>ifconfig_main</string>
-		<string>abdlmruv</string>
-		<string>no</string>
 	</array>
 	<key>link</key>
 	<array>
@@ -247,17 +205,10 @@
 		<string>finv</string>
 		<string>file</string>
 	</array>
-	<key>nc</key>
+	<key>open</key>
 	<array>
-		<string>network_ios.framework/network_ios</string>
-		<string>netcat_main</string>
-		<string>46AacDCb:dEhi:jFG:H:I:J:K:L:klMnN:Oop:rSs:T:tUuvw:X:x:z</string>
-		<string>no</string>
-	</array>
-	<key>nslookup</key>
-	<array>
-		<string>network_ios.framework/network_ios</string>
-		<string>nslookup_main</string>
+		<string>shell.framework/shell</string>
+		<string>open_main</string>
 		<string></string>
 		<string>no</string>
 	</array>
@@ -265,13 +216,6 @@
 	<array>
 		<string>shell.framework/shell</string>
 		<string>openurl_main</string>
-		<string></string>
-		<string>no</string>
-	</array>
-	<key>open</key>
-	<array>
-		<string>shell.framework/shell</string>
-		<string>open_main</string>
 		<string></string>
 		<string>no</string>
 	</array>
@@ -287,13 +231,6 @@
 		<string>SELF</string>
 		<string>pbpaste</string>
 		<string></string>
-		<string>no</string>
-	</array>
-	<key>ping</key>
-	<array>
-		<string>network_ios.framework/network_ios</string>
-		<string>ping_main</string>
-		<string>AaB:b:Cc:DdfG:g:h:I:i:k:K:Ll:M:m:noP:p:QqRrS:s:T:t:vW:z:</string>
 		<string>no</string>
 	</array>
 	<key>printenv</key>
@@ -331,13 +268,6 @@
 		<string>p</string>
 		<string>directory</string>
 	</array>
-	<key>scp</key>
-	<array>
-		<string>ssh_cmd.framework/ssh_cmd</string>
-		<string>scp_main</string>
-		<string>12346ABCTdfpqrtvF:J:P:S:c:i:l:o:</string>
-		<string>file</string>
-	</array>
 	<key>sed</key>
 	<array>
 		<string>text.framework/text</string>
@@ -349,13 +279,6 @@
 	<array>
 		<string>shell.framework/shell</string>
 		<string>setenv_main</string>
-		<string></string>
-		<string>no</string>
-	</array>
-	<key>export</key>
-	<array>
-		<string>shell.framework/shell</string>
-		<string>export_main</string>
 		<string></string>
 		<string>no</string>
 	</array>
@@ -385,55 +308,6 @@
 		<string>text.framework/text</string>
 		<string>tail_main</string>
 		<string>Fb:c:fn:qr</string>
-		<string>file</string>
-	</array>
-	<key>tar</key>
-	<array>
-		<string>libarchive_ios.framework/libarchive_ios</string>
-		<string>tar_main</string>
-		<string>Bb:C:cf:HhI:JjkLlmnOoPpqrSs:T:tUuvW:wX:xyZz</string>
-		<string>file</string>
-	</array>
-	<key>bsdtar</key>
-	<array>
-		<string>libarchive_ios.framework/libarchive_ios</string>
-		<string>tar_main</string>
-		<string>Bb:C:cf:HhI:JjkLlmnOoPpqrSs:T:tUuvW:wX:xyZz</string>
-		<string>file</string>
-	</array>
-	<key>cpio</key>
-	<array>
-		<string>libarchive_ios.framework/libarchive_ios</string>
-		<string>cpio_main</string>
-		<string>067AaBC:cdE:F:f:H:hI:iJjLlmnO:opR:rtuVvW:yZz</string>
-		<string>file</string>
-	</array>
-	<key>bsdcpio</key>
-	<array>
-		<string>libarchive_ios.framework/libarchive_ios</string>
-		<string>cpio_main</string>
-		<string>067AaBC:cdE:F:f:H:hI:iJjLlmnO:opR:rtuVvW:yZz</string>
-		<string>file</string>
-	</array>
-	<key>bsdcat</key>
-	<array>
-		<string>libarchive_ios.framework/libarchive_ios</string>
-		<string>bsdcat_main</string>
-		<string>h</string>
-		<string>file</string>
-	</array>
-	<key>unzip</key>
-	<array>
-		<string>libarchive_ios.framework/libarchive_ios</string>
-		<string>unzip_main</string>
-		<string>aCcd:fI:jLlnO:opP:qtuvx:yZ:</string>
-		<string>file</string>
-	</array>
-	<key>bsdunzip</key>
-	<array>
-		<string>libarchive_ios.framework/libarchive_ios</string>
-		<string>unzip_main</string>
-		<string>aCcd:fI:jLlnO:opP:qtuvx:yZ:</string>
 		<string>file</string>
 	</array>
 	<key>tee</key>
@@ -519,132 +393,6 @@
 		<string>id_main</string>
 		<string></string>
 		<string>no</string>
-	</array>
-	<key>whois</key>
-	<array>
-		<string>network_ios.framework/network_ios</string>
-		<string>whois_main</string>
-		<string>aAbc:fgh:iIklmp:PQrRS</string>
-		<string>no</string>
-	</array>
-	<key>croc</key>
-	<array>
-		<string>MAIN</string>
-		<string>croc_main</string>
-		<string></string>
-		<string>file</string>
-	</array>
-	<key>git</key>
-	<array>
-		<string>MAIN</string>
-		<string>git_main</string>
-		<string></string>
-		<string>file</string>
-	</array>
-	<key>gix</key>
-	<array>
-		<string>MAIN</string>
-		<string>gix_main</string>
-		<string>r:c:t:f:vs</string>
-		<string>file</string>
-	</array>
-	<key>rg</key>
-	<array>
-		<string>ripgrep_ios.framework/ripgrep_ios</string>
-		<string>rg_main</string>
-		<string></string>
-		<string>file</string>
-	</array>
-	<key>mtr</key>
-	<array>
-		<string>MAIN</string>
-		<string>mtr_main</string>
-		<string>46rnwCjxlc:i:s:f:m:B:Q:G:o:y:bz</string>
-		<string>no</string>
-	</array>
-	<key>mtr6</key>
-	<array>
-		<string>MAIN</string>
-		<string>mtr6_main</string>
-		<string>46rnwCjxlc:i:s:f:m:B:Q:G:o:y:bz</string>
-		<string>no</string>
-	</array>
-	<key>traceroute</key>
-	<array>
-		<string>MAIN</string>
-		<string>traceroute_main</string>
-		<string>46rnwCjxlc:i:s:f:m:B:Q:G:o:y:bz</string>
-		<string>no</string>
-	</array>
-	<key>traceroute6</key>
-	<array>
-		<string>MAIN</string>
-		<string>traceroute6_main</string>
-		<string>46rnwCjxlc:i:s:f:m:B:Q:G:o:y:bz</string>
-		<string>no</string>
-	</array>
-	<key>whatismyip</key>
-	<array>
-		<string>MAIN</string>
-		<string>whatismyip_main</string>
-		<string>gh</string>
-		<string>no</string>
-	</array>
-	<key>whatismyip4</key>
-	<array>
-		<string>MAIN</string>
-		<string>whatismyip4_main</string>
-		<string>gh</string>
-		<string>no</string>
-	</array>
-	<key>whatismyip6</key>
-	<array>
-		<string>MAIN</string>
-		<string>whatismyip6_main</string>
-		<string>gh</string>
-		<string>no</string>
-	</array>
-	<key>bssid</key>
-	<array>
-		<string>MAIN</string>
-		<string>bssid_main</string>
-		<string>vh</string>
-		<string>no</string>
-	</array>
-	<key>imgtext</key>
-	<array>
-		<string>SELF</string>
-		<string>imgtext_main</string>
-		<string>h</string>
-		<string>file</string>
-	</array>
-	<key>wol</key>
-	<array>
-		<string>network_ios.framework/network_ios</string>
-		<string>_Z8wol_mainiPKPc</string>
-		<string>hqb:p:d:</string>
-		<string>no</string>
-	</array>
-	<key>xz</key>
-	<array>
-		<string>xz_ios.framework/xz_ios</string>
-		<string>xz_main</string>
-		<string>0123456789cC:dDeefF:hHkKlM:qQrS:tT:vVz</string>
-		<string>file</string>
-	</array>
-	<key>unxz</key>
-	<array>
-		<string>xz_ios.framework/xz_ios</string>
-		<string>xz_main</string>
-		<string>0123456789cC:dDeefF:hHkKlM:qQrS:tT:vVz</string>
-		<string>file</string>
-	</array>
-	<key>xzcat</key>
-	<array>
-		<string>xz_ios.framework/xz_ios</string>
-		<string>xz_main</string>
-		<string>0123456789cC:dDeefF:hHkKlM:qQrS:tT:vVz</string>
-		<string>file</string>
 	</array>
 </dict>
 </plist>

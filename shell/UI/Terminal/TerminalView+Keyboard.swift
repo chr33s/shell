@@ -669,23 +669,21 @@ extension Ghostty.TerminalView {
                 if consumedOption { didHandleOptionKey = true }
                 let controlData = Data([controlByte])
 
-                // Handle Ctrl-C for local shell interrupt (non-Catalyst only)
+                // Handle Ctrl-C for the interpreter's local shell (a native PTY
+                // shell is a different session type and gets the byte)
                 var localHandled = false
-                #if !targetEnvironment(macCatalyst)
                 if controlByte == 3,
                    let localSession = session as? LocalShellSession,
                    !localSession.hasActiveEmbeddedSession {
                     localSession.interrupt()
                     localHandled = true
                 }
-                #endif
                 if !localHandled {
                     sendUserInput(controlData)
                 }
 
                 // Start key repeat
                 let controlString = String(UnicodeScalar(controlByte))
-                #if !targetEnvironment(macCatalyst)
                 if controlByte == 3,
                    let localSession = session as? LocalShellSession,
                    !localSession.hasActiveEmbeddedSession {
@@ -701,9 +699,6 @@ extension Ghostty.TerminalView {
                 } else {
                     startKeyRepeat(for: key, sequence: controlString)
                 }
-                #else
-                startKeyRepeat(for: key, sequence: controlString)
-                #endif
 
                 return (true, true)
             }
@@ -835,14 +830,12 @@ extension Ghostty.TerminalView {
             // Note: If embedded SSH session is active, forward Ctrl-C to SSH instead
             var localHandled = false
             if sequence == "\u{03}" && !hasOption {
-                #if !targetEnvironment(macCatalyst)
                 if let localSession = session as? LocalShellSession,
                    !localSession.hasActiveEmbeddedSession {
                     NotificationCenter.default.post(name: .ghosttyDidReceiveInput, object: self)
                     localSession.interrupt()
                     localHandled = true
                 }
-                #endif
             }
 
             if !localHandled, let data = finalSequence.data(using: .utf8) {
@@ -2315,14 +2308,12 @@ extension Ghostty.TerminalView {
                 let controlString = String(UnicodeScalar(controlByte))
 
                 // Handle Ctrl-C for local shell interrupt
-                #if !targetEnvironment(macCatalyst)
                 if controlByte == 3, let localSession = session as? LocalShellSession {
                     if !localSession.hasActiveEmbeddedSession {
                         localSession.interrupt()
                         return
                     }
                 }
-                #endif
 
                 if let data = controlString.data(using: .utf8) {
                     sendUserInput(data)

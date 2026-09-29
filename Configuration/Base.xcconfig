@@ -44,8 +44,16 @@ SHELL_CLOUDKIT_CONTAINER = iCloud.dev.chr33s.shell
 // which xcconfig would otherwise treat as a comment.
 SHELL_CONTROL_PUSH_RELAY_URL = https:/$()/relay.invalid
 
-// Entitlements
-CODE_SIGN_ENTITLEMENTS = shell/Entitlements/Shell.entitlements
+// Entitlements. This xcconfig is the project-level configuration, so it also
+// reaches ShellTests, and a test bundle cannot carry the app's aps-environment
+// or iCloud entitlements when it is really signed (a Mac Catalyst test run;
+// the iOS Simulator signs ad hoc and never notices). $(TARGET_NAME)
+// indirection is the one per-target switch an xcconfig has. ShellMacSupport
+// and ShellWatchTests already set "" in the project; Watch.xcconfig sets the
+// watch app's own file.
+CODE_SIGN_ENTITLEMENTS = $(CODE_SIGN_ENTITLEMENTS_$(TARGET_NAME))
+CODE_SIGN_ENTITLEMENTS_shell = shell/Entitlements/Shell.entitlements
+CODE_SIGN_ENTITLEMENTS_ShellTests =
 CODE_SIGN_STYLE = Automatic
 
 // Swift Bridging Header
@@ -106,9 +114,6 @@ OTHER_LDFLAGS = $(inherited) -lresolv -Wl,-unexported_symbol,_onig* -Wl,-unexpor
 // XcodeDefault; spelled out because Xcode rejects DT_TOOLCHAIN_DIR in the
 // evaluation of LIBRARY_SEARCH_PATHS.
 TOOLCHAIN_DIR[sdk=macosx*] = $(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain
-
-// ios_system resource plists are not needed on Mac Catalyst.
-EXCLUDED_SOURCE_FILE_NAMES[sdk=macosx*] = $(inherited) commandDictionary.plist extraCommandsDictionary.plist
 
 // GhosttyKit and the ios_system frameworks ship arm64-only simulator slices,
 // so an x86_64 simulator build has nothing to link against.

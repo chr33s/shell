@@ -1,4 +1,3 @@
-#if !targetEnvironment(macCatalyst)
 
 import Foundation
 
@@ -109,4 +108,3 @@ extension LocalShellSession {
 
 }
 
-#endif // !targetEnvironment(macCatalyst)

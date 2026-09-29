@@ -1,7 +1,5 @@
 import Foundation
-#if !targetEnvironment(macCatalyst)
 import ios_system
-#endif
 
 /// Result of a tab completion attempt
 enum CompletionResult {
@@ -24,12 +22,10 @@ final class CompletionProvider {
     private lazy var availableCommands: [String] = {
         var commands: [String] = []
 
-        // Get commands from ios_system (iOS/visionOS only)
-        #if !targetEnvironment(macCatalyst)
+        // Get commands from ios_system
         if let commandList = commandsAsArray() as? [String] {
             commands = commandList.sorted()
         }
-        #endif
 
         // Add built-in shell commands that ios_system does not list.
         // Every entry must name something that actually runs on the interactive

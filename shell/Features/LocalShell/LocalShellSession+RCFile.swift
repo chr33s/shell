@@ -1,5 +1,4 @@
 // LocalShellSession RC file support - .shellrc startup dotfile
-#if !targetEnvironment(macCatalyst)
 
 import Foundation
 import OSLog
@@ -461,4 +460,3 @@ extension LocalShellSession {
     }
 }
 
-#endif

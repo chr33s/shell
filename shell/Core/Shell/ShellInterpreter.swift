@@ -1,4 +1,3 @@
-#if !targetEnvironment(macCatalyst)
 
 import Foundation
 import OSLog
@@ -3185,4 +3184,3 @@ nonisolated enum ShellArithmeticEvaluator {
     }
 }
 
-#endif

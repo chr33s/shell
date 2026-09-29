@@ -1,4 +1,3 @@
-#if !targetEnvironment(macCatalyst)
 
 import Foundation
 
@@ -143,4 +142,3 @@ nonisolated enum ShellGlob {
     }
 }
 
-#endif

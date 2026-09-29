@@ -394,10 +394,11 @@ final class TerminalSurfaceController: NSObject {
         case .ssh:
             Ghostty.logger.info("Surface config: SSH session - using external I/O (pipes)")
         case .local:
-            if PlatformDetection.isMacCatalyst {
-                Ghostty.logger.info("Surface config: Local shell on Catalyst - using external I/O (native PTY)")
-            } else {
-                Ghostty.logger.info("Surface config: Local shell on iOS/visionOS - using external I/O (pipes)")
+            switch LocalShellBackend.current {
+            case .nativePTY:
+                Ghostty.logger.info("Surface config: Local shell - using external I/O (native PTY)")
+            case .interpreter:
+                Ghostty.logger.info("Surface config: Local shell - using external I/O (ios_system pipes)")
             }
         case .shellLaunchedSSH:
             Ghostty.logger.info("Surface config: Shell-launched SSH session - using external I/O (pipes)")

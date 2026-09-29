@@ -1,4 +1,3 @@
-#if !targetEnvironment(macCatalyst)
 
 import Foundation
 
@@ -105,4 +104,3 @@ nonisolated final class CancellationToken: @unchecked Sendable {
     }
 }
 
-#endif

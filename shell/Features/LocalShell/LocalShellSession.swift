@@ -1,5 +1,4 @@
 // LocalShellSession is only used on iOS/visionOS (Mac Catalyst uses CatalystLocalShellSession)
-#if !targetEnvironment(macCatalyst)
 
 import Foundation
 import OSLog
@@ -1232,4 +1231,3 @@ extension LocalShellSession: SSHAuthBannerCardProviding {
     }
 }
 
-#endif // !targetEnvironment(macCatalyst)

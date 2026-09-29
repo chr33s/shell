@@ -1,4 +1,3 @@
-#if !targetEnvironment(macCatalyst)
 
 import Foundation
 import OSLog
@@ -1055,4 +1054,3 @@ extension LocalShellSession {
     }
 }
 
-#endif

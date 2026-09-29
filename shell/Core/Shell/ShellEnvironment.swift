@@ -1,4 +1,3 @@
-#if !targetEnvironment(macCatalyst)
 
 import Foundation
 
@@ -864,4 +863,3 @@ nonisolated final class ShellEnvironment: @unchecked Sendable {
     }
 }
 
-#endif

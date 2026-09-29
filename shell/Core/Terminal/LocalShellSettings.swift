@@ -19,7 +19,8 @@ import Foundation
 /// absolute executable still launches — validation checks syntax and
 /// executability, not shell identity — it simply runs without integration.
 ///
-/// Catalyst only; iOS local shells run the in-app interpreter and spawn nothing.
+/// Native PTY backend only (`LocalShellBackend.nativePTY`); the interpreter
+/// backend on iOS, visionOS, and sandboxed Catalyst spawns nothing.
 ///
 /// All members are `nonisolated` since session setup reads them off the main actor.
 enum LocalShellSettings: Sendable {

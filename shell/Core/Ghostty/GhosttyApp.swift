@@ -296,7 +296,9 @@ extension Ghostty {
         private var lastAppliedCursorThrottle: Bool?
 
         init() {
-            // Initialize ios_system environment variables (iOS/visionOS only) FIRST.
+            // Initialize ios_system environment variables FIRST, wherever the
+            // interpreter is the local shell backend (always off Catalyst, and the
+            // sandboxed Catalyst build).
             //
             // IMPORTANT: setenv() calls must complete BEFORE Ghostty's Zig code
             // spawns any background thread. POSIX setenv/getenv are not thread-safe
@@ -305,39 +307,31 @@ extension Ghostty {
             // (build 65) — a Zig os.xdg.dir thread faulted reading environ while
             // ios_system's initializeEnvironment() was still setting XDG_CACHE_HOME /
             // XDG_CONFIG_HOME / XDG_STATE_HOME / XDG_DATA_HOME.
-            #if !targetEnvironment(macCatalyst)
-            initializeEnvironment()
-            #endif
+            let usesInterpreter = LocalShellBackend.current == .interpreter
+            if usesInterpreter {
+                initializeEnvironment()
+            }
 
             // Now safe to initialize ghostty (may spawn Zig threads that read env vars).
             Ghostty.initialize()
 
             // Register ios_system command dictionaries and direct function entry points.
             // These mutate ios_system's commandList global, not environ — safe post-init.
-            #if !targetEnvironment(macCatalyst)
-
-            // Load command dictionaries
-            if let commandDictPath = Bundle.main.path(forResource: "commandDictionary", ofType: "plist") {
-                if let error = addCommandList(commandDictPath) {
-                    logger.error("Failed to load commandDictionary: \(error.localizedDescription)")
-                } else {
-                    logger.info("Loaded commandDictionary.plist")
+            if usesInterpreter {
+                for name in ["commandDictionary", "extraCommandsDictionary"] {
+                    guard let path = Bundle.main.path(forResource: name, ofType: "plist") else {
+                        logger.warning("\(name).plist not found in bundle")
+                        continue
+                    }
+                    if let error = addCommandList(path) {
+                        logger.error("Failed to load \(name): \(error.localizedDescription)")
+                    } else {
+                        logger.info("Loaded \(name).plist")
+                    }
                 }
-            } else {
-                logger.warning("commandDictionary.plist not found in bundle")
+                // Re-open the user's folder grants and tell ios_system's `cd` about them.
+                LocalShellFolders.shared.activate()
             }
-
-            if let extraCommandDictPath = Bundle.main.path(forResource: "extraCommandsDictionary", ofType: "plist") {
-                if let error = addCommandList(extraCommandDictPath) {
-                    logger.error("Failed to load extraCommandsDictionary: \(error.localizedDescription)")
-                } else {
-                    logger.info("Loaded extraCommandsDictionary.plist")
-                }
-            } else {
-                logger.warning("extraCommandsDictionary.plist not found in bundle")
-            }
-
-            #endif
 
             // Initialize the global configuration
             self.config = Config()

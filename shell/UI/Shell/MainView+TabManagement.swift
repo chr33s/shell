@@ -17,10 +17,10 @@ extension MainView {
     #if targetEnvironment(macCatalyst)
 
     /// Open the initial tab of a window that has no saved state: a local shell,
-    /// or the connection sheet when the macOS support bundle is missing and no
-    /// local PTY can be created.
+    /// or the connection sheet when the native PTY is the backend but the macOS
+    /// support bundle is missing. The interpreter backend needs no bundle.
     func createInitialTab() {
-        guard MacLocalShellManager.isAvailable else {
+        guard LocalShellBackend.current == .interpreter || MacLocalShellManager.isAvailable else {
             Ghostty.logger.info("No macOS support bundle, showing connection sheet on launch")
             addNewTab()
             return
@@ -328,12 +328,8 @@ extension MainView {
     static func resolveIntentDirectory(_ raw: String) -> String? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-        // Match the shell's HOME: the user home on macOS, Documents on iOS.
-        #if targetEnvironment(macCatalyst)
-        let home = NSHomeDirectory()
-        #else
-        let home = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].path
-        #endif
+        // Match the shell's HOME: the user home for the native PTY, Documents for the interpreter.
+        let home = LocalShellBackend.homeDirectory
         if trimmed == "~" { return home }
         if trimmed.hasPrefix("~/") { return home + "/" + String(trimmed.dropFirst(2)) }
         if trimmed.hasPrefix("/") { return trimmed }

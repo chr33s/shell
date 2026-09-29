@@ -13,11 +13,12 @@ import Testing
 /// 2. `@testable import Shell` reaches app-*internal* types — the module is
 ///    `Shell` (from `PRODUCT_NAME`), not `shell`, and `ENABLE_TESTABILITY`
 ///    really is on for the Debug configuration the test action uses.
-/// 3. The tests run on the **iOS Simulator**, not Mac Catalyst. `ShellTokenizer`
-///    and `ShellParser` — like the whole local-shell stack — sit behind
-///    `#if !targetEnvironment(macCatalyst)`, so this file does not compile at
-///    all on a Catalyst destination. If someone repoints `scripts/test.sh` at
-///    Catalyst, this is the tripwire.
+/// 3. The local-shell stack compiles on **every** test destination. `ShellTokenizer`
+///    and `ShellParser` used to sit behind `#if !targetEnvironment(macCatalyst)`;
+///    since `LocalShellBackend` made the interpreter the sandboxed Catalyst shell
+///    (docs/specs/shell.md section 9.6) they must build there too, and
+///    `scripts/test.sh --catalyst` runs this suite on My Mac. If someone fences
+///    the stack off Catalyst again, this file stops compiling there: the tripwire.
 @MainActor
 @Suite
 final class HarnessSmokeTests {

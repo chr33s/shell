@@ -11,22 +11,19 @@
 // Import the Ghostty C API
 #import "ghostty.h"
 
-// Import ios_system for local shell support (iOS/visionOS only, not Catalyst).
+// Import ios_system for the in-process local shell (every platform; on Mac
+// Catalyst it backs the sandboxed build, see LocalShellBackend).
 // The umbrella pulls in ios_async.h / ios_pid_allocator.h, so importing those
 // directly would ask for submodules the module map doesn't declare.
-#if !TARGET_OS_MACCATALYST
 #import <ios_system/ios_system.h>
-#endif
 
 // Accessor for ios_system's thread-local FILE* streams.
 // Swift cannot access C __thread variables directly, so we provide inline wrappers.
-#if !TARGET_OS_MACCATALYST
 static inline FILE* ios_get_thread_stdin(void) { return thread_stdin; }
 static inline FILE* ios_get_thread_stdout(void) { return thread_stdout; }
 static inline FILE* ios_get_thread_stderr(void) { return thread_stderr; }
 static inline void ios_set_thread_stdout(FILE* f) { thread_stdout = f; }
 static inline void ios_set_thread_stderr(FILE* f) { thread_stderr = f; }
-#endif
 
 // Additional iOS-specific functions
 #ifdef __cplusplus
