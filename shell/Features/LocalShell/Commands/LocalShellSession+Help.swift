@@ -34,13 +34,13 @@ extension LocalShellSession {
         let arrowDesc = String(localized: "Navigate command history", comment: "Help: Up/Down description")
         let footer = String(localized: "For command-specific help, try: <command> --help or <command> -h", comment: "Help: footer tip")
 
-        // Only commands that actually resolve at runtime belong here. The app
-        // bundles exactly five ios_system frameworks (ios_system, awk, files,
-        // shell, text); this list used to advertise vim/vi, tar/cpio/unzip/bsdcat,
-        // xz/unxz/xzcat, curl and the network_ios tools, whose frameworks are not
-        // bundled, plus traceroute/whatismyip* (mapped to MAIN, which needs a
-        // `*_main` symbol the app binary does not export) and ping6 (in no
-        // command dictionary at all). All of them printed "command not found".
+        // Only commands that actually resolve at runtime belong here: the
+        // ios_system core frameworks (awk, files, shell, text) plus the command
+        // packages under vendor/ that the app links (libarchive_ios for tar,
+        // vim, curl_ios, jq_ios, ripgrep_ios). The rest of upstream's list
+        // (cpio/unzip/bsdcat, xz, the network_ios tools, traceroute/whatismyip*
+        // mapped to MAIN) is not linked and MUST NOT be advertised: every one
+        // printed "command not found".
         let helpText = """
 \(header)
 
@@ -49,13 +49,14 @@ extension LocalShellSession {
   chmod, chown, chflags, readlink
 
 \(textProcHeader)
-  grep, egrep, fgrep, sed, awk, wc, sort, uniq, diff, head, tail, tr, md5
+  grep, egrep, fgrep, rg, sed, awk, jq, wc, sort, uniq, diff, head, tail, tr,
+  md5, vim, vi
 
 \(archivesHeader)
-  gzip, gunzip, compress, uncompress
+  tar, gzip, gunzip, compress, uncompress
 
 \(networkHeader)
-  ssh
+  ssh, curl
 
 \(shellUtilHeader)
   echo, env, printenv, setenv, export, unsetenv, date, uname, whoami, tee,

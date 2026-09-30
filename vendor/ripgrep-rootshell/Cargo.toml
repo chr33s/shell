@@ -1,0 +1,19 @@
+[package]
+name = "ripgrep_ios"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+ripgrep = { path = "../ripgrep", default-features = false }
+libc = "0.2"
+
+[profile.release]
+overflow-checks = false
+lto = "thin"
+panic = "unwind"
+strip = "symbols"
+opt-level = "s"

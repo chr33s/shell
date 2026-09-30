@@ -25,6 +25,11 @@ if [ "${EFFECTIVE_PLATFORM_NAME:-}" != "-maccatalyst" ]; then
     exit 0
 fi
 
+# Mac Catalyst post-embed fixup that shares this phase because it, too, must
+# run after the package frameworks are embedded: the upstream vim.framework
+# links Homebrew's libsodium and would keep the app from launching.
+"${SRCROOT}/scripts/patch-vim-framework.sh"
+
 HOST_SYMROOT="${BUILD_DIR}/ControlHost"
 HOST_OBJROOT="${OBJROOT}/ControlHost"
 HOST_PRODUCT="${HOST_SYMROOT}/${CONFIGURATION}/ShellControlHost.app"

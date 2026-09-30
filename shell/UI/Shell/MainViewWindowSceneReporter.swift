@@ -188,42 +188,60 @@ final class WindowSceneReportingView: UIView {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.handleNSWindowKeyNotification()
+            // Delivered on the main queue; hop onto the main actor for the handler.
+            MainActor.assumeIsolated {
+                self?.handleNSWindowKeyNotification()
+            }
         }
         let didResignKeyWindow = center.addObserver(
             forName: Notification.Name("NSWindowDidResignKeyNotification"),
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.handleNSWindowKeyNotification()
+            // Delivered on the main queue; hop onto the main actor for the handler.
+            MainActor.assumeIsolated {
+                self?.handleNSWindowKeyNotification()
+            }
         }
         let didBecomeMainWindow = center.addObserver(
             forName: Notification.Name("NSWindowDidBecomeMainNotification"),
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.handleNSWindowKeyNotification()
+            // Delivered on the main queue; hop onto the main actor for the handler.
+            MainActor.assumeIsolated {
+                self?.handleNSWindowKeyNotification()
+            }
         }
         let didResignMainWindow = center.addObserver(
             forName: Notification.Name("NSWindowDidResignMainNotification"),
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.handleNSWindowKeyNotification()
+            // Delivered on the main queue; hop onto the main actor for the handler.
+            MainActor.assumeIsolated {
+                self?.handleNSWindowKeyNotification()
+            }
         }
         let didMiniaturize = center.addObserver(
             forName: Notification.Name("NSWindowDidMiniaturizeNotification"),
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.handleNSWindowKeyNotification()
+            // Delivered on the main queue; hop onto the main actor for the handler.
+            MainActor.assumeIsolated {
+                self?.handleNSWindowKeyNotification()
+            }
         }
         let didDeminiaturize = center.addObserver(
             forName: Notification.Name("NSWindowDidDeminiaturizeNotification"),
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.handleNSWindowKeyNotification()
+            // Delivered on the main queue; hop onto the main actor for the handler.
+            MainActor.assumeIsolated {
+                self?.handleNSWindowKeyNotification()
+            }
         }
         windowObserverTokens.append(contentsOf: [
             didBecomeKeyWindow,

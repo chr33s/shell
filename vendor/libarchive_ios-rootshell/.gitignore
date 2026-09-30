@@ -1,0 +1,4 @@
+.build/
+.swiftpm/
+xcfs/.build/
+xcfs/.swiftpm/

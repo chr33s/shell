@@ -15,6 +15,18 @@
     "ref": "0.12.7",
     "url": "https://github.com/kitknox/Citadel-rootshell.git"
   },
+  "curl_ios-rootshell": {
+    "binaries": {
+      "curl_ios": {
+        "checksum": "551916152365d065b68a1ddd119bdc674d3ea7c508b603e915973b41ff651393",
+        "url": "https://github.com/kitknox/curl_ios-rootshell/releases/download/v0.2.1/curl_ios.xcframework.zip"
+      }
+    },
+    "commit": "be242207461c50e427933f289b0c3f4b6f95f0e1",
+    "drop": [],
+    "ref": "v0.2.1",
+    "url": "https://github.com/kitknox/curl_ios-rootshell.git"
+  },
   "ghosttykit-rootshell": {
     "binaries": {
       "GhosttyKitAppStore": {
@@ -54,6 +66,42 @@
     "drop": [],
     "ref": "v0.1.1",
     "url": "https://github.com/kitknox/ios_system-rootshell.git"
+  },
+  "jq-rootshell": {
+    "binaries": {
+      "jq_ios": {
+        "checksum": "eb59e3f8e49c6ce4d122829bdc286da3cd9e3ccf8dc737e898b4650ef579d2c5",
+        "url": "https://github.com/kitknox/jq-rootshell/releases/download/v0.1.0/jq_ios.xcframework.zip"
+      }
+    },
+    "commit": "191e01f4e2b88798851b28197c328826c20cba79",
+    "drop": [],
+    "ref": "v0.1.0",
+    "url": "https://github.com/kitknox/jq-rootshell.git"
+  },
+  "libarchive_ios-rootshell": {
+    "binaries": {
+      "libarchive_ios": {
+        "checksum": "d90c091df5a38bd2fa1b70dfd95957be721884be3fbe562d77ea77b5631b4db8",
+        "url": "https://github.com/kitknox/libarchive_ios-rootshell/releases/download/v0.1.0/libarchive_ios.xcframework.zip"
+      }
+    },
+    "commit": "beb512f57ac11823a6638a2d8c66aa91fc0acd15",
+    "drop": [],
+    "ref": "v0.1.0",
+    "url": "https://github.com/kitknox/libarchive_ios-rootshell.git"
+  },
+  "ripgrep-rootshell": {
+    "binaries": {
+      "ripgrep_ios": {
+        "checksum": "df554a63cc9bb9aa2b852766146ad882e83e001bffce5301eadad33619e16691",
+        "url": "https://api.github.com/repos/kitknox/ripgrep-rootshell/releases/assets/514744297.zip"
+      }
+    },
+    "commit": "3a914c43c4683bc325294ac6e7a77c77024bce97",
+    "drop": [],
+    "ref": "v0.1.0",
+    "url": "https://github.com/kitknox/ripgrep-rootshell.git"
   },
   "swift-argument-parser": {
     "binaries": {},
@@ -126,5 +174,21 @@
     "drop": [],
     "ref": "1.8.1",
     "url": "https://github.com/apple/swift-system.git"
+  },
+  "vim-rootshell": {
+    "binaries": {
+      "vim": {
+        "checksum": "62ab92ca4374798141b1e3d48850686e6117ec3717fd38e87d4a9136f00fdba7",
+        "url": "https://github.com/kitknox/vim-rootshell/releases/download/v0.1.0/vim.xcframework.zip"
+      },
+      "xxd": {
+        "checksum": "afa36c8993d688d77bc714596a70d0e4eea82cd93f423a85cec2a3a602b9a30f",
+        "url": "https://github.com/kitknox/vim-rootshell/releases/download/v0.1.0/xxd.xcframework.zip"
+      }
+    },
+    "commit": "413e174222cb100840561e264446ffd050738205",
+    "drop": [],
+    "ref": "v0.1.0",
+    "url": "https://github.com/kitknox/vim-rootshell.git"
   }
 }

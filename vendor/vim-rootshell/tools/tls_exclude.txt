@@ -1,0 +1,169 @@
+# TLS Exclusion List for Vim iOS Port
+# ====================================
+# Variables and files listed here will NOT get __thread added.
+# These are either immutable lookup tables, platform-specific files
+# that don't run on iOS, or intentionally shared state.
+#
+# Syntax:
+#   file:<filename>         - skip entire file
+#   pattern:<regex>         - skip lines matching regex
+#   <variable_name>         - skip variable by name (* = wildcard)
+
+# --- Files that don't run on iOS ---
+file:dosinst.c
+file:uninstall.c
+file:os_w32exe.c
+file:os_win32.c
+file:os_mswin.c
+file:os_amiga.c
+file:os_vms.c
+file:os_qnx.c
+file:gui_w32.c
+file:gui_dwrite.cpp
+file:gui_gtk.c
+file:gui_gtk_x11.c
+file:gui_gtk_f.c
+file:gui_motif.c
+file:gui_athena.c
+file:gui_photon.c
+file:gui_x11.c
+file:gui_xim.c
+file:gui_xmebw.c
+file:gui_beval.c
+file:gui_haiku.cc
+file:gui.c
+file:os_macosx.m
+file:beval.c
+file:if_cscope.c
+file:if_xcmdsrv.c
+file:if_py_both.h
+file:netbeans.c
+file:pty.c
+file:sound.c
+file:wayland.c
+file:wayland.h
+file:gui_xmdlg.c
+file:gui_x11_pm.h
+file:iscygpty.c
+file:dosinst.h
+file:if_lua.c
+file:if_mzsch.c
+file:if_perl.xs
+file:if_python.c
+file:if_python3.c
+file:if_ruby.c
+file:if_tcl.c
+file:xdiff/xdiffi.c
+file:xdiff/xemit.c
+file:xdiff/xhistogram.c
+file:xdiff/xmerge.c
+file:xdiff/xpatience.c
+file:xdiff/xprepare.c
+file:xdiff/xutils.c
+file:libvterm/src/state.c
+file:libvterm/src/pen.c
+file:libvterm/src/parser.c
+file:libvterm/src/unicode.c
+file:libvterm/src/vterm.c
+file:libvterm/src/keyboard.c
+file:libvterm/src/mouse.c
+file:libvterm/src/screen.c
+
+# --- Immutable constant lookup tables ---
+# These are effectively const data, safe to share across threads.
+
+# autocmd.c: event name lookup table
+pattern:keyvalue_T\s+event_tab\b
+# blowfish.c: crypto constants
+pattern:UINT32_T\s+pax_init\b
+pattern:UINT32_T\s+sbx_init\b
+pattern:struct_bf_test_data\s+bf_test_data\b
+# charset.c: Latin-1 character classification tables
+pattern:char_u\s+latin1flags\b
+pattern:char_u\s+latin1upper\b
+pattern:char_u\s+latin1lower\b
+# clipboard.c: const data
+pattern:supported_mimes\b
+pattern:vwl_data_offer_listener\b
+pattern:vwl_data_device_listener\b
+pattern:vwl_data_source_listener\b
+# crypt.c: method table and magic
+pattern:cryptmethod_T\s+cryptmethods\b
+pattern:crypt_magic_head\b
+# digraph.c: digraph table (huge, const data)
+pattern:digr_T\s+digraphdefault\b
+# evalfunc.c: argument type check tables (150+ entries, all const)
+pattern:argcheck_T\s+arg\d
+pattern:argcheck_T\s+arg_\w
+# evalfunc.c: global function table
+pattern:funcentry_T\s+global_functions\b
+# ex_cmds.h: command table
+pattern:excmd_T\s+excmd_table\b
+# ex_docmd.c: command modifier info
+pattern:cmdmod_info_T\s+cmdmod_info_tab\b
+# highlight.c: highlight/color tables
+pattern:highlight_init_both\b
+pattern:highlight_init_light\b
+pattern:highlight_init_dark\b
+pattern:keyvalue_T\s+highlight_tab\b
+pattern:keyvalue_T\s+highlight_index_tab\b
+# map.c
+pattern:modmasktable\b
+pattern:key_names_table\b
+# mbyte.c: Unicode tables
+pattern:langstrstringsstrmap\b
+pattern:langstringsstrmap\b
+# message.c: langstrmap
+pattern:langstrmap\b
+# option.c: options table
+pattern:vimoption_T\s+options\[\]
+# syntax.c
+pattern:keyvalue_T\s+hl_grouptab\b
+# regexp.c / regexp_nfa.c
+pattern:char_u\s+e_missingbracket\b
+pattern:char_u\s+e_unmatchedpp\b
+pattern:char_u\s+e_unmatchedp\b
+pattern:char_u\s+e_z_not_allowed\b
+pattern:char_u\s+e_missing_sb\b
+pattern:char_u\s+e_empty_sb\b
+# term.c: builtin terminal entries, color lookup tables
+pattern:builtin_terminals\b
+pattern:tcap_entry_T\s+builtin_\w+\b
+pattern:langstringsstrmap\b
+# textformat.c, textobject.c: const message strings
+pattern:N_\(
+# popupmenu.c
+pattern:pum_rl_type_list\b
+# userfunc.c
+pattern:lambda_name\b
+
+# --- Constant string arrays (N_ macro = gettext, immutable) ---
+# main.c: usage strings
+pattern:char\s+\*\(use\[\]\)
+# main.c: error messages (already has __thread, but adding for safety)
+pattern:char\s+\*\(main_errors\[\]\)
+# cmdhist.c: history type names
+pattern:history_names\b
+
+# --- hardcopy.c: PostScript constant data tables ---
+pattern:struct prt_ps_font_S\s+prt_ps_courier_font\b
+pattern:struct prt_ps_font_S\s+prt_ps_mb_font\b
+pattern:struct prt_ps_encoding_S\s+\w+_encodings\b
+pattern:struct prt_ps_charset_S\s+\w+_charsets\b
+pattern:struct prt_ps_mbfont_S\s+prt_ps_mbfonts\b
+
+# --- Shared state (intentionally not per-thread) ---
+# Instance tracking
+vim_active_instances
+
+# --- Large string constant arrays (N_ macro = gettext, immutable) ---
+pattern:char\s+\*msg_loclist\b
+pattern:char\s+\*msg_qflist\b
+
+# --- Struct-typed constant tables ---
+pattern:rgb_name_table_T\s+rgb_tab\b
+pattern:nv_cmd_T\s+nv_cmds\b
+pattern:spec_table_T\s+spec_str_tab\b
+
+# --- evalfunc.c: type constants ---
+pattern:type_T\s+t_\w+

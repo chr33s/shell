@@ -15,6 +15,11 @@
 # DIR                            URL                                                         REF        options
 ghosttykit-rootshell             https://github.com/kitknox/ghosttykit-rootshell.git         v0.2.14    binaries=GhosttyKitAppStore
 ios_system-rootshell             https://github.com/kitknox/ios_system-rootshell.git         v0.1.1     binaries=ios_system,awk,files,shell,text
+libarchive_ios-rootshell         https://github.com/kitknox/libarchive_ios-rootshell.git     v0.1.0     binaries=libarchive_ios
+vim-rootshell                    https://github.com/kitknox/vim-rootshell.git                v0.1.0     binaries=vim,xxd
+curl_ios-rootshell               https://github.com/kitknox/curl_ios-rootshell.git           v0.2.1     binaries=curl_ios
+jq-rootshell                     https://github.com/kitknox/jq-rootshell.git                 v0.1.0     binaries=jq_ios
+ripgrep-rootshell                https://github.com/kitknox/ripgrep-rootshell.git            v0.1.0     binaries=ripgrep_ios
 Citadel-rootshell                https://github.com/kitknox/Citadel-rootshell.git            0.12.7     drop=ColorizeSwift
 swift-nio-ssh-rootshell          https://github.com/kitknox/swift-nio-ssh-rootshell.git      0.1.4      drop=swift-docc-plugin
 BigInt                           https://github.com/attaswift/BigInt.git                     v6.0.1

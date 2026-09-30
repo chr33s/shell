@@ -1858,7 +1858,9 @@ extension Ghostty {
             fatalError("init(coder:) has not been implemented")
         }
 
-        deinit {
+        // An isolated deinit runs on the main actor, so it can safely tear
+        // down the main-actor-isolated CADisplayLink state.
+        isolated deinit {
             stopAnimation()
         }
 

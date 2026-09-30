@@ -232,7 +232,15 @@ extension LocalShellSession {
         let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].path
         ios_setenv("HOME", documentsPath, 1)
 
-        // Set VIMRUNTIME for vim syntax highlighting and runtime files
+        // curl_ios links OpenSSL, which cannot see the system trust store, so
+        // TLS verifies against the bundled Mozilla CA bundle (Resources/cacert.pem).
+        if let caBundle = Bundle.main.path(forResource: "cacert", ofType: "pem") {
+            ios_setenv("SSL_CERT_FILE", caBundle, 1)
+            ios_setenv("CURL_CA_BUNDLE", caBundle, 1)
+        }
+
+        // Set VIMRUNTIME for vim syntax highlighting and runtime files. The bundle
+        // is vendor/vim-rootshell/VimRuntime.bundle, copied by the app's resources phase.
         if let vimRuntimePath = Bundle.main.path(forResource: "VimRuntime", ofType: "bundle") {
             ios_setenv("VIMRUNTIME", "\(vimRuntimePath)/Contents/Resources/vim", 1)
         }

@@ -65,6 +65,13 @@
 		<string>cHLPRXafinprv</string>
 		<string>file</string>
 	</array>
+	<key>curl</key>
+	<array>
+		<string>curl_ios.framework/curl_ios</string>
+		<string>curl_main</string>
+		<string>2346aAbBcCdDeEfgGhHiIjJkKlLmMnNoOpPqQrRsStTuUvVwxXYyz#</string>
+		<string>file</string>
+	</array>
 	<key>date</key>
 	<array>
 		<string>shell.framework/shell</string>
@@ -163,6 +170,13 @@
 		<string>h</string>
 		<string>file</string>
 	</array>
+	<key>jq</key>
+	<array>
+		<string>jq_ios.framework/jq_ios</string>
+		<string>jq_main</string>
+		<string>cCeEfhijMnNrRsStV</string>
+		<string>file</string>
+	</array>
 	<key>link</key>
 	<array>
 		<string>files.framework/files</string>
@@ -254,6 +268,13 @@
 		<string>n</string>
 		<string>file</string>
 	</array>
+	<key>rg</key>
+	<array>
+		<string>ripgrep_ios.framework/ripgrep_ios</string>
+		<string>rg_main</string>
+		<string></string>
+		<string>file</string>
+	</array>
 	<key>rm</key>
 	<array>
 		<string>files.framework/files</string>
@@ -308,6 +329,13 @@
 		<string>text.framework/text</string>
 		<string>tail_main</string>
 		<string>Fb:c:fn:qr</string>
+		<string>file</string>
+	</array>
+	<key>tar</key>
+	<array>
+		<string>libarchive_ios.framework/libarchive_ios</string>
+		<string>tar_main</string>
+		<string>Bb:C:cf:HhI:JjkLlmnOoPpqrSs:T:tUuvW:wX:xyZz</string>
 		<string>file</string>
 	</array>
 	<key>tee</key>
@@ -379,6 +407,20 @@
 		<string>w_main</string>
 		<string></string>
 		<string>no</string>
+	</array>
+	<key>vi</key>
+	<array>
+		<string>vim.framework/vim</string>
+		<string>main</string>
+		<string>bCc:dDeEfgHhi:lLmMnNoOpPqrRsSTu:UvVwW:xXyZ</string>
+		<string>file</string>
+	</array>
+	<key>vim</key>
+	<array>
+		<string>vim.framework/vim</string>
+		<string>main</string>
+		<string>bCc:dDeEfgHhi:lLmMnNoOpPqrRsSTu:UvVwW:xXyZ</string>
+		<string>file</string>
 	</array>
 	<key>wc</key>
 	<array>

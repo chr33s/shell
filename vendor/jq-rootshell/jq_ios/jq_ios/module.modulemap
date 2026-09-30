@@ -1,0 +1,8 @@
+framework module jq_ios {
+    umbrella header "jq_ios.h"
+
+    // Thread-local storage API (framework-specific)
+    header "jq_tls.h"
+
+    export *
+}
