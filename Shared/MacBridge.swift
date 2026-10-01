@@ -33,6 +33,10 @@ public protocol MacBridge: NSObjectProtocol {
     func isVisible(_ window: NSObject) -> Bool
     func isOpaque(_ window: NSObject) -> Bool
     func frame(of window: NSObject) -> CGRect
+    /// `frame(of:)` converted to the system space `UIWindowScene.Geometry.systemFrame`
+    /// reports: points, origin at the top-left of the primary display. Lets a
+    /// scene find its own NSWindow by geometry instead of waiting to become key.
+    func systemFrame(of window: NSObject) -> CGRect
     func setTitle(_ title: String, for window: NSObject)
     func beginWindowDrag(_ window: NSObject) -> Bool
     func toggleFullScreen(_ window: NSObject)

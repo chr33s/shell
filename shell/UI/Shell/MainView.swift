@@ -336,7 +336,13 @@ struct MainView: View {
                         .frame(maxWidth: .infinity)
                         .background {
                             ZStack {
-                                tabBarChromeBackground(resolvedTheme)
+                                // When the row rides in the title bar the
+                                // full-bleed strip beneath already paints this
+                                // area. A second translucent fill here stacked
+                                // to a darker band than the terminal below.
+                                if !tabRowSitsOnFullBleedStrip {
+                                    tabBarChromeBackground(resolvedTheme)
+                                }
 
                                 // Background layer on purpose: the active tab
                                 // occludes the run beneath it, so the line

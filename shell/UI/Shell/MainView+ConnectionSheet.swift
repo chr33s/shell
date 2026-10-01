@@ -54,6 +54,56 @@ extension MainView {
         }
     }
 
+    // MARK: - Presentation routing
+
+    /// On the Mac the picker is a popover from the add button, the native
+    /// chooser pattern, and stays window-scoped so connect routing, reconnect
+    /// prefills, and the empty-window guard are unchanged. The popover needs
+    /// its anchor on screen, so a hidden tab bar (no add button) falls back to
+    /// the sheet. iPhone and iPad always use the sheet.
+    var usesConnectionPopover: Bool {
+        #if targetEnvironment(macCatalyst)
+        return !tabBarHidden
+        #else
+        return false
+        #endif
+    }
+
+    /// `showConnectionSidebar`, routed to the popover.
+    var connectionPopoverIsPresented: Binding<Bool> {
+        Binding(
+            get: { showConnectionSidebar && usesConnectionPopover },
+            set: { if !$0 { showConnectionSidebar = false } }
+        )
+    }
+
+    /// `showConnectionSidebar`, routed to the sheet.
+    var connectionSheetIsPresented: Binding<Bool> {
+        Binding(
+            get: { showConnectionSidebar && !usesConnectionPopover },
+            set: { if !$0 { showConnectionSidebar = false } }
+        )
+    }
+
+    /// The connection content with the environment and dismissal rules both
+    /// presentations share. The popover gets an explicit size: a popover
+    /// takes its content's ideal size, and a List has none.
+    @ViewBuilder
+    func connectionPresentationContent(asPopover: Bool, sheetTheme: ResolvedSheetTheme) -> some View {
+        connectionSheetContent
+            .environment(ghosttyApp)
+            .interactiveDismissDisabled(terminals.isEmpty)
+            .themedSheet(
+                themeColors: sheetTheme.themeColors,
+                accentColor: sheetTheme.accentColor,
+                colorScheme: sheetTheme.colorScheme
+            )
+            .frame(
+                width: asPopover ? 380 : nil,
+                height: asPopover ? 460 : nil
+            )
+    }
+
     /// Open the connection sheet with a prefill. When the sheet is already up
     /// — for another reconnect, a deep link, or plain browsing — its editor
     /// has consumed its initial state, so swapping the prefill underneath it

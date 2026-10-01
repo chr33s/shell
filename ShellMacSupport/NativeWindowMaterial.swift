@@ -54,10 +54,11 @@ final class NativeWindowMaterial {
             child.ignoresMouseEvents = true
             child.isReleasedWhenClosed = false
             child.backgroundColor = .clear
-            // Dark-appearance "regular" glass is a dark smoky material that hides
-            // the desktop; light appearance renders bright frosted glass that
-            // passes the desktop through the way the CGS blur does.
-            child.appearance = NSAppearance(named: .aqua)
+            // Follow the parent window's appearance. Forcing light glass made a
+            // dark theme at 50% read as a milky grey sheet, where Ghostty at the
+            // same opacity stays dark; dark-appearance glass keeps the tint the
+            // theme sets while still refracting the desktop.
+            child.appearance = window.appearance
 
             let glassView = NSGlassEffectView(frame: NSRect(origin: .zero, size: frame.size))
             glassView.autoresizingMask = [.width, .height]
@@ -66,15 +67,29 @@ final class NativeWindowMaterial {
 
             backdrop = Backdrop(window: child, glassView: glassView)
             let center = NotificationCenter.default
-            for name: NSNotification.Name in [NSWindow.didResizeNotification, NSWindow.didMoveNotification,
-                                              NSWindow.didEnterFullScreenNotification,
-                                              NSWindow.didExitFullScreenNotification] {
+            for name: NSNotification.Name in [NSWindow.didResizeNotification, NSWindow.didMoveNotification] {
                 backdrop.observers.append(center.addObserver(forName: name, object: window, queue: .main) {
                     [weak self] notification in
                     guard let parent = notification.object as? NSWindow else { return }
                     MainActor.assumeIsolated { self?.syncBackdrop(to: parent) }
                 })
             }
+            // Native full screen moves the pair into its own Space and does not
+            // keep a `.below` child beneath its parent: the glass landed on top
+            // and blurred the terminal itself. Hide it for the duration, the
+            // way Ghostty drops background effects in full screen.
+            backdrop.observers.append(center.addObserver(
+                forName: NSWindow.didEnterFullScreenNotification, object: window, queue: .main
+            ) { [weak self] notification in
+                guard let parent = notification.object as? NSWindow else { return }
+                MainActor.assumeIsolated { self?.setBackdropHidden(true, for: parent) }
+            })
+            backdrop.observers.append(center.addObserver(
+                forName: NSWindow.didExitFullScreenNotification, object: window, queue: .main
+            ) { [weak self] notification in
+                guard let parent = notification.object as? NSWindow else { return }
+                MainActor.assumeIsolated { self?.setBackdropHidden(false, for: parent) }
+            })
             backdrop.observers.append(center.addObserver(
                 forName: NSWindow.willCloseNotification, object: window, queue: .main
             ) { [weak self] notification in
@@ -85,6 +100,25 @@ final class NativeWindowMaterial {
         }
 
         backdrop.glassView.style = clear ? .clear : .regular
+        if window.styleMask.contains(.fullScreen) {
+            setBackdropHidden(true, for: window)
+        } else {
+            syncBackdrop(to: window)
+        }
+    }
+
+    /// Detach the backdrop while its parent is in native full screen and
+    /// re-attach it (below the parent, re-synced) on exit.
+    private func setBackdropHidden(_ hidden: Bool, for window: NSWindow) {
+        guard let backdrop = backdrops[ObjectIdentifier(window)] else { return }
+        if hidden {
+            window.removeChildWindow(backdrop.window)
+            backdrop.window.orderOut(nil)
+            return
+        }
+        if !(window.childWindows?.contains(backdrop.window) ?? false) {
+            window.addChildWindow(backdrop.window, ordered: .below)
+        }
         syncBackdrop(to: window)
     }
 

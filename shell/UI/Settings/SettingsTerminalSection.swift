@@ -9,13 +9,24 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct SettingsTerminalSection: View {
-    @Setting(Settings.Font.size) private var fontSize: Double
-    @Setting(Settings.Theme.selected) private var themeName: String
+    // Font size and theme bind to their managers, not to the raw store keys.
+    // A `@Setting` write is a local store change, and the refresh hub skips
+    // local origins, so the managers never learned about it and Ghostty was
+    // never asked to reload until the next launch. The managers' setters
+    // save to the store and publish the change.
+    @State private var fontManager = FontManager.shared
     @Setting(Settings.Terminal.scrollbackLimit) private var scrollbackLimit: Int
     @Setting(Settings.Terminal.terminalTypeLocal) private var terminalTypeLocal: String
     @Setting(Settings.Terminal.terminalTypeRemote) private var terminalTypeRemote: String
 
     @State private var themeManager = ThemeManager.shared
+
+    #if targetEnvironment(macCatalyst)
+    /// Window transparency is owned by `TransparencyManager`, which saves and
+    /// publishes each change itself. A `@Setting` write would bypass it: the
+    /// refresh hub skips `.local` origins, so the window would never update.
+    @State private var transparency = TransparencyManager.shared
+    #endif
 
     /// Whether each TERM row shows its free-text field, seeded on first render
     /// from whether the stored value is one of `TerminalTypeSettings.presets`
@@ -39,8 +50,12 @@ struct SettingsTerminalSection: View {
     var body: some View {
         List {
             Section {
-                Stepper(value: $fontSize, in: 8...32, step: 1) {
-                    LabeledContent("Font Size", value: fontSize, format: .number.precision(.fractionLength(0)))
+                Stepper(value: $fontManager.currentFontSize, in: 8...32, step: 1) {
+                    LabeledContent(
+                        "Font Size",
+                        value: fontManager.currentFontSize,
+                        format: .number.precision(.fractionLength(0))
+                    )
                 }
                 .themedRow()
             } header: {
@@ -48,7 +63,7 @@ struct SettingsTerminalSection: View {
             }
 
             Section {
-                Picker("Theme", selection: $themeName) {
+                Picker("Theme", selection: $themeManager.currentTheme) {
                     ForEach(themeManager.availableThemes, id: \.name) { theme in
                         Text(theme.displayName).tag(theme.name)
                     }
@@ -59,6 +74,10 @@ struct SettingsTerminalSection: View {
             } footer: {
                 Text("Shell ships one default theme; any theme file present in the bundle can be selected here.")
             }
+
+            #if targetEnvironment(macCatalyst)
+            transparencySection
+            #endif
 
             Section {
                 Picker("Scrollback Lines", selection: $scrollbackLimit) {
@@ -178,6 +197,51 @@ struct SettingsTerminalSection: View {
         }
         #endif
     }
+
+    // MARK: - Transparency (Mac)
+
+    #if targetEnvironment(macCatalyst)
+    /// Window background opacity and material. Glass puts the macOS 26 Liquid
+    /// Glass backdrop behind the terminal; Standard blurs with a visual-effect
+    /// view. Both read through the theme background drawn at the opacity set
+    /// here. The View menu's Transparency item toggles the opacity to 100%
+    /// and back without changing the value stored by the slider.
+    private var transparencySection: some View {
+        Section {
+            LabeledContent {
+                Text(transparency.backgroundOpacity, format: .percent.precision(.fractionLength(0)))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            } label: {
+                Text("Background Opacity")
+            }
+            .themedRow()
+            Slider(value: $transparency.backgroundOpacity, in: 0.3...1.0, step: 0.05)
+                .themedRow()
+                .disabled(transparency.isTransparencyDisabled)
+
+            Picker("Blur Style", selection: $transparency.blurStyle) {
+                ForEach(TransparencyManager.BlurStyle.allCases) { style in
+                    Text(style.title).tag(style)
+                }
+            }
+            .themedRow()
+
+            if transparency.blurStyle == .standard {
+                Toggle("Background Blur", isOn: $transparency.blurEnabled)
+                    .themedRow()
+            }
+        } header: {
+            SettingGroupHeader("Transparency", group: .transparency)
+        } footer: {
+            if transparency.isTransparencyDisabled {
+                Text("Transparency is turned off in the View menu. Turn it back on there to use these settings.")
+            } else {
+                Text("Lower opacity lets the desktop show through the terminal. Glass uses the macOS Liquid Glass material; Clear Glass is more see-through.")
+            }
+        }
+    }
+    #endif
 
     // MARK: - TERM
 

@@ -285,10 +285,30 @@ extension MainView {
         #endif
     }
 
+    /// The fill behind the tab row and the full-bleed strip above the
+    /// terminal. On Catalyst it carries the window's background opacity so
+    /// the chrome and the translucent terminal read as one surface; an opaque
+    /// strip over a glass terminal showed as a solid band across the top.
     func tabBarChromeBackground(_ theme: ResolvedTabBarTheme) -> Color {
-        topTabStyle == .integrated
+        let color = topTabStyle == .integrated
             ? theme.integratedStripBackground
             : theme.tabBarBackground
+        #if targetEnvironment(macCatalyst)
+        return color.opacity(transparencyManager.backgroundOpacity)
+        #else
+        return color
+        #endif
+    }
+
+    /// True when the tab row occupies the window's top inset, which the
+    /// Catalyst full-bleed strip already fills. The row then paints no
+    /// background of its own so translucent chrome is a single layer.
+    var tabRowSitsOnFullBleedStrip: Bool {
+        #if targetEnvironment(macCatalyst)
+        return topTabBarAttachedToWindow
+        #else
+        return false
+        #endif
     }
 
     /// Leading padding for tab bar content (accounts for window controls on Catalyst)

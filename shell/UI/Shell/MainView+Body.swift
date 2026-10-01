@@ -53,6 +53,7 @@ extension MainView {
     func fullBleedBackground(geometry: GeometryProxy, theme: ResolvedTabBarTheme) -> some View {
         let chromeBackground = tabBarChromeBackground(theme)
         #if targetEnvironment(macCatalyst)
+        // `tabBarChromeBackground` already carries the window opacity.
         VStack(spacing: 0) {
             chromeBackground
                 .frame(height: (hideWindowTitleBar && tabBarHidden) ? 0 : max(44, geometry.safeAreaInsets.top))
@@ -170,6 +171,16 @@ extension MainView {
         .frame(width: TabMetrics.tabBarHeight, height: TabMetrics.tabBarHeight)
         .fixedSize()
         .layoutPriority(1)
+        #if targetEnvironment(macCatalyst)
+        // The Connect chooser anchors here on the Mac, the way a "new
+        // connection" popover does in native apps. Both tab-bar layouts render
+        // this button, so the anchor exists whenever the bar is visible.
+        .popover(isPresented: connectionPopoverIsPresented, arrowEdge: .bottom) {
+            // Resolved here, not per body: this closure only runs while the
+            // popover is up.
+            connectionPresentationContent(asPopover: true, sheetTheme: resolvedSheetTheme())
+        }
+        #endif
     }
 
     @ViewBuilder
@@ -222,8 +233,10 @@ extension MainView {
         let dragWidth = topTabBarAttachedToWindow ? Self.catalystWindowDragWidth : 0
         // This fill sits above the row's background, so without the inset it
         // clips the integrated edge across the traffic-light clearance. Outer
-        // frame is unchanged, leaving drag-region geometry alone.
-        tabBarChromeBackground(theme)
+        // frame is unchanged, leaving drag-region geometry alone. Over a
+        // translucent terminal the fill is dropped: a second translucent layer
+        // on top of the row background would darken just this clearance.
+        (theme.terminalSurfaceIsTransparent ? Color.clear : tabBarChromeBackground(theme))
             .padding(.bottom, topTabStyle.usesStripLayout ? IntegratedTabEdgeMetrics.reservedThickness : 0)
             .frame(width: tabBarLeadingPadding, height: 44)
             .overlay {

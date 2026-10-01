@@ -225,6 +225,8 @@ struct ControlSetupView: View {
         }
         .themedList()
         .navigationTitle(String(localized: "Control"))
+        // Match the other Settings sections, which all use the inline title.
+        .navigationBarTitleDisplayMode(.inline)
         .task { await companion.start() }
         .refreshable { await companion.refresh(forceAgent: true) }
         .onReceive(NotificationCenter.default.publisher(for: .controlPairingReceived)) { _ in

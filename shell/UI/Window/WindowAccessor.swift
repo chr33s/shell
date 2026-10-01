@@ -454,6 +454,38 @@ private final class TransparentWindowView: UIView {
         }
     }
 
+    /// The visible NSWindow whose frame coincides with the scene's system
+    /// frame. Backdrop child windows and windows carrying another live scene's
+    /// claim are excluded. Returns nil when the geometry is ambiguous (two
+    /// candidates at the same frame) so the caller falls back to the key rule
+    /// rather than guess.
+    private static func frameMatchedWindow(
+        for uiWindow: UIWindow,
+        sceneSessionId ownSessionId: String,
+        in windows: [NSObject],
+        bridge: any MacBridge
+    ) -> NSObject? {
+        guard let scene = uiWindow.windowScene else { return nil }
+        let target = scene.effectiveGeometry.systemFrame
+        guard target.width > 0, target.height > 0 else { return nil }
+        let tolerance: CGFloat = 2
+
+        let matches = windows.filter { window in
+            guard !bridge.isMaterialBackdrop(window), bridge.isVisible(window) else { return false }
+            if let storedId = WindowAccessor.sceneSessionId(for: window),
+               storedId != ownSessionId,
+               isLiveSceneSession(storedId) {
+                return false
+            }
+            let frame = bridge.systemFrame(of: window)
+            return abs(frame.minX - target.minX) <= tolerance
+                && abs(frame.minY - target.minY) <= tolerance
+                && abs(frame.width - target.width) <= tolerance
+                && abs(frame.height - target.height) <= tolerance
+        }
+        return matches.count == 1 ? matches[0] : nil
+    }
+
     /// Configures the underlying NSWindow for transparency on Mac Catalyst
     /// Uses Objective-C runtime to access AppKit classes
     private func makeNSWindowTransparent() {
@@ -505,6 +537,16 @@ private final class TransparentWindowView: UIView {
 
         if let claimedWindow {
             nsWindow = claimedWindow
+        } else if let match = Self.frameMatchedWindow(
+            for: uiWindow, sceneSessionId: sceneSessionId, in: windows, bridge: bridge
+        ) {
+            // Geometry claim: the scene's system frame identifies its NSWindow
+            // without waiting for it to become key. Restored windows other
+            // than the key one otherwise sat unclaimed (and opaque) until the
+            // user clicked into them.
+            nsWindow = match
+            objc_setAssociatedObject(nsWindow, &sceneSessionIdKey, sceneSessionId, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+            Self.logger.info("Claimed frame-matched NSWindow for scene \(sceneSessionId)")
         } else if windows.count == 1 {
             // Only one window - claim it
             let candidate = windows[0]

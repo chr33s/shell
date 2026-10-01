@@ -39,6 +39,15 @@ final class ShellMacSupport: NSObject, MacBridge {
     func isVisible(_ window: NSObject) -> Bool { (window as? NSWindow)?.isVisible ?? false }
     func isOpaque(_ window: NSObject) -> Bool { (window as? NSWindow)?.isOpaque ?? true }
     func frame(of window: NSObject) -> CGRect { (window as? NSWindow)?.frame ?? .zero }
+    func systemFrame(of window: NSObject) -> CGRect {
+        guard let window = window as? NSWindow else { return .zero }
+        // NSScreen.screens.first is the primary display, whose frame origin is
+        // the AppKit global origin; flipping against its height yields the
+        // top-left-origin space UIKit's scene geometry uses.
+        let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
+        let frame = window.frame
+        return CGRect(x: frame.minX, y: primaryHeight - frame.maxY, width: frame.width, height: frame.height)
+    }
     func setTitle(_ title: String, for window: NSObject) { (window as? NSWindow)?.title = title }
     func toggleFullScreen(_ window: NSObject) { (window as? NSWindow)?.toggleFullScreen(nil) }
 

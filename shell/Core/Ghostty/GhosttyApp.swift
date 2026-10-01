@@ -394,6 +394,11 @@ extension Ghostty {
             // Listen for selection config changes
             self.setupSelectionSubscription()
 
+            // Listen for transparency changes (Catalyst). Without this the
+            // new opacity only reached surfaces through the config written at
+            // the next launch, so the Settings slider appeared to do nothing.
+            self.setupTransparencySubscription()
+
             // Listen for power-tier changes (battery saver / refresh cap)
             self.setupPowerSubscription()
 

@@ -115,9 +115,10 @@ nonisolated extension Settings {
     }
 
     /// Terminal background opacity / blur, applied straight to the Ghostty surface.
+    /// Defaults mirror `TransparencyManager`'s; keep both in step.
     enum Transparency {
         static let backgroundOpacity = SettingKey(
-            "backgroundOpacity", default: 0.92, group: .transparency, policy: .localByDefault,
+            "backgroundOpacity", default: 0.8, group: .transparency, policy: .localByDefault,
             configKey: "background-opacity",
             title: String(localized: "Background Opacity", comment: "Setting title"))
         static let backgroundBlurRadius = SettingKey(
@@ -129,7 +130,7 @@ nonisolated extension Settings {
             configKey: "blur-enabled",
             title: String(localized: "Background Blur", comment: "Setting title"))
         static let blurStyle = SettingKey(
-            "blurStyle", default: TransparencyManager.BlurStyle.standard, group: .transparency,
+            "blurStyle", default: TransparencyManager.BlurStyle.glassRegular, group: .transparency,
             policy: .localByDefault, configKey: "blur-style",
             title: String(localized: "Blur Style", comment: "Setting title"))
         static let pinnedSidebarTransparency = SettingKey(

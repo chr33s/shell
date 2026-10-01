@@ -11,10 +11,15 @@ import Combine
 final class TransparencyManager {
     static let shared = TransparencyManager()
 
-    /// Selects the window blur implementation.
+    /// Selects the window blur implementation for the Standard style.
     /// `false` = private CGS API (supports a custom radius)
     /// `true`  = NSVisualEffectView (no custom radius)
-    static let useSandboxBlur = false
+    ///
+    /// The Catalyst build ships with the App Sandbox entitlement, and the
+    /// sandbox refuses the private window-server blur call, so the CGS path
+    /// silently did nothing: a 92%-opaque dark window with no blur read as
+    /// plain opaque. The visual-effect view is the sandbox-safe path.
+    static let useSandboxBlur = true
 
     /// How the window background behind the terminal is blurred.
     enum BlurStyle: String, CaseIterable, Identifiable {
@@ -49,10 +54,13 @@ final class TransparencyManager {
         Settings.Transparency.blurEnabled.name, Settings.Transparency.blurStyle.name,
         Settings.Transparency.pinnedSidebarTransparency.name
     ]
-    private static let defaultBackgroundOpacity: Double = 0.92
+    // Defaults mirror `Settings.Transparency`; keep both in step. Glass at 0.8
+    // is the macOS 26 look out of the box: 0.92 over a dark theme is visually
+    // indistinguishable from opaque.
+    private static let defaultBackgroundOpacity: Double = 0.8
     private static let defaultBackgroundBlurRadius: Double = 30.0
     private static let defaultBlurEnabled: Bool = true
-    private static let defaultBlurStyle: BlurStyle = .standard
+    private static let defaultBlurStyle: BlurStyle = .glassRegular
     private static let defaultPinnedSidebarTransparencyEnabled: Bool = false
 
     /// Current background opacity (0.0 = fully transparent, 1.0 = opaque)
