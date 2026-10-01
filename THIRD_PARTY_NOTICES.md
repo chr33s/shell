@@ -53,6 +53,14 @@ revision recorded in `vendor/manifest.lock`; each package's `Package.swift`
 there is mechanically rewritten to resolve locally, and nothing else is
 changed. See the corresponding package repository for upstream history.
 
+Mac Catalyst builds ship a `libsodium.26.dylib` next to `vim.framework`. It is
+not [libsodium](https://github.com/jedisct1/libsodium) and contains no
+cryptography: it is a small compatibility stub written for this project
+(`scripts/libsodium-stub.c`, MIT like the rest of the original source) that
+satisfies the upstream Vim binary's link against a Homebrew libsodium path and
+makes Vim fall back to its no-libsodium code paths. No libsodium source or
+binary is distributed.
+
 Joe's Own Editor is an optional, debug-only component licensed under the GNU
 GPL. Its package and the support files under `Resources/joe` are stripped from
 distribution builds and are not covered by the rootshell MIT license. See the

@@ -315,7 +315,11 @@ extension MainView {
     /// toolbar items. AppKit reports it once the window exists; until then the
     /// strip's own height keeps the layout stable.
     var catalystTitlebarRowHeight: CGFloat {
-        max(TabMetrics.tabBarHeight, titlebarLayoutManager.titlebarHeight)
+        #if targetEnvironment(macCatalyst)
+        return max(TabMetrics.tabBarHeight, titlebarLayoutManager.titlebarHeight)
+        #else
+        return TabMetrics.tabBarHeight
+        #endif
     }
 
     /// Extra height above the 44pt tab row when it rides in the unified title

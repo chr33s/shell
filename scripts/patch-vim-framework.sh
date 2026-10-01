@@ -106,7 +106,7 @@ for arch in ${ARCHS}; do
     xcrun clang \
         -target "${arch}-apple-ios${STUB_MIN_OS}-macabi" \
         -isysroot "${SDKROOT}" \
-        -dynamiclib -O2 -Wall -Wextra \
+        -dynamiclib -g -O2 -Wall -Wextra \
         -install_name "${STUB_INSTALL_NAME}" \
         -compatibility_version 29 -current_version 29 \
         -o "${slice}" "${STUB_SOURCE}"
@@ -115,6 +115,24 @@ done
 # shellcheck disable=SC2086 # slices is a space-separated list of paths
 lipo -create ${slices} -output "${TMP}/libsodium.26.dylib"
 ditto "${TMP}/libsodium.26.dylib" "${STUB}"
+
+# 1b. Emit a dSYM for the stub alongside the build's other dSYMs. App Store
+#     export verifies that every Mach-O in the archive has a dSYM with matching
+#     UUIDs and fails without one ("The archive did not include a dSYM for the
+#     libsodium.26.dylib"). Xcode collects *.dSYM from DWARF_DSYM_FOLDER_PATH
+#     into the archive's dSYMs folder, so dropping it there is all it takes.
+#     Only when the build itself produces dSYMs (Release/archive); a dwarf-only
+#     Debug build has nowhere to put it and nothing checks for it.
+if [ -z "${STANDALONE}" ] && \
+   [ "${DEBUG_INFORMATION_FORMAT:-}" = "dwarf-with-dsym" ] && \
+   [ -n "${DWARF_DSYM_FOLDER_PATH:-}" ]; then
+    mkdir -p "${DWARF_DSYM_FOLDER_PATH}"
+    STUB_DSYM="${DWARF_DSYM_FOLDER_PATH}/libsodium.26.dylib.dSYM"
+    rm -rf "${STUB_DSYM}"
+    xcrun dsymutil "${STUB}" -o "${STUB_DSYM}"
+    echo "note: wrote ${STUB_DSYM}"
+fi
+
 sign "${STUB}"
 
 # 2. Rewrite vim's load command. install_name_tool edits every slice that has
