@@ -23,8 +23,11 @@ SUPPORTED_PLATFORMS = iphoneos iphonesimulator xros xrsimulator
 SUPPORTS_MACCATALYST = YES
 SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO
 
-// Device Families (1=iPhone, 2=iPad, 7=Apple Vision)
-TARGETED_DEVICE_FAMILY = 1,2,7
+// Device Families (1=iPhone, 2=iPad, 6=Mac, 7=Apple Vision). 6 is "Optimize
+// Interface for Mac": Catalyst runs the Mac idiom at native scale with AppKit-
+// styled controls instead of the 77%-scaled iPad idiom. The shell target
+// repeats this list in the project file, which wins over this file; keep both.
+TARGETED_DEVICE_FAMILY = 1,2,6,7
 
 // App Identity
 PRODUCT_NAME = Shell

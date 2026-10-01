@@ -45,6 +45,35 @@ enum SettingsDestination: String, Hashable {
     case sshIdentities
     case sshProfiles
     case knownHosts
+
+    /// The section whose navigation stack the destination is pushed onto.
+    var section: SettingsSection { .ssh }
+}
+
+// MARK: - Content
+
+/// The screen for a section or deep link, shared by the sheet's drill-down
+/// stack and the Catalyst window's split view.
+extension SettingsSection {
+    @ViewBuilder var content: some View {
+        switch self {
+        case .terminal: SettingsTerminalSection()
+        case .ssh: SettingsSSHSection()
+        case .tmux: SettingsTmuxSection()
+        case .sync: SettingsSyncSection()
+        case .control: SettingsControlSection()
+        }
+    }
+}
+
+extension SettingsDestination {
+    @ViewBuilder var content: some View {
+        switch self {
+        case .sshIdentities: SSHKeyManagementView()
+        case .sshProfiles: SSHProfilesSettingsView()
+        case .knownHosts: KnownHostsView()
+        }
+    }
 }
 
 // MARK: - Root
@@ -79,22 +108,8 @@ struct SettingsView: View {
                     }
                 }
             }
-            .navigationDestination(for: SettingsSection.self) { section in
-                switch section {
-                case .terminal: SettingsTerminalSection()
-                case .ssh: SettingsSSHSection()
-                case .tmux: SettingsTmuxSection()
-                case .sync: SettingsSyncSection()
-                case .control: SettingsControlSection()
-                }
-            }
-            .navigationDestination(for: SettingsDestination.self) { destination in
-                switch destination {
-                case .sshIdentities: SSHKeyManagementView()
-                case .sshProfiles: SSHProfilesSettingsView()
-                case .knownHosts: KnownHostsView()
-                }
-            }
+            .navigationDestination(for: SettingsSection.self) { $0.content }
+            .navigationDestination(for: SettingsDestination.self) { $0.content }
             .onAppear(perform: navigateToInitialDestination)
         }
     }
@@ -102,15 +117,15 @@ struct SettingsView: View {
     private func navigateToInitialDestination() {
         guard let initialDestination, !hasNavigatedToInitialDestination else { return }
         hasNavigatedToInitialDestination = true
-        path.append(SettingsSection.ssh)
+        path.append(initialDestination.section)
         path.append(initialDestination)
     }
 }
 
 // MARK: - Settings Sheet Modifier
 
-/// Presents Settings as a sheet on every platform. The fork has no separate
-/// iPad/Catalyst side panel.
+/// Presents Settings as a sheet on iPhone, iPad, and visionOS. Mac Catalyst
+/// opens `MacSettingsSplitViewController` in its own window instead.
 struct SettingsSheetModifier: ViewModifier {
     @Binding var showSettings: Bool
     var settingsDestination: SettingsDestination?

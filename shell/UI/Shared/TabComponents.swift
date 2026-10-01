@@ -453,6 +453,10 @@ struct TabButton: View {
             .frame(width: closeTargetSize.width, height: closeTargetSize.height)
             .offset(y: style == .integrated ? 2 : 0)
         }
+        // Plain style: Catalyst's automatic button style draws its own
+        // rounded-rect pointer highlight behind the content, which stacked a
+        // third box between the tab pill and the hover disc above.
+        .buttonStyle(.plain)
         .onHover { hovering in
             if usesCloseHoverDisc {
                 isCloseHovered = hovering
