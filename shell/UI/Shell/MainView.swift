@@ -173,7 +173,10 @@ struct MainView: View {
     @Setting(Settings.Connections.healthMonitoring) var sshHealthMonitoringEnabled
 #if targetEnvironment(macCatalyst)
     @Setting(Settings.Window.tabsInTitlebar) var tabsInTitlebarEnabled
-    @Setting(Settings.Window.hideTitleBar) var hideWindowTitleBar
+    /// The Mac window always shows its title bar: the native toolbar with the
+    /// New Tab and Settings items lives there. A constant, so the layout code
+    /// that once supported hiding it reads unchanged.
+    let hideWindowTitleBar = false
 #endif
 
     // Tab bar visibility
@@ -319,20 +322,27 @@ struct MainView: View {
 #endif
 
                             if usesCompactTabSpacing {
+                                #if !targetEnvironment(macCatalyst)
                                 tabBarAddButton(theme: resolvedTheme)
+                                #endif
                                 integratedTabBarDragRegion()
                                     .layoutPriority(-1)
-                                tabBarSettingsButton(theme: resolvedTheme)
+                                tabBarTrailingChrome(theme: resolvedTheme, compact: true)
                             } else {
                                 TabStyleContextMenuRegion(
                                     selectedStyleRawValue: topTabStyleRawValueBinding
                                 )
                                 .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)
                                 .layoutPriority(-1)
-                                tabBarActionButtons(theme: resolvedTheme)
+                                tabBarTrailingChrome(theme: resolvedTheme, compact: false)
                             }
                         }
                         .frame(height: TabMetrics.tabBarHeight)
+                        // On the Mac the row shares the unified title bar with
+                        // the native toolbar items; pad it to that bar's height
+                        // so the tabs sit level with the items.
+                        .padding(.top, tabRowTopPadding)
+                        .padding(.bottom, tabRowBottomPadding)
                         .frame(maxWidth: .infinity)
                         .background {
                             ZStack {
@@ -453,11 +463,6 @@ struct MainView: View {
                 #endif
 
             } // ZStack
-#if targetEnvironment(macCatalyst)
-            .overlay(alignment: .top) {
-                catalystDragStripShield()
-            }
-#endif
             .overlay {
                 // Tab indicator overlay - shown when switching tabs with tab bar hidden.
                 // Pass the TabModel (class reference, structural under Observation),

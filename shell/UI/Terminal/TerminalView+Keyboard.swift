@@ -2100,11 +2100,6 @@ extension Ghostty.TerminalView {
         NotificationCenter.default.post(name: .toggleTransparency, object: self)
     }
 
-    @objc func menuToggleTitleBar(_ sender: Any?) {
-        noteModTapCommand(sender as? UIKeyCommand)
-        NotificationCenter.default.post(name: .toggleTitleBar, object: self)
-    }
-
     @objc func menuToggleFullScreen(_ sender: Any?) {
         noteModTapCommand(sender as? UIKeyCommand)
         NotificationCenter.default.post(name: .toggleFullScreen, object: self)

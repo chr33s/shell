@@ -27,6 +27,16 @@ extension MainView {
     /// Width reserved for action buttons (plus + settings)
     static let actionButtonsWidth: CGFloat = TabMetrics.tabBarHeight * 2
 
+    /// Width the row reserves after the tabs: the SwiftUI action buttons on
+    /// iPhone and iPad, the native toolbar's item area on the Mac.
+    var trailingChromeWidth: CGFloat {
+        #if targetEnvironment(macCatalyst)
+        return tabBarTrailingPadding
+        #else
+        return Self.actionButtonsWidth
+        #endif
+    }
+
     static let integratedMaximumTabWidth: CGFloat = 240
     static let catalystWindowDragWidth: CGFloat = 42
 
@@ -50,7 +60,7 @@ extension MainView {
             0,
             geometry.size.width
                 - tabBarLeadingPadding
-                - Self.actionButtonsWidth
+                - trailingChromeWidth
                 - integratedMinimumDragWidth
         )
         return min(preferred, capacity)

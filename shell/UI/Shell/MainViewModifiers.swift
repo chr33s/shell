@@ -24,7 +24,6 @@ struct NotificationHandlersModifier: ViewModifier {
     private static let terminalRecoveryStatusChangedPublisher = NotificationCenter.default.publisher(for: .terminalRecoveryStatusChanged)
     #if targetEnvironment(macCatalyst)
     private static let toggleTransparencyPublisher = NotificationCenter.default.publisher(for: .toggleTransparency)
-    private static let toggleTitleBarPublisher = NotificationCenter.default.publisher(for: .toggleTitleBar)
     #endif
     private static let toggleFullScreenPublisher = NotificationCenter.default.publisher(for: .toggleFullScreen)
 
@@ -34,9 +33,6 @@ struct NotificationHandlersModifier: ViewModifier {
     let tabsModel: TabsModel
     #if !targetEnvironment(macCatalyst) && !os(visionOS)
     @Setting(Settings.Window.fullScreenMode) private var fullScreenModeEnabled
-    #endif
-    #if targetEnvironment(macCatalyst)
-    @Setting(Settings.Window.hideTitleBar) private var hideWindowTitleBar
     #endif
     var shouldHandleNotification: (Notification) -> Bool
 
@@ -72,16 +68,6 @@ struct NotificationHandlersModifier: ViewModifier {
             .onReceive(Self.toggleTransparencyPublisher) { notification in
                 guard shouldHandleNotification(notification) else { return }
                 TransparencyManager.shared.toggleTransparency()
-            }
-            .onReceive(Self.toggleTitleBarPublisher) { notification in
-                guard shouldHandleNotification(notification) else { return }
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    hideWindowTitleBar.toggle()
-                }
-                // Post layout invalidation after animation completes to ensure terminals resize
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                    NotificationCenter.default.post(name: .terminalLayoutInvalidation, object: nil)
-                }
             }
             #endif
             .onReceive(Self.toggleFullScreenPublisher) { notification in

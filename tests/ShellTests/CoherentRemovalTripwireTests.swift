@@ -100,20 +100,21 @@ return
 
     // MARK: - Checkable menu items
 
-    /// Eight menu items reflect live state with a checkmark. They are on the
+    /// Seven menu items reflect live state with a checkmark. They are on the
     /// fork's keep-list: each replaced a plain `Button`, and reverting one to a
     /// button loses the checkmark without changing what the item *does*, so no
-    /// behavioral test would notice.
+    /// behavioral test would notice. (Title Bar was removed deliberately: the
+    /// Mac window's title bar hosts the native toolbar and is never hidden.)
     ///
     /// The dispatch half is checked at run time in
     /// `MenuCommandChainTests.testTerminalViewImplementsEveryResponderSideCommand`;
     /// this pins that the checkable items themselves still exist.
     @Test
-    func testTripwireAllEightCheckableMenuItemsAreStillInstalled() throws {
+    func testTripwireAllSevenCheckableMenuItemsAreStillInstalled() throws {
         let source = try appSource()
 
         let kinds = [
-            "topTabBar", "groupMode", "transparency", "titleBar",
+            "topTabBar", "groupMode", "transparency",
             "fullScreen", "splitZoom", "compose", "mouseCapture"
         ]
         let missing = kinds.filter { !source.contains("MenuToggleItem(kind: .\($0)") }
@@ -124,7 +125,7 @@ return
             just stops showing whether the thing is currently on. See \
             shell/App/AppCommands.swift.
             """)
-        #expect(kinds.count == 8, "Update this list deliberately when adding or removing a checkable item.")
+        #expect(kinds.count == 7, "Update this list deliberately when adding or removing a checkable item.")
     }
 
     // MARK: - Local-shell pipeline staging

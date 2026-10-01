@@ -37,6 +37,12 @@ public protocol MacBridge: NSObjectProtocol {
     /// reports: points, origin at the top-left of the primary display. Lets a
     /// scene find its own NSWindow by geometry instead of waiting to become key.
     func systemFrame(of window: NSObject) -> CGRect
+    /// Points from the window's trailing edge to the leading edge of the
+    /// title-bar toolbar's item area, or 0 when the window has no toolbar.
+    /// The SwiftUI tab strip ends here so it never runs under native items.
+    func titlebarTrailingInset(_ window: NSObject) -> CGFloat
+    /// Height of the title bar including a unified toolbar, in points.
+    func titlebarHeight(_ window: NSObject) -> CGFloat
     func setTitle(_ title: String, for window: NSObject)
     func beginWindowDrag(_ window: NSObject) -> Bool
     func toggleFullScreen(_ window: NSObject)

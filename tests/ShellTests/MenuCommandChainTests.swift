@@ -92,7 +92,6 @@ final class MenuCommandChainTests {
         Command("menuPreviousGroup:", posts: "dev.chr33s.shell.previousGroup", userInfo: [:]),
         Command("menuNextGroup:", posts: "dev.chr33s.shell.nextGroup", userInfo: [:]),
         Command("menuToggleTransparency:", posts: "dev.chr33s.shell.toggleTransparency", userInfo: [:]),
-        Command("menuToggleTitleBar:", posts: "dev.chr33s.shell.toggleTitleBar", userInfo: [:]),
         Command("menuPreviousTab:", posts: "dev.chr33s.shell.previousTab", userInfo: [:]),
         Command("menuNextTab:", posts: "dev.chr33s.shell.nextTab", userInfo: [:]),
         Command("menuShowTmuxSessions:", posts: "dev.chr33s.shell.showTmuxSessions", userInfo: [:]),
@@ -280,7 +279,7 @@ final class MenuCommandChainTests {
             "menuToggleTabBar:", "menuToggleGroupMode:",
             "menuPreviousGroup:", "menuNextGroup:",
             "menuShowTmuxSessions:", "menuDetachOtherClients:",
-            "menuToggleTransparency:", "menuToggleTitleBar:", "menuToggleFullScreen:",
+            "menuToggleTransparency:", "menuToggleFullScreen:",
             "menuClearScreen:", "menuScrollPageUp:", "menuScrollPageDown:",
             "menuScrollToTop:", "menuScrollToBottom:",
             "menuToggleCompose:", "menuToggleMouseCapture:", "menuCycleInputSource:"

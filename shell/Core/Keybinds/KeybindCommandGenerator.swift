@@ -131,7 +131,7 @@ final class KeybindCommandGenerator {
              .toggle_split_zoom, .equalize_splits, .open_settings, .browse_hosts,
              .browse_profiles, .toggle_tab_bar, .toggle_group_mode,
              .previous_group, .next_group, .show_tmux_sessions, .detach_other_clients,
-             .toggle_transparency, .toggle_titlebar, .toggle_compose,
+             .toggle_transparency, .toggle_compose,
              .toggle_full_screen, .toggle_mouse_capture, .cycle_input_source,
              .increase_font_size, .decrease_font_size,
              .reset_font_size, .start_search, .select_all:

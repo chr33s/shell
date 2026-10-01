@@ -38,6 +38,12 @@ struct ConnectionHealthPopover: View {
                     .font(.system(.body, design: .monospaced))
                     .fontWeight(.medium)
                     .foregroundStyle(.primary)
+                    // The status gains and loses its "(Ns ago)" qualifier as
+                    // probes land, which at this width flips the line between
+                    // one and two rows. Reserving both rows keeps the popover's
+                    // height fixed, so UIKit stops animating it larger and
+                    // smaller on every tick.
+                    .lineLimit(2, reservesSpace: true)
             }
 
             if health.totalPings > 0 {

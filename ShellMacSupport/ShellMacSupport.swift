@@ -48,6 +48,36 @@ final class ShellMacSupport: NSObject, MacBridge {
         let frame = window.frame
         return CGRect(x: frame.minX, y: primaryHeight - frame.maxY, width: frame.width, height: frame.height)
     }
+    func titlebarHeight(_ object: NSObject) -> CGFloat {
+        guard let window = object as? NSWindow else { return 0 }
+        // contentLayoutRect excludes the title bar and toolbar even under
+        // fullSizeContentView, so the difference is exactly the chrome height.
+        return max(0, window.frame.height - window.contentLayoutRect.height)
+    }
+
+    func titlebarTrailingInset(_ object: NSObject) -> CGFloat {
+        guard let window = object as? NSWindow, window.toolbar != nil,
+              let frame = window.contentView?.superview,
+              let toolbarView = firstSubview(of: frame, classNameContaining: "NSToolbarView") else { return 0 }
+        // Each item has a viewer subview. The flexible-space viewer spans the
+        // whole gap before the real items, so only narrow viewers count; the
+        // leftmost of those marks where the item area begins.
+        var itemsMinX = CGFloat.greatestFiniteMagnitude
+        for viewer in toolbarView.subviews where !viewer.isHidden && viewer.frame.width > 0 && viewer.frame.width <= 160 {
+            itemsMinX = min(itemsMinX, viewer.convert(viewer.bounds, to: nil).minX)
+        }
+        guard itemsMinX < .greatestFiniteMagnitude else { return 0 }
+        return max(0, frame.bounds.width - itemsMinX) + 8
+    }
+
+    private func firstSubview(of view: NSView, classNameContaining needle: String) -> NSView? {
+        for child in view.subviews {
+            if String(describing: type(of: child)).contains(needle) { return child }
+            if let found = firstSubview(of: child, classNameContaining: needle) { return found }
+        }
+        return nil
+    }
+
     func setTitle(_ title: String, for window: NSObject) { (window as? NSWindow)?.title = title }
     func toggleFullScreen(_ window: NSObject) { (window as? NSWindow)?.toggleFullScreen(nil) }
 

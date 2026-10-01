@@ -143,11 +143,8 @@ extension MainView {
                 TmuxSessionDashboardView(controller: request.controller)
                     .themedSheet(themeColors: sheetTheme.themeColors, accentColor: sheetTheme.accentColor, colorScheme: sheetTheme.colorScheme)
             }
-            // The Mac presents this as a popover from the add button instead
-            // (see `usesConnectionPopover`); the sheet remains for iPhone,
-            // iPad, and a Mac window whose tab bar is hidden.
-            .sheet(isPresented: connectionSheetIsPresented) {
-                connectionPresentationContent(asPopover: false, sheetTheme: sheetTheme)
+            .sheet(isPresented: $showConnectionSidebar) {
+                connectionPresentationContent(sheetTheme: sheetTheme)
             }
             .sheet(item: $passwordPrompt) { request in
                 PasswordPromptSheet(

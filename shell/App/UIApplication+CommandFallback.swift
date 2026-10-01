@@ -197,10 +197,6 @@ extension UIApplication {
         ghostty_postNotification(.toggleTransparency)
     }
 
-    @objc func menuToggleTitleBar(_ sender: Any?) {
-        ghostty_postNotification(.toggleTitleBar)
-    }
-
     @objc func menuPreviousTab(_ sender: Any?) {
         ghostty_postNotification(.previousTab)
     }

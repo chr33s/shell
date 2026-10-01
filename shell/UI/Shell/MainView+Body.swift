@@ -53,10 +53,11 @@ extension MainView {
     func fullBleedBackground(geometry: GeometryProxy, theme: ResolvedTabBarTheme) -> some View {
         let chromeBackground = tabBarChromeBackground(theme)
         #if targetEnvironment(macCatalyst)
-        // `tabBarChromeBackground` already carries the window opacity.
+        // `tabBarChromeBackground` already carries the window opacity. With
+        // tabs in the title bar the strip spans the unified toolbar's height.
         VStack(spacing: 0) {
             chromeBackground
-                .frame(height: (hideWindowTitleBar && tabBarHidden) ? 0 : max(44, geometry.safeAreaInsets.top))
+                .frame(height: usesTitlebarTabs ? catalystTitlebarRowHeight : max(44, geometry.safeAreaInsets.top))
             Spacer()
         }
         .ignoresSafeArea()
@@ -111,26 +112,8 @@ extension MainView {
         #if targetEnvironment(macCatalyst)
         if tabBarHidden && usesTitlebarTabs && !hideWindowTitleBar {
             Color.clear
-                .frame(height: max(44, geometry.safeAreaInsets.top))
+                .frame(height: catalystTitlebarRowHeight)
                 .catalystCursorRegion()
-        }
-        #endif
-    }
-
-    // MARK: - Hidden-Titlebar Drag Strip Shield
-
-    /// Shields the hidden-titlebar drag strip (Catalyst only). The AppKit
-    /// TitlebarDragHandle above the UIKit layer moves the window, but Catalyst
-    /// delivers the same pointer drag to the terminal view underneath, which
-    /// scrolls/selects while the window moves. A real UIView absorbs those
-    /// events; matches the handle's 12pt topInset in WindowAccessor.
-    @ViewBuilder
-    func catalystDragStripShield() -> some View {
-        #if targetEnvironment(macCatalyst)
-        if hideWindowTitleBar && tabBarHidden {
-            DragStripEventShield()
-                .frame(maxWidth: .infinity)
-                .frame(height: 12)
         }
         #endif
     }
@@ -142,6 +125,25 @@ extension MainView {
     func tabBarActionButtons(theme: ResolvedTabBarTheme) -> some View {
         tabBarAddButton(theme: theme)
         tabBarSettingsButton(theme: theme)
+    }
+
+    /// What ends the tab row. On the Mac the New Tab and Settings controls are
+    /// native toolbar items in the title bar, so the row only leaves clearance
+    /// for them; iPhone and iPad keep the SwiftUI buttons (the compact layout
+    /// already placed its add button before the drag region).
+    @ViewBuilder
+    func tabBarTrailingChrome(theme: ResolvedTabBarTheme, compact: Bool) -> some View {
+        #if targetEnvironment(macCatalyst)
+        Color.clear
+            .frame(width: tabBarTrailingPadding, height: TabMetrics.tabBarHeight)
+            .accessibilityHidden(true)
+        #else
+        if compact {
+            tabBarSettingsButton(theme: theme)
+        } else {
+            tabBarActionButtons(theme: theme)
+        }
+        #endif
     }
 
     @ViewBuilder
@@ -171,16 +173,6 @@ extension MainView {
         .frame(width: TabMetrics.tabBarHeight, height: TabMetrics.tabBarHeight)
         .fixedSize()
         .layoutPriority(1)
-        #if targetEnvironment(macCatalyst)
-        // The Connect chooser anchors here on the Mac, the way a "new
-        // connection" popover does in native apps. Both tab-bar layouts render
-        // this button, so the anchor exists whenever the bar is visible.
-        .popover(isPresented: connectionPopoverIsPresented, arrowEdge: .bottom) {
-            // Resolved here, not per body: this closure only runs while the
-            // popover is up.
-            connectionPresentationContent(asPopover: true, sheetTheme: resolvedSheetTheme())
-        }
-        #endif
     }
 
     @ViewBuilder

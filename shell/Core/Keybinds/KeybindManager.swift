@@ -140,7 +140,6 @@ final class KeybindManager {
             Keybind(key: .leftBracket, modifiers: [.command, .option], action: .previous_group),
             Keybind(key: .rightBracket, modifiers: [.command, .option], action: .next_group),
             Keybind(key: .o, modifiers: [.command, .shift], action: .toggle_transparency),
-            Keybind(key: .h, modifiers: [.command, .shift], action: .toggle_titlebar),
             Keybind(key: .k, modifiers: [.command, .shift], action: .toggle_compose),
             Keybind(key: .f, modifiers: [.command, .shift], action: .toggle_full_screen),
             Keybind(key: .m, modifiers: [.command, .shift], action: .toggle_mouse_capture),

@@ -452,7 +452,6 @@ struct MenuToggleItem: View {
         case topTabBar
         case groupMode
         case transparency
-        case titleBar
         case fullScreen
         case splitZoom
         case compose
@@ -466,7 +465,6 @@ struct MenuToggleItem: View {
     @State private var transparency = TransparencyManager.shared
 
     @Setting(Settings.Tabs.barHidden) private var tabBarHidden
-    @Setting(Settings.Window.hideTitleBar) private var hideWindowTitleBar
     @Setting(Settings.Window.fullScreenMode) private var fullScreenMode
 
     var body: some View {
@@ -501,7 +499,6 @@ struct MenuToggleItem: View {
         case .topTabBar: return !tabBarHidden
         case .groupMode: return tabs?.isGroupedModeEnabled == true
         case .transparency: return !transparency.isTransparencyDisabled
-        case .titleBar: return !hideWindowTitleBar
         case .fullScreen: return fullScreenMode
         case .splitZoom: return tabs?.selectedTab?.splitTree.zoomed != nil
         case .compose: return terminal?.showComposeOverlay == true
@@ -517,7 +514,7 @@ struct MenuToggleItem: View {
     /// truth and no item fans out over a selection.
     private var isEnabled: Bool {
         switch kind {
-        case .topTabBar, .groupMode, .transparency, .titleBar, .fullScreen:
+        case .topTabBar, .groupMode, .transparency, .fullScreen:
             return tabs != nil
         case .splitZoom, .compose, .mouseCapture:
             return terminal != nil
@@ -532,8 +529,6 @@ struct MenuToggleItem: View {
             return String(localized: "Group Mode", comment: "Checkable View menu item")
         case .transparency:
             return String(localized: "Transparency", comment: "Checkable View menu item")
-        case .titleBar:
-            return String(localized: "Title Bar", comment: "Checkable View menu item")
         case .fullScreen:
             return String(localized: "Full Screen", comment: "Checkable View menu item")
         case .splitZoom:
@@ -550,7 +545,6 @@ struct MenuToggleItem: View {
         case .topTabBar: return .toggle_tab_bar
         case .groupMode: return .toggle_group_mode
         case .transparency: return .toggle_transparency
-        case .titleBar: return .toggle_titlebar
         case .fullScreen: return .toggle_full_screen
         case .splitZoom: return .toggle_split_zoom
         case .compose: return .toggle_compose
@@ -566,8 +560,6 @@ struct MenuToggleItem: View {
             send(#selector(Ghostty.TerminalView.menuToggleGroupMode(_:)))
         case .transparency:
             send(#selector(Ghostty.TerminalView.menuToggleTransparency(_:)))
-        case .titleBar:
-            send(#selector(Ghostty.TerminalView.menuToggleTitleBar(_:)))
         case .fullScreen:
             send(#selector(Ghostty.TerminalView.menuToggleFullScreen(_:)))
         case .splitZoom:
@@ -664,8 +656,6 @@ struct AppViewCommands: Commands {
 
             #if targetEnvironment(macCatalyst)
             MenuToggleItem(kind: .transparency, shortcuts: shortcutState.shortcuts)
-
-            MenuToggleItem(kind: .titleBar, shortcuts: shortcutState.shortcuts)
             #endif
 
             #if !targetEnvironment(macCatalyst)

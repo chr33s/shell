@@ -1109,7 +1109,6 @@ extension Notification.Name {
     static let mergeAllWindows = Notification.Name("dev.chr33s.shell.mergeAllWindows")
     static let toggleGroupMode = Notification.Name("dev.chr33s.shell.toggleGroupMode")
     static let toggleTransparency = Notification.Name("dev.chr33s.shell.toggleTransparency")
-    static let toggleTitleBar = Notification.Name("dev.chr33s.shell.toggleTitleBar")
     static let terminalLayoutInvalidation = Notification.Name("dev.chr33s.shell.terminalLayoutInvalidation")
     static let terminalBottomInsetInvalidated = Notification.Name("dev.chr33s.shell.terminalBottomInsetInvalidated")
     static let touchModeChanged = Notification.Name("dev.chr33s.shell.touchModeChanged")

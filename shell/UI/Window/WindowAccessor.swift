@@ -57,7 +57,6 @@ private struct WindowConfigSignature: Equatable {
     var tabCount: Int
     var tabsInTitlebar: Bool
     var tabBarHidden: Bool
-    var hideTitleBar: Bool
     var topTabStyle: TopTabStyle
 }
 #endif
@@ -270,14 +269,13 @@ private final class TransparentWindowView: UIView {
             }
             .store(in: &cancellables)
 
-        // AppKit rebuilds titlebar views on fullscreen exit, resurrecting the
-        // chrome the hidden-titlebar style hides. Force a full reconfigure of
-        // our claimed NSWindow when that happens.
+        // AppKit rebuilds titlebar views on fullscreen exit; the toolbar item
+        // area and title bar height can land differently, so re-measure with
+        // a full pass on our claimed NSWindow.
         NotificationCenter.default.publisher(for: Notification.Name("NSWindowDidExitFullScreenNotification"))
             .receive(on: DispatchQueue.main)
             .sink { [weak self] notification in
                 guard let self,
-                      SettingsStore.shared.get(Settings.Window.hideTitleBar),
                       let nsWindow = notification.object as? NSObject,
                       let sceneSessionId = self.window?.windowScene?.session.persistentIdentifier,
                       WindowAccessor.sceneSessionId(for: nsWindow) == sceneSessionId else {
@@ -303,11 +301,6 @@ private final class TransparentWindowView: UIView {
               let nsWindow = MacSupport.window(for: sceneSessionId) else { return }
         bridge.setTitle(title, for: nsWindow)
         lastAppliedTitle = title
-
-        // Setting the title can resurrect native title UI; keep the hidden-titlebar style asserted.
-        if SettingsStore.shared.get(Settings.Window.hideTitleBar) {
-            configureTitleBar(for: nsWindow, transparent: true, tabCount: SessionTracker.shared.tabCount(forSceneSessionId: sceneSessionId))
-        }
     }
     #endif
 
@@ -427,7 +420,6 @@ private final class TransparentWindowView: UIView {
             tabCount: SessionTracker.shared.tabCount(forSceneSessionId: sceneSessionId),
             tabsInTitlebar: store.get(Settings.Window.tabsInTitlebar),
             tabBarHidden: store.get(Settings.Tabs.barHidden),
-            hideTitleBar: store.get(Settings.Window.hideTitleBar),
             topTabStyle: store.get(Settings.Tabs.topTabStyle)
         )
     }
@@ -602,16 +594,7 @@ private final class TransparentWindowView: UIView {
         // this is what the inset retry loop is for, and keeping it lightweight
         // avoids 8 full configuration passes per window open.
         if let last = lastAppliedConfig, currentWindowConfigSignature() == last {
-            if last.hideTitleBar {
-                // Buttons are hidden — nothing to measure; cancel any retries.
-                scheduleTitlebarInsetRetryIfNeeded(hasInset: true, hasWindows: true)
-                return
-            }
-            let inset = titlebarLeadingInset(for: nsWindow)
-            if let inset {
-                TitlebarLayoutManager.shared.updateLeadingInset(inset)
-            }
-            scheduleTitlebarInsetRetryIfNeeded(hasInset: inset != nil, hasWindows: true)
+            scheduleTitlebarInsetRetryIfNeeded(hasInset: updateTitlebarMetrics(for: nsWindow), hasWindows: true)
             return
         }
 
@@ -622,21 +605,7 @@ private final class TransparentWindowView: UIView {
         // Configure title bar for integrated tab appearance
         configureTitleBar(for: window, transparent: shouldApplyTransparency, tabCount: tabCount)
 
-        // With the titlebar hidden the buttons can't be measured; keep the
-        // persisted inset warm for restore and cancel the retry loop.
-        let hideTitleBar = SettingsStore.shared.get(Settings.Window.hideTitleBar)
-        if hideTitleBar {
-            scheduleTitlebarInsetRetryIfNeeded(hasInset: true, hasWindows: true)
-        } else {
-            if let leadingInset = titlebarLeadingInset(for: window) {
-                TitlebarLayoutManager.shared.updateLeadingInset(leadingInset)
-            }
-
-            scheduleTitlebarInsetRetryIfNeeded(
-                hasInset: titlebarLeadingInset(for: window) != nil,
-                hasWindows: true
-            )
-        }
+        scheduleTitlebarInsetRetryIfNeeded(hasInset: updateTitlebarMetrics(for: window), hasWindows: true)
 
         bridge.refresh(window)
 
@@ -680,13 +649,31 @@ private final class TransparentWindowView: UIView {
         return inset
     }
 
+    /// Feeds the AppKit-measured title bar geometry to the SwiftUI strip:
+    /// traffic-light clearance, the native toolbar's item area, and the
+    /// unified title bar's height. Returns whether the leading inset was
+    /// measurable yet, which drives the retry loop.
+    private func updateTitlebarMetrics(for window: NSObject) -> Bool {
+        let manager = TitlebarLayoutManager.shared
+        let leadingInset = titlebarLeadingInset(for: window)
+        if let leadingInset {
+            manager.updateLeadingInset(leadingInset)
+        }
+        if let bridge = MacSupport.bridge {
+            manager.updateTrailingInset(bridge.titlebarTrailingInset(window))
+            manager.updateTitlebarHeight(bridge.titlebarHeight(window))
+        }
+        return leadingInset != nil
+    }
+
     private func configureTitleBar(for window: NSObject, transparent: Bool, tabCount: Int) {
         let store = SettingsStore.shared
         let tabsInTitlebar = store.get(Settings.Window.tabsInTitlebar)
         let tabBarHidden = store.get(Settings.Tabs.barHidden)
         MacSupport.bridge?.configureTitlebar(
             window,
-            hidden: store.get(Settings.Window.hideTitleBar),
+            // The title bar hosts the native toolbar and is never hidden.
+            hidden: false,
             separatorHidden: store.get(Settings.Tabs.topTabStyle).usesStripLayout && tabsInTitlebar && !tabBarHidden,
             tabsInTitlebar: tabsInTitlebar,
             tabBarHidden: tabBarHidden,

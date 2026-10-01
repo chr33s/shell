@@ -410,6 +410,10 @@ final class CatalystSceneDelegate: UIResponder, UIWindowSceneDelegate {
 
     static let minWindowSize = CGSize(width: 400, height: 300)
 
+    /// The native title-bar toolbar for this scene's window. Retained here
+    /// because `UITitlebar.toolbar` holds its delegate weakly.
+    private var windowToolbar: CatalystWindowToolbar?
+
     /// A scene that hosts a `MainView`: not the Settings window, which is a
     /// `UIWindowScene` with no terminal in it. Anything looking for "a window
     /// to act on" has to exclude it, or a Dock-menu action or an ssh:// open
@@ -482,6 +486,14 @@ final class CatalystSceneDelegate: UIResponder, UIWindowSceneDelegate {
         guard let windowScene = scene as? UIWindowScene else { return }
 
         windowScene.sizeRestrictions?.minimumSize = Self.minWindowSize
+
+        // Native toolbar with the New Tab and Settings items. Installed before
+        // the window is shown so the first layout already has the unified
+        // title bar height the tab strip aligns to.
+        let toolbar = CatalystWindowToolbar(windowScene: windowScene)
+        toolbar.install()
+        windowToolbar = toolbar
+
         // Restore-phase signal, made authoritative at this point by the eager
         // `ensureStateLoaded()` in `didFinishLaunchingWithOptions`.
         //

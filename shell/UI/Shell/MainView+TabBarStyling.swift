@@ -311,6 +311,49 @@ extension MainView {
         #endif
     }
 
+    /// Height of the Mac title bar row the tab strip shares with the native
+    /// toolbar items. AppKit reports it once the window exists; until then the
+    /// strip's own height keeps the layout stable.
+    var catalystTitlebarRowHeight: CGFloat {
+        max(TabMetrics.tabBarHeight, titlebarLayoutManager.titlebarHeight)
+    }
+
+    /// Extra height above the 44pt tab row when it rides in the unified title
+    /// bar. Strip layouts (integrated, ledger) stay flush with the terminal
+    /// edge, so all of it goes on top; pills and trough are centered.
+    var tabRowTopPadding: CGFloat {
+        #if targetEnvironment(macCatalyst)
+        guard topTabBarAttachedToWindow else { return 0 }
+        let extra = max(0, catalystTitlebarRowHeight - TabMetrics.tabBarHeight)
+        return topTabStyle.usesStripLayout ? extra : extra / 2
+        #else
+        return 0
+        #endif
+    }
+
+    var tabRowBottomPadding: CGFloat {
+        #if targetEnvironment(macCatalyst)
+        guard topTabBarAttachedToWindow else { return 0 }
+        let extra = max(0, catalystTitlebarRowHeight - TabMetrics.tabBarHeight)
+        return topTabStyle.usesStripLayout ? 0 : extra / 2
+        #else
+        return 0
+        #endif
+    }
+
+    /// Trailing clearance for the native toolbar's New Tab and Settings items
+    /// (Catalyst). Measured by the AppKit bundle; the floor covers two glass
+    /// items plus margins until the measurement lands. Tabs below the title
+    /// bar sit under no items and need only the usual edge padding.
+    var tabBarTrailingPadding: CGFloat {
+        #if targetEnvironment(macCatalyst)
+        guard topTabBarAttachedToWindow else { return 8 }
+        return max(104, titlebarLayoutManager.trailingInset)
+        #else
+        return 0
+        #endif
+    }
+
     /// Leading padding for tab bar content (accounts for window controls on Catalyst)
     var tabBarLeadingPadding: CGFloat {
         #if targetEnvironment(macCatalyst)

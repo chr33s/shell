@@ -148,8 +148,6 @@ enum KeybindAction: String, CaseIterable, Codable, Identifiable, Hashable {
     case next_group = "next_group"
     /// Toggle window transparency (Mac Catalyst only)
     case toggle_transparency = "toggle_transparency"
-    /// Toggle the macOS window title bar (Mac Catalyst only)
-    case toggle_titlebar = "toggle_titlebar"
     /// Toggle compose text overlay
     case toggle_compose = "toggle_compose"
     /// Toggle full screen mode
@@ -288,7 +286,7 @@ enum KeybindAction: String, CaseIterable, Codable, Identifiable, Hashable {
             return .splits
 
         case .increase_font_size, .decrease_font_size, .reset_font_size, .start_search,
-             .toggle_tab_bar, .toggle_group_mode, .toggle_transparency, .toggle_titlebar,
+             .toggle_tab_bar, .toggle_group_mode, .toggle_transparency,
              .toggle_compose, .toggle_full_screen, .toggle_mouse_capture, .cycle_input_source:
             return .view
 
@@ -363,7 +361,6 @@ enum KeybindAction: String, CaseIterable, Codable, Identifiable, Hashable {
         case .previous_group: return String(localized: "Previous Group", comment: "Keybind action")
         case .next_group: return String(localized: "Next Group", comment: "Keybind action")
         case .toggle_transparency: return String(localized: "Toggle Transparency", comment: "Keybind action")
-        case .toggle_titlebar: return String(localized: "Toggle Title Bar", comment: "Keybind action")
         case .toggle_compose: return String(localized: "Toggle Compose", comment: "Keybind action")
         case .toggle_full_screen: return String(localized: "Toggle Full Screen", comment: "Keybind action")
         case .toggle_mouse_capture: return String(localized: "Toggle Mouse Capture", comment: "Keybind action")
@@ -440,7 +437,6 @@ enum KeybindAction: String, CaseIterable, Codable, Identifiable, Hashable {
         case .previous_group: return .previousGroup
         case .next_group: return .nextGroup
         case .toggle_transparency: return .toggleTransparency
-        case .toggle_titlebar: return .toggleTitleBar
         case .toggle_full_screen: return .toggleFullScreen
 
         // toggle_compose and toggle_mouse_capture are handled directly in executeKeybindAction (not via notification)
@@ -562,7 +558,7 @@ enum KeybindAction: String, CaseIterable, Codable, Identifiable, Hashable {
              .navigate_split_right, .navigate_split_up, .navigate_split_down,
              .toggle_split_zoom, .equalize_splits, .open_settings, .browse_hosts,
              .browse_profiles, .toggle_tab_bar, .toggle_group_mode, .toggle_transparency,
-             .toggle_titlebar, .show_tmux_sessions,
+             .show_tmux_sessions,
              .detach_other_clients,
              .increase_font_size, .decrease_font_size,
              .reset_font_size, .start_search:
