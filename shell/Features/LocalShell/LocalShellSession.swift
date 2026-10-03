@@ -10,6 +10,12 @@ final class LocalShellSession: TerminalSession, EmbeddedConnectionConfigProvidin
     let pty: TerminalPTY
 
     private(set) var isRunning: Bool = false
+
+    /// `start()` awaits the local SSH agent before it marks the session
+    /// running; these keep that suspension from admitting a second start, or
+    /// resuming a session that was stopped meanwhile.
+    private var isStarting = false
+    private var stopRequestedWhileStarting = false
     var shellTask: Task<Void, Never>?
     var imgcatTask: Task<Void, Never>?
     var whatIsMyIPTask: Task<Void, Never>?
@@ -388,12 +394,24 @@ final class LocalShellSession: TerminalSession, EmbeddedConnectionConfigProvidin
 
     /// Starts the local shell session
     func start() async throws {
-        guard !isRunning else { return }
+        guard !isRunning, !isStarting else { return }
 
         Self.logger.info("Starting local shell session")
 
+        // Bind the local SSH agent before the environment is exported, so
+        // SSH_AUTH_SOCK only ever names a live socket. Nil (disabled, native
+        // backend, or bind failure) leaves it unset; the shell starts anyway.
+        isStarting = true
+        let sshAuthSocket = await LocalSSHAgent.socketPathForNewSession()
+        isStarting = false
+        guard !stopRequestedWhileStarting else {
+            stopRequestedWhileStarting = false
+            Self.logger.info("Local shell session stopped before it started")
+            return
+        }
+
         // Setup ios_system session
-        setupIOSSystemSession()
+        setupIOSSystemSession(sshAuthSocket: sshAuthSocket)
 
         isRunning = true
         connectionStartTime = Date()
@@ -464,6 +482,10 @@ final class LocalShellSession: TerminalSession, EmbeddedConnectionConfigProvidin
     }
 
     private func stop(preservingEmbeddedRoamSessions: Bool = false) {
+        if isStarting {
+            stopRequestedWhileStarting = true
+            return
+        }
         guard isRunning else { return }
 
         Self.logger.info("Stopping local shell session")

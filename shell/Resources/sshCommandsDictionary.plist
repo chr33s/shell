@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  OpenSSH clients from Packages/OpenSSHCommands, registered only where
+  ssh_cmd.framework is linked (iOS and Mac Catalyst; see GhosttyApp).
+
+  `ssh` here is what scp and sftp spawn internally. A typed `ssh` in the local
+  shell still opens Shell's own SSH session; `openssh` runs this client
+  directly, so it can authenticate through the local SSH agent.
+-->
+<plist version="1.0">
+<dict>
+	<key>openssh</key>
+	<array>
+		<string>ssh_cmd.framework/ssh_cmd</string>
+		<string>ssh_main</string>
+		<string>1246ab:c:e:fgi:kl:m:no:p:qstvxAB:CD:E:F:GI:J:KL:MNO:PQ:R:S:TVw:W:XYy</string>
+		<string>no</string>
+	</array>
+	<key>scp</key>
+	<array>
+		<string>ssh_cmd.framework/ssh_cmd</string>
+		<string>scp_main</string>
+		<string>12346ABCTdfpqrtvF:J:P:S:c:i:l:o:</string>
+		<string>file</string>
+	</array>
+	<key>sftp</key>
+	<array>
+		<string>ssh_cmd.framework/ssh_cmd</string>
+		<string>sftp_main</string>
+		<string>1246AafhNpqrvCc:D:i:l:o:s:S:b:B:F:J:P:R:</string>
+		<string>file</string>
+	</array>
+	<key>ssh</key>
+	<array>
+		<string>ssh_cmd.framework/ssh_cmd</string>
+		<string>ssh_main</string>
+		<string>1246ab:c:e:fgi:kl:m:no:p:qstvxAB:CD:E:F:GI:J:KL:MNO:PQ:R:S:TVw:W:XYy</string>
+		<string>no</string>
+	</array>
+</dict>
+</plist>

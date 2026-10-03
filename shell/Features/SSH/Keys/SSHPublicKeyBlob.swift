@@ -17,7 +17,7 @@ import NIOFoundationCompat
 import NIOSSH
 import Citadel
 
-enum SSHPublicKeyBlob {
+nonisolated enum SSHPublicKeyBlob {
 
     /// SSH wire-format public key blob for `keyVariant`.
     static func make(from keyVariant: SSHPrivateKeyVariant, keyType: SSHKey.KeyType) -> ByteBuffer {

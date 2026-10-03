@@ -60,13 +60,28 @@ nonisolated extension Settings {
         static let defaultKeyIDs = SettingKey<Data?>(
             "defaultSSHKeyIDs", default: nil, group: .connections, policy: .deviceOnly,
             title: String(localized: "Default SSH Identities", comment: "Setting title"))
+        /// Serves explicitly allowed identities to the local interpreter's
+        /// `ssh`, `scp` and `sftp` through `SSH_AUTH_SOCK`. A device execution
+        /// capability: Off by default and never synced
+        /// (ssh-agent-bridge-v2-delta.md §3). The V2 name deliberately
+        /// differs from V1's `localSSHAgentEnabled`, so a V1 opt-in is not
+        /// carried into the V2 permission model (§3.4).
+        static let localSSHAgent = SettingKey(
+            "localSSHAgentV2Enabled", default: false, group: .connections, policy: .deviceOnly,
+            title: String(localized: "Local SSH Agent", comment: "Setting title"))
+        /// Ordered UUID strings (JSON) of identities granted to the local SSH
+        /// agent on this device. Never part of synced key metadata.
+        static let localSSHAgentAllowedKeyIDs = SettingKey<Data?>(
+            "localSSHAgentAllowedKeyIDs", default: nil, group: .connections, policy: .deviceOnly,
+            title: String(localized: "Local SSH Agent Identities", comment: "Setting title"))
 
         static let all: [AnySettingDefinition] = [
             forceIPv4.erased, healthMonitoring.erased, healthProbeInterval.erased,
             backgroundKeepalive.erased, autoReconnectEnabled.erased,
             autoReconnectMaxAttempts.erased, passwordDefaultAuthRequirement.erased,
             passwordDefaultStorageLevel.erased,
-            passwordLastUsedDates.erased, defaultKeyIDs.erased
+            passwordLastUsedDates.erased, defaultKeyIDs.erased, localSSHAgent.erased,
+            localSSHAgentAllowedKeyIDs.erased
         ]
     }
 

@@ -318,7 +318,14 @@ extension Ghostty {
             // Register ios_system command dictionaries and direct function entry points.
             // These mutate ios_system's commandList global, not environ — safe post-init.
             if usesInterpreter {
-                for name in ["commandDictionary", "extraCommandsDictionary"] {
+                // OpenSSH ssh/scp/sftp are registered only where their
+                // framework is embedded (iOS and Mac Catalyst; there is no
+                // visionOS build), so every registered command can run.
+                var dictionaries = ["commandDictionary", "extraCommandsDictionary"]
+                if LocalSSHAgent.hasOpenSSHClients {
+                    dictionaries.append("sshCommandsDictionary")
+                }
+                for name in dictionaries {
                     guard let path = Bundle.main.path(forResource: name, ofType: "plist") else {
                         logger.warning("\(name).plist not found in bundle")
                         continue
@@ -331,6 +338,9 @@ extension Ghostty {
                 }
                 // Re-open the user's folder grants and tell ios_system's `cd` about them.
                 LocalShellFolders.shared.activate()
+                // Local SSH agent: observe its setting and app lifecycle from
+                // launch; the listener itself starts with the first shell.
+                LocalSSHAgent.activate()
             }
 
             // Initialize the global configuration

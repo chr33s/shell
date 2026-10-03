@@ -30,6 +30,9 @@ struct SSHKeyDetailView: View {
 
     // OpenPGP public key export
 
+    // Local SSH agent grant (device-local; observed so the toggle stays live)
+    @Setting(Settings.Connections.localSSHAgentAllowedKeyIDs) private var localAgentAllowedKeyIDs: Data?
+
     // User certificate
     @State private var showingCertImport = false
     @State private var showingCertRemoveConfirmation = false
@@ -49,6 +52,7 @@ struct SSHKeyDetailView: View {
             certificateSection
             installInstructionsSection
             defaultKeysSection
+            localAgentSection
             securitySection
             deleteSection
         }
@@ -371,6 +375,27 @@ struct SSHKeyDetailView: View {
                     .foregroundColor(.appHighlight)
             } else {
                 Text("Default keys are tried in order when connecting following the selected key")
+            }
+        }
+    }
+
+    /// Explicit per-key grant for the local SSH agent
+    /// (ssh-agent-bridge-v2-delta.md §2.1). Independent of default keys.
+    @ViewBuilder
+    private var localAgentSection: some View {
+        if LocalSSHAgent.isAvailable {
+            Section {
+                Toggle("Allow in Local SSH Agent", isOn: Binding(
+                    get: { LocalSSHAgentPolicy.decodeAllowedKeyIDs(localAgentAllowedKeyIDs).contains(key.id) },
+                    set: { LocalSSHAgentPolicy.setAllowed($0, keyID: key.id) }
+                ))
+                .themedRow()
+            } footer: {
+                if currentKey.authRequirement == .none {
+                    Text("Programs in the local shell can then ask for signatures with this key through SSH_AUTH_SOCK without any prompt, because it requires no authentication. The key itself never leaves this device. Applies on this device only.")
+                } else {
+                    Text("Programs in the local shell can then ask for signatures with this key through SSH_AUTH_SOCK, after Face ID, Touch ID or passcode per its authentication setting. The key itself never leaves this device. Applies on this device only, and only while Local SSH Agent is on.")
+                }
             }
         }
     }

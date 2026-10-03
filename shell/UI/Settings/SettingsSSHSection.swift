@@ -43,6 +43,17 @@ struct SettingsSSHSection: View {
                 SettingGroupHeader("Credentials", group: .connections)
             }
 
+            if LocalSSHAgent.isAvailable {
+                Section {
+                    SettingToggle(Settings.Connections.localSSHAgent, title: "Local SSH Agent")
+                        .themedRow()
+                } footer: {
+                    // ssh-agent-bridge-spec.md §14.1: the agent's trust boundary
+                    // must be documented where it is switched on.
+                    Text("Lets the local shell's OpenSSH clients — scp, sftp and openssh (typing ssh still opens Shell's own SSH session) — sign in through SSH_AUTH_SOCK with identities you allow individually under SSH Identities, without a key file. Any command in the local shell can request signatures from an allowed identity: private keys stay protected, but the ability to sign is itself a credential, so give sensitive identities an authentication requirement. The agent never leaves this device and is never forwarded to remote hosts.")
+                }
+            }
+
             Section {
                 SettingToggle(Settings.Connections.autoReconnectEnabled, title: "Auto Reconnect")
                     .themedRow()

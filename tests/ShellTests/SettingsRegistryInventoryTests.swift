@@ -111,6 +111,8 @@ final class SettingsRegistryInventoryTests {
         Setting("ligaturesEnabled", configKey: "ligatures-enabled", policy: .synced),
         Setting("lineScrollbackEnabled", configKey: "line-scrollback-enabled", policy: .localByDefault),
         Setting("localShellCommand", configKey: "local-shell-command", policy: .localByDefault),
+        Setting("localSSHAgentAllowedKeyIDs", configKey: nil, policy: .deviceOnly),
+        Setting("localSSHAgentV2Enabled", configKey: nil, policy: .deviceOnly),
         Setting("modTapRules", configKey: nil, policy: .synced),
         Setting("optionKeyAsAlt", configKey: "macos-option-as-alt", policy: .synced),
         Setting("persistentToolbar", configKey: "persistent-toolbar", policy: .localByDefault),
