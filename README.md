@@ -131,7 +131,7 @@ this repository provides the shared `shell` and `ShellWatch` schemes plus these 
 
 | Script | What it does |
 | --- | --- |
-| `ci_scripts/ci_post_clone.sh` | `vendor.py verify`; writes `Local.xcconfig` from `SHELL_CONTROL_PUSH_RELAY_URL` if set |
+| `ci_scripts/ci_post_clone.sh` | `vendor.py verify`; builds OpenSSH and prepares libssh2; writes `Local.xcconfig` from `SHELL_CONTROL_PUSH_RELAY_URL` if set |
 | `ci_scripts/ci_pre_xcodebuild.sh` | Stamps `CI_BUILD_NUMBER` into both xcconfigs |
 | `ci_scripts/ci_post_xcodebuild.sh` | Runs `test-control.sh` on test actions |
 

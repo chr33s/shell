@@ -6,9 +6,9 @@
 //
 // `ssh_cmd` is built from the vendored ios_system-rootshell source by
 // scripts/build-openssh.sh (no upstream release ships it). OpenSSL and libssh2,
-// which it links dynamically, are pinned upstream releases verified by SHA-256,
-// like every other vendored binary target. No visionOS slice exists for these,
-// so the app links this product on iOS and Mac Catalyst only.
+// which it links dynamically, are pinned upstream releases verified by SHA-256.
+// build-openssh.sh also prepares libssh2 for App Store packaging. No visionOS
+// slice exists for these, so the app links this product on iOS and Mac Catalyst only.
 
 import PackageDescription
 
@@ -28,10 +28,6 @@ let package = Package(
             url: "https://github.com/holzschu/openssl-apple/releases/download/v1.1.1w/openssl-dynamic.xcframework.zip",
             checksum: "329e8317cf9bee8e138da5d032330a7a1bd2473cf44c9c083cb2f0636abb8b80"
         ),
-        .binaryTarget(
-            name: "libssh2",
-            url: "https://github.com/holzschu/libssh2-apple/releases/download/v1.11.0/libssh2-dynamic.xcframework.zip",
-            checksum: "cacfe1789b197b727119f7e32f561eaf9acc27bf38cd19975b74fce107f868a6"
-        ),
+        .binaryTarget(name: "libssh2", path: "Artifacts/libssh2.xcframework"),
     ]
 )

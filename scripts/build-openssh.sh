@@ -5,15 +5,15 @@
 #
 # Usage: ./scripts/build-openssh.sh [--force]
 #
-# Output: Packages/OpenSSHCommands/Artifacts/ssh_cmd.xcframework (untracked).
+# Output: Packages/OpenSSHCommands/Artifacts/{ssh_cmd,libssh2}.xcframework
+# (untracked).
 # Slices: iOS device, iOS Simulator, Mac Catalyst. There is no visionOS slice:
 # the pinned OpenSSL release has none, so the app links OpenSSHCommands on iOS
 # and Mac Catalyst only.
 #
 # ssh_cmd links OpenSSL and libssh2 dynamically. Those are the holzschu
-# releases also pinned (URL + SHA-256) as binary targets in
-# Packages/OpenSSHCommands/Package.swift; the archives are verified against the
-# same checksums here before anything is built against them.
+# releases pinned by URL + SHA-256 below. libssh2 is prepared locally to remove
+# its old arm64e slice and repair upstream MinimumOSVersion placeholders.
 #
 # vendor/ is never modified: the ios_system project is copied to .build/ and
 # only that copy's framework references are repointed.
@@ -34,11 +34,6 @@ LIBSSH2_SHA256="cacfe1789b197b727119f7e32f561eaf9acc27bf38cd19975b74fce107f868a6
 # The vendored source revision is the cache key: a vendor update rebuilds.
 STAMP="$(awk '$1 == "ios_system-rootshell" { print $3 }' "$ROOT/vendor/manifest")"
 
-if [[ "${1:-}" != "--force" && -f "$STAMP_FILE" && "$(cat "$STAMP_FILE")" == "$STAMP" ]]; then
-    echo "ssh_cmd.xcframework is current ($STAMP)"
-    exit 0
-fi
-
 fetch() {  # url sha256 destdir
     local url="$1" sha="$2" dest="$3"
     local zip="$WORK/deps/$(basename "$url")"
@@ -54,15 +49,26 @@ fetch() {  # url sha256 destdir
     unzip -q "$zip" -d "$dest"
 }
 
+# Prepare libssh2 even when ssh_cmd is cached: package resolution consumes this
+# local artifact, and the packaging repair does not change its arm64 ABI.
+mkdir -p "$WORK/deps"
+fetch "$LIBSSH2_URL" "$LIBSSH2_SHA256" "$WORK/deps/libssh2"
+python3 "$ROOT/scripts/prepare-libssh2.py" \
+    "$WORK/deps/libssh2/libssh2.xcframework" "$PACKAGE/Artifacts/libssh2.xcframework"
+
+if [[ "${1:-}" != "--force" && -d "$OUTPUT" && -f "$STAMP_FILE" && "$(cat "$STAMP_FILE")" == "$STAMP" ]]; then
+    echo "ssh_cmd.xcframework is current ($STAMP)"
+    exit 0
+fi
+
 rm -rf "$WORK/src" "$WORK/archives"
 mkdir -p "$WORK/deps" "$WORK/archives"
 fetch "$OPENSSL_URL" "$OPENSSL_SHA256" "$WORK/deps/openssl"
-fetch "$LIBSSH2_URL" "$LIBSSH2_SHA256" "$WORK/deps/libssh2"
 
 rsync -a --exclude .build "$SOURCE/" "$WORK/src/"
 sed -i '' \
     -e 's#path = "../openssl_ios/.build/libssl.xcframework"#path = "../deps/openssl/openssl.xcframework"#' \
-    -e 's#path = "../libssh2-for-iOS/libssh2.xcframework"#path = "../deps/libssh2/libssh2.xcframework"#' \
+    -e "s#path = \"../libssh2-for-iOS/libssh2.xcframework\"#path = \"$PACKAGE/Artifacts/libssh2.xcframework\"#" \
     "$WORK/src/ios_system.xcodeproj/project.pbxproj"
 
 ARGS=()
