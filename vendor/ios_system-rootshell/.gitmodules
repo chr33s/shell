@@ -1,3 +1,0 @@
-[submodule "joe"]
-	path = joe
-	url = https://github.com/kitknox/joe-rootshell.git

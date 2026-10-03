@@ -3712,7 +3712,6 @@ extension Ghostty.TerminalView {
                     self.outputPipeline.finishScrollbackRestoreGate()
                     TerminalBellSuppressor.suppress(self.uuid, untilDrained: self.outputPipeline)
                     self.didQueueScrollbackRestoreReplay()
-                    self.scrollbackWrittenAwaitingTrailer = false
                     self.tmuxResumeGateReleaseScheduled = false
                     self.tmuxResumeGateReleaseTask = nil
                     return

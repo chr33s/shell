@@ -537,10 +537,6 @@ extension Ghostty {
         /// restores/reconnects never re-launch the editor.
         var pendingFileToOpen: String?
 
-        /// One-shot: a command (AppleScript `with command`) typed into the
-        /// local shell once it starts. Consumed by TerminalSessionController.
-        var pendingStartupCommand: String?
-
         // MARK: UI State
 
         // Keyboard toolbar
@@ -695,14 +691,6 @@ extension Ghostty {
         // Callback for keyboard-interactive (RFC 4256) SSH challenges. Returns one
         // response per prompt, or nil if the user cancelled.
         var onKeyboardInteractiveChallengeRequired: (@MainActor @Sendable (KeyboardInteractiveChallenge, Ghostty.TerminalView) async -> [String]?)?
-
-        // Callback for SSH agent approval requests
-
-        // Callback for forwarded GPG-agent PKSIGN approval requests.
-        // Parallel to onAgentApprovalRequired; the GPG path doesn't
-        // share its queue with the SSH path because the request
-        // shapes (one carries a hash + algo + keygrip preview) and the
-        // dismiss messages differ.
 
         // Connection health for SSH sessions.
         // Mutate via `applyConnectionHealth(_:)` so writes are equality-guarded
@@ -1213,35 +1201,6 @@ extension Ghostty {
 
         /// Whether scrollback restore is deferred until layoutSubviews provides correct dimensions
         var pendingScrollbackRestoreForLayout: Bool = false
-
-        /// Mode-restoration trailer captured when an embedded trzsz session reaches
-        /// `.running` *before* the layout-deferred scrollback restore has run. The
-        /// pending layout-deferred restore consumes this on its way through so the
-        /// trailer is appended atomically to the saved scrollback (inside the
-        /// gate, before buffered live output is released). Avoids the race where
-        /// the trailer would otherwise be written direct to the buffered writer
-        /// ahead of the saved scrollback while the gate is still buffering inline
-        /// spinner frames + ESC[J cleanup.
-        var pendingResumeTrailer: Data?
-
-        /// Set true by the layout-deferred restore path for shellLaunchedTrzsz
-        /// restorations where the embedded trzsz session has not yet reached
-        /// `.running`. The restore writes saved scrollback to bufferedWriter but
-        /// keeps the gate open so subsequent server output (attach response,
-        /// resize-jiggle redraw, spinner frames) is buffered. Cleared by
-        /// `applyResumeTrailer` once it writes the trailer and finishes the gate
-        /// — together making the byte stream
-        ///     saved-scrollback → trailer → buffered-server-output → live
-        /// even when layout fires before `.running`.
-        var scrollbackWrittenAwaitingTrailer: Bool = false
-
-        /// Set true when the embedded trzsz session reaches `.running` and
-        /// `applyResumeTrailer` has fired. The layout-deferred restore path
-        /// uses this to decide whether to keep the gate open: if `.running` has
-        /// already happened (and either deposited the trailer in
-        /// `pendingResumeTrailer` or finished without one for fresh sessions),
-        /// the layout restore can flush the gate atomically — no need to wait.
-        var embeddedTrzszReachedRunning: Bool = false
 
         // Scrollbar state
         private let scrollIndicator = TerminalScrollIndicator()

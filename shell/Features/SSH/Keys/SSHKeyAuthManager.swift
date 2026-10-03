@@ -2,15 +2,6 @@ import Foundation
 import LocalAuthentication
 import os.log
 
-/// The surface a key is being used through. Session authorization is tracked
-/// per purpose so that authenticating a key for Shell's own SSH connections
-/// never silently unlocks it for programs in the local shell (through the
-/// local SSH agent), and vice versa (ssh-agent-bridge-v2-delta.md §5.1).
-nonisolated enum SSHKeyAuthPurpose: Hashable, Sendable {
-    case nativeSSH
-    case localAgent
-}
-
 /// Manages session-based authentication for SSH keys
 ///
 /// Tracks which keys have been authenticated during the current session
@@ -25,25 +16,20 @@ final class SSHKeyAuthManager {
 
     static let shared = SSHKeyAuthManager()
 
-    private struct Scope: Hashable {
-        let keyID: UUID
-        let purpose: SSHKeyAuthPurpose
-    }
-
-    /// Authenticated (key, purpose) pairs with their authentication timestamps
-    private var authenticatedKeys: [Scope: Date] = [:]
+    /// Track authenticated keys with their authentication timestamps
+    private(set) var authenticatedKeys: [UUID: Date] = [:]
 
     /// Session timeout in seconds (1 hour)
     let sessionTimeout: TimeInterval = 3600
 
     /// Track the active auth task for each key
-    private var activeAuthTasks: [Scope: Task<Data, Error>] = [:]
+    private var activeAuthTasks: [UUID: Task<Data, Error>] = [:]
 
     /// Cached LAContexts for Secure Enclave keys with `.perSession` auth.
     /// A single context per key is reused across connections so the user
     /// authenticates once and subsequent signs are silent within the OS
     /// biometric reuse window.
-    private var secureEnclaveContexts: [Scope: LAContext] = [:]
+    private var secureEnclaveContexts: [UUID: LAContext] = [:]
 
     private init() {}
 
@@ -52,14 +38,14 @@ final class SSHKeyAuthManager {
     /// Check if a key needs authentication
     /// - Parameter key: The SSH key to check
     /// - Returns: true if authentication is needed
-    func needsAuthentication(for key: SSHKey, purpose: SSHKeyAuthPurpose = .nativeSSH) -> Bool {
+    func needsAuthentication(for key: SSHKey) -> Bool {
         switch key.authRequirement {
         case .none:
             return false
         case .perUse:
             return true
         case .perSession:
-            guard let authTime = authenticatedKeys[Scope(keyID: key.id, purpose: purpose)] else {
+            guard let authTime = authenticatedKeys[key.id] else {
                 return true
             }
             // Check if authentication has expired
@@ -69,25 +55,14 @@ final class SSHKeyAuthManager {
 
     /// Record that a key was successfully authenticated
     /// - Parameter keyID: The UUID of the authenticated key
-    func recordAuthentication(for keyID: UUID, purpose: SSHKeyAuthPurpose = .nativeSSH) {
-        authenticatedKeys[Scope(keyID: keyID, purpose: purpose)] = Date()
+    func recordAuthentication(for keyID: UUID) {
+        authenticatedKeys[keyID] = Date()
     }
 
-    /// Clear authentication for a specific key, for one purpose or (nil) all.
-    func clearAuthentication(for keyID: UUID, purpose: SSHKeyAuthPurpose? = nil) {
-        authenticatedKeys = authenticatedKeys.filter { scope, _ in
-            !(scope.keyID == keyID && (purpose == nil || scope.purpose == purpose))
-        }
-        secureEnclaveContexts = secureEnclaveContexts.filter { scope, _ in
-            !(scope.keyID == keyID && (purpose == nil || scope.purpose == purpose))
-        }
-    }
-
-    /// Clear every key's session authorization for one purpose — e.g. all
-    /// local-agent sessions when the app backgrounds or the agent is disabled.
-    func clearAuthentication(purpose: SSHKeyAuthPurpose) {
-        authenticatedKeys = authenticatedKeys.filter { $0.key.purpose != purpose }
-        secureEnclaveContexts = secureEnclaveContexts.filter { $0.key.purpose != purpose }
+    /// Clear authentication for a specific key
+    /// - Parameter keyID: The UUID of the key to clear
+    func clearAuthentication(for keyID: UUID) {
+        authenticatedKeys.removeValue(forKey: keyID)
     }
 
     // MARK: - LAContext Management
@@ -139,19 +114,18 @@ final class SSHKeyAuthManager {
 
     /// The cached, already-authenticated perSession context for a key (valid
     /// only while the session has not expired — see ``needsAuthentication``).
-    func cachedSecureEnclaveContext(for keyID: UUID, purpose: SSHKeyAuthPurpose = .nativeSSH) -> LAContext? {
-        secureEnclaveContexts[Scope(keyID: keyID, purpose: purpose)]
+    func cachedSecureEnclaveContext(for keyID: UUID) -> LAContext? {
+        secureEnclaveContexts[keyID]
     }
 
     /// Cache a perSession context after its biometric/passcode succeeded.
-    func cacheSecureEnclaveContext(_ context: LAContext, for keyID: UUID, purpose: SSHKeyAuthPurpose = .nativeSSH) {
-        secureEnclaveContexts[Scope(keyID: keyID, purpose: purpose)] = context
+    func cacheSecureEnclaveContext(_ context: LAContext, for keyID: UUID) {
+        secureEnclaveContexts[keyID] = context
     }
 
-    /// Forget a key's cached Secure Enclave contexts for every purpose (e.g.
-    /// when the key is deleted).
+    /// Forget a cached Secure Enclave context (e.g. when the key is deleted).
     func clearSecureEnclaveContext(for keyID: UUID) {
-        secureEnclaveContexts = secureEnclaveContexts.filter { $0.key.keyID != keyID }
+        secureEnclaveContexts.removeValue(forKey: keyID)
     }
 
     // MARK: - Auth Deduplication
@@ -168,13 +142,10 @@ final class SSHKeyAuthManager {
     /// - Throws: Error if auth fails or is cancelled
     func loadWithDeduplication(
         keyID: UUID,
-        purpose: SSHKeyAuthPurpose = .nativeSSH,
         loader: @escaping () async throws -> Data
     ) async throws -> Data {
-        let scope = Scope(keyID: keyID, purpose: purpose)
-        // Check if there's already an active auth operation for this key and
-        // purpose. Different purposes never share a prompt's result.
-        if let existingTask = activeAuthTasks[scope] {
+        // Check if there's already an active auth operation for this key
+        if let existingTask = activeAuthTasks[keyID] {
             Self.logger.info("Auth already in progress for key \(keyID.uuidString), waiting for result")
             return try await existingTask.value
         }
@@ -189,7 +160,7 @@ final class SSHKeyAuthManager {
         let task = Task<Data, Error> { [weak self] in
             defer {
                 Task { @MainActor [weak self] in
-                    self?.activeAuthTasks.removeValue(forKey: scope)
+                    self?.activeAuthTasks.removeValue(forKey: keyID)
                 }
             }
             return try await loader()
@@ -201,7 +172,7 @@ final class SSHKeyAuthManager {
         // if the cooperative pool runs the Task body to completion before we
         // reach the await, the removeValue still has to queue behind this
         // synchronous insertion on MainActor. No "removed before inserted" race.
-        activeAuthTasks[scope] = task
+        activeAuthTasks[keyID] = task
         Self.logger.info("Starting auth operation for key \(keyID.uuidString)")
 
         do {

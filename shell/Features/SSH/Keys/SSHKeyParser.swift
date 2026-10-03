@@ -6,7 +6,6 @@ import NIOCore
 import NIOFoundationCompat
 
 // Import BoringSSL for RSA BIGNUM support
-import CCryptoBoringSSL
 
 /// Parser for SSH private keys in various formats.
 ///
@@ -47,19 +46,6 @@ nonisolated final class SSHKeyParser {
         }
     }
 
-    /// RSA CRT (Chinese Remainder Theorem) parameters for YubiKey import
-    /// YubiKey PIV requires all CRT parameters for RSA key import
-    struct RSACRTParameters: Sendable {
-        let n: Data       // Modulus
-        let e: Data       // Public exponent
-        let d: Data       // Private exponent
-        let p: Data       // Prime factor 1
-        let q: Data       // Prime factor 2
-        let dP: Data      // d mod (p-1)
-        let dQ: Data      // d mod (q-1)
-        let qInv: Data    // q^-1 mod p (coefficient)
-    }
-
     /// `@unchecked Sendable` is correct for transit across executors
     /// even though `NIOSSHPrivateKey` / `RSAPrivateKey` don't carry an
     /// explicit conformance. The struct is fully `let`-bound and the
@@ -74,22 +60,19 @@ nonisolated final class SSHKeyParser {
         let keyType: SSHKey.KeyType
         let fingerprint: String
         let isEncrypted: Bool
-        let rsaCRTParams: RSACRTParameters?  // CRT parameters for YubiKey import (RSA only)
 
         init(
             nioSSHKey: NIOSSHPrivateKey?,
             rsaKey: RSAPrivateKey?,
             keyType: SSHKey.KeyType,
             fingerprint: String,
-            isEncrypted: Bool,
-            rsaCRTParams: RSACRTParameters?
+            isEncrypted: Bool
         ) {
             self.nioSSHKey = nioSSHKey
             self.rsaKey = rsaKey
             self.keyType = keyType
             self.fingerprint = fingerprint
             self.isEncrypted = isEncrypted
-            self.rsaCRTParams = rsaCRTParams
         }
     }
 
@@ -252,23 +235,23 @@ nonisolated final class SSHKeyParser {
         offset = dEnd
 
         // Parse prime1 (p)
-        let (p, pEnd) = try parseASN1Integer(derData: derData, offset: offset)
+        let (_, pEnd) = try parseASN1Integer(derData: derData, offset: offset)
         offset = pEnd
 
         // Parse prime2 (q)
-        let (q, qEnd) = try parseASN1Integer(derData: derData, offset: offset)
+        let (_, qEnd) = try parseASN1Integer(derData: derData, offset: offset)
         offset = qEnd
 
         // Parse exponent1 (dP = d mod (p-1))
-        let (dP, dPEnd) = try parseASN1Integer(derData: derData, offset: offset)
+        let (_, dPEnd) = try parseASN1Integer(derData: derData, offset: offset)
         offset = dPEnd
 
         // Parse exponent2 (dQ = d mod (q-1))
-        let (dQ, dQEnd) = try parseASN1Integer(derData: derData, offset: offset)
+        let (_, dQEnd) = try parseASN1Integer(derData: derData, offset: offset)
         offset = dQEnd
 
         // Parse coefficient (qInv = q^-1 mod p)
-        let (qInv, _) = try parseASN1Integer(derData: derData, offset: offset)
+        _ = try parseASN1Integer(derData: derData, offset: offset)
 
         // Avoid logging key material in production.
 
@@ -285,20 +268,12 @@ nonisolated final class SSHKeyParser {
         // top of SSHKeyGenerator.swift.
         let fingerprint = generateFingerprint(publicKeyData: mpIntPayload(e) + mpIntPayload(n))
 
-        // Normalize CRT parameters: pass file's dP/dQ so they're used if no prime swap is needed
-        // PKCS#1 files contain correct dP/dQ values that should be trusted when p > q
-        let crtParams = try computeRSACRTParameters(
-            n: n, e: e, d: d, p: p, q: q, qInv: qInv,
-            fileDp: dP, fileDq: dQ
-        )
-
         return ParsedKey(
             nioSSHKey: nil,
             rsaKey: rsaPrivateKey,
             keyType: .rsa,
             fingerprint: fingerprint,
-            isEncrypted: false,
-            rsaCRTParams: crtParams
+            isEncrypted: false
         )
     }
 
@@ -438,8 +413,7 @@ nonisolated final class SSHKeyParser {
             rsaKey: nil,
             keyType: .ed25519,
             fingerprint: fingerprint,
-            isEncrypted: false,
-            rsaCRTParams: nil
+            isEncrypted: false
         )
     }
 
@@ -455,8 +429,7 @@ nonisolated final class SSHKeyParser {
             rsaKey: nil,
             keyType: .ecdsaP256,
             fingerprint: fingerprint,
-            isEncrypted: false,
-            rsaCRTParams: nil
+            isEncrypted: false
         )
     }
 
@@ -470,8 +443,7 @@ nonisolated final class SSHKeyParser {
             rsaKey: nil,
             keyType: .ecdsaP384,
             fingerprint: fingerprint,
-            isEncrypted: false,
-            rsaCRTParams: nil
+            isEncrypted: false
         )
     }
 
@@ -485,8 +457,7 @@ nonisolated final class SSHKeyParser {
             rsaKey: nil,
             keyType: .ecdsaP521,
             fingerprint: fingerprint,
-            isEncrypted: false,
-            rsaCRTParams: nil
+            isEncrypted: false
         )
     }
 
@@ -629,19 +600,19 @@ nonisolated final class SSHKeyParser {
 
         // Read iqmp (q^-1 mod p) - this is qInv in PKCS#1 terms
         guard let iqmpBuffer = buffer.readSSHBuffer(),
-              let iqmpData = iqmpBuffer.getData(at: iqmpBuffer.readerIndex, length: iqmpBuffer.readableBytes) else {
+              iqmpBuffer.getData(at: iqmpBuffer.readerIndex, length: iqmpBuffer.readableBytes) != nil else {
             throw ParserError.parseError("Failed to read RSA iqmp")
         }
 
         // Read p (first prime)
         guard let pBuffer = buffer.readSSHBuffer(),
-              let pData = pBuffer.getData(at: pBuffer.readerIndex, length: pBuffer.readableBytes) else {
+              pBuffer.getData(at: pBuffer.readerIndex, length: pBuffer.readableBytes) != nil else {
             throw ParserError.parseError("Failed to read RSA prime p")
         }
 
         // Read q (second prime)
         guard let qBuffer = buffer.readSSHBuffer(),
-              let qData = qBuffer.getData(at: qBuffer.readerIndex, length: qBuffer.readableBytes) else {
+              qBuffer.getData(at: qBuffer.readerIndex, length: qBuffer.readableBytes) != nil else {
             throw ParserError.parseError("Failed to read RSA prime q")
         }
 
@@ -654,132 +625,13 @@ nonisolated final class SSHKeyParser {
 
         let fingerprint = generateFingerprint(publicKeyData: Data(eBytes + nBytes))
 
-        // Compute CRT parameters dP and dQ using BoringSSL BIGNUM
-        // dP = d mod (p-1), dQ = d mod (q-1)
-        let crtParams = try computeRSACRTParameters(
-            n: n, e: e, d: d,
-            p: pData, q: qData, qInv: iqmpData
-        )
-
         return ParsedKey(
             nioSSHKey: nil,  // RSA not supported by Apple's NIOSSH
             rsaKey: rsaPrivateKey,
             keyType: .rsa,
             fingerprint: fingerprint,
-            isEncrypted: wasEncrypted,
-            rsaCRTParams: crtParams
+            isEncrypted: wasEncrypted
         )
-    }
-
-    /// Compute RSA CRT parameters dP, dQ, and qInv from d, p, and q using BoringSSL
-    /// Also ensures proper prime ordering: if p < q, swaps them and recomputes all CRT params
-    /// dP = d mod (p-1)
-    /// dQ = d mod (q-1)
-    /// qInv = q^-1 mod p
-    ///
-    /// - Parameters:
-    ///   - fileDp: Optional dP value from PKCS#1 file (used when primes don't need swapping)
-    ///   - fileDq: Optional dQ value from PKCS#1 file (used when primes don't need swapping)
-    private static func computeRSACRTParameters(
-        n: Data, e: Data, d: Data,
-        p: Data, q: Data, qInv: Data,
-        fileDp: Data? = nil, fileDq: Data? = nil
-    ) throws -> RSACRTParameters {
-        // Convert Data to BoringSSL BIGNUMs
-        guard let d_bn = CCryptoBoringSSL_BN_bin2bn(Array(d), d.count, nil),
-              let p_bn = CCryptoBoringSSL_BN_bin2bn(Array(p), p.count, nil),
-              let q_bn = CCryptoBoringSSL_BN_bin2bn(Array(q), q.count, nil) else {
-            throw ParserError.parseError("Failed to create BIGNUMs for CRT computation")
-        }
-        defer {
-            CCryptoBoringSSL_BN_free(d_bn)
-            CCryptoBoringSSL_BN_free(p_bn)
-            CCryptoBoringSSL_BN_free(q_bn)
-        }
-
-        // Check if we need to swap p and q (PKCS#1 convention requires p > q)
-        let cmpResult = CCryptoBoringSSL_BN_cmp(p_bn, q_bn)
-        let needsSwap = cmpResult < 0  // p < q, need to swap
-
-        // Use the larger value as prime_p and smaller as prime_q
-        let (prime_p, prime_q): (UnsafeMutablePointer<BIGNUM>, UnsafeMutablePointer<BIGNUM>)
-        if needsSwap {
-            prime_p = q_bn  // Use OpenSSH's q (larger) as our p
-            prime_q = p_bn  // Use OpenSSH's p (smaller) as our q
-        } else {
-            prime_p = p_bn
-            prime_q = q_bn
-        }
-
-        // Create BIGNUMs for results and intermediate values
-        guard let dP_bn = CCryptoBoringSSL_BN_new(),
-              let dQ_bn = CCryptoBoringSSL_BN_new(),
-              let qInv_bn = CCryptoBoringSSL_BN_new(),
-              let pMinus1 = CCryptoBoringSSL_BN_new(),
-              let qMinus1 = CCryptoBoringSSL_BN_new(),
-              let one = CCryptoBoringSSL_BN_new(),
-              let ctx = CCryptoBoringSSL_BN_CTX_new() else {
-            throw ParserError.parseError("Failed to allocate BIGNUMs for CRT computation")
-        }
-        defer {
-            CCryptoBoringSSL_BN_free(dP_bn)
-            CCryptoBoringSSL_BN_free(dQ_bn)
-            CCryptoBoringSSL_BN_free(qInv_bn)
-            CCryptoBoringSSL_BN_free(pMinus1)
-            CCryptoBoringSSL_BN_free(qMinus1)
-            CCryptoBoringSSL_BN_free(one)
-            CCryptoBoringSSL_BN_CTX_free(ctx)
-        }
-
-        // Set one = 1
-        CCryptoBoringSSL_BN_set_word(one, 1)
-
-        // Compute p - 1
-        guard CCryptoBoringSSL_BN_sub(pMinus1, prime_p, one) == 1 else {
-            throw ParserError.parseError("Failed to compute p-1")
-        }
-
-        // Compute q - 1
-        guard CCryptoBoringSSL_BN_sub(qMinus1, prime_q, one) == 1 else {
-            throw ParserError.parseError("Failed to compute q-1")
-        }
-
-        // Always compute CRT parameters from d, p, q to ensure consistency.
-        // Some key exports include incorrect or swapped CRT values; recomputing avoids
-        // importing a key that fails signature validation on hardware.
-        guard CCryptoBoringSSL_BN_div(nil, dP_bn, d_bn, pMinus1, ctx) == 1 else {
-            throw ParserError.parseError("Failed to compute dP")
-        }
-
-        guard CCryptoBoringSSL_BN_div(nil, dQ_bn, d_bn, qMinus1, ctx) == 1 else {
-            throw ParserError.parseError("Failed to compute dQ")
-        }
-
-        // Recompute qInv = q^-1 mod p to match potentially swapped primes
-        guard CCryptoBoringSSL_BN_mod_inverse(qInv_bn, prime_q, prime_p, ctx) != nil else {
-            throw ParserError.parseError("Failed to compute qInv (modular inverse)")
-        }
-
-        let dP = Self.bignumToData(dP_bn)
-        let dQ = Self.bignumToData(dQ_bn)
-        let computedQInv = Self.bignumToData(qInv_bn)
-
-        // Convert results back to Data
-        let finalP = Self.bignumToData(prime_p)
-        let finalQ = Self.bignumToData(prime_q)
-
-        // Avoid logging CRT parameter bytes.
-
-        return RSACRTParameters(n: n, e: e, d: d, p: finalP, q: finalQ, dP: dP, dQ: dQ, qInv: computedQInv)
-    }
-
-    /// Convert BoringSSL BIGNUM to Data
-    private static func bignumToData(_ bn: UnsafeMutablePointer<BIGNUM>?) -> Data {
-        guard let bn = bn else { return Data() }
-        let numBytes = (CCryptoBoringSSL_BN_num_bits(bn) + 7) / 8
-        var bytes = [UInt8](repeating: 0, count: Int(numBytes))
-        CCryptoBoringSSL_BN_bn2bin(bn, &bytes)
-        return Data(bytes)
     }
 
     private static func parseOpenSSHEd25519Buffer(buffer: inout ByteBuffer, wasEncrypted: Bool) throws -> ParsedKey {
@@ -814,8 +666,7 @@ nonisolated final class SSHKeyParser {
             rsaKey: nil,
             keyType: .ed25519,
             fingerprint: fingerprint,
-            isEncrypted: wasEncrypted,
-            rsaCRTParams: nil
+            isEncrypted: wasEncrypted
         )
     }
 
@@ -868,8 +719,7 @@ nonisolated final class SSHKeyParser {
             rsaKey: nil,
             keyType: sshKeyType,
             fingerprint: fingerprint,
-            isEncrypted: wasEncrypted,
-            rsaCRTParams: nil
+            isEncrypted: wasEncrypted
         )
     }
 

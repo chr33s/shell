@@ -6,7 +6,6 @@
 //  and app lifecycle events. CatalystAppDelegate inherits from this.
 //
 
-import AppIntents
 import AVFoundation
 import UIKit
 import UserNotifications
@@ -65,6 +64,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         // empty values and permanently overwrite real settings.
         ProtectedDataGuard.whenAvailable {
             UserDefaultsBackup.detectAndRecover()
+            LegacyLocalSSHAgentCleanup.run()
             LaunchDefaults.announceProtectedDataAvailable()
             SettingsStore.shared.bootstrap()
             SettingsSyncCoordinator.shared.start()

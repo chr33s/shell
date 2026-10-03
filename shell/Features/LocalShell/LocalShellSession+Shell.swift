@@ -114,10 +114,6 @@ extension LocalShellSession {
                 guard let self else { return false }
                 return self.canStreamExternalPipelineCommand(command)
             },
-            requiresOwnExternalPipelineStage: { [weak self] command -> Bool in
-                guard let self else { return false }
-                return self.requiresOwnExternalPipelineStage(command)
-            },
             backgroundStreamExternal: makeBackgroundStreamExternal(),
             isLocallyCancelled: { [weak self] in
                 self?.hasStopped ?? true
@@ -282,8 +278,7 @@ extension LocalShellSession {
 
     // MARK: - App Command Routing for Scripts
 
-    private enum InterceptedAppCommand: Sendable {
-        case interactive(name: String, description: String)
+    private nonisolated enum InterceptedAppCommand: Sendable {
         case ssh
         case reset
     }
@@ -313,12 +308,6 @@ extension LocalShellSession {
         }
 
         switch cmdName {
-        case "mosh", "roam":
-            return .interactive(name: cmdName, description: "interactive command")
-        case "tssh", "trzsz":
-            return .interactive(name: cmdName, description: "interactive command")
-        case "hx":
-            return .interactive(name: cmdName, description: "interactive editor")
         case "ssh":
             return .ssh
         case "reset":
@@ -328,31 +317,55 @@ extension LocalShellSession {
         }
     }
 
+    /// True when any command position in `command` names `ssh` — the first
+    /// word of the line or of a pipeline stage, list element, or compound
+    /// body. Used to refuse `ssh` on every path that would otherwise hand it
+    /// to ios_system, where no `ssh` executable exists.
+    nonisolated static func commandInvokesSSH(_ command: String) -> Bool {
+        let tokenizer = ShellTokenizer(source: command)
+        var atCommandStart = true
+        while true {
+            switch tokenizer.next() {
+            case .eof:
+                return false
+            case .assignmentWord, .redirect, .heredoc:
+                continue
+            case .word(let word):
+                if atCommandStart, word.lowercased() == "ssh" { return true }
+                atCommandStart = false
+            case .kw_for, .kw_in, .kw_case:
+                // Followed by a name or word list, not a command.
+                atCommandStart = false
+            default:
+                // Separators and reserved words (`|`, `;`, `&&`, `(`, `then`,
+                // `do`, `{`, `!`, …) introduce a new command.
+                atCommandStart = true
+            }
+        }
+    }
+
+    /// Refuse an `ssh` that reached a subprocess path (pipeline, redirection,
+    /// `$(...)`, background job). Returns the exit status when refused.
+    nonisolated private func rejectSubprocessSSH(_ command: String) -> Int32? {
+        guard Self.commandInvokesSSH(command) else { return nil }
+        outputSink.emitString("ssh: \(SSHCommandParser.compositionUnsupported)\r\n")
+        return 1
+    }
+
     nonisolated func canStreamExternalPipelineCommand(_ command: String) -> Bool {
         // Every intercepted handler writes straight to the terminal display
         // and can't honour pipe semantics, so they bail out of streaming.
         interceptedAppCommand(in: command) == nil
     }
 
-    /// True when a command must be its own pipeline stage rather than being
-    /// bundled with neighbouring externals into a single rendered-with-`|`
-    /// command string. Nothing this fork intercepts needs that.
-    nonisolated func requiresOwnExternalPipelineStage(_ command: String) -> Bool {
-        false
-    }
-
     /// Check if a command is a Swift-native app command and execute it synchronously.
     /// Returns the exit code if handled, or nil to fall through to ios_system.
     ///
-    /// Commands that require interactive terminal control (mosh, hx, trzsz)
-    /// return an error instead. Commands that can run non-interactively are dispatched
-    /// to MainActor via semaphore bridging.
+    /// Intercepted commands (`ssh`, `reset`) are dispatched to MainActor via
+    /// semaphore bridging.
     nonisolated func routeAppCommand(_ command: String) -> Int32? {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         switch interceptedAppCommand(in: trimmed) {
-        case .interactive(let name, let description):
-            outputSink.emitString("sh: \(name): \(description), not available in scripts\r\n")
-            return 1
         case .ssh:
             return bridgeToMainActor { self.handleSSHCommand(trimmed) }
         case .reset:
@@ -499,6 +512,9 @@ extension LocalShellSession {
         // specifically for pipe/redirect support.
         if !Self.commandContainsUnquotedShellOperator(command),
            let exitCode = routeAppCommand(command) {
+            return exitCode
+        }
+        if let exitCode = rejectSubprocessSSH(command) {
             return exitCode
         }
 
@@ -669,9 +685,8 @@ extension LocalShellSession {
     /// Optionally pulls stdin chunks from `inputProvider`.
     /// `allowAppCommandRouting: false` skips the native app-command handlers
     /// (they write to the terminal, not the pipe) and lets ios_system serve
-    /// the command instead — used by `$(...)` capture, where e.g. `$(ssh ...)`
-    /// must capture ssh_cmd's stdout rather than launch the interactive
-    /// native SSH path.
+    /// the command instead — used by `$(...)` capture and background jobs.
+    /// `ssh` has no subprocess form, so there it is refused outright.
     nonisolated func streamExternalCommand(
         _ command: String,
         inputProvider: (@Sendable () -> Data?)?,
@@ -687,6 +702,9 @@ extension LocalShellSession {
         if interceptedAppCommand(in: trimmed) != nil,
            allowAppCommandRouting,
            let exitCode = routeAppCommand(trimmed) {
+            return exitCode
+        }
+        if let exitCode = rejectSubprocessSSH(trimmed) {
             return exitCode
         }
 
@@ -899,17 +917,13 @@ extension LocalShellSession {
     /// Streaming executor for background jobs: routing to native app-command
     /// handlers is disabled (they own the prompt/session lifecycle and can't
     /// run detached — the command falls through to ios_system instead), and
-    /// wasm is refused (single-process runtime tied to session mode). This is
-    /// the execution-time backstop behind the static launch gate, catching
-    /// dynamically-named commands like `c=ssh; $c host &`.
+    /// `ssh` is refused outright. This is the execution-time backstop behind
+    /// the static launch gate, catching dynamically-named commands like
+    /// `c=ssh; $c host &`.
     nonisolated func makeBackgroundStreamExternal()
         -> @Sendable (String, (@Sendable () -> Data?)?, @escaping @Sendable (Data) -> Bool) -> Int32 {
         { [weak self] command, inputProvider, outputSink in
             guard let self else { return 127 }
-            if self.requiresOwnExternalPipelineStage(command) {
-                self.outputSink.emitString("sh: cannot background wasm programs\r\n")
-                return 127
-            }
             return self.streamExternalCommand(command, inputProvider: inputProvider,
                                               allowAppCommandRouting: false,
                                               outputSink: outputSink)

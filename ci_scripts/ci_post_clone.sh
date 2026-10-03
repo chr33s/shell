@@ -20,10 +20,6 @@ cd "$CI_PRIMARY_REPOSITORY_PATH"
 # rather than letting Xcode's resolve step report a missing local package.
 ./scripts/vendor.py verify
 
-# OpenSSH ssh/scp/sftp for the local shell (Packages/OpenSSHCommands) are
-# built from the vendored ios_system source; no upstream release ships them.
-./scripts/build-openssh.sh
-
 if [ -n "${SHELL_CONTROL_PUSH_RELAY_URL:-}" ]; then
     # `$()` splits the `//`, which xcconfig would otherwise read as the start of
     # a comment and truncate the URL to "https:".

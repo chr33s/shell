@@ -1,9 +1,0 @@
-osx_image:
-- xcode12.0
-language: objective-c
-
-before_install: 
-
-script:
-- xcodebuild -project ios_system.xcodeproj -alltargets -sdk iphoneos -configuration Debug -quiet
-- xcodebuild -project ios_system.xcodeproj -alltargets -sdk iphonesimulator -configuration Debug -quiet

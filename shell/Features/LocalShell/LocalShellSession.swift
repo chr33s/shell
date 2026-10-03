@@ -10,15 +10,7 @@ final class LocalShellSession: TerminalSession, EmbeddedConnectionConfigProvidin
     let pty: TerminalPTY
 
     private(set) var isRunning: Bool = false
-
-    /// `start()` awaits the local SSH agent before it marks the session
-    /// running; these keep that suspension from admitting a second start, or
-    /// resuming a session that was stopped meanwhile.
-    private var isStarting = false
-    private var stopRequestedWhileStarting = false
     var shellTask: Task<Void, Never>?
-    var imgcatTask: Task<Void, Never>?
-    var whatIsMyIPTask: Task<Void, Never>?
     // Set once in init and never mutated, safe to access from any thread
     nonisolated let sessionID: UUID
 
@@ -202,13 +194,6 @@ final class LocalShellSession: TerminalSession, EmbeddedConnectionConfigProvidin
     var readLineContinuation: ((String?) -> Void)?
     var scriptReadBuffer: String = ""
     var scriptReadSilent: Bool = false
-
-    /// Cooked-mode line buffer for wasm stdin. Accumulates typed bytes
-    /// until Enter, mirroring a real PTY with ICANON + ECHO + ICRNL. Flushed
-    /// to the wasm process as a single chunk ending in `\n`. Cleared on
-    /// process exit. Unused when the wasm program has switched to raw mode
-    /// via `rootshell_terminal_set_raw(1)`.
-    var wasmCookedBuffer: [UInt8] = []
 
     /// Shared shell environment for the interactive session.
     /// Persists variables, functions, and traps across source/eval commands.
@@ -394,24 +379,12 @@ final class LocalShellSession: TerminalSession, EmbeddedConnectionConfigProvidin
 
     /// Starts the local shell session
     func start() async throws {
-        guard !isRunning, !isStarting else { return }
+        guard !isRunning else { return }
 
         Self.logger.info("Starting local shell session")
 
-        // Bind the local SSH agent before the environment is exported, so
-        // SSH_AUTH_SOCK only ever names a live socket. Nil (disabled, native
-        // backend, or bind failure) leaves it unset; the shell starts anyway.
-        isStarting = true
-        let sshAuthSocket = await LocalSSHAgent.socketPathForNewSession()
-        isStarting = false
-        guard !stopRequestedWhileStarting else {
-            stopRequestedWhileStarting = false
-            Self.logger.info("Local shell session stopped before it started")
-            return
-        }
-
         // Setup ios_system session
-        setupIOSSystemSession(sshAuthSocket: sshAuthSocket)
+        setupIOSSystemSession()
 
         isRunning = true
         connectionStartTime = Date()
@@ -463,7 +436,7 @@ final class LocalShellSession: TerminalSession, EmbeddedConnectionConfigProvidin
                !editorStr.isEmpty {
                 editor = editorStr
             } else {
-                editor = "hx"
+                editor = "vim"
             }
             let escapedFile = Self.posixShellEscapeForIOSSystem(fileToEdit)
             handleCommandSubmission("\(editor) \(escapedFile)")
@@ -482,10 +455,6 @@ final class LocalShellSession: TerminalSession, EmbeddedConnectionConfigProvidin
     }
 
     private func stop(preservingEmbeddedRoamSessions: Bool = false) {
-        if isStarting {
-            stopRequestedWhileStarting = true
-            return
-        }
         guard isRunning else { return }
 
         Self.logger.info("Stopping local shell session")
@@ -494,10 +463,6 @@ final class LocalShellSession: TerminalSession, EmbeddedConnectionConfigProvidin
         outputBatcher.flush()
         shellTask?.cancel()
         shellTask = nil
-        imgcatTask?.cancel()
-        imgcatTask = nil
-        whatIsMyIPTask?.cancel()
-        whatIsMyIPTask = nil
 
         // Stop any embedded SSH session
         embeddedSSHSession?.stop()
@@ -640,16 +605,6 @@ final class LocalShellSession: TerminalSession, EmbeddedConnectionConfigProvidin
             scriptReadBuffer = ""
             scriptCancellationToken.cancel()
             // Don't return to .localShell here — let recoverFromScriptExecution handle it
-            return
-        }
-
-        // Check for whatismyip task - cancel the async STUN/ASN lookup
-        if let task = whatIsMyIPTask {
-            Self.logger.info("[Ctrl-C] Cancelling whatismyip command")
-            task.cancel()
-            whatIsMyIPTask = nil
-            onOutput?("^C\r\n")
-            displayPrompt()
             return
         }
 

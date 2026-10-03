@@ -32,3 +32,29 @@ enum LaunchDefaults {
         NotificationCenter.default.post(name: .touchModeChanged, object: nil)
     }
 }
+
+/// Clears the persisted state of the removed local SSH agent bridge.
+///
+/// The bridge (and its Connections > Local SSH Agent setting and per-key
+/// "Allow in Local SSH Agent" grants) was removed with the bundled OpenSSH
+/// clients. Deleting the keys makes an older build read its defaults — agent
+/// Off, no granted identities — so a downgrade never resurrects a credential
+/// grant. Nothing is migrated into another permission.
+///
+/// Delete this once no supported build can read these keys (any build after
+/// the release that follows the one shipping this cleanup).
+enum LegacyLocalSSHAgentCleanup {
+    static let legacyKeys = [
+        "localSSHAgentEnabled",        // V1 opt-in
+        "localSSHAgentV2Enabled",      // V2 opt-in
+        "localSSHAgentAllowedKeyIDs"   // V2 per-key allowlist
+    ]
+
+    /// Must run after protected data is available, so the removal reaches the
+    /// on-disk plist rather than a locked, empty view of it.
+    static func run(defaults: UserDefaults = .standard) {
+        for key in legacyKeys where defaults.object(forKey: key) != nil {
+            defaults.removeObject(forKey: key)
+        }
+    }
+}

@@ -12,6 +12,3 @@ releases
 # Local build overrides
 Configuration/Local.xcconfig
 shell.xcodeproj/-Xcc
-
-# Built by scripts/build-openssh.sh
-Packages/OpenSSHCommands/Artifacts/

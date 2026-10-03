@@ -171,11 +171,8 @@ Use this after editing the file from a local shell or through a symlink in your 
         let keystoreNoKey = String(localized: "If no key specified, uses default key or prompts for password", comment: "SSH help: no key note")
         let examplesHeader = String(localized: "Examples:", comment: "Command help: examples section header")
 
-        // SSHCommandParser stops at the destination and drops the rest of the
-        // line (it opens an interactive session, never a remote command), so the
-        // usage string, the "command" destination entry and the two
-        // `ssh user@host <cmd>` examples that used to be here documented a
-        // contract this fork does not honour.
+        // `ssh` is Shell-native and interactive only: SSHCommandParser refuses
+        // remote commands, shell composition, and any option not listed here.
         let helpText = """
 usage: ssh [-p port] [-l user] [-i identity] [-J jumphost] [--tmux] [-o option] destination
 

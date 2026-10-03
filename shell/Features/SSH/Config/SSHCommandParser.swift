@@ -8,10 +8,15 @@
 import Foundation
 import os.log
 
-/// Parser for SSH command-line arguments
-/// Supports: -p (port), -l (user), -J (jump host), -i (identity), -A (agent forwarding),
-///           -L (local forward), -R (remote forward), -o (options),
-///           --path (Shell-specific remote exec wrapper)
+/// Parser for the local shell's Shell-native `ssh` command.
+///
+/// `ssh` opens an interactive session through Citadel; it is not OpenSSH and
+/// there is no OpenSSH fallback. The accepted surface is exactly
+/// `-p`, `-l`, `-i`, `-J`, `-o` (Port, User, ProxyJump, IdentityFile),
+/// `--tmux`, `--`, and one `[user@]host[:port]` destination. Anything else
+/// (an unknown flag or `-o` option, a remote command, shell composition) is
+/// an error rather than silently ignored, so an accepted command never runs
+/// with different routing or security semantics than it appears to ask for.
 @MainActor
 struct SSHCommandParser {
     private nonisolated static let logger = Logger(subsystem: "dev.chr33s.shell", category: "SSHCommandParser")
@@ -117,6 +122,26 @@ struct SSHCommandParser {
         }
     }
 
+    /// `-o` keys the native client honours, keyed by their lowercased name
+    /// (OpenSSH option names are case-insensitive).
+    private static let supportedOptions: [String: String] = [
+        "port": "Port", "user": "User", "proxyjump": "ProxyJump", "identityfile": "IdentityFile"
+    ]
+
+    /// Flags that take a value, either as the next token or attached (`-p2222`).
+    private static let valueFlags: Set<Character> = ["p", "l", "J", "i", "o"]
+
+    /// Tokens after the destination that show the line wanted shell
+    /// composition (pipes, redirection, sequencing) rather than a remote command.
+    private static let shellOperatorTokens: Set<String> = [
+        "|", "||", "&", "&&", ";", ">", ">>", "<", "<<", "2>", "2>>", "2>&1", "&>"
+    ]
+
+    nonisolated static let remoteCommandUnsupported =
+        "remote command execution is not supported; open an interactive SSH session"
+    nonisolated static let compositionUnsupported =
+        "pipes, redirection, command substitution, and remote-command execution are not supported"
+
     /// Parse an SSH command string into configuration
     /// - Parameter command: Full command string (e.g., "ssh -p 2222 user@host")
     /// - Returns: ParseResult with success, needsPassword, help, or error
@@ -153,70 +178,67 @@ struct SSHCommandParser {
         var tmuxAutoMode = defaultTmuxMode.autoMode
 
         var i = 1
+        var optionsEnded = false
         while i < tokens.count {
             let token = tokens[i].text
 
-            // Once we have a destination, the rest of the line is ignored:
-            // this fork opens an interactive session, never a remote command.
+            // The fork opens an interactive session, never a remote command:
+            // anything after the destination is refused, not ignored.
             if host != nil {
-                break
+                let rest = tokens[i...].map(\.text)
+                if rest.contains(where: { shellOperatorTokens.contains($0) }) {
+                    return .error(compositionUnsupported)
+                }
+                return .error(remoteCommandUnsupported)
             }
 
-            if token.hasPrefix("-") {
-                // Handle flags
-                switch token {
-                case "-p":
-                    // Port
+            if !optionsEnded, token == "--" {
+                optionsEnded = true
+            } else if !optionsEnded, token == "--tmux" {
+                // Enable tmux auto-start. When the default was Off the mode
+                // is meaningless, so normalise it to plain tmux; a default of
+                // Control Mode is left alone and still launches `-CC`.
+                if !tmuxAutoEnable { tmuxAutoMode = .regular }
+                tmuxAutoEnable = true
+            } else if !optionsEnded, token == "-h" || token == "--help" {
+                return .help
+            } else if !optionsEnded, token.hasPrefix("-"), token.count > 1 {
+                let chars = Array(token)
+                guard chars[1] != "-", valueFlags.contains(chars[1]) else {
+                    return .error("unsupported option: \(token)")
+                }
+                let flag = chars[1]
+                let value: String
+                if chars.count > 2 {
+                    value = String(chars[2...])
+                } else {
                     i += 1
-                    guard i < tokens.count, let p = Int(tokens[i].text), p > 0, p <= 65535 else {
+                    guard i < tokens.count else {
+                        return .error("missing argument after -\(flag)")
+                    }
+                    value = tokens[i].text
+                }
+
+                switch flag {
+                case "p":
+                    guard let p = Int(value), p > 0, p <= 65535 else {
                         return .error("Invalid port number")
                     }
                     port = p
-
-                case "-l":
-                    // Username
-                    i += 1
-                    guard i < tokens.count else {
-                        return .error("Missing username after -l")
+                case "l":
+                    username = value
+                case "J":
+                    jumpHostString = value
+                case "i":
+                    identityFile = value
+                default: // "o"
+                    guard let (key, optionValue) = parseOption(value) else {
+                        return .error("unsupported option: -o \(value)")
                     }
-                    username = tokens[i].text
-
-                case "-J":
-                    // Jump host
-                    i += 1
-                    guard i < tokens.count else {
-                        return .error("Missing jump host after -J")
+                    guard let canonical = supportedOptions[key.lowercased()] else {
+                        return .error("unsupported option: -o \(key)")
                     }
-                    jumpHostString = tokens[i].text
-
-                case "-i":
-                    // Identity file
-                    i += 1
-                    guard i < tokens.count else {
-                        return .error("Missing identity file after -i")
-                    }
-                    identityFile = tokens[i].text
-
-                case "-o":
-                    // SSH option
-                    i += 1
-                    guard i < tokens.count else {
-                        return .error("Missing option after -o")
-                    }
-                    if let (key, value) = parseOption(tokens[i].text) {
-                        sshOptions[key] = value
-                    }
-
-                case "--tmux":
-                    // Enable tmux auto-start. When the default was Off the mode
-                    // is meaningless, so normalise it to plain tmux; a default of
-                    // Control Mode is left alone and still launches `-CC`.
-                    if !tmuxAutoEnable { tmuxAutoMode = .regular }
-                    tmuxAutoEnable = true
-
-                default:
-                    // Unknown flags are ignored.
-                    break
+                    sshOptions[canonical] = optionValue
                 }
             } else {
                 // First positional argument - should be [user@]host[:port]
@@ -228,13 +250,19 @@ struct SSHCommandParser {
                 if let p = parsed.port {
                     port = p
                 }
+                // An empty host would otherwise let the next token be read as
+                // the destination; stop here and report it below.
+                if host == nil { break }
             }
 
             i += 1
         }
 
         // Apply -o options that we recognize
-        if let optPort = sshOptions["Port"], let p = Int(optPort) {
+        if let optPort = sshOptions["Port"] {
+            guard let p = Int(optPort), p > 0, p <= 65535 else {
+                return .error("Invalid port number")
+            }
             port = p
         }
         if let optUser = sshOptions["User"] {
@@ -452,14 +480,15 @@ struct SSHCommandParser {
         return tokens
     }
 
-    /// Parse -o option string (key=value or key value)
+    /// Parse -o option string (`Key=Value`, or `Key Value` when quoted)
     private static func parseOption(_ option: String) -> (String, String)? {
-        if let eqIndex = option.firstIndex(of: "=") {
-            let key = String(option[..<eqIndex])
-            let value = String(option[option.index(after: eqIndex)...])
-            return (key, value)
-        }
-        return nil
+        let separator = option.firstIndex(where: { $0 == "=" || $0.isWhitespace })
+        guard let separator else { return nil }
+        let key = String(option[..<separator])
+        let value = option[option.index(after: separator)...]
+            .trimmingCharacters(in: .whitespaces)
+        guard !key.isEmpty, !value.isEmpty else { return nil }
+        return (key, value)
     }
 
     /// Parse [user@]host[:port] destination string

@@ -39,9 +39,9 @@ struct ShellApp: App {
         // before Ghostty surfaces try to use them
         _ = FontManager.shared
 
-        // Initialize RemoteSessionTracker early to ensure notification observer
-        // is set up before any MainView instances post notifications
-        _ = RemoteSessionTracker.shared
+        // Initialize SessionTracker early so it exists before any MainView
+        // publishes a tab count
+        _ = SessionTracker.shared
     }
 
     var body: some Scene {

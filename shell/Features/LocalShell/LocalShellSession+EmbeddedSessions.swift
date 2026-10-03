@@ -325,7 +325,12 @@ extension LocalShellSession {
 
     /// Handle an SSH command by parsing and starting an internal SSH session
     func handleSSHCommand(_ command: String) {
-        let result = SSHCommandParser.parse(command: command)
+        // Native SSH writes to the terminal, not a pipe: there is no
+        // subprocess whose output could feed `|`, `>` or `;`, and no OpenSSH
+        // fallback to hand the line to.
+        let result: SSHCommandParser.ParseResult = Self.commandContainsUnquotedShellOperator(command)
+            ? .error(SSHCommandParser.compositionUnsupported)
+            : SSHCommandParser.parse(command: command)
 
         switch result {
         case .success(let config):

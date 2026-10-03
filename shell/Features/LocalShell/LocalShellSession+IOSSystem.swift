@@ -190,9 +190,7 @@ extension LocalShellSession {
     // MARK: - ios_system setup
 
     /// Configures ios_system for this session
-    /// - Parameter sshAuthSocket: the bound local SSH agent socket, or nil to
-    ///   leave `SSH_AUTH_SOCK` unset.
-    func setupIOSSystemSession(sshAuthSocket: String? = nil) {
+    func setupIOSSystemSession() {
         let sessionPtr = IOSSystemSessionKey.key(for: sessionID)
 
         // Switch to our session context
@@ -230,13 +228,11 @@ extension LocalShellSession {
             ios_setenv(envVar.name, envVar.value, 1)
         }
 
-        // Shell's own agent, never an external one (ssh-agent-bridge-spec.md
-        // §5.1). There is no agent process, so SSH_AGENT_PID stays unset.
-        if let sshAuthSocket {
-            ios_setenv("SSH_AUTH_SOCK", sshAuthSocket, 1)
-        } else {
-            ios_unsetenv("SSH_AUTH_SOCK")
-        }
+        // The interpreter has no SSH agent and no OpenSSH client to use one:
+        // never export an agent socket inherited from the app's environment.
+        // (The native PTY backend does not come through here and keeps the
+        // user's real macOS agent environment.)
+        ios_unsetenv("SSH_AUTH_SOCK")
         ios_unsetenv("SSH_AGENT_PID")
 
         // Set HOME to Documents directory

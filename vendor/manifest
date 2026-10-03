@@ -9,17 +9,20 @@
 #                    verifies the upstream SHA-256 (unlisted ones are removed)
 #     drop=X,Y       package identities to strip, together with the targets
 #                    that use them (things this project never builds)
+#     source=none    binary-only package: prune its uncompiled source tree,
+#                    keeping manifests and top-level license/README files
+#     keep=A,B       with source=none, further top-level entries to keep
 #
 # Bump a pin with `./scripts/vendor.py update DIR REF`; `status` lists newer tags.
 
 # DIR                            URL                                                         REF        options
-ghosttykit-rootshell             https://github.com/kitknox/ghosttykit-rootshell.git         v0.2.14    binaries=GhosttyKitAppStore
-ios_system-rootshell             https://github.com/kitknox/ios_system-rootshell.git         v0.1.1     binaries=ios_system,awk,files,shell,text
-libarchive_ios-rootshell         https://github.com/kitknox/libarchive_ios-rootshell.git     v0.1.0     binaries=libarchive_ios
-vim-rootshell                    https://github.com/kitknox/vim-rootshell.git                v0.1.0     binaries=vim,xxd
-curl_ios-rootshell               https://github.com/kitknox/curl_ios-rootshell.git           v0.2.1     binaries=curl_ios
-jq-rootshell                     https://github.com/kitknox/jq-rootshell.git                 v0.1.0     binaries=jq_ios
-ripgrep-rootshell                https://github.com/kitknox/ripgrep-rootshell.git            v0.1.0     binaries=ripgrep_ios
+ghosttykit-rootshell             https://github.com/kitknox/ghosttykit-rootshell.git         v0.2.14    binaries=GhosttyKitAppStore source=none
+ios_system-rootshell             https://github.com/kitknox/ios_system-rootshell.git         v0.1.1     binaries=ios_system,awk,files,shell,text source=none
+libarchive_ios-rootshell         https://github.com/kitknox/libarchive_ios-rootshell.git     v0.1.0     binaries=libarchive_ios source=none
+vim-rootshell                    https://github.com/kitknox/vim-rootshell.git                v0.1.0     binaries=vim,xxd source=none keep=VimRuntime.bundle
+curl_ios-rootshell               https://github.com/kitknox/curl_ios-rootshell.git           v0.2.1     binaries=curl_ios source=none
+jq-rootshell                     https://github.com/kitknox/jq-rootshell.git                 v0.1.0     binaries=jq_ios source=none
+ripgrep-rootshell                https://github.com/kitknox/ripgrep-rootshell.git            v0.1.0     binaries=ripgrep_ios source=none
 Citadel-rootshell                https://github.com/kitknox/Citadel-rootshell.git            0.12.7     drop=ColorizeSwift
 swift-nio-ssh-rootshell          https://github.com/kitknox/swift-nio-ssh-rootshell.git      0.1.4      drop=swift-docc-plugin
 BigInt                           https://github.com/attaswift/BigInt.git                     v6.0.1

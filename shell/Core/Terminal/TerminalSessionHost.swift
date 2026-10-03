@@ -64,8 +64,6 @@ protocol TerminalSessionControllerHost: TerminalSessionHost, TerminalResponsePip
     var terminalHasPendingScrollbackRestore: Bool { get }
     /// One-shot shared-file path to open in the editor at local-shell start.
     var terminalPendingFileToOpen: String? { get set }
-    /// One-shot command typed into the local shell after it starts.
-    var terminalPendingStartupCommand: String? { get set }
 
     func terminalSetError(_ error: Error)
     func terminalNotifySessionDidChange()

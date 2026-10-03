@@ -48,16 +48,8 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
     /// Reports whether a rendered external command can safely participate in a streamed pipeline.
     let canStreamExternalCommand: (@Sendable (String) -> Bool)?
 
-    /// Reports whether a rendered external command must run as its own
-    /// pipeline stage rather than being bundled with neighbouring externals.
-    /// Defaults to nil (always bundleable). Used for commands whose host
-    /// implementation can't honour ios_system's internal pipe handling — e.g.
-    /// the WASM runtime, which would otherwise receive the joined-with-`|`
-    /// string as its argv and pass `|` through to the wasm process.
-    let requiresOwnExternalPipelineStage: (@Sendable (String) -> Bool)?
-
     /// Streaming executor for background jobs: same shape as `streamExternal`
-    /// but with native app-command routing disabled and wasm refused, so a
+    /// but with native app-command routing disabled, so a
     /// dynamically-named command (`c=ssh; $c host &`) can never reach an
     /// interactive handler from a detached job. nil = jobs can't run externals.
     let backgroundStreamExternal: (@Sendable (String, (@Sendable () -> Data?)?, @escaping @Sendable (Data) -> Bool) -> Int32)?
@@ -151,7 +143,6 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
          captureExternal: (@Sendable (String) -> (Int32, String))? = nil,
          streamExternal: (@Sendable (String, (@Sendable () -> Data?)?, @escaping @Sendable (Data) -> Bool) -> Int32)? = nil,
          canStreamExternalCommand: (@Sendable (String) -> Bool)? = nil,
-         requiresOwnExternalPipelineStage: (@Sendable (String) -> Bool)? = nil,
          backgroundStreamExternal: (@Sendable (String, (@Sendable () -> Data?)?, @escaping @Sendable (Data) -> Bool) -> Int32)? = nil,
          isLocallyCancelled: (@Sendable () -> Bool)? = nil,
          writeOutput: @escaping @Sendable (Data) -> Void,
@@ -182,7 +173,6 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
         }
         self.streamExternal = streamExternal
         self.canStreamExternalCommand = canStreamExternalCommand
-        self.requiresOwnExternalPipelineStage = requiresOwnExternalPipelineStage
         self.backgroundStreamExternal = backgroundStreamExternal
         self.isLocallyCancelled = isLocallyCancelled
         self.writeOutput = writeOutput
@@ -326,7 +316,6 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
             },
             captureExternal: captureExternal,
             canStreamExternalCommand: canStreamExternalCommand,
-            requiresOwnExternalPipelineStage: requiresOwnExternalPipelineStage,
             writeOutput: { data in captured.withLock { $0.append(data) } },
             writeErrorOutput: childErrorSink,
             readLine: { _, _ -> String? in nil },
@@ -652,28 +641,6 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
             }
         }
 
-        // Isolated externals (e.g. WASM) with redirections must have their
-        // redirections handled at the interpreter level. ios_system can't run
-        // the underlying binary, so the usual path — appending `> file` to the
-        // command and letting ios_system parse it — fails with "command not
-        // found". Open the files here and wire them into `streamExternal`,
-        // which the host routes to its in-app runtime.
-        if !cmd.redirections.isEmpty,
-           let streamExternalImpl = streamExternal,
-           let requiresOwnStage = requiresOwnExternalPipelineStage {
-            let bareCommand = expandedWords.map { shellEscape($0) }.joined(separator: " ")
-            if requiresOwnStage(bareCommand) {
-                return try executeIsolatedExternalWithRedirections(
-                    bareCommand: bareCommand,
-                    assignments: cmd.assignments,
-                    redirections: cmd.redirections,
-                    heredocContent: cmd.heredocContent,
-                    heredocQuoted: cmd.heredocQuoted,
-                    streamExternal: streamExternalImpl
-                )
-            }
-        }
-
         // A logical `cd` in an isolated context (background job, pipeline
         // stage) can't move the child's physical cwd — ios_system's working
         // directory is process-wide, so running the command would silently
@@ -908,202 +875,6 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
         return true
     }
 
-    /// Single-shot Sendable wrapper for a heredoc payload feeding stdin
-    /// through an `inputProvider` callback. Returns the payload once, then
-    /// nil — matching POSIX semantics for a closed stdin after the heredoc.
-    private final class HeredocStdinBox: @unchecked Sendable {
-        private let lock = UnfairLock()
-        private var data: Data?
-        init(data: Data) { self.data = data }
-        func take() -> Data? {
-            lock.withLock {
-                let out = data
-                data = nil
-                return out
-            }
-        }
-    }
-
-    /// Execute an isolated external command (e.g. WASM) whose redirections
-    /// must be honoured inside the interpreter — the host's `streamExternal`
-    /// callback can't see `> file` in the command string because the
-    /// underlying binary isn't run via ios_system. Supports `>`, `>>`, `<`,
-    /// and here-doc stdin. Other redirection forms (`2>`, `2>&1`, `>&N`) are
-    /// rejected with an error.
-    private func executeIsolatedExternalWithRedirections(
-        bareCommand: String,
-        assignments: [(String, String)],
-        redirections: [Redirection],
-        heredocContent: String?,
-        heredocQuoted: Bool?,
-        streamExternal: @Sendable (String, (@Sendable () -> Data?)?, @escaping @Sendable (Data) -> Bool) -> Int32
-    ) throws -> Int32 {
-        // Apply pre-command assignments temporarily (mirrors the executeExternal path).
-        var savedVars: [(String, String?, Bool, String?)] = []
-        for (name, rawValue) in assignments {
-            let value = try environment.expandScalarWord(
-                ShellParser(tokenizer: ShellTokenizer(source: "")).parseShellWord(from: rawValue),
-                interpreter: self
-            )
-            let oldEnvValue = environment.exportedEnvValue(name)
-            savedVars.append((name, environment.variable(name), environment.isExported(name), oldEnvValue))
-            environment.exportVariable(name, value: value)
-        }
-        defer {
-            for (name, oldValue, wasExported, oldEnvValue) in savedVars {
-                if let old = oldValue {
-                    environment.setVariable(name, value: old)
-                } else {
-                    environment.unsetVariable(name)
-                }
-                if !wasExported {
-                    environment.removeFromExportedSet(name)
-                }
-                if oldEnvValue != nil || !wasExported {
-                    environment.restoreExportedEnvValue(name, value: oldEnvValue)
-                }
-            }
-        }
-
-        // Resolve & open redirection targets.
-        var openedFDs: [Int32] = []
-        var inputFD: Int32 = -1
-        var outputFD: Int32 = -1
-        defer { for fd in openedFDs { close(fd) } }
-
-        func expandTarget(_ raw: String) -> String {
-            let expanded: String
-            do {
-                let word = ShellParser(tokenizer: ShellTokenizer(source: "")).parseShellWord(from: raw)
-                expanded = try environment.expandScalarWord(word, interpreter: self)
-            } catch {
-                expanded = raw
-            }
-            // Resolve against the session's PWD (tracked in the shell env)
-            // rather than the process-global cwd — that cwd can flip between
-            // sessions and would let `wasm foo > out` write into the wrong
-            // tab's directory.
-            return environment.resolvePath(expanded)
-        }
-
-        for redir in redirections {
-            if redir.op == .heredocOp || redir.op == .heredocStripOp { continue }
-            let target = expandTarget(redir.target)
-            switch redir.op {
-            case .outputTo:
-                let fd = open(target, O_WRONLY | O_CREAT | O_TRUNC, 0o644)
-                guard fd >= 0 else {
-                    writeString("sh: \(target): \(String(cString: strerror(errno)))\n")
-                    environment.setLastExitCode(1)
-                    return 1
-                }
-                openedFDs.append(fd)
-                outputFD = fd
-            case .appendTo:
-                let fd = open(target, O_WRONLY | O_CREAT | O_APPEND, 0o644)
-                guard fd >= 0 else {
-                    writeString("sh: \(target): \(String(cString: strerror(errno)))\n")
-                    environment.setLastExitCode(1)
-                    return 1
-                }
-                openedFDs.append(fd)
-                outputFD = fd
-            case .inputFrom:
-                let fd = open(target, O_RDONLY)
-                guard fd >= 0 else {
-                    writeString("sh: \(target): \(String(cString: strerror(errno)))\n")
-                    environment.setLastExitCode(1)
-                    return 1
-                }
-                openedFDs.append(fd)
-                inputFD = fd
-            default:
-                writeString("sh: \(bareCommand): unsupported redirection for isolated external\n")
-                environment.setLastExitCode(1)
-                return 1
-            }
-        }
-
-        // Build inputProvider: heredoc (single-shot) takes precedence over
-        // `<` file redirection, matching the ordering in the existing path.
-        let inputProvider: (@Sendable () -> Data?)?
-        if let heredocContent {
-            let expanded: String
-            if heredocQuoted == true {
-                expanded = heredocContent
-            } else {
-                expanded = try expandHeredocContent(heredocContent)
-            }
-            let pending = HeredocStdinBox(data: Data(expanded.utf8))
-            inputProvider = { pending.take() }
-        } else if inputFD >= 0 {
-            let capturedFD = inputFD
-            inputProvider = {
-                var buf = [UInt8](repeating: 0, count: 8192)
-                let n = buf.withUnsafeMutableBufferPointer { bp -> Int in
-                    guard let base = bp.baseAddress else { return -1 }
-                    return read(capturedFD, base, 8192)
-                }
-                if n <= 0 { return nil }
-                return Data(bytes: buf, count: n)
-            }
-        } else {
-            inputProvider = nil
-        }
-
-        // Build outputSink: when `>` / `>>` is present, write straight to the
-        // file fd; otherwise hand bytes to the interpreter's own writeOutput
-        // (terminal). The fd write loop handles partial writes and EINTR.
-        let outputSink: @Sendable (Data) -> Bool
-        if outputFD >= 0 {
-            let capturedFD = outputFD
-            outputSink = { data in
-                data.withUnsafeBytes { raw in
-                    guard let base = raw.baseAddress else { return }
-                    var written = 0
-                    while written < raw.count {
-                        let n = write(capturedFD, base.advanced(by: written), raw.count - written)
-                        if n > 0 { written += n; continue }
-                        if n < 0 && errno == EINTR { continue }
-                        return
-                    }
-                }
-                return true
-            }
-        } else {
-            let outerWriteOutput = self.writeOutput
-            outputSink = { data in
-                outerWriteOutput(data)
-                return true
-            }
-        }
-
-        // Inline the exported env + pre-command assignments as leading
-        // `NAME=value` tokens, matching how `renderExternalPipelineSegment`
-        // hands env to `streamExternal` for pipeline stages. The host's wasm
-        // route can't read the shell's per-session ios_system env via
-        // `ProcessInfo`, so this is the only path that gets shell assignments
-        // (`FOO=bar wasm tool.wasm > out`) into the wasm process.
-        let childEnvironment = environment.snapshotChildProcessEnvironment()
-        var renderedCommand = ""
-        for name in childEnvironment.keys.sorted() {
-            guard let value = childEnvironment[name] else { continue }
-            renderedCommand += "\(name)=\(shellEscape(value)) "
-        }
-        renderedCommand += bareCommand
-        let exitCode = environment.withTemporaryChildProcessEnvironment(childEnvironment) {
-            streamExternal(renderedCommand, inputProvider, outputSink)
-        }
-        environment.setLastExitCode(exitCode)
-
-        if exitCode != 0, !inErrTrap, let errTrap = trapRegistry.handler(for: .err) {
-            inErrTrap = true
-            _ = try? execute(errTrap)
-            inErrTrap = false
-        }
-        return exitCode
-    }
-
     /// Execute a pipeline of commands connected by `|`.
     ///
     /// Pure shell-native pipelines run concurrently with bounded in-memory pipes.
@@ -1161,18 +932,6 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
                 return nil
             }
 
-            // If the host marks this command as needing isolation (e.g. WASM —
-            // its rendered string can't be a multi-command `a | b` because the
-            // host would pass the joined string as a single argv), flush any
-            // pending bundle first and add this command as its own stage.
-            if let requiresOwnStage = requiresOwnExternalPipelineStage,
-               let rendered = try? renderExternalSimpleCommand(command),
-               requiresOwnStage(rendered) {
-                flushPendingExternal()
-                stages.append(.external([command]))
-                continue
-            }
-
             pendingExternal.append(command)
         }
 
@@ -1207,7 +966,6 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
         let token = self.cancellationToken
         let streamExternal = self.streamExternal
         let canStreamExternalCommand = self.canStreamExternalCommand
-        let requiresOwnExternalPipelineStage = self.requiresOwnExternalPipelineStage
 
         let group = DispatchGroup()
 
@@ -1246,7 +1004,6 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
                             },
                             captureExternal: outerCaptureExternal,
                             canStreamExternalCommand: canStreamExternalCommand,
-                            requiresOwnExternalPipelineStage: requiresOwnExternalPipelineStage,
                             isLocallyCancelled: { stageCancellation.isCancelled },
                             writeOutput: { [downstream] data in
                                 if isLast {
@@ -1277,7 +1034,6 @@ nonisolated final class ShellInterpreter: @unchecked Sendable {
                             executeExternalWithStdin: { _, _ in 1 },
                             captureExternal: { _ in (1, "") },
                             canStreamExternalCommand: canStreamExternalCommand,
-                            requiresOwnExternalPipelineStage: requiresOwnExternalPipelineStage,
                             isLocallyCancelled: { stageCancellation.isCancelled },
                             writeOutput: { _ in },
                             readLine: { _, _ -> String? in nil }

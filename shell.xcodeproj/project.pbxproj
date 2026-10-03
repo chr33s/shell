@@ -44,7 +44,6 @@
 		DDA76B4D306CCADC00E537D6 /* vim in Frameworks */ = {isa = PBXBuildFile; productRef = DDA76B4C306CCADC00E537D6 /* vim */; };
 		DDA76B4F306CCAE700E537D6 /* jq_ios in Frameworks */ = {isa = PBXBuildFile; productRef = DDA76B4E306CCAE700E537D6 /* jq_ios */; };
 		DDA76B51306CCAF000E537D6 /* curl_ios in Frameworks */ = {isa = PBXBuildFile; productRef = DDA76B50306CCAF000E537D6 /* curl_ios */; };
-		0A55E0000000000000000003 /* OpenSSHCommands in Frameworks */ = {isa = PBXBuildFile; platformFilters = (ios, maccatalyst, ); productRef = 0A55E0000000000000000002 /* OpenSSHCommands */; };
 		DDA76B53306CCAFB00E537D6 /* libarchive_ios in Frameworks */ = {isa = PBXBuildFile; productRef = DDA76B52306CCAFB00E537D6 /* libarchive_ios */; };
 		DDA76B55306CCB0500E537D6 /* ripgrep_ios in Frameworks */ = {isa = PBXBuildFile; productRef = DDA76B54306CCB0500E537D6 /* ripgrep_ios */; };
 /* End PBXBuildFile section */
@@ -161,7 +160,7 @@
 		B1C000000000000000000003 /* ShellControlHost/main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellControlHost/main.swift; sourceTree = SOURCE_ROOT; };
 		B1C000000000000000000004 /* ShellControlHost/dev.chr33s.shell.control-host.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "ShellControlHost/dev.chr33s.shell.control-host.plist"; sourceTree = SOURCE_ROOT; };
 		B1C000000000000000000005 /* cmd/Sources/ShellControlHostRuntime/ControlHostInterface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmd/Sources/ShellControlHostRuntime/ControlHostInterface.swift; sourceTree = SOURCE_ROOT; };
-		DDA76B48306CB39E00E537D6 /* VimRuntime.bundle */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.plug-in"; path = VimRuntime.bundle; sourceTree = "<group>"; };
+		DDA76B48306CB39E00E537D6 /* VimRuntime.bundle */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.plug-in"; name = VimRuntime.bundle; path = "vendor/vim-rootshell/VimRuntime.bundle"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -220,7 +219,6 @@
 				AB00000000000000000028 /* GhosttyKitAppStore in Frameworks */,
 				AB00000000000000000029 /* Citadel in Frameworks */,
 				DDA76B51306CCAF000E537D6 /* curl_ios in Frameworks */,
-				0A55E0000000000000000003 /* OpenSSHCommands in Frameworks */,
 				DDA76B55306CCB0500E537D6 /* ripgrep_ios in Frameworks */,
 				AB0000000000000000002A /* ios_system in Frameworks */,
 				AE00000000000000000071 /* ShellControlProtocol in Frameworks */,
@@ -377,7 +375,6 @@
 				DDA76B4C306CCADC00E537D6 /* vim */,
 				DDA76B4E306CCAE700E537D6 /* jq_ios */,
 				DDA76B50306CCAF000E537D6 /* curl_ios */,
-				0A55E0000000000000000002 /* OpenSSHCommands */,
 				DDA76B52306CCAFB00E537D6 /* libarchive_ios */,
 				DDA76B54306CCB0500E537D6 /* ripgrep_ios */,
 			);
@@ -529,7 +526,6 @@
 				AE00000000000000000050 /* XCLocalSwiftPackageReference "Packages/ShellControlCore" */,
 				B1C00000000000000000000A /* XCLocalSwiftPackageReference "cmd" */,
 				DDA76B43306CB24E00E537D6 /* XCLocalSwiftPackageReference "vendor/curl_ios-rootshell" */,
-				0A55E0000000000000000001 /* XCLocalSwiftPackageReference "Packages/OpenSSHCommands" */,
 				DDA76B44306CB28A00E537D6 /* XCLocalSwiftPackageReference "vendor/libarchive_ios-rootshell" */,
 				DDA76B45306CB2AE00E537D6 /* XCLocalSwiftPackageReference "vendor/vim-rootshell" */,
 				DDA76B46306CB2DC00E537D6 /* XCLocalSwiftPackageReference "vendor/jq-rootshell" */,
@@ -1140,10 +1136,6 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = cmd;
 		};
-		0A55E0000000000000000001 /* XCLocalSwiftPackageReference "Packages/OpenSSHCommands" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/OpenSSHCommands;
-		};
 		DDA76B43306CB24E00E537D6 /* XCLocalSwiftPackageReference "vendor/curl_ios-rootshell" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = "vendor/curl_ios-rootshell";
@@ -1220,11 +1212,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = DDA76B46306CB2DC00E537D6 /* XCLocalSwiftPackageReference "vendor/jq-rootshell" */;
 			productName = jq_ios;
-		};
-		0A55E0000000000000000002 /* OpenSSHCommands */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 0A55E0000000000000000001 /* XCLocalSwiftPackageReference "Packages/OpenSSHCommands" */;
-			productName = OpenSSHCommands;
 		};
 		DDA76B50306CCAF000E537D6 /* curl_ios */ = {
 			isa = XCSwiftPackageProductDependency;

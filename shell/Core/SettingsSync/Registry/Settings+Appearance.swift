@@ -11,7 +11,6 @@ extension AppearanceManager.AppearanceMode: SettingValue {}
 extension SelectionAppearanceMode: SettingValue {}
 extension CursorStyle: SettingValue {}
 extension CursorBlinkMode: SettingValue {}
-extension CursorEffect: SettingValue {}
 extension TransparencyManager.BlurStyle: SettingValue {}
 
 nonisolated extension Settings {
@@ -54,8 +53,7 @@ nonisolated extension Settings {
         ]
     }
 
-    /// Cursor appearance. Fed straight into the Ghostty config; the fork has
-    /// no cursor-effects UI, but the keys stay so a config file can set them.
+    /// Cursor appearance. Fed straight into the Ghostty config.
     enum Cursor {
         static let style = SettingKey(
             "cursorStyle", default: CursorStyle.block, group: .cursor, configKey: "cursor-style",
@@ -66,9 +64,6 @@ nonisolated extension Settings {
         static let blinkMode = SettingKey(
             "cursorBlinkMode", default: CursorBlinkMode.normal, group: .cursor, configKey: "cursor-blink-mode",
             title: String(localized: "Blink Style", comment: "Setting title"))
-        static let effect = SettingKey(
-            "cursorEffect", default: CursorEffect.none, group: .cursor, configKey: "cursor-effect",
-            title: String(localized: "Cursor Effect", comment: "Setting title"))
         static let color = SettingKey<String?>(
             "cursorColor", default: nil, group: .cursor, configKey: "cursor-color",
             title: String(localized: "Cursor Color", comment: "Setting title"))
@@ -86,7 +81,7 @@ nonisolated extension Settings {
             title: String(localized: "Cursor Height", comment: "Setting title"))
 
         static let all: [AnySettingDefinition] = [
-            style.erased, blinkEnabled.erased, blinkMode.erased, effect.erased, color.erased,
+            style.erased, blinkEnabled.erased, blinkMode.erased, color.erased,
             textColor.erased, opacity.erased, thickness.erased, height.erased
         ]
     }

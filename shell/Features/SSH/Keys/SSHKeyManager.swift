@@ -380,15 +380,8 @@ final class SSHKeyManager {
             throw DeleteError.keychainError(error)
         }
 
-        // Drop any cached Secure Enclave auth context and session for this
-        // key, and its device-local agent grant.
+        // Drop any cached Secure Enclave auth context for this key.
         SSHKeyAuthManager.shared.clearSecureEnclaveContext(for: id)
-        SSHKeyAuthManager.shared.clearAuthentication(for: id)
-        LocalSSHAgentPolicy.keyDeleted(id)
-
-        // Drop OpenPubkey secrets (refresh token + PK token) if this was an
-        // opkssh identity key.
-        keychainManager.deleteOpenPubkeySecrets(forKey: id.uuidString)
 
         // Remove from saved keys
         savedKeys.remove(at: index)
@@ -508,11 +501,7 @@ final class SSHKeyManager {
     /// Prefer this overload over the sync one in any `async` context —
     /// especially `SSHConnectionHelper.buildAuthMethod`, which is the
     /// hot path for every new SSH connection.
-    ///
-    /// `purpose` scopes `.perSession` authorization: the local SSH agent
-    /// loads with `.localAgent`, so a session unlocked for one surface is
-    /// never ambient authority for the other.
-    func loadPrivateKey(id: UUID, purpose: SSHKeyAuthPurpose = .nativeSSH) async throws -> SSHPrivateKeyVariant {
+    func loadPrivateKey(id: UUID) async throws -> SSHPrivateKeyVariant {
         guard let savedKey = savedKeys.first(where: { $0.id == id }) else {
             throw LoadError.keyNotFound
         }
@@ -522,14 +511,14 @@ final class SSHKeyManager {
         // This also covers iCloud-synced keys, whose Keychain items cannot carry
         // the device-bound access control used by local keys.
         if savedKey.authRequirement != .none {
-            return try await loadPrivateKeyWithAuth(id: id, purpose: purpose)
+            return try await loadPrivateKeyWithAuth(id: id)
         }
 
         // Secure Enclave keys authenticate at load (off the SSH event loop)
         // so the handshake signature is silent and the session is recorded
         // only on a real success.
         if savedKey.secureEnclaveInfo != nil {
-            return try await secureEnclaveVariantAuthenticated(for: savedKey, purpose: purpose)
+            return try await secureEnclaveVariantAuthenticated(for: savedKey)
         }
         guard let prep = try preparePrivateKeyLoad(id: id) else {
             return try resolvedHardwareVariant(id: id)
@@ -619,10 +608,7 @@ final class SSHKeyManager {
     /// and leaves no recorded session and no cached context, exactly like the
     /// software-key path. Within a valid session the cached, authenticated
     /// context is reused without a new prompt.
-    private func secureEnclaveVariantAuthenticated(
-        for savedKey: SSHKey,
-        purpose: SSHKeyAuthPurpose
-    ) async throws -> SSHPrivateKeyVariant {
+    private func secureEnclaveVariantAuthenticated(for savedKey: SSHKey) async throws -> SSHPrivateKeyVariant {
         let dataRep = try keychainManager.loadPrivateKey(identifier: savedKey.id.uuidString)
         let authManager = SSHKeyAuthManager.shared
         let reason = "Authenticate to use '\(savedKey.name)'"
@@ -630,8 +616,8 @@ final class SSHKeyManager {
         var context: LAContext?
         if savedKey.authRequirement != .none {
             if savedKey.authRequirement == .perSession,
-               !authManager.needsAuthentication(for: savedKey, purpose: purpose),
-               let cached = authManager.cachedSecureEnclaveContext(for: savedKey.id, purpose: purpose) {
+               !authManager.needsAuthentication(for: savedKey),
+               let cached = authManager.cachedSecureEnclaveContext(for: savedKey.id) {
                 // Session still valid — reuse the already-authenticated context.
                 context = cached
             } else {
@@ -642,8 +628,8 @@ final class SSHKeyManager {
                 try await Self.evaluateAccessControl(access, on: fresh, reason: reason)
                 // Record the session only now that auth has succeeded.
                 if savedKey.authRequirement == .perSession {
-                    authManager.recordAuthentication(for: savedKey.id, purpose: purpose)
-                    authManager.cacheSecureEnclaveContext(fresh, for: savedKey.id, purpose: purpose)
+                    authManager.recordAuthentication(for: savedKey.id)
+                    authManager.cacheSecureEnclaveContext(fresh, for: savedKey.id)
                 }
                 context = fresh
             }
@@ -1025,7 +1011,7 @@ final class SSHKeyManager {
     /// - Parameter id: The key ID to load
     /// - Returns: The private key as a variant type
     /// - Throws: Error if loading fails or authentication is cancelled
-    func loadPrivateKeyWithAuth(id: UUID, purpose: SSHKeyAuthPurpose = .nativeSSH) async throws -> SSHPrivateKeyVariant {
+    func loadPrivateKeyWithAuth(id: UUID) async throws -> SSHPrivateKeyVariant {
         Self.logger.info("Loading private key with auth for ID: \(id.uuidString)")
 
         guard let savedKey = savedKeys.first(where: { $0.id == id }) else {
@@ -1037,19 +1023,19 @@ final class SSHKeyManager {
         // just reconstruct the key (carrying the right LAContext) here.
         if savedKey.secureEnclaveInfo != nil {
             Self.logger.info("Loading Secure Enclave reference (authenticating at load)")
-            return try await secureEnclaveVariantAuthenticated(for: savedKey, purpose: purpose)
+            return try await secureEnclaveVariantAuthenticated(for: savedKey)
         }
 
         let authManager = SSHKeyAuthManager.shared
 
         // Check if authentication is needed
-        let needsAuth = authManager.needsAuthentication(for: savedKey, purpose: purpose)
+        let needsAuth = authManager.needsAuthentication(for: savedKey)
         Self.logger.info("Needs authentication: \(needsAuth) (requirement: \(savedKey.authRequirement.rawValue))")
 
         // If auth is needed, use deduplication to avoid multiple prompts for concurrent requests
         let keyData: Data
         if needsAuth {
-            let authenticatedLoad: () async throws -> Data = { [keychainManager, authManager] in
+            keyData = try await authManager.loadWithDeduplication(keyID: id) { [keychainManager, authManager] in
                 // Create authentication context (must hop to MainActor since authManager is MainActor-isolated)
                 let reason = "Authenticate to use '\(savedKey.name)'"
                 let context = await MainActor.run {
@@ -1094,21 +1080,9 @@ final class SSHKeyManager {
                 }
             }
 
-            // Any local program can send local-agent sign requests, so a
-            // `.perUse` agent load never joins another caller's prompt: one
-            // approval yields exactly one signature (ssh-agent-bridge-v2-delta.md
-            // §5.3). Native SSH keeps sharing one prompt per burst.
-            if purpose == .localAgent && savedKey.authRequirement == .perUse {
-                keyData = try await authenticatedLoad()
-            } else {
-                keyData = try await authManager.loadWithDeduplication(
-                    keyID: id, purpose: purpose, loader: authenticatedLoad
-                )
-            }
-
             // Record successful authentication for perSession
             if savedKey.authRequirement == .perSession {
-                authManager.recordAuthentication(for: id, purpose: purpose)
+                authManager.recordAuthentication(for: id)
             }
         } else {
             // No auth needed, load directly

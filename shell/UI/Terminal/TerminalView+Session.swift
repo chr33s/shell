@@ -73,9 +73,6 @@ extension Ghostty.TerminalView {
     /// Run the layout-deferred scrollback restore for this terminal. Called
     /// from `sizeDidChange` and the timeout fallback.
     func runLayoutDeferredScrollbackRestore() {
-        let trailer = pendingResumeTrailer
-        pendingResumeTrailer = nil
-
         if restoredWasTmuxGateway {
             // Projected panes own the useful persisted content. Keep remote
             // control records gated and skip the hidden gateway's ANSI replay.
@@ -85,7 +82,6 @@ extension Ghostty.TerminalView {
 
         ScrollbackPersistenceManager.shared.restoreScrollback(
             for: self,
-            trailer: trailer,
             keepGateOpen: false
         )
     }

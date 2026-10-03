@@ -87,7 +87,7 @@ nonisolated extension ShellInterpreter {
     /// Launch `command &`. The job is gated to backends that are safe to run
     /// detached from the terminal: interpreter-native work (builtins,
     /// functions, pipelines) and non-interactive ios_system commands.
-    /// Native app commands (ssh, git, ping, ...) and wasm are refused —
+    /// Native app commands (`ssh`, `reset`) are refused —
     /// they own the prompt lifecycle / session mode and can't run headless.
     func launchBackgroundJob(_ command: ShellCommand) throws -> Int32 {
         if let refusal = backgroundRefusalReason(command) {
@@ -127,7 +127,6 @@ nonisolated extension ShellInterpreter {
             captureExternal: captureExternal,
             streamExternal: backgroundStreamExternal,
             canStreamExternalCommand: canStreamExternalCommand,
-            requiresOwnExternalPipelineStage: requiresOwnExternalPipelineStage,
             backgroundStreamExternal: backgroundStreamExternal,
             writeOutput: writeOutput,
             writeErrorOutput: writeErrorOutput,
@@ -176,9 +175,6 @@ nonisolated extension ShellInterpreter {
             }
             guard let name = Self.staticWordPrefixText(firstWord), !name.isEmpty else {
                 return nil // dynamic command name — resolved at execution
-            }
-            if name == "wasm" || name.hasSuffix(".wasm") || requiresOwnExternalPipelineStage?(name) == true {
-                return "wasm programs"
             }
             if canStreamExternalCommand?(name) == false {
                 return "\(name) (interactive command)"

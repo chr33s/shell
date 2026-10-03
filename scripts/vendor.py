@@ -22,7 +22,12 @@ pristine upstream tree, and then *localizes* it:
     the pin is content-addressed without committing the archive; unlisted
     binary targets (and the products that only exposed them) are removed;
   * dependencies named in `drop=` (and the targets that use them) are removed,
-    so nothing outside vendor/ is ever resolved.
+    so nothing outside vendor/ is ever resolved;
+  * `source=none` marks a binary-only package (every target it builds comes
+    from `binaries=`): its never-compiled source tree is pruned, keeping only
+    the manifests, top-level license/notice/README files, and any top-level
+    entries named in `keep=` (e.g. a resource bundle the app embeds). The
+    full source stays at the pinned commit upstream (vendor/manifest.lock).
 
 Because every local change is mechanical and re-derived on each sync, pulling
 an upstream release is `update DIR REF` — there is nothing to merge. Hand
@@ -104,6 +109,15 @@ class Package:
     def drops(self) -> List[str]:
         v = self.options.get("drop", "")
         return [d.lower() for d in v.split(",") if d]
+
+    @property
+    def source_pruned(self) -> bool:
+        return self.options.get("source") == "none"
+
+    @property
+    def keeps(self) -> List[str]:
+        v = self.options.get("keep", "")
+        return [k for k in v.split(",") if k]
 
     @property
     def identity(self) -> str:
@@ -357,6 +371,36 @@ def localize_text(text: str, pkg: Package, by_identity: Dict[str, Package], rel:
     return text
 
 
+# Top-level files every pruned package keeps: legal text and a pointer to
+# where the rest of the source lives.
+ALWAYS_KEPT = re.compile(r"^(LICEN[CS]E|COPYING|NOTICE|AUTHORS|README)", re.IGNORECASE)
+
+
+def pruned_entries(pkg: Package) -> List[str]:
+    """Top-level entries of a `source=none` package that pruning removes."""
+    if not pkg.source_pruned or not os.path.isdir(pkg.path):
+        return []
+    manifests = {os.path.basename(m) for m in manifests_in(pkg.path)}
+    return sorted(
+        e for e in os.listdir(pkg.path)
+        if e not in manifests and e not in pkg.keeps and not ALWAYS_KEPT.match(e)
+    )
+
+
+def prune_package(pkg: Package) -> None:
+    if not pkg.source_pruned:
+        return
+    missing = [k for k in pkg.keeps if not os.path.exists(os.path.join(pkg.path, k))]
+    if missing:
+        die(f"{pkg.dir}: keep= names {', '.join(missing)}, which upstream does not have")
+    for e in pruned_entries(pkg):
+        target = os.path.join(pkg.path, e)
+        if os.path.isdir(target) and not os.path.islink(target):
+            shutil.rmtree(target)
+        else:
+            os.remove(target)
+
+
 def localize_package(pkg: Package, packages: List[Package]) -> None:
     by_identity = {p.identity: p for p in packages}
     for manifest in manifests_in(pkg.path):
@@ -439,6 +483,8 @@ def sync_package(pkg: Package, packages: List[Package], lock: Dict[str, dict], f
             and entry.get("ref") == pkg.ref
             and sorted(entry.get("binaries", {})) == sorted(pkg.binaries)
             and entry.get("drop", []) == pkg.drops
+            and entry.get("source", "full") == ("none" if pkg.source_pruned else "full")
+            and entry.get("keep", []) == pkg.keeps
         ):
             print(f"ok      {pkg.dir} already at {commit[:12]}")
             return False
@@ -459,6 +505,7 @@ def sync_package(pkg: Package, packages: List[Package], lock: Dict[str, dict], f
 
     localize_package(pkg, packages)
     apply_patches(pkg)
+    prune_package(pkg)
     lock[pkg.dir] = {
         "url": pkg.url,
         "ref": pkg.ref,
@@ -466,6 +513,9 @@ def sync_package(pkg: Package, packages: List[Package], lock: Dict[str, dict], f
         "binaries": new_binaries,
         "drop": pkg.drops,
     }
+    if pkg.source_pruned:
+        lock[pkg.dir]["source"] = "none"
+        lock[pkg.dir]["keep"] = pkg.keeps
     print(f"vendored {pkg.dir} {pkg.ref} ({commit[:12]})")
     return True
 
@@ -566,7 +616,19 @@ def cmd_localize(args: argparse.Namespace) -> None:
             die(f"vendor/{pkg.dir} is missing; run `scripts/vendor.py sync {pkg.dir}`")
         localize_package(pkg, packages)
         apply_patches(pkg)
+        prune_package(pkg)
         print(f"localized {pkg.dir}")
+
+
+def find_target_kinds(package_dir: str) -> List[str]:
+    """Names of compiled (non-binary) targets declared by a package."""
+    names: List[str] = []
+    for manifest in manifests_in(package_dir):
+        text = open(manifest).read()
+        for kind in ("target", "executableTarget", "testTarget", "plugin", "macro"):
+            for start, end in find_calls(text, kind):
+                names.append(arg_string(text[start:end], "name") or kind)
+    return names
 
 
 def cmd_verify(args: argparse.Namespace) -> None:
@@ -602,6 +664,13 @@ def cmd_verify(args: argparse.Namespace) -> None:
                     problems.append(f"{rel}: binary target {name} is not listed in binaries=")
                 if arg_string(span, "url") is not None and arg_string(span, "checksum") is None:
                     problems.append(f"{rel}: binary target {name} has no checksum")
+        if pkg.source_pruned:
+            if entry and (entry.get("source") != "none" or entry.get("keep", []) != pkg.keeps):
+                problems.append(f"{pkg.dir}: source=/keep= options differ from manifest.lock")
+            for target in find_target_kinds(pkg.path):
+                problems.append(f"vendor/{pkg.dir}: source=none but builds source target {target}")
+            for e in pruned_entries(pkg):
+                problems.append(f"vendor/{pkg.dir}/{e} should have been pruned (source=none)")
     for d in lock:
         if d not in {p.dir for p in packages}:
             problems.append(f"lock entry {d} has no manifest line")

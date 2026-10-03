@@ -24,7 +24,9 @@
     },
     "commit": "be242207461c50e427933f289b0c3f4b6f95f0e1",
     "drop": [],
+    "keep": [],
     "ref": "v0.2.1",
+    "source": "none",
     "url": "https://github.com/kitknox/curl_ios-rootshell.git"
   },
   "ghosttykit-rootshell": {
@@ -36,7 +38,9 @@
     },
     "commit": "1c1c0db44098c487db15aa0fdeb242aca2953a01",
     "drop": [],
+    "keep": [],
     "ref": "v0.2.14",
+    "source": "none",
     "url": "https://github.com/kitknox/ghosttykit-rootshell.git"
   },
   "ios_system-rootshell": {
@@ -64,7 +68,9 @@
     },
     "commit": "d26afc264a78723afba6286695eadba5184dd7af",
     "drop": [],
+    "keep": [],
     "ref": "v0.1.1",
+    "source": "none",
     "url": "https://github.com/kitknox/ios_system-rootshell.git"
   },
   "jq-rootshell": {
@@ -76,7 +82,9 @@
     },
     "commit": "191e01f4e2b88798851b28197c328826c20cba79",
     "drop": [],
+    "keep": [],
     "ref": "v0.1.0",
+    "source": "none",
     "url": "https://github.com/kitknox/jq-rootshell.git"
   },
   "libarchive_ios-rootshell": {
@@ -88,7 +96,9 @@
     },
     "commit": "beb512f57ac11823a6638a2d8c66aa91fc0acd15",
     "drop": [],
+    "keep": [],
     "ref": "v0.1.0",
+    "source": "none",
     "url": "https://github.com/kitknox/libarchive_ios-rootshell.git"
   },
   "ripgrep-rootshell": {
@@ -100,7 +110,9 @@
     },
     "commit": "3a914c43c4683bc325294ac6e7a77c77024bce97",
     "drop": [],
+    "keep": [],
     "ref": "v0.1.0",
+    "source": "none",
     "url": "https://github.com/kitknox/ripgrep-rootshell.git"
   },
   "swift-argument-parser": {
@@ -188,7 +200,11 @@
     },
     "commit": "413e174222cb100840561e264446ffd050738205",
     "drop": [],
+    "keep": [
+      "VimRuntime.bundle"
+    ],
     "ref": "v0.1.0",
+    "source": "none",
     "url": "https://github.com/kitknox/vim-rootshell.git"
   }
 }

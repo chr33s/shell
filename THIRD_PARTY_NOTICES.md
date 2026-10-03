@@ -47,11 +47,15 @@ If this summary differs from an upstream license, the upstream license controls.
 
 The app uses maintained rootshell forks or binary-package wrappers for some of
 these projects. A wrapper does not change the license of the software it
-contains. The exact source, modification notices, and license text of every
-Swift package a build links are checked in under `vendor/<package>/` at the
-revision recorded in `vendor/manifest.lock`; each package's `Package.swift`
-there is mechanically rewritten to resolve locally, and nothing else is
-changed. See the corresponding package repository for upstream history.
+contains. Every Swift package a build links is pinned in `vendor/manifest.lock`
+(repository URL and exact commit) and checked in under `vendor/<package>/` with
+its license text; each package's `Package.swift` there is mechanically rewritten
+to resolve locally. Packages compiled from source are checked in whole. Binary-
+only packages (`source=none` in `vendor/manifest`: ios_system, curl, jq,
+libarchive, ripgrep, vim, GhosttyKit) ship prebuilt, checksum-verified
+xcframeworks; their complete corresponding source, including modification
+notices, is the upstream repository at the recorded commit. See the
+corresponding package repository for upstream history.
 
 Mac Catalyst builds ship a `libsodium.26.dylib` next to `vim.framework`. It is
 not [libsodium](https://github.com/jedisct1/libsodium) and contains no

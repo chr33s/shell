@@ -1050,16 +1050,14 @@ extension MainView {
     }
 }
 
-// MARK: - Remote Session Tracking
+// MARK: - Tab Count Tracking
 
 extension MainView {
 
-    /// Synchronize session counts for this window.
-    /// The census itself lives in WindowSessionCensus; this forwarder keeps
-    /// the existing call sites across the MainView extensions unchanged.
+    /// Publish this window's tab count to SessionTracker.
     func notifySessionCountChanged() {
-        WindowSessionCensus.publish(
-            tabs: terminals,
+        SessionTracker.shared.updateTabCount(
+            terminals.count,
             windowId: windowId,
             sceneSessionId: windowSceneSessionID
         )

@@ -39,7 +39,7 @@ enum SSHKeyGenerationError: LocalizedError {
 }
 
 /// Result of SSH key generation
-nonisolated struct GeneratedSSHKey: Sendable {
+struct GeneratedSSHKey: Sendable {
     /// Private key in OpenSSH PEM format (for storage)
     let privateKeyPEM: String
 }

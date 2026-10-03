@@ -405,10 +405,7 @@ final class TabModel: Identifiable {
         startObserving()
     }
 
-    convenience init(terminalView: Ghostty.TerminalView? = nil, title: String = "Terminal", windowId: String, isMosh: Bool = false) {
-        // `isMosh` parameter is ignored (kept for source compat with the old
-        // `TerminalTab(...)` struct initializer; roam protocol is now computed).
-        _ = isMosh
+    convenience init(terminalView: Ghostty.TerminalView? = nil, title: String = "Terminal", windowId: String) {
         self.init(paneView: terminalView, title: title, windowId: windowId)
     }
 

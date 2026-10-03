@@ -43,7 +43,6 @@ LOG="$ROOT/.derivedData/archive-$PLATFORM.log"
 : "${ASC_KEY_PATH:?set ASC_KEY_PATH}"
 
 mkdir -p "$OUT" "$(dirname "$LOG")"
-"$ROOT/scripts/build-openssh.sh"
 rm -rf "$ARCHIVE"
 
 AUTH=(
