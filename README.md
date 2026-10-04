@@ -11,7 +11,7 @@
 Shell is a minimal fork of [rootshell](https://github.com/kitknox/rootshell), reduced to
 four capabilities:
 
-1. **Local terminal**: libghostty rendering, tabs, splits, scrollback, search, and session restore.
+1. **Local terminal**: [swiftty](https://github.com/chr33s/swiftty) rendering behind the libghostty API, tabs, splits, scrollback, search, and session restore.
 2. **SSH**: password, key, and keyboard-interactive auth, known hosts, profiles, jump host,
    Secure Enclave keys, and OpenSSH user certificates.
 3. **Native tmux control mode**: `tmux -CC`, with windows as tabs and panes as splits.
@@ -41,10 +41,11 @@ Watch, and the terminal app builds and runs without it.
 
 ## Requirements
 
-iOS, iPadOS, macOS (Mac Catalyst), and visionOS 26+, built with Xcode 26 or newer. The
-26 SDKs are required: Citadel uses CryptoKit's `MLKEM768`/`MLDSA*`, and the sources call
-26-only API without `#available` gates. Xcode Cloud workflows must pin Xcode 26 or
-"Latest Release".
+iOS, iPadOS, macOS (Mac Catalyst), and visionOS 27+, built with Xcode 27 or newer. The
+27 SDKs and the Swift 6.4 runtime are required: Citadel uses CryptoKit's
+`MLKEM768`/`MLDSA*`, the vendored packages adopt Swift 6.4 standard library APIs, and
+the sources call 26+ API without `#available` gates. Xcode Cloud workflows must pin
+Xcode 27 or "Latest Release".
 
 ## Layout
 
@@ -52,6 +53,7 @@ iOS, iPadOS, macOS (Mac Catalyst), and visionOS 26+, built with Xcode 26 or newe
 shell/                       the app: App, Core, Features (LocalShell, SSH, Tmux, Profiles, Control), UI
 Shared/, ShellMacSupport/    MacBridge and the Catalyst-only AppKit bundle
 ShellWatch/                  the watchOS app (config: Configuration/Watch.xcconfig)
+Packages/GhosttyKit/         the libghostty embedder API (ghostty.h) implemented on swiftty
 Packages/ShellControlCore/   portable control protocol, security, gateway, and client code
 services/shell-control/      Mac-local broker
 services/push-relay/         optional stateless push relay

@@ -6,10 +6,10 @@ import PackageDescription
 let package = Package(
     name: "ShellControlCore",
     platforms: [
-        .macOS(.v26),
-        .iOS(.v26),
-        .watchOS(.v26),
-        .visionOS(.v26)
+        .macOS("27.0"),
+        .iOS("27.0"),
+        .watchOS("27.0"),
+        .visionOS("27.0")
     ],
     products: [
         .library(name: "ShellControlProtocol", targets: ["ShellControlProtocol"]),

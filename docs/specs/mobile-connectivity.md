@@ -183,7 +183,7 @@ Enable only when the actual server and bundled Ghostty viewer support all requir
 
 ### 10.2 Safe state replacement
 
-Ghostty stays the sole interpreter; `capture-pane` text is not a serialization. A tested snapshot/output barrier MUST cover buffers, cursor, attributes, dimensions, modes, pending escapes, Unicode state, and interleaved responses; snapshots are generation- and pane-bound. "Capture then replay everything" is unacceptable; without a safe boundary use non-dropping reattach. Visible panes first; mark history gaps; control responses are always delivered while output is paused.
+The GhosttyKit tmux viewer stays the sole interpreter; `capture-pane` text is not a serialization. A tested snapshot/output barrier MUST cover buffers, cursor, attributes, dimensions, modes, pending escapes, Unicode state, and interleaved responses; snapshots are generation- and pane-bound. "Capture then replay everything" is unacceptable; without a safe boundary use non-dropping reattach. Visible panes first; mark history gaps; control responses are always delivered while output is paused.
 
 ### 10.3 Hidden panes and other clients
 

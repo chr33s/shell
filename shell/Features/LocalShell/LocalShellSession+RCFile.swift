@@ -278,9 +278,12 @@ extension LocalShellSession {
     /// a command emitted more than the 64KB pipe buffer.
     nonisolated private func executeRCExternalCommand(_ command: String) -> Int32 {
         let sink = outputSink
+        // No tty: commands like `ls` write bare LF, which the terminal would
+        // treat as a line feed without carriage return.
+        let normalizer = LFNormalizer()
         return streamExternalCommand(command, inputProvider: nil,
                                      allowAppCommandRouting: false) { chunk in
-            sink.emit(chunk)
+            sink.emit(normalizer.normalize(chunk))
             return true
         }
     }

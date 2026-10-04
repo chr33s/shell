@@ -2,7 +2,7 @@
 //
 // This file deliberately does NOT include Base.xcconfig. The base
 // configuration carries iOS/visionOS platforms, the iOS bridging header,
-// Ghostty linker settings, and the Shell bundle identity, none of which a
+// linker settings, and the Shell bundle identity, none of which a
 // watchOS target may inherit (docs/specs/control-protocol.md sections 1.1 and 20).
 
 // Development Team
@@ -20,7 +20,7 @@ SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES
 // so the Watch target follows the repository's floor rather than the lower one.
 SDKROOT = watchos
 SUPPORTED_PLATFORMS = watchos watchsimulator
-WATCHOS_DEPLOYMENT_TARGET = 26.0
+WATCHOS_DEPLOYMENT_TARGET = 27.0
 TARGETED_DEVICE_FAMILY = 4
 SUPPORTS_MACCATALYST = NO
 

@@ -10,6 +10,7 @@
 //  correct values and `replace(_:withText:)` can compute proper diffs.
 //
 
+import GhosttyKit
 import UIKit
 
 // MARK: - Text Position / Range helpers

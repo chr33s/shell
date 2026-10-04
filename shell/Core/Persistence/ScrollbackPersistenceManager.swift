@@ -9,6 +9,7 @@
 
 import Crypto
 import Foundation
+import GhosttyKit
 import os
 import UIKit
 

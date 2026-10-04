@@ -6,7 +6,7 @@ import PackageDescription
 // records, audit data, and the APNs outbox (docs/specs/control-protocol.md section 2).
 let package = Package(
     name: "shell-control",
-    platforms: [.macOS(.v26)],
+    platforms: [.macOS("27.0")],
     products: [
         .library(name: "ShellControlBroker", targets: ["ShellControlBroker"]),
         .executable(name: "shell-control-broker", targets: ["shell-control-broker"])

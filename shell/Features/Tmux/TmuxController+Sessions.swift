@@ -14,6 +14,7 @@
 //
 
 import Foundation
+import GhosttyKit
 
 extension Notification.Name {
     /// Posted (object: the gateway's owner terminal UUID) when the tmux server's

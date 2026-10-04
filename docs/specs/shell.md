@@ -14,14 +14,14 @@ Shell's entire product surface is:
 3. Native tmux control mode
 4. iCloud sync
 
-Shell MUST keep Rootshell's Ghostty-based architecture: the libghostty terminal surface and the tmux control-mode bridge are not to be replaced.
+Shell keeps Rootshell's Ghostty-shaped architecture: the app talks to its terminal surfaces and the tmux control-mode bridge only through the libghostty embedder API (`ghostty.h`). That API is implemented in Swift by `Packages/GhosttyKit` on [swiftty](https://github.com/chr33s/swiftty)'s `SwifttyCore` (vendored at `vendor/swiftty`); no Zig-built libghostty is linked.
 
 ```text
 +-----------------------------------------+
 |                  Shell                  |
 +-----------------------------------------+
 |   Local PTY --+                         |
-|               +-- libghostty surface    |
+|               +-- GhosttyKit surface    |
 |   SSH PTY ----+                         |
 |   tmux -CC ---+                         |
 +-----------------------------------------+
@@ -41,9 +41,9 @@ Shell MUST keep Rootshell's Ghostty-based architecture: the libghostty terminal 
 
 ### 2.1 Required
 
-Metal/Ghostty rendering; local shell session; ANSI/VT support supplied by Ghostty; keyboard, mouse/trackpad input; copy/paste; text selection; scrollback; search; resize; basic tabs; basic splits; session restoration; one default font; one default theme (`Blackboard Dark`); font-size setting; TERM setting.
+Metal rendering and ANSI/VT support supplied by swiftty through GhosttyKit; local shell session; keyboard, mouse/trackpad input; copy/paste; text selection; scrollback; search; resize; basic tabs; basic splits; session restoration; one default font; one default theme (`Blackboard Dark`); font-size setting; TERM setting.
 
-The terminal surface/controller architecture stays under `Core/Ghostty` and `UI/Terminal`. No other emulator.
+The terminal surface/controller architecture stays under `Core/Ghostty` and `UI/Terminal`, and the terminal runtime under `Packages/GhosttyKit`. No other emulator.
 
 ### 2.2 Removed
 
@@ -137,7 +137,7 @@ tmux means native control mode (`tmux -CC`), not merely running `tmux` in a term
 
 ### 5.1 Mapping
 
-tmux session → attached terminal session; window → tab; pane → split; active-window change → selected tab; pane resize → native split resize; window title → tab title. Ghostty owns protocol parsing and pane terminal state; Swift consumes reconcile actions.
+tmux session → attached terminal session; window → tab; pane → split; active-window change → selected tab; pane resize → native split resize; window title → tab title. The GhosttyKit runtime's tmux viewer owns protocol parsing and pane terminal state; the app consumes reconcile actions.
 
 ### 5.2 Actions
 
@@ -232,11 +232,11 @@ Control exception: `aps-environment` exists only for Control approval hints from
 ### 8.1 Deployment target
 
 ```text
-IPHONEOS_DEPLOYMENT_TARGET = 26.0   iOS, iPadOS, Mac Catalyst
-XROS_DEPLOYMENT_TARGET     = 26.0   visionOS
+IPHONEOS_DEPLOYMENT_TARGET = 27.0   iOS, iPadOS, Mac Catalyst
+XROS_DEPLOYMENT_TARGET     = 27.0   visionOS
 ```
 
-Only OS majors 26 and 27 are supported. There is no `[sdk=macosx*]` override (Catalyst derives from `IPHONEOS_DEPLOYMENT_TARGET`). This is an architectural constraint: no `#available` checks exist, 26-only API is called un-gated, and the only `@available` attributes are `@available(*, unavailable)` `init?(coder:)` traps. Lowering the floor will not compile.
+Only OS major 27 is supported (the Swift 6.4 runtime; vendored packages adopt its standard library APIs). There is no `[sdk=macosx*]` override (Catalyst derives from `IPHONEOS_DEPLOYMENT_TARGET`). This is an architectural constraint: no `#available` checks exist, 26-only API is called un-gated, and the only `@available` attributes are `@available(*, unavailable)` `init?(coder:)` traps. Lowering the floor will not compile.
 
 ## 9. Mac Build
 
@@ -252,7 +252,7 @@ TARGETED_DEVICE_FAMILY = 1,2,7
 
 ### 9.1 AppKit support bundle
 
-`ShellMacSupport` is a second target (`SDKROOT = macosx`, `MACOSX_DEPLOYMENT_TARGET = 26.0`, product `ShellMacSupport.bundle`), embedded by a build phase filtered to `maccatalyst` and loaded on first use via `Bundle.principalClass` (`shell/UI/Window/MacSupport.swift`). iOS and visionOS do not depend on it.
+`ShellMacSupport` is a second target (`SDKROOT = macosx`, `MACOSX_DEPLOYMENT_TARGET = 27.0`, product `ShellMacSupport.bundle`), embedded by a build phase filtered to `maccatalyst` and loaded on first use via `Bundle.principalClass` (`shell/UI/Window/MacSupport.swift`). iOS and visionOS do not depend on it.
 
 `Shared/MacBridge.swift` is the only ABI: the `MacBridge` protocol plus `@objc` handle protocols `MacShellProcess` and `MacMenuEntry`. Every call runs on the main thread; AppKit objects stay opaque `NSObject`s. It provides window furniture, appearance (glass backdrop, blur, app appearance), menus (Dock, Services, native context-menu entries), terminal events (scroll, hover, menu), the local PTY (`createShell`), and Text Input Services. New AppKit access MUST be a bridge method, never a KVC/reflection site; the remaining three `NSClassFromString` sites are in `CatalystAppDelegate`, and the bundle's only undeclared surface is Ghostty's private `_cornerRadius`.
 
@@ -272,7 +272,7 @@ Every touch affordance MUST be fenced with `!targetEnvironment(macCatalyst)`. Se
 
 ### 9.4 Native macOS is out of scope
 
-libghostty ships no native macOS slice (`GhosttyKitAppStore.xcframework`: iOS, iOS simulator, Mac Catalyst, visionOS, visionOS simulator; `scripts/build-framework.sh` audits only for the Catalyst library), and the UIKit-based UI layer would be a multi-month rewrite. A second application target MUST NOT be added. Accepted Catalyst limitations: the sandboxed build's local shell is the interpreter, not the account's zsh (section 9.6); `UIKeyCommand` key handling (dead keys, some Option-composed and non-Latin input slightly off versus `NSTextInputClient`), `UITextInput` candidate handling approximated, UIKit-derived VoiceOver.
+The UIKit-based UI layer would be a multi-month rewrite (the GhosttyKit runtime and swiftty themselves also build for macOS, which their headless tests use). A second application target MUST NOT be added. Accepted Catalyst limitations: the sandboxed build's local shell is the interpreter, not the account's zsh (section 9.6); `UIKeyCommand` key handling (dead keys, some Option-composed and non-Latin input slightly off versus `NSTextInputClient`), `UITextInput` candidate handling approximated, UIKit-derived VoiceOver.
 
 ### 9.5 Unverified on Catalyst
 
@@ -318,16 +318,16 @@ App sources are under `shell/`: `App/`; `Core/` (`CloudKit`, `Connection`, `Foun
 
 Deleted (extraction complete): AI agent and agent attention/inbox/usage, automation, cloud providers and consoles, Kubernetes, VNC/screen sharing, Mosh, TSSH/Roam, VPN, NetBird, Tailscale integration, port forwarding, GPG, Git client, file browser, Croc, Helix, WASM tools, effects/shaders, Live Activities, push notification service, App Intents/Siri, HSS, YubiKey, FIDO2, transfer tools, `SSH/Agent`, `SSH/OpenPubkey`, `SSH/Discovery`, and their targets (push, widget, VPN tunnel, CoreWLAN plugin).
 
-Targets: `shell`, `ShellMacSupport`, `ShellTests`, plus the Control companion targets (`ShellControlHost`, `ShellWatch`, `ShellWatchTests`). Linked packages: GhosttyKit, Citadel, ios_system (binary targets `ios_system`, `awk`, `files`, `shell`, `text`), the ios_system command packages `libarchive_ios-rootshell` (`tar`), `vim-rootshell` (`vim`/`vi`, with `vendor/vim-rootshell/VimRuntime.bundle` as an app resource), `curl_ios-rootshell` (`curl`, verifying against the bundled `Resources/cacert.pem`), `jq-rootshell` (`jq`), and `ripgrep-rootshell` (`rg`), plus `Packages/ShellControlCore` and `cmd` for Control. Every command in `commandDictionary.plist` MUST name a linked framework; no git framework is linked (the Git client stays deleted, section 10.1).
+Targets: `shell`, `ShellMacSupport`, `ShellTests`, plus the Control companion targets (`ShellControlHost`, `ShellWatch`, `ShellWatchTests`). Linked packages: GhosttyKit (`Packages/GhosttyKit`, on `vendor/swiftty`), Citadel, ios_system (binary targets `ios_system`, `awk`, `files`, `shell`, `text`), the ios_system command packages `libarchive_ios-rootshell` (`tar`), `vim-rootshell` (`vim`/`vi`, with `vendor/vim-rootshell/VimRuntime.bundle` as an app resource), `curl_ios-rootshell` (`curl`, verifying against the bundled `Resources/cacert.pem`), `jq-rootshell` (`jq`), and `ripgrep-rootshell` (`rg`), plus `Packages/ShellControlCore` and `cmd` for Control. Every command in `commandDictionary.plist` MUST name a linked framework; no git framework is linked (the Git client stays deleted, section 10.1).
 
 ### 10.2 Dependency rule
 
 ```text
 App/UI
-  +-- Terminal  -- Ghostty/libghostty
+  +-- Terminal  -- GhosttyKit (ghostty.h on swiftty)
   +-- SSH       -- transport library (Citadel), Terminal
   |               Identity Store -- Keychain, Secure Enclave, OpenSSH certificates
-  +-- tmux      -- Ghostty tmux control mode, SSH raw transport
+  +-- tmux      -- GhosttyKit tmux viewer, SSH raw transport
   +-- Sync      -- CloudKit, Keychain
 ```
 

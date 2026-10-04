@@ -32,7 +32,7 @@ If this summary differs from an upstream license, the upstream license controls.
 
 | Project | Copyright or acknowledgement | License |
 | --- | --- | --- |
-| [Ghostty / libghostty](https://github.com/ghostty-org/ghostty) | Copyright (c) 2024 Mitchell Hashimoto and Ghostty contributors | MIT |
+| [Ghostty](https://github.com/ghostty-org/ghostty) embedder API (`ghostty.h`, in `Packages/GhosttyKit`) | Copyright (c) 2024 Mitchell Hashimoto and Ghostty contributors | MIT |
 | [ios_system](https://github.com/holzschu/ios_system) | Copyright (c) 2018 Nicolas Holzschuch | BSD 3-Clause |
 | [awk (the one true awk)](https://github.com/onetrue-awk/awk), in ios_system | Copyright (C) Lucent Technologies 1997 | Lucent license (notice below) |
 | [jq](https://github.com/jqlang/jq) | Copyright (c) 2012 Stephen Dolan | MIT |
@@ -53,7 +53,7 @@ contains. Every Swift package a build links is pinned in `vendor/manifest.lock`
 its license text, including license files nested in its source tree; each package's `Package.swift` there is mechanically rewritten
 to resolve locally. Packages compiled from source are checked in whole. Binary-
 only packages (`source=none` in `vendor/manifest`: ios_system, curl, jq,
-libarchive, ripgrep, vim, GhosttyKit) ship prebuilt, checksum-verified
+libarchive, ripgrep, vim) ship prebuilt, checksum-verified
 xcframeworks; their complete corresponding source, including modification
 notices, is the upstream repository at the recorded commit. See the
 corresponding package repository for upstream history.

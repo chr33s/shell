@@ -15,6 +15,7 @@
 //
 
 import Foundation
+import GhosttyKit
 
 extension TmuxController {
     func isWindowHidden(_ windowId: Int) -> Bool {

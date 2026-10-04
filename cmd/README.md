@@ -230,4 +230,4 @@ DEVELOPER_ID_APPLICATION='Developer ID Application: …' NOTARYTOOL_PROFILE=shel
   ./scripts/package-control-dmg.sh .derivedData/shell-control-1.0.0-arm64
 ```
 
-`swift-argument-parser` is pinned and vendored under `vendor/`. Release manifests bind architecture, minimum OS, toolchain, release identity, and hashes of all three executables. CI must run the native tests on each advertised macOS 26 architecture and retain notarization/Gatekeeper evidence; physical Watch gates remain separate release evidence.
+`swift-argument-parser` is pinned and vendored under `vendor/`. Release manifests bind architecture, minimum OS, toolchain, release identity, and hashes of all three executables. CI must run the native tests on each advertised macOS 27 architecture and retain notarization/Gatekeeper evidence; physical Watch gates remain separate release evidence.

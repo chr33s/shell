@@ -29,20 +29,6 @@
     "source": "none",
     "url": "https://github.com/kitknox/curl_ios-rootshell.git"
   },
-  "ghosttykit-rootshell": {
-    "binaries": {
-      "GhosttyKitAppStore": {
-        "checksum": "ea6c4661c88a860615e4db47955b470a3c7b12ead645e1e24b34764999ff3a9b",
-        "url": "https://github.com/kitknox/ghosttykit-rootshell/releases/download/v0.2.14/GhosttyKitAppStore.xcframework.zip"
-      }
-    },
-    "commit": "1c1c0db44098c487db15aa0fdeb242aca2953a01",
-    "drop": [],
-    "keep": [],
-    "ref": "v0.2.14",
-    "source": "none",
-    "url": "https://github.com/kitknox/ghosttykit-rootshell.git"
-  },
   "ios_system-rootshell": {
     "binaries": {
       "awk": {
@@ -186,6 +172,13 @@
     "drop": [],
     "ref": "1.8.1",
     "url": "https://github.com/apple/swift-system.git"
+  },
+  "swiftty": {
+    "binaries": {},
+    "commit": "f9d1e70963ff98562a8401da92677a3e0af3efc9",
+    "drop": [],
+    "ref": "f9d1e70963ff98562a8401da92677a3e0af3efc9",
+    "url": "https://github.com/chr33s/swiftty.git"
   },
   "vim-rootshell": {
     "binaries": {

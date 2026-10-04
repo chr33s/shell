@@ -17,13 +17,13 @@
 # Bump a pin with `./scripts/vendor.py update DIR REF`; `status` lists newer tags.
 
 # DIR                            URL                                                         REF        options
-ghosttykit-rootshell             https://github.com/kitknox/ghosttykit-rootshell.git         v0.2.14    binaries=GhosttyKitAppStore source=none
 ios_system-rootshell             https://github.com/kitknox/ios_system-rootshell.git         v0.1.1     binaries=ios_system,awk,files,shell,text source=none
 libarchive_ios-rootshell         https://github.com/kitknox/libarchive_ios-rootshell.git     v0.1.0     binaries=libarchive_ios source=none
 vim-rootshell                    https://github.com/kitknox/vim-rootshell.git                v0.1.0     binaries=vim,xxd source=none keep=VimRuntime.bundle
 curl_ios-rootshell               https://github.com/kitknox/curl_ios-rootshell.git           v0.2.1     binaries=curl_ios source=none
 jq-rootshell                     https://github.com/kitknox/jq-rootshell.git                 v0.1.0     binaries=jq_ios source=none
 ripgrep-rootshell                https://github.com/kitknox/ripgrep-rootshell.git            v0.1.0     binaries=ripgrep_ios source=none
+swiftty                          https://github.com/chr33s/swiftty.git                       f9d1e70963ff98562a8401da92677a3e0af3efc9
 Citadel-rootshell                https://github.com/kitknox/Citadel-rootshell.git            0.12.7     drop=ColorizeSwift
 swift-nio-ssh-rootshell          https://github.com/kitknox/swift-nio-ssh-rootshell.git      0.1.4      drop=swift-docc-plugin
 BigInt                           https://github.com/attaswift/BigInt.git                     v6.0.1

@@ -6,7 +6,7 @@ import PackageDescription
 // portable protocol and signing code only, never on approval-state storage.
 let package = Package(
     name: "push-relay",
-    platforms: [.macOS(.v26)],
+    platforms: [.macOS("27.0")],
     products: [
         .library(name: "ShellPushRelay", targets: ["ShellPushRelay"]),
         .executable(name: "shell-push-relay", targets: ["shell-push-relay"])

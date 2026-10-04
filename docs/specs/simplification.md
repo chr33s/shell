@@ -7,7 +7,7 @@ Capitalized MUST, MUST NOT, SHOULD, and MAY are normative.
 
 ## 1. Purpose and decision
 
-Simplify Shell without replacing Ghostty or removing its supported terminal, SSH, tmux, synchronization, or optional Control capabilities.
+Simplify Shell without replacing the Ghostty embedder API or removing its supported terminal, SSH, tmux, synchronization, or optional Control capabilities.
 
 The recommended approach is to finish the architectural extractions already underway. Reduce the number of components that must coordinate to perform an action, the number of writable representations of the same state, and the number of independent execution paths for the same operation.
 

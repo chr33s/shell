@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "shell-control-host",
-    platforms: [.macOS(.v26)],
+    platforms: [.macOS("27.0")],
     products: [
         .library(name: "ShellControlHostSupport", targets: ["ShellControlHostSupport"]),
         .library(name: "ShellControlManagement", targets: ["ShellControlManagement"]),

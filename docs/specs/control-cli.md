@@ -222,7 +222,7 @@ heartbeatLiveRuns()
 
 ## 10. Packaging and installation
 
-- One native bundle per architecture (macOS 26 arm64 and x86_64): three executables, `release-manifest.json`, checksums, licenses, documentation. Each artifact is tested on its target.
+- One native bundle per architecture (macOS 27 arm64 and x86_64): three executables, `release-manifest.json`, checksums, licenses, documentation. Each artifact is tested on its target.
 - Both SwiftPM packages build in CI with a pinned toolchain; the argument parser is vendored at a reviewed revision. First-party build, test, and release need no npm.
 - Bundles contain prebuilt binaries. Setup MUST NOT run `swift build`, download a compiler, evaluate remote scripts, or execute unverified code.
 - Distribution is a Developer ID–signed, hardened-runtime, notarized, stapled disk image validated under Gatekeeper ([notarization](https://developer.apple.com/documentation/Security/customizing-the-notarization-workflow)); users run `bin/shell-control setup` from it and are never told to strip quarantine.

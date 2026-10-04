@@ -651,7 +651,7 @@ Complete when a permission-gated operation inside tmux on a Tailscale-connected 
 
 - README scopes Shell to terminal, SSH, tmux, and config sync plus an **optional control companion**; the upstream AI/push feature set is not restored.
 - `ShellControlCore` has no UIKit, Ghostty, Citadel, terminal-surface, SSH-credential, or CloudKit dependency; `Sendable` DTOs, isolated networking/state actors, main-actor UI. The terminal renderer MUST NOT be linked into the Watch.
-- Watch: minimum watchOS 11, distinct bundle ID (`dev.chr33s.shell.watchkitapp`), own Keychain access group, `Configuration/Watch.xcconfig`; it MUST NOT inherit the iOS base configuration (bridging header, Ghostty linker flags, Shell identity). iOS minimum stays 18.0. A widget may use an app group only for sanitized read-only cache, never signing keys.
+- Watch: minimum watchOS 27, distinct bundle ID (`dev.chr33s.shell.watchkitapp`), own Keychain access group, `Configuration/Watch.xcconfig`; it MUST NOT inherit the iOS base configuration (bridging header, linker flags, Shell identity). iOS minimum is 27.0. A widget may use an app group only for sanitized read-only cache, never signing keys.
 - UserNotifications categories and a native review screen come first; a custom long-look scene is optional[A5] with a static generic fallback that needs no network fetch.
 - CI builds the iOS and Watch targets separately, tests the shared protocol package, and runs broker/daemon integration tests.
 

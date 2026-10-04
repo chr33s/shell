@@ -4,7 +4,7 @@
 #
 # Usage: ./scripts/test.sh [--ios | --catalyst] [log-path]
 #
-#   --ios        iOS Simulator, iPhone 17 (default). Named rather than UDID
+#   --ios        iOS Simulator, iPhone 18 Pro (default). Named rather than UDID
 #                destination so it survives a simulator reset.
 #   --catalyst   My Mac (Mac Catalyst). The local-shell stack (ShellTokenizer,
 #                ShellParser, ShellInterpreter, ShellJobs, Features/LocalShell)
@@ -20,7 +20,7 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-DESTINATION='platform=iOS Simulator,name=iPhone 17'
+DESTINATION='platform=iOS Simulator,name=iPhone 18 Pro'
 FLAVOR=ios
 case "${1:-}" in
     --catalyst)
