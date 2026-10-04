@@ -17,11 +17,16 @@ typealias PlatformView = NSView
 /// the host finds among its view's sublayers to detect the first frame.
 @objc(IOSurfaceLayer)
 final class SurfaceLayer: CAMetalLayer, @unchecked Sendable {
-    /// Set once a frame has been presented; reported through `contents`.
-    var hasPresented = false
+    /// Set (on the render thread) once a frame has been presented; read on
+    /// main through `contents`.
+    private let presented = OSAllocatedUnfairLock(initialState: false)
+
+    func markPresented() {
+        presented.withLock { $0 = true }
+    }
 
     override var contents: Any? {
-        get { super.contents ?? (hasPresented ? NSNull() : nil) }
+        get { super.contents ?? (presented.withLock { $0 } ? NSNull() : nil) }
         set { super.contents = newValue }
     }
 }
@@ -56,7 +61,7 @@ final class SurfaceRenderer: NSObject, @unchecked Sendable {
     private var fontSizeDelta = 0.0
     private var smoothOffset = 0.0 // pixels
     private var rubberBand = 0.0 // points
-    private var visible: Bool
+    private var _visible: Bool
     private var dirty = true
     #if canImport(UIKit)
     private var displayLink: CADisplayLink?
@@ -66,6 +71,8 @@ final class SurfaceRenderer: NSObject, @unchecked Sendable {
     private var frameRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
     private var blinkTimer: Timer?
     private var blinkOn = true
+    /// Opacity from an animated blink style (1 for `normal`).
+    private var blinkAlpha = 1.0
     private var lastInputTime = CACurrentMediaTime()
     var preedit: String? {
         get { lock.withLockUnchecked { _preedit } }
@@ -80,7 +87,7 @@ final class SurfaceRenderer: NSObject, @unchecked Sendable {
     init(view: PlatformView?, scale: Double, config: Config, visible: Bool) {
         self.view = view
         self.config = config
-        self.visible = visible
+        _visible = visible
         device = MTLCreateSystemDefaultDevice()
         if view != nil, let device {
             let layer = SurfaceLayer()
@@ -89,7 +96,6 @@ final class SurfaceRenderer: NSObject, @unchecked Sendable {
             layer.framebufferOnly = true
             layer.contentsScale = scale
             layer.isOpaque = config.backgroundOpacity >= 1
-            layer.frame = view?.bounds ?? .zero
             self.layer = layer
         } else {
             layer = nil
@@ -101,24 +107,39 @@ final class SurfaceRenderer: NSObject, @unchecked Sendable {
         }
         applyConfigLocked()
         if let layer, let view {
-            onMain { view.platformLayer?.addSublayer(layer) }
+            onMain {
+                layer.frame = view.bounds
+                view.platformLayer?.addSublayer(layer)
+            }
         }
-        onMain { self.startDisplayLink() }
+        onRender { self.startDisplayLink() }
+        refreshBlink()
     }
 
     func teardown() {
-        onMain {
+        onRender {
             self.displayLink?.invalidate()
             self.displayLink = nil
+        }
+        onMain {
             self.blinkTimer?.invalidate()
             self.blinkTimer = nil
             self.layer?.removeFromSuperlayer()
         }
     }
 
-    private func onMain(_ body: @escaping @Sendable () -> Void) {
+    /// Display-link work: the link lives on the shared render thread.
+    private func onRender(_ body: @escaping @Sendable () -> Void) {
+        RenderThread.shared.perform(body)
+    }
+
+    private var visible: Bool {
+        lock.withLockUnchecked { _visible }
+    }
+
+    private func onMain(_ body: @escaping @MainActor @Sendable () -> Void) {
         if Thread.isMainThread {
-            body()
+            MainActor.assumeIsolated(body)
         } else {
             DispatchQueue.main.async(execute: body)
         }
@@ -141,6 +162,7 @@ final class SurfaceRenderer: NSObject, @unchecked Sendable {
         d.cellWidthAdjust = config.adjustCellWidth / 100
         d.cellHeightAdjust = config.adjustCellHeight / 100
         d.fallbackFamilies = ["Symbols Nerd Font Mono", "Symbols Nerd Font"]
+        d.features = config.fontFeatures
         return d
     }
 
@@ -248,6 +270,17 @@ final class SurfaceRenderer: NSObject, @unchecked Sendable {
         setNeedsDisplay(force: true)
     }
 
+    func setHoveredLink(_ id: UInt8) {
+        let changed = lock.withLockUnchecked { () -> Bool in
+            guard _options.hoveredLink != id else { return false }
+            _options.hoveredLink = id
+            return true
+        }
+        if changed {
+            setNeedsDisplay(force: true)
+        }
+    }
+
     func setRubberBand(_ points: Double) {
         lock.withLockUnchecked { rubberBand = points }
         setNeedsDisplay(force: true)
@@ -258,17 +291,15 @@ final class SurfaceRenderer: NSObject, @unchecked Sendable {
     }
 
     func setVisible(_ visible: Bool) {
-        onMain {
-            self.visible = visible
-            self.displayLink?.isPaused = !visible || !self.dirty
-            if visible {
-                self.setNeedsDisplay(force: true)
-            }
+        lock.withLockUnchecked { _visible = visible }
+        onRender { self.displayLink?.isPaused = !visible }
+        if visible {
+            setNeedsDisplay(force: true)
         }
     }
 
     func setFrameRateRange(min: Float, max: Float, preferred: Float) {
-        onMain {
+        onRender {
             self.frameRange = max == 0
                 ? CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
                 : CAFrameRateRange(minimum: Swift.min(min, max), maximum: max, preferred: Swift.min(Swift.max(preferred, min), max))
@@ -278,43 +309,68 @@ final class SurfaceRenderer: NSObject, @unchecked Sendable {
 
     /// Input arrived: show the cursor solid for a blink period.
     func noteInput() {
-        lock.withLockUnchecked { lastInputTime = CACurrentMediaTime() }
-        if !blinkOn {
-            onMain {
-                self.blinkOn = true
-                self.setNeedsDisplay(force: true)
-            }
+        let wasOff = lock.withLockUnchecked { () -> Bool in
+            lastInputTime = CACurrentMediaTime()
+            let off = !blinkOn || blinkAlpha != 1
+            blinkOn = true
+            blinkAlpha = 1
+            return off
+        }
+        if wasOff {
+            setNeedsDisplay(force: true)
         }
     }
 
     private func refreshBlink() {
         onMain {
-            let (focused, blink) = self.lock.withLockUnchecked { (self._options.isFocused, self.config.cursorBlink) }
+            let (focused, blink, mode) = self.lock.withLockUnchecked {
+                (self._options.isFocused, self.config.cursorBlink, self.config.cursorBlinkMode)
+            }
             let wantsTimer = focused && blink != false
-            if wantsTimer, self.blinkTimer == nil {
-                let timer = Timer(timeInterval: 0.6, repeats: true) { [weak self] _ in self?.blinkTick() }
+            // Animated styles redraw the cursor row at 30 fps, only when the
+            // config turns blinking on; otherwise a cheap on/off timer serves
+            // applications that request a blinking cursor.
+            let interval = mode != .normal && blink == true ? 1.0 / 30 : 0.6
+            if wantsTimer, self.blinkTimer?.timeInterval != interval {
+                self.blinkTimer?.invalidate()
+                let timer = Timer(timeInterval: interval, repeats: true) { [weak renderer = self] _ in renderer?.blinkTick() }
                 RunLoop.main.add(timer, forMode: .common)
                 self.blinkTimer = timer
             } else if !wantsTimer {
                 self.blinkTimer?.invalidate()
                 self.blinkTimer = nil
-                self.blinkOn = true
+                self.lock.withLockUnchecked {
+                    self.blinkOn = true
+                    self.blinkAlpha = 1
+                }
             }
         }
     }
 
     private func blinkTick() {
-        let (recent, blinkMode) = lock.withLockUnchecked { (CACurrentMediaTime() - lastInputTime < 0.6, config.cursorBlink) }
-        let terminalBlinks = surface?.mirror.modes.contains(.cursorBlink) ?? false
-        guard blinkMode == true || terminalBlinks else {
-            if !blinkOn {
-                blinkOn = true
-                setNeedsDisplay(force: true)
-            }
-            return
+        let (recent, blinkMode, mode, start) = lock.withLockUnchecked {
+            (CACurrentMediaTime() - lastInputTime < 0.6, config.cursorBlink, config.cursorBlinkMode, lastInputTime)
         }
-        blinkOn = recent ? true : !blinkOn
-        setNeedsDisplay(force: true)
+        let terminalBlinks = surface?.mirror.modes.contains(.cursorBlink) ?? false
+        let animate = visible && (blinkMode == true || terminalBlinks)
+        let changed = lock.withLockUnchecked { () -> Bool in
+            let before = (blinkOn, blinkAlpha)
+            if !animate {
+                blinkOn = true
+                blinkAlpha = 1
+            } else if mode == .normal || blinkMode != true {
+                blinkOn = recent ? true : !blinkOn
+                blinkAlpha = 1
+            } else {
+                // Typing holds the cursor solid; the curve restarts afterwards.
+                blinkOn = true
+                blinkAlpha = recent ? 1 : CursorBlink.alpha(mode, at: CACurrentMediaTime() - start)
+            }
+            return before != (blinkOn, blinkAlpha)
+        }
+        if changed {
+            setNeedsDisplay(force: true)
+        }
     }
 
     // MARK: Drawing
@@ -325,11 +381,8 @@ final class SurfaceRenderer: NSObject, @unchecked Sendable {
             dirty = true
             return was && !force
         }
-        guard !wasDirty else { return }
-        onMain {
-            guard self.visible else { return }
-            self.displayLink?.isPaused = false
-        }
+        guard !wasDirty, visible else { return }
+        onRender { self.displayLink?.isPaused = false }
     }
 
     private func startDisplayLink() {
@@ -337,10 +390,9 @@ final class SurfaceRenderer: NSObject, @unchecked Sendable {
         guard layer != nil, displayLink == nil else { return }
         let link = CADisplayLink(target: DisplayLinkTarget(self), selector: #selector(DisplayLinkTarget.tick))
         link.preferredFrameRateRange = frameRange
-        link.add(to: .main, forMode: .common)
+        link.add(to: RunLoop.current, forMode: .common)
         link.isPaused = !visible
         displayLink = link
-        refreshBlink()
         #endif
     }
 
@@ -357,8 +409,8 @@ final class SurfaceRenderer: NSObject, @unchecked Sendable {
         draw()
     }
 
-    /// Draws one frame now (main thread).
-    func draw() {
+    /// Draws one frame (render thread).
+    private func draw() {
         guard let layer, let surface, visible else { return }
         let (options, overscan) = lock.withLockUnchecked { () -> (RenderOptions, Int) in
             var o = _options
@@ -376,7 +428,7 @@ final class SurfaceRenderer: NSObject, @unchecked Sendable {
             }
             o.cursorColor = config.cursorColor
             o.cursorTextColor = config.cursorText ?? config.themeCursorText
-            o.cursorOpacity = config.cursorOpacity
+            o.cursorOpacity = config.cursorOpacity * blinkAlpha
             let sel = config.effectiveSelection
             o.selectionForeground = sel.invert ? nil : sel.fg
             o.selectionBackground = sel.invert ? nil : sel.bg
@@ -385,23 +437,57 @@ final class SurfaceRenderer: NSObject, @unchecked Sendable {
         }
         let snapshot = surface.session.snapshot(overscan: overscan)
         renderLock.lock()
-        let drawn = renderer?.draw(snapshot, options: options, layer: layer) ?? false
-        renderLock.unlock()
-        if drawn, !layer.hasPresented {
-            layer.hasPresented = true
+        defer { renderLock.unlock() }
+        // drainToIdle may have run since the check above; it must win.
+        guard visible else { return }
+        if renderer?.draw(snapshot, options: options, layer: layer) == true {
+            layer.markPresented()
         }
     }
 
     /// Stops drawing and waits for frames in flight (scene snapshot safety).
     func drainToIdle(timeout: UInt64) -> Bool {
         let deadline = DispatchTime.now() + .nanoseconds(Int(min(timeout, UInt64(Int.max))))
-        onMain {
-            self.visible = false
-            self.displayLink?.isPaused = true
-        }
-        renderLock.lock()
+        lock.withLockUnchecked { _visible = false }
+        onRender { self.displayLink?.isPaused = true }
+        // Waits out a frame being encoded right now (bounded by the same
+        // deadline), then the GPU.
+        let seconds = Double(min(timeout, 60_000_000_000)) / 1_000_000_000
+        guard renderLock.lock(before: Date(timeIntervalSinceNow: seconds)) else { return false }
         defer { renderLock.unlock() }
         return renderer?.waitUntilIdle(timeout: deadline) ?? true
+    }
+}
+
+/// One thread with a run loop for every surface's display link, so frame
+/// encoding never waits on (or blocks) the main thread.
+final class RenderThread: Thread, @unchecked Sendable {
+    static let shared: RenderThread = {
+        let thread = RenderThread()
+        thread.name = "ghostty.runtime.render"
+        thread.qualityOfService = .userInteractive
+        thread.start()
+        thread.ready.wait()
+        return thread
+    }()
+
+    private let ready = DispatchSemaphore(value: 0)
+    private var runLoop: CFRunLoop?
+
+    override func main() {
+        runLoop = CFRunLoopGetCurrent()
+        // A port keeps the run loop alive with no display links attached.
+        RunLoop.current.add(NSMachPort(), forMode: .default)
+        ready.signal()
+        while true {
+            autoreleasepool { _ = RunLoop.current.run(mode: .default, before: .distantFuture) }
+        }
+    }
+
+    func perform(_ body: @escaping @Sendable () -> Void) {
+        guard let runLoop else { return }
+        CFRunLoopPerformBlock(runLoop, CFRunLoopMode.commonModes.rawValue, body)
+        CFRunLoopWakeUp(runLoop)
     }
 }
 

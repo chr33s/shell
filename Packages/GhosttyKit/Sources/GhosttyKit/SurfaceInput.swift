@@ -1,5 +1,4 @@
 import Foundation
-import GhosttyKit
 import os
 import QuartzCore
 import SwifttyCore
@@ -17,9 +16,16 @@ struct InputState {
     var dragUnit = 1
     var dragAnchor: TerminalPoint?
     var handleDrag = false
+    /// Repeats scrolling while a drag is held past the top or bottom edge.
+    var autoScroll: DispatchSourceTimer?
     var scrollRemainder = 0.0
     var mouseReportingDisabled = false
     var pendingSequence: [Trigger] = []
+    /// Keys whose press a keybinding consumed; their release is swallowed too.
+    var consumedKeys: Set<UInt32> = []
+    /// The encoded press of each held key: the host's releases carry no
+    /// text or codepoint, so a release reuses its press.
+    var heldKeys: [UInt32: KeyEvent] = [:]
     var hoveredLink: String?
 }
 
@@ -51,22 +57,47 @@ extension Surface {
     // MARK: Keys
 
     func key(_ event: ghostty_input_key_s) -> Bool {
-        guard event.action != GHOSTTY_ACTION_RELEASE else { return false }
         let mods = Mods(rawValue: event.mods.rawValue)
         let named = NamedKey.from(keycode: event.keycode)
         let text = event.text.flatMap { String(validatingCString: $0) }
         if named?.isModifier == true {
             return false
         }
-        if performKeybind(named: named, unshifted: event.unshifted_codepoint, text: text, mods: mods) {
+        let action: KeyEvent.Action = switch event.action {
+        case GHOSTTY_ACTION_RELEASE: .release
+        case GHOSTTY_ACTION_REPEAT: .repeat
+        default: .press
+        }
+        if action == .release {
+            if withInput({ $0.consumedKeys.remove(event.keycode) != nil }) {
+                return true
+            }
+        } else if performKeybind(named: named, unshifted: event.unshifted_codepoint, text: text, mods: mods) {
+            withInput { _ = $0.consumedKeys.insert(event.keycode) }
             return true
         }
-        guard let input = encodeKey(named: named, unshifted: event.unshifted_codepoint, text: text, mods: mods) else {
+        let resolved: KeyEvent? = if action == .release {
+            withInput { $0.heldKeys.removeValue(forKey: event.keycode) }.map { press in
+                var release = press
+                release.action = .release
+                return release
+            }
+        } else {
+            keyEvent(named: named, unshifted: event.unshifted_codepoint, text: text, mods: mods, action: action)
+        }
+        guard let keyEvent = resolved else {
             return false
         }
-        renderer.noteInput()
-        sendInput(input)
-        return true
+        if action != .release {
+            withInput { $0.heldKeys[event.keycode] = keyEvent }
+        }
+        if action != .release {
+            renderer.noteInput()
+        }
+        // The encoder drops releases unless the application asked for them
+        // (kitty keyboard protocol event types).
+        sendInput(.key(keyEvent))
+        return action != .release
     }
 
     private func performKeybind(named: NamedKey?, unshifted: UInt32, text: String?, mods: Mods) -> Bool {
@@ -90,8 +121,9 @@ extension Surface {
         return prefixMatch
     }
 
-    /// Legacy (xterm) encoding of a key press.
-    private func encodeKey(named: NamedKey?, unshifted: UInt32, text: String?, mods: Mods) -> TerminalInput? {
+    /// The key as swiftty sees it; the session encodes it for the
+    /// application's keyboard mode (xterm or kitty).
+    private func keyEvent(named: NamedKey?, unshifted: UInt32, text: String?, mods: Mods, action: KeyEvent.Action) -> KeyEvent? {
         var keyMods: KeyModifiers = []
         if mods.contains(.shift) { keyMods.insert(.shift) }
         if mods.contains(.ctrl) { keyMods.insert(.control) }
@@ -136,31 +168,19 @@ extension Surface {
         default: nil
         }
         if let special {
-            return .key(KeyEvent(special, modifiers: keyMods))
+            return KeyEvent(special, modifiers: keyMods, action: action)
         }
-        // Printable: Ctrl and Meta work on the unshifted key (shifted when
-        // Shift is held); otherwise the layout's text is sent as typed.
-        if keyMods.contains(.control) || keyMods.contains(.alt) {
-            var cp = unshifted
-            if cp == 0, let s = text?.unicodeScalars.first { cp = s.value }
-            guard var scalar = Unicode.Scalar(cp) else { return nil }
-            if keyMods.contains(.shift), let upper = String(scalar).uppercased().unicodeScalars.first, !keyMods.contains(.control) {
-                scalar = upper
-            } else if keyMods.contains(.shift), !keyMods.contains(.control), let t = text?.unicodeScalars.first {
-                scalar = t
-            }
-            return .key(KeyEvent(.character(scalar), modifiers: keyMods.subtracting(keyMods.contains(.control) ? [] : .shift)))
-        }
-        if let text, !text.isEmpty {
-            return .text(text)
-        }
-        if named == .space {
-            return .text(" ")
-        }
-        if unshifted != 0, let scalar = Unicode.Scalar(unshifted) {
-            return .text(String(scalar))
-        }
-        return nil
+        // Printable: the unshifted key, plus the text it typed (an Option
+        // composition when Option is not Meta).
+        var cp = unshifted
+        if cp == 0, let s = text?.unicodeScalars.first { cp = s.value }
+        if cp == 0, named == .space { cp = 0x20 }
+        guard cp != 0, let scalar = Unicode.Scalar(cp) else { return nil }
+        // The text (Shell sends the shifted character for Meta keys) is what
+        // legacy Meta encoding emits after ESC; kitty keeps the unshifted key
+        // plus the Shift bit.
+        let typed = text.flatMap { $0.isEmpty ? nil : $0 } ?? (named == .space ? " " : nil)
+        return KeyEvent(.character(scalar), modifiers: keyMods, action: action, text: typed)
     }
 
     /// Delivers encoded input (to the application or, for tmux panes, the gateway).
@@ -297,8 +317,9 @@ extension Surface {
             s.dragAnchor = nil
             return h
         }
+        stopAutoScroll()
         _ = handle
-        if mods.contains(.superKey), let url = link(at: c) {
+        if mods.contains(.superKey), let url = link(at: c)?.url {
             openURL(url)
             return
         }
@@ -311,12 +332,8 @@ extension Surface {
     private func extendSelection(to c: (column: Int, row: Int)) {
         let (anchor, unit, handle) = withInput { ($0.dragAnchor, $0.dragUnit, $0.handleDrag) }
         let rows = renderer.grid.rows
+        updateAutoScroll(outside: c.row < 0 || c.row >= rows)
         session.mutate { state in
-            if c.row < 0 {
-                state.scrollViewport(by: min(-c.row, 3))
-            } else if c.row >= rows {
-                state.scrollViewport(by: -min(c.row - rows + 1, 3))
-            }
             let point = state.clamp(TerminalPoint(row: state.absoluteRow(viewportRow: min(max(c.row, 0), rows - 1)), column: c.column))
             if handle, var sel = state.selection {
                 sel.head = point
@@ -336,6 +353,45 @@ extension Surface {
                 state.setSelection(Selection(anchor: anchor, head: point))
             }
         }
+    }
+
+    /// Starts or stops edge auto-scroll. While running, each tick scrolls
+    /// towards the pointer (faster the further out it is) and re-extends
+    /// the selection to the newly revealed row.
+    private func updateAutoScroll(outside: Bool) {
+        let running = withInput { $0.autoScroll != nil }
+        if outside, !running {
+            let timer = DispatchSource.makeTimerSource(queue: .main)
+            timer.schedule(deadline: .now() + .milliseconds(60), repeating: .milliseconds(60))
+            timer.setEventHandler { [weak self] in self?.autoScrollTick() }
+            withInput { $0.autoScroll = timer }
+            timer.resume()
+        } else if !outside, running {
+            stopAutoScroll()
+        }
+    }
+
+    func stopAutoScroll() {
+        let timer = withInput { s -> DispatchSourceTimer? in
+            let t = s.autoScroll
+            s.autoScroll = nil
+            return t
+        }
+        timer?.cancel()
+    }
+
+    private func autoScrollTick() {
+        let (pos, dragging) = withInput { ($0.position, $0.leftDown || $0.handleDrag) }
+        let c = cell(atPoints: pos.x, pos.y)
+        let rows = renderer.grid.rows
+        // Stop when the drag ended or the application took the mouse.
+        guard dragging, !mouseCaptured, c.row < 0 || c.row >= rows else {
+            stopAutoScroll()
+            return
+        }
+        let lines = c.row < 0 ? min(-c.row, 5) : -min(c.row - rows + 1, 5)
+        session.mutate { $0.scrollViewport(by: lines) }
+        extendSelection(to: c)
     }
 
     /// Begins dragging one end of the selection; the other end stays put.
@@ -388,11 +444,18 @@ extension Surface {
         pattern: #"(?:https?|ftp|file|ssh|mailto):[^\s<>"'`()\[\]{}]*[^\s<>"'`()\[\]{}.,;:!?]"#,
     )
 
-    /// URL under a viewport cell, detected in its logical line.
-    func link(at c: (column: Int, row: Int)) -> String? {
-        session.withState { state -> String? in
+    /// URL under a viewport cell: its OSC 8 target, else one detected in
+    /// its logical line.
+    /// The URL plus its OSC 8 id (0 when detected from the text).
+    func link(at c: (column: Int, row: Int)) -> (url: String, id: UInt8)? {
+        session.withState { state -> (url: String, id: UInt8)? in
             guard c.row >= 0, c.row < state.rows else { return nil }
             let p = TerminalPoint(row: state.absoluteRow(viewportRow: c.row), column: c.column)
+            // An OSC 8 hyperlink wins over URL detection.
+            if let (cells, _) = state.line(absoluteRow: p.row), c.column < cells.count,
+               let target = state.hyperlink(cells[c.column].attributes.link) {
+                return (target, cells[c.column].attributes.link)
+            }
             let line = state.lineRange(at: p)
             var scalars: [Unicode.Scalar] = []
             var points: [TerminalPoint] = []
@@ -416,7 +479,7 @@ extension Surface {
                 let length = ns.substring(with: match.range).unicodeScalars.count
                 guard prefix + length <= points.count else { continue }
                 if p >= points[prefix], p <= points[prefix + length - 1] {
-                    return ns.substring(with: match.range)
+                    return (ns.substring(with: match.range), 0)
                 }
             }
             return nil
@@ -424,7 +487,9 @@ extension Surface {
     }
 
     private func updateLinkHover(cell c: (column: Int, row: Int), mods: Mods) {
-        let url = mods.contains(.superKey) ? link(at: c) : nil
+        let hit = mods.contains(.superKey) ? link(at: c) : nil
+        let url = hit?.url
+        renderer.setHoveredLink(hit?.id ?? 0)
         let changed = withInput { s -> Bool in
             guard s.hoveredLink != url else { return false }
             s.hoveredLink = url

@@ -14,7 +14,7 @@ Shell's entire product surface is:
 3. Native tmux control mode
 4. iCloud sync
 
-Shell keeps Rootshell's Ghostty-shaped architecture: the app talks to its terminal surfaces and the tmux control-mode bridge only through the libghostty embedder API (`ghostty.h`). That API is implemented in Swift by `Packages/GhosttyKit` on [swiftty](https://github.com/chr33s/swiftty)'s `SwifttyCore` (vendored at `vendor/swiftty`); no Zig-built libghostty is linked.
+Shell keeps Rootshell's Ghostty-shaped architecture: the app talks to its terminal surfaces and the tmux control-mode bridge only through the libghostty embedder API (names and types from `ghostty.h`). That API is a Swift module, `Packages/GhosttyKit`, built on [swiftty](https://github.com/chr33s/swiftty)'s `SwifttyCore` (vendored at `vendor/swiftty`); no Zig-built libghostty is linked.
 
 ```text
 +-----------------------------------------+
@@ -324,7 +324,7 @@ Targets: `shell`, `ShellMacSupport`, `ShellTests`, plus the Control companion ta
 
 ```text
 App/UI
-  +-- Terminal  -- GhosttyKit (ghostty.h on swiftty)
+  +-- Terminal  -- GhosttyKit (Ghostty API in Swift, on swiftty)
   +-- SSH       -- transport library (Citadel), Terminal
   |               Identity Store -- Keychain, Secure Enclave, OpenSSH certificates
   +-- tmux      -- GhosttyKit tmux viewer, SSH raw transport

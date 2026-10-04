@@ -280,6 +280,17 @@ final class TmuxController {
     /// detached). `applyTmuxReconcile` observes this to drop the controller and
     /// restore the gateway surface to normal (non-control-mode) behavior.
     private(set) var didEnd = false
+
+    /// Readiness evidence for the current control-mode stream (§8.5).
+    var syncReadiness = TmuxSyncReadiness()
+    /// A continuity verdict waiting for that evidence before it is reported.
+    var pendingContinuityVerdict: TmuxContinuityVerdict?
+    /// A new control-mode stream must re-prove the attached session.
+    var sessionIdentityNeedsRefresh = false
+    /// Whether the last full-topology batch applied without failure, and
+    /// its focused pane.
+    private(set) var lastFullTopologyCommitted = false
+    private(set) var lastCommittedFocus: (windowId: Int, paneId: Int)?
     /// The tab hosting THIS controller's gateway surface, captured while the
     /// controller is live (in `markGatewayTab`) so detach can re-select it
     /// deterministically — without relying on the global `isTmuxGateway` flag,
@@ -740,6 +751,7 @@ final class TmuxController {
         let isFullTopology = ops.first == .syncBegin
         if isFullTopology, let last = lastAppliedTopologyOps, last == ops, topologyStateCoherent() {
             skippedDuplicateReconciles += 1
+            lastFullTopologyCommitted = true
             return
         }
 
@@ -788,6 +800,12 @@ final class TmuxController {
         // every retry, freezing the desync permanently. ROOTSHELL-TMUX
         // (id=tmux-reconcile-dedup, id=tmux-reconcile-dedup-failure)
         if isFullTopology, !batchFailed { lastAppliedTopologyOps = ops }
+        if isFullTopology {
+            lastFullTopologyCommitted = !batchFailed
+            if !batchFailed {
+                lastCommittedFocus = batchFocus
+            }
+        }
         // Newly projected panes are created before SwiftUI observes the final
         // tmux window selection. Reconcile once from the completed topology so
         // every non-selected window is occluded immediately; otherwise all of
@@ -3465,7 +3483,7 @@ extension Ghostty.TerminalView {
     /// (the surface running `tmux -CC`). Lazily creates the per-connection
     /// `TmuxController` the first time, wiring it to this window's tabs.
     @MainActor
-    func applyTmuxReconcile(_ ops: [TmuxReconcileOp]) {
+    func applyTmuxReconcile(_ ops: [TmuxReconcileOp], generation: UInt64 = 0) {
         // An empty / prune-only batch with no controller yet (e.g. a `%exit` or a
         // resume-abort teardown that beat any window projection) has nothing to
         // project. Do NOT create a controller for it: a windowless controller
@@ -3514,7 +3532,7 @@ extension Ghostty.TerminalView {
             }
             if let pending = pendingTmuxSessionInfo {
                 pendingTmuxSessionInfo = nil
-                controller.updateCurrentSession(id: pending.id, name: pending.name)
+                controller.updateCurrentSession(id: pending.id, name: pending.name, generation: pending.generation)
             }
             // Flush pipe-writer loss reported before the controller existed
             // (drain-to-empty beat this first reconcile): the control stream
@@ -3598,6 +3616,9 @@ extension Ghostty.TerminalView {
 
         controller.updateGatewaySource(from: connectionConfig)
         controller.apply(ops)
+        if ops.first == .syncBegin, controller.lastFullTopologyCommitted, generation != 0 {
+            controller.noteTopologyCommitted(generation: generation)
+        }
 
         // A metadata-only title batch has now completed all transport rebinding
         // required on every reconcile. It does not need the remaining gateway
@@ -4290,6 +4311,8 @@ nonisolated struct TmuxReconcileDelivery: @unchecked Sendable {
     let owner: Ghostty.TerminalView
     let ops: [TmuxReconcileOp]
     let payload: UnsafeMutableRawPointer
+    /// Viewer generation (control-mode stream) that produced the batch.
+    var generation: UInt64 = 0
 }
 
 /// Serializes tmux reconcile application in ARRIVAL order across the off-main

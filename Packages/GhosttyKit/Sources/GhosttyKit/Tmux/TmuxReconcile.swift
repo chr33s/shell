@@ -1,5 +1,4 @@
 import Foundation
-import GhosttyKit
 
 /// One reconcile op as the host reads it (`ghostty_tmux_op_s`).
 enum TmuxOp {
@@ -18,10 +17,13 @@ enum TmuxOp {
 /// out (panes, layout nodes, id arrays, titles) alive until then.
 final class TmuxReconcilePayload: @unchecked Sendable {
     let ops: [TmuxOp]
+    /// The viewer generation that produced the batch.
+    let generation: UInt64
     private var buffers: [UnsafeMutableRawPointer] = []
 
-    init(ops: [TmuxOp]) {
+    init(ops: [TmuxOp], generation: UInt64 = 0) {
         self.ops = ops
+        self.generation = generation
     }
 
     deinit {
@@ -97,25 +99,27 @@ final class TmuxReconcilePayload: @unchecked Sendable {
     }
 }
 
-@_cdecl("ghostty_tmux_reconcile_op_count")
-public func rt_tmuxReconcileOpCount(_ p: UnsafeMutableRawPointer?) -> UInt {
+public func ghostty_tmux_reconcile_op_count(_ p: UnsafeMutableRawPointer?) -> UInt {
     guard let p else { return 0 }
     return UInt(Unmanaged<TmuxReconcilePayload>.fromOpaque(p).takeUnretainedValue().ops.count)
 }
 
-@_cdecl("ghostty_tmux_reconcile_op")
-public func rt_tmuxReconcileOp(_ p: UnsafeMutableRawPointer?, _ index: UInt, _ out: UnsafeMutablePointer<ghostty_tmux_op_s>?) -> Bool {
+public func ghostty_tmux_reconcile_op(_ p: UnsafeMutableRawPointer?, _ index: UInt, _ out: UnsafeMutablePointer<ghostty_tmux_op_s>?) -> Bool {
     guard let p, let out else { return false }
     return Unmanaged<TmuxReconcilePayload>.fromOpaque(p).takeUnretainedValue().fill(Int(index), &out.pointee)
 }
 
-@_cdecl("ghostty_tmux_reconcile_free")
-public func rt_tmuxReconcileFree(_ p: UnsafeMutableRawPointer?) {
+/// The viewer generation (one per control-mode stream) of a batch.
+public func ghostty_tmux_reconcile_generation(_ p: UnsafeMutableRawPointer?) -> UInt64 {
+    guard let p else { return 0 }
+    return Unmanaged<TmuxReconcilePayload>.fromOpaque(p).takeUnretainedValue().generation
+}
+
+public func ghostty_tmux_reconcile_free(_ p: UnsafeMutableRawPointer?) {
     p.map { Unmanaged<TmuxReconcilePayload>.fromOpaque($0).release() }
 }
 
-@_cdecl("ghostty_tmux_layout_info")
-public func rt_tmuxLayoutInfo(_ node: UnsafeRawPointer?, _ out: UnsafeMutablePointer<ghostty_tmux_layout_info_s>?) {
+public func ghostty_tmux_layout_info(_ node: UnsafeRawPointer?, _ out: UnsafeMutablePointer<ghostty_tmux_layout_info_s>?) {
     guard let node, let out else { return }
     let layout = Unmanaged<TmuxLayout>.fromOpaque(node).takeUnretainedValue()
     out.pointee = ghostty_tmux_layout_info_s(
@@ -125,8 +129,7 @@ public func rt_tmuxLayoutInfo(_ node: UnsafeRawPointer?, _ out: UnsafeMutablePoi
     )
 }
 
-@_cdecl("ghostty_tmux_layout_child")
-public func rt_tmuxLayoutChild(_ node: UnsafeRawPointer?, _ index: UInt) -> UnsafeRawPointer? {
+public func ghostty_tmux_layout_child(_ node: UnsafeRawPointer?, _ index: UInt) -> UnsafeRawPointer? {
     guard let node else { return nil }
     let layout = Unmanaged<TmuxLayout>.fromOpaque(node).takeUnretainedValue()
     guard Int(index) < layout.children.count else { return nil }

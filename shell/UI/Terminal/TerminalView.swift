@@ -499,7 +499,7 @@ extension Ghostty {
         /// (startup emits it alongside the first command, well before the
         /// topology). Flushed into the controller at creation
         /// (applyTmuxReconcile). ROOTSHELL-TMUX (id=tmux-session-info-stash)
-        var pendingTmuxSessionInfo: (id: Int, name: String)?
+        var pendingTmuxSessionInfo: (id: Int, name: String, generation: UInt64)?
 
         /// Pipe-writer overflow bytes reported while this surface shows
         /// gateway evidence (core control channel hooked, or a gateway

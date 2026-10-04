@@ -1,5 +1,4 @@
 import Foundation
-import GhosttyKit
 import SwifttyCore
 
 /// A paste in flight: handed to the host as the clipboard request `state`

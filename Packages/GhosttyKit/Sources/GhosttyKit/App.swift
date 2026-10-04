@@ -1,5 +1,4 @@
 import Foundation
-import GhosttyKit
 import os
 
 /// `ghostty_app_t`: the host's runtime callbacks plus the shared config.

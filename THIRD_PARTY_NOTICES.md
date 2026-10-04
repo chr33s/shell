@@ -32,7 +32,7 @@ If this summary differs from an upstream license, the upstream license controls.
 
 | Project | Copyright or acknowledgement | License |
 | --- | --- | --- |
-| [Ghostty](https://github.com/ghostty-org/ghostty) embedder API (`ghostty.h`, in `Packages/GhosttyKit`) | Copyright (c) 2024 Mitchell Hashimoto and Ghostty contributors | MIT |
+| [Ghostty](https://github.com/ghostty-org/ghostty) embedder API names and types (`Packages/GhosttyKit`) | Copyright (c) 2024 Mitchell Hashimoto and Ghostty contributors | MIT |
 | [ios_system](https://github.com/holzschu/ios_system) | Copyright (c) 2018 Nicolas Holzschuch | BSD 3-Clause |
 | [awk (the one true awk)](https://github.com/onetrue-awk/awk), in ios_system | Copyright (C) Lucent Technologies 1997 | Lucent license (notice below) |
 | [jq](https://github.com/jqlang/jq) | Copyright (c) 2012 Stephen Dolan | MIT |

@@ -1,10 +1,12 @@
 import Foundation
-import GhosttyKit
-@testable import GhosttyRuntime
+@testable import GhosttyKit
 
 /// Actions seen by the test app, decoded while their payloads are valid.
 enum Recorded: Equatable {
     case reconcile([String])
+    case reconcileGeneration(UInt64)
+    case paneSynced(pane: UInt64, generation: UInt64)
+    case sessionChanged(id: UInt64, generation: UInt64)
     case response(tag: UInt32, error: Bool, body: String)
     case ptyResize(rows: UInt32, cols: UInt32)
     case title(String)
@@ -76,12 +78,19 @@ func makeApp(configText: String = "") -> ghostty_app_t {
         switch action.tag {
         case GHOSTTY_ACTION_TMUX_RECONCILE:
             let payload = action.action.tmux_reconcile!
+            Recorder.shared.append(.reconcileGeneration(ghostty_tmux_reconcile_generation(payload)))
             Recorder.shared.append(.reconcile(describe(payload)))
             ghostty_tmux_reconcile_free(payload)
         case GHOSTTY_ACTION_TMUX_COMMAND_RESPONSE:
             let r = action.action.tmux_command_response
             let body = r.body.map { String(decoding: UnsafeRawBufferPointer(start: $0, count: Int(r.body_len)), as: UTF8.self) } ?? ""
             Recorder.shared.append(.response(tag: r.tag, error: r.is_err, body: body))
+        case GHOSTTY_ACTION_TMUX_PANE_SYNCED:
+            let info = action.action.tmux_pane_synced
+            Recorder.shared.append(.paneSynced(pane: info.pane_id, generation: info.generation))
+        case GHOSTTY_ACTION_TMUX_SESSION_CHANGED:
+            let info = action.action.tmux_session_changed
+            Recorder.shared.append(.sessionChanged(id: info.session_id, generation: info.generation))
         case GHOSTTY_ACTION_PTY_RESIZE:
             Recorder.shared.append(.ptyResize(rows: action.action.pty_resize.rows, cols: action.action.pty_resize.cols))
         case GHOSTTY_ACTION_SET_TITLE:

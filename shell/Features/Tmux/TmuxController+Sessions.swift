@@ -115,9 +115,14 @@ extension TmuxController {
     /// GHOSTTY_ACTION_TMUX_SESSION_CHANGED: the session this gateway is
     /// attached to (startup, switch, or rename). Persists the name for
     /// reconnect-by-name and nudges the dashboard.
-    func updateCurrentSession(id: Int, name: String) {
+    func updateCurrentSession(id: Int, name: String, generation: UInt64? = nil) {
+        if let generation {
+            noteViewerGeneration(generation)
+            guard syncReadiness.generation == generation else { return } // superseded stream
+        }
         let changed = currentSessionId != id || currentSessionName != name
-        let sessionIdentityChanged = currentSessionId != id
+        let sessionIdentityChanged = currentSessionId != id || sessionIdentityNeedsRefresh
+        sessionIdentityNeedsRefresh = false
         currentSessionId = id
         currentSessionName = name
         if let connectionKey {
@@ -315,5 +320,57 @@ extension TmuxController {
     /// `refreshSessionsCache()` (same source the move-to-session picker uses).
     var otherAttachedClientCount: Int {
         max(0, cachedSessions.reduce(0) { $0 + $1.attachedClients } - 1)
+    }
+}
+
+// MARK: - Control-mode readiness (docs/specs/mobile-connectivity.md §8.5)
+
+extension TmuxController {
+    /// Adopts the viewer generation of an incoming event. A newer one means
+    /// a new control-mode stream on this gateway: earlier evidence and any
+    /// unreported verdict are void, and the session must be re-proven.
+    func noteViewerGeneration(_ generation: UInt64) {
+        let previous = syncReadiness.generation
+        guard syncReadiness.observe(generation: generation) else { return }
+        if generation > previous, previous != 0 {
+            pendingContinuityVerdict = nil
+            sessionIdentityNeedsRefresh = true
+        }
+    }
+
+    /// A full topology batch of `generation` was applied (or was identical
+    /// to the applied one).
+    func noteTopologyCommitted(generation: UInt64) {
+        noteViewerGeneration(generation)
+        syncReadiness.noteTopologyCommitted(generation: generation, visiblePane: lastCommittedFocus?.paneId)
+        publishContinuityVerdictIfReady()
+    }
+
+    /// The viewer replayed `pane`'s captured contents for `generation`.
+    func notePaneSynced(_ pane: Int, generation: UInt64) {
+        noteViewerGeneration(generation)
+        syncReadiness.notePaneSynced(pane, generation: generation)
+        publishContinuityVerdictIfReady()
+    }
+
+    /// A same-session verdict may only promote recovery to ready once the
+    /// stream has committed topology and synced the visible pane; any other
+    /// verdict asks the user and is reported at once.
+    func reportContinuityVerdictWhenReady(_ verdict: TmuxContinuityVerdict) {
+        guard verdict == .continuous else {
+            pendingContinuityVerdict = nil
+            if let connectionKey {
+                TmuxContinuityRegistry.shared.reportVerification(verdict, forConnection: connectionKey)
+            }
+            return
+        }
+        pendingContinuityVerdict = verdict
+        publishContinuityVerdictIfReady()
+    }
+
+    private func publishContinuityVerdictIfReady() {
+        guard let verdict = pendingContinuityVerdict, syncReadiness.isReady, let connectionKey else { return }
+        pendingContinuityVerdict = nil
+        TmuxContinuityRegistry.shared.reportVerification(verdict, forConnection: connectionKey)
     }
 }

@@ -94,11 +94,14 @@ extension TmuxController {
     func captureContinuityEvidence() async {
         guard let connectionKey else { return }
         guard let sessionID = currentSessionId else { return }
+        let generation = syncReadiness.generation
 
         do {
             let body = try await sendCommandWithReply(
                 TmuxRecoveryIdentity.continuityQuery(sessionID: sessionID),
                 timeout: .seconds(4))
+            // Evidence about a superseded control stream answers nothing.
+            guard syncReadiness.generation == generation else { return }
             guard var evidence = TmuxRecoveryIdentity.parseContinuity(body) else { return }
             // Trust our own view of which session this gateway is attached to
             // over a format field, in case the server answered for another.
@@ -112,7 +115,7 @@ extension TmuxController {
             let verdict = TmuxContinuityRegistry.shared.verify(
                 discovered: evidence, forConnection: connectionKey)
             TmuxContinuityRegistry.shared.record(evidence, forConnection: connectionKey)
-            TmuxContinuityRegistry.shared.reportVerification(verdict, forConnection: connectionKey)
+            reportContinuityVerdictWhenReady(verdict)
         } catch {
             // A server too old to answer simply leaves no evidence, and
             // recovery then asks the user to choose. That is the safe

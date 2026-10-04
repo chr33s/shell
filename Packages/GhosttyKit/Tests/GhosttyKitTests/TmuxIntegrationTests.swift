@@ -1,6 +1,5 @@
 import Foundation
-import GhosttyKit
-@testable import GhosttyRuntime
+@testable import GhosttyKit
 import SwifttyCore
 import Testing
 
@@ -118,5 +117,45 @@ struct TmuxIntegrationTests {
         ghostty_surface_tmux_detach(gateway)
         #expect(Recorder.shared.wait { _ in reconciles().last == ["begin", "prune windows=0 panes=0", "end"] })
         #expect(waitFor { !ghostty_surface_tmux_active(gateway) })
+    }
+
+    private func paneSyncs() -> [(pane: UInt64, generation: UInt64)] {
+        Recorder.shared.all.compactMap { if case let .paneSynced(pane, generation) = $0 { (pane, generation) } else { nil } }
+    }
+
+    /// A new control-mode stream on a live viewer (the old one died without
+    /// `%exit`) starts a new generation: the old stream's pending replies
+    /// fail instead of resolving later, and every pane is captured again and
+    /// reported synced under the new generation (mobile-connectivity §8.5).
+    @Test(.enabled(if: TmuxBridge.tmuxPath != nil))
+    func restartedStreamIsGenerationBound() throws {
+        Recorder.shared.clear()
+        let app = makeApp()
+        let gateway = makeSurface(app)
+        defer { ghostty_surface_free(gateway); ghostty_app_free(app) }
+        ghostty_surface_set_size(gateway, 800, 400)
+        let bridge = try #require(TmuxBridge(gateway: gateway))
+        defer { bridge.stop() }
+
+        // The first stream: topology, then the pane's capture is applied.
+        #expect(Recorder.shared.wait { _ in !paneSyncs().isEmpty })
+        let first = try #require(paneSyncs().first)
+        #expect(Recorder.shared.all.contains(.reconcileGeneration(first.generation)))
+        #expect(Recorder.shared.all.contains { if case let .sessionChanged(_, g) = $0 { g == first.generation } else { false } })
+
+        // A reply still owed by the old stream...
+        "run-shell 'sleep 1'".withCString { ghostty_surface_tmux_command_with_reply(gateway, $0, UInt(strlen($0)), 11) }
+        // ...when a new stream begins on the same viewer.
+        let viewer = try #require(Surface.from(gateway)?.tmux)
+        viewer.start()
+
+        // The old reply fails exactly once and never resolves later.
+        #expect(Recorder.shared.wait { $0.contains(.response(tag: 11, error: true, body: "")) })
+        Thread.sleep(forTimeInterval: 1.5)
+        let tagged = Recorder.shared.all.filter { if case let .response(tag, _, _) = $0 { tag == 11 } else { false } }
+        #expect(tagged == [.response(tag: 11, error: true, body: "")])
+
+        // The pane is captured again under the new generation.
+        #expect(Recorder.shared.wait { _ in paneSyncs().contains { $0.pane == first.pane && $0.generation > first.generation } })
     }
 }

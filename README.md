@@ -53,7 +53,7 @@ Xcode 27 or "Latest Release".
 shell/                       the app: App, Core, Features (LocalShell, SSH, Tmux, Profiles, Control), UI
 Shared/, ShellMacSupport/    MacBridge and the Catalyst-only AppKit bundle
 ShellWatch/                  the watchOS app (config: Configuration/Watch.xcconfig)
-Packages/GhosttyKit/         the libghostty embedder API (ghostty.h) implemented on swiftty
+Packages/GhosttyKit/         the libghostty embedder API as a Swift module on swiftty
 Packages/ShellControlCore/   portable control protocol, security, gateway, and client code
 services/shell-control/      Mac-local broker
 services/push-relay/         optional stateless push relay

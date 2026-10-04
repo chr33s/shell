@@ -1,5 +1,4 @@
 import Foundation
-import GhosttyKit
 import SwifttyCore
 
 /// One tmux pane: its terminal, fed by `%output`, and the surface (if the
@@ -101,6 +100,9 @@ final class TmuxViewer: @unchecked Sendable {
     private var listedWindows: [Window]?
     private var priorityWindow: Int?
     private var emittedTopology = false
+    /// Bumped per control-mode stream; tags events so a host can ignore
+    /// ones from a superseded stream.
+    private(set) var generation: UInt64 = 0
 
     // Diagnostics.
     private var created = DispatchTime.now().uptimeNanoseconds
@@ -118,9 +120,18 @@ final class TmuxViewer: @unchecked Sendable {
 
     /// `DCS 1000 p` seen. A live `tmux -CC` first answers its own attach
     /// command with one block; a resumed gateway waits for a probe instead.
+    /// A control-mode stream began (`DCS 1000 p`). On a viewer whose
+    /// previous stream died without `%exit`, nothing from it is trusted: its
+    /// pending replies are failed and every pane is recaptured.
     func start() {
         queue.async { [self] in
-            guard state == .none || state == .defunct else { return }
+            if state != .none, state != .defunct {
+                for pane in panes.values {
+                    pane.initializing = true
+                    pane.captureRequested = false
+                    pane.pendingHistory = nil
+                }
+            }
             reset()
             state = .startup
         }
@@ -143,6 +154,7 @@ final class TmuxViewer: @unchecked Sendable {
     }
 
     private func reset() {
+        generation &+= 1
         lines.reset()
         inBlock = false
         blockLines = []
@@ -368,6 +380,7 @@ final class TmuxViewer: @unchecked Sendable {
             newWindows[w.id] = w
         }
         var seen = Set<Int>()
+        var toCapture: [TmuxPane] = []
         let scrollback = gateway?.config.scrollbackLines ?? 10000
         for line in lines {
             let f = line.split(separator: "\t", maxSplits: 20, omittingEmptySubsequences: false)
@@ -405,9 +418,7 @@ final class TmuxViewer: @unchecked Sendable {
             }
             pane.state = st
             if pane.initializing, !pane.captureRequested {
-                pane.captureRequested = true
-                send(.paneHistory, "capture-pane -p -e -J -S - -E -1 -t %\(id)", pane: id)
-                send(.paneVisible, "capture-pane -p -e -t %\(id)", pane: id)
+                toCapture.append(pane)
             }
         }
         for id in panes.keys where !seen.contains(id) {
@@ -415,6 +426,18 @@ final class TmuxViewer: @unchecked Sendable {
         }
         windows = newWindows
         emitTopology()
+        // The window the host asked for first, then the active one; the
+        // rest follow and stay interruptible between commands.
+        let first = priorityWindow ?? activeWindow
+        if !toCapture.isEmpty {
+            priorityWindow = nil
+        }
+        let ordered = toCapture.filter { $0.window == first } + toCapture.filter { $0.window != first }
+        for pane in ordered {
+            pane.captureRequested = true
+            send(.paneHistory, "capture-pane -p -e -J -S - -E -1 -t %\(pane.id)", pane: pane.id)
+            send(.paneVisible, "capture-pane -p -e -t %\(pane.id)", pane: pane.id)
+        }
     }
 
     private func resize(_ pane: TmuxPane, columns: Int, rows: Int) {
@@ -473,6 +496,16 @@ final class TmuxViewer: @unchecked Sendable {
         bytes += Array(modes.utf8)
         pane.session.receive(bytes)
         pane.initializing = false
+        paneSynced(pane.id)
+    }
+
+    /// Reports that `pane` now shows tmux's state (visible-pane sync).
+    private func paneSynced(_ id: Int) {
+        guard let gateway else { return }
+        let generation = generation
+        gateway.app.post(gateway, tag: GHOSTTY_ACTION_TMUX_PANE_SYNCED) {
+            $0.tmux_pane_synced = ghostty_action_tmux_pane_synced_s(pane_id: UInt64(id), generation: generation)
+        }
     }
 
     // MARK: Notifications
@@ -570,6 +603,7 @@ final class TmuxViewer: @unchecked Sendable {
     private func sessionChanged(id: Int, name: String) {
         sessionID = id
         guard let gateway else { return }
+        let generation = generation
         gateway.app.post(gateway) { send in
             let bytes = Array(name.utf8)
             bytes.withUnsafeBufferPointer { buf in
@@ -577,6 +611,7 @@ final class TmuxViewer: @unchecked Sendable {
                 action.tag = GHOSTTY_ACTION_TMUX_SESSION_CHANGED
                 action.action.tmux_session_changed = ghostty_action_tmux_session_changed_s(
                     session_id: UInt64(id), name: buf.baseAddress, name_len: UInt(buf.count),
+                    generation: generation,
                 )
                 send(action)
             }
@@ -616,7 +651,7 @@ final class TmuxViewer: @unchecked Sendable {
 
     private func emit(_ ops: [TmuxOp]) {
         guard let gateway else { return }
-        let payload = TmuxReconcilePayload(ops: ops)
+        let payload = TmuxReconcilePayload(ops: ops, generation: generation)
         gateway.app.post(gateway, tag: GHOSTTY_ACTION_TMUX_RECONCILE) {
             // Retained only once delivery is certain: the host frees it with
             // ghostty_tmux_reconcile_free.
@@ -642,7 +677,16 @@ final class TmuxViewer: @unchecked Sendable {
 
     private func send(_ kind: CommandKind, _ command: String, tag: UInt32 = 0, pane: Int = 0) {
         guard state == .commandQueue else { return }
-        queued.append(Command(kind: kind, tag: tag, pane: pane, line: Array((command + "\n").utf8)))
+        let command = Command(kind: kind, tag: tag, pane: pane, line: Array((command + "\n").utf8))
+        // Host commands (typing, splits) go ahead of background captures, but
+        // never between a pane's history and visible captures, which must
+        // see the same pane state.
+        if kind == .user || kind == .userQuery,
+           let i = queued.firstIndex(where: { $0.kind == .paneHistory }) {
+            queued.insert(command, at: i)
+        } else {
+            queued.append(command)
+        }
         pump()
     }
 

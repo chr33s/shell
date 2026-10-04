@@ -1,5 +1,4 @@
 import Foundation
-import GhosttyKit
 import os
 import SwifttyCore
 
@@ -116,6 +115,7 @@ final class Surface: @unchecked Sendable {
 
     func free() {
         lock.withLockUnchecked { _freed = true }
+        stopAutoScroll()
         if isTmuxPane, pane?.surface === self || pane == nil {
             // The pane's terminal outlives this surface (the viewer keeps
             // feeding it); detach our callbacks unless a newer surface took over.

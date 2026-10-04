@@ -231,6 +231,12 @@ struct Keybind: Sendable {
         Keybind("shift+page_down", "scroll_page_down"),
         Keybind("super+f", "start_search"),
         Keybind("super+g", "navigate_search:next"),
-        Keybind("super+shift+g", "navigate_search:previous")
+        Keybind("super+shift+g", "navigate_search:previous"),
+        // Line editing, as Ghostty's macOS defaults.
+        Keybind("super+arrow_left", "text:\\x01"),
+        Keybind("super+arrow_right", "text:\\x05"),
+        Keybind("super+backspace", "text:\\x15"),
+        Keybind("alt+arrow_left", "esc:b"),
+        Keybind("alt+arrow_right", "esc:f")
     ]
 }

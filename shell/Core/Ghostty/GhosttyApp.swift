@@ -1474,7 +1474,9 @@ extension Ghostty {
                         // panes but NOT this Swift owner; closing the tab/surface
                         // before the task runs would otherwise use freed memory.
                         let owner = Unmanaged<Ghostty.TerminalView>.fromOpaque(userdata).takeUnretainedValue()
-                        let delivery = TmuxReconcileDelivery(owner: owner, ops: ops, payload: payload)
+                        let delivery = TmuxReconcileDelivery(
+                            owner: owner, ops: ops, payload: payload,
+                            generation: ghostty_tmux_reconcile_generation(payload))
                         // Serialize the apply in ARRIVAL order. The action callback
                         // is off the main actor and a bare per-batch Task has no
                         // cross-task ordering guarantee, so a stale full-topology
@@ -1482,7 +1484,7 @@ extension Ghostty {
                         // resurrect a closed pane / stale layout. See
                         // id=tmux-reconcile-serialize.
                         TmuxReconcileSerializer.shared.enqueue {
-                            delivery.owner.applyTmuxReconcile(delivery.ops)
+                            delivery.owner.applyTmuxReconcile(delivery.ops, generation: delivery.generation)
                             // Release the payload (and its viewer-pane holds) only
                             // now that apply has consumed the raw pointers.
                             ghostty_tmux_reconcile_free(delivery.payload)
@@ -1491,6 +1493,24 @@ extension Ghostty {
                         // No owner surface to apply to: nothing will use the
                         // pointers, so free now (releases the pane holds).
                         ghostty_tmux_reconcile_free(payload)
+                    }
+                }
+                return true
+
+            case GHOSTTY_ACTION_TMUX_PANE_SYNCED:
+                // A pane's captured contents were replayed: visible-pane sync
+                // evidence for recovery readiness (mobile-connectivity §8.5).
+                // Serialized with reconcile applies so it is judged against
+                // the topology that was current when the viewer emitted it.
+                if target.tag == GHOSTTY_TARGET_SURFACE {
+                    let info = action.action.tmux_pane_synced
+                    if let userdata = ghostty_surface_userdata(target.target.surface) {
+                        let owner = Unmanaged<Ghostty.TerminalView>.fromOpaque(userdata).takeUnretainedValue()
+                        let pane = Int(clamping: info.pane_id)
+                        let generation = info.generation
+                        TmuxReconcileSerializer.shared.enqueue {
+                            owner.tmuxController?.notePaneSynced(pane, generation: generation)
+                        }
                     }
                 }
                 return true
@@ -1553,17 +1573,18 @@ extension Ghostty {
                         name = ""
                     }
                     let sessionId = Int(clamping: info.session_id)
+                    let generation = info.generation
                     if let userdata = ghostty_surface_userdata(surface) {
                         let owner = Unmanaged<Ghostty.TerminalView>.fromOpaque(userdata).takeUnretainedValue()
                         Task { @MainActor in
                             if let controller = owner.tmuxController {
-                                controller.updateCurrentSession(id: sessionId, name: name)
+                                controller.updateCurrentSession(id: sessionId, name: name, generation: generation)
                             } else {
                                 // Startup ordering: the identity arrives before
                                 // the first reconcile creates the controller.
                                 // Stash it; applyTmuxReconcile flushes it.
                                 // ROOTSHELL-TMUX (id=tmux-session-info-stash)
-                                owner.pendingTmuxSessionInfo = (id: sessionId, name: name)
+                                owner.pendingTmuxSessionInfo = (id: sessionId, name: name, generation: generation)
                             }
                         }
                     }

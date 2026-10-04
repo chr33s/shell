@@ -27,6 +27,8 @@ final class Config: @unchecked Sendable {
     var paddingBalance = false
     var cursorStyle = CursorStyleSetting.block
     var cursorBlink: Bool?
+    /// `normal` blinks on/off; the others animate opacity (CursorBlink).
+    var cursorBlinkMode = CursorBlink.Mode.normal
     var cursorColor: UInt32?
     var cursorText: UInt32?
     var cursorOpacity = 1.0
@@ -52,7 +54,7 @@ final class Config: @unchecked Sendable {
         c.scrollbackLines = scrollbackLines; c.copyOnSelect = copyOnSelect; c.optionAsAlt = optionAsAlt
         c.clipboardRead = clipboardRead; c.clipboardWrite = clipboardWrite; c.pasteSafeNewline = pasteSafeNewline
         c.backgroundOpacity = backgroundOpacity; c.paddingX = paddingX; c.paddingY = paddingY
-        c.paddingBalance = paddingBalance; c.cursorStyle = cursorStyle; c.cursorBlink = cursorBlink
+        c.paddingBalance = paddingBalance; c.cursorStyle = cursorStyle; c.cursorBlink = cursorBlink; c.cursorBlinkMode = cursorBlinkMode
         c.cursorColor = cursorColor; c.cursorText = cursorText; c.cursorOpacity = cursorOpacity
         c.selection = selection; c.keybinds = keybinds; c.palette = palette
         c.themeSelectionBackground = themeSelectionBackground; c.themeSelectionForeground = themeSelectionForeground
@@ -117,6 +119,7 @@ final class Config: @unchecked Sendable {
         case "window-padding-balance": paddingBalance = value == "true"
         case "cursor-style": guard let v = CursorStyleSetting(rawValue: value) else { return false }; cursorStyle = v
         case "cursor-style-blink": cursorBlink = value.isEmpty ? nil : value == "true"
+        case "cursor-blink-mode": guard let v = CursorBlink.Mode(rawValue: value) else { return false }; cursorBlinkMode = v
         case "cursor-color": cursorColor = Self.color(value)
         case "cursor-text": cursorText = Self.color(value)
         case "cursor-opacity": guard let v = Double(value) else { return false }; cursorOpacity = min(max(v, 0), 1)
