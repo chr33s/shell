@@ -13,10 +13,12 @@ import os.log
 /// `ssh` opens an interactive session through Citadel; it is not OpenSSH and
 /// there is no OpenSSH fallback. The accepted surface is exactly
 /// `-p`, `-l`, `-i`, `-J`, `-o` (Port, User, ProxyJump, IdentityFile),
-/// `--tmux`, `--`, and one `[user@]host[:port]` destination. Anything else
-/// (an unknown flag or `-o` option, a remote command, shell composition) is
-/// an error rather than silently ignored, so an accepted command never runs
+/// `--tmux`, `--`, and one `[user@]host[:port]` destination; options may also
+/// follow the destination, and the first value given for a setting wins, as in
+/// OpenSSH. Anything else (an unknown flag or `-o` option, a remote command)
+/// is an error rather than silently ignored, so an accepted command never runs
 /// with different routing or security semantics than it appears to ask for.
+/// Shell composition is refused by the caller before parsing.
 @MainActor
 struct SSHCommandParser {
     private nonisolated static let logger = Logger(subsystem: "dev.chr33s.shell", category: "SSHCommandParser")
@@ -128,14 +130,13 @@ struct SSHCommandParser {
         "port": "Port", "user": "User", "proxyjump": "ProxyJump", "identityfile": "IdentityFile"
     ]
 
+    /// The flag each supported `-o` key is equivalent to.
+    private static let optionFlags: [String: Character] = [
+        "Port": "p", "User": "l", "ProxyJump": "J", "IdentityFile": "i"
+    ]
+
     /// Flags that take a value, either as the next token or attached (`-p2222`).
     private static let valueFlags: Set<Character> = ["p", "l", "J", "i", "o"]
-
-    /// Tokens after the destination that show the line wanted shell
-    /// composition (pipes, redirection, sequencing) rather than a remote command.
-    private static let shellOperatorTokens: Set<String> = [
-        "|", "||", "&", "&&", ";", ">", ">>", "<", "<<", "2>", "2>>", "2>&1", "&>"
-    ]
 
     nonisolated static let remoteCommandUnsupported =
         "remote command execution is not supported; open an interactive SSH session"
@@ -165,12 +166,18 @@ struct SSHCommandParser {
             return .help
         }
 
-        var port = 22
+        // OpenSSH semantics: the first value obtained for a setting wins,
+        // whether it came from a flag, `-o`, or the destination.
+        var portValue: Int?
         var username: String?
         var host: String?
         var identityFile: String?
         var jumpHostString: String?
-        var sshOptions: [String: String] = [:]
+        func setPort(_ text: String) -> Bool {
+            guard let p = Int(text), p > 0, p <= 65535 else { return false }
+            if portValue == nil { portValue = p }
+            return true
+        }
         // Settings ▸ tmux ▸ Default Mode seeds every parsed connection; `--tmux`
         // still forces tmux on when the default is Off.
         let defaultTmuxMode = SettingsStore.shared.value(Settings.Tmux.defaultMode)
@@ -181,16 +188,6 @@ struct SSHCommandParser {
         var optionsEnded = false
         while i < tokens.count {
             let token = tokens[i].text
-
-            // The fork opens an interactive session, never a remote command:
-            // anything after the destination is refused, not ignored.
-            if host != nil {
-                let rest = tokens[i...].map(\.text)
-                if rest.contains(where: { shellOperatorTokens.contains($0) }) {
-                    return .error(compositionUnsupported)
-                }
-                return .error(remoteCommandUnsupported)
-            }
 
             if !optionsEnded, token == "--" {
                 optionsEnded = true
@@ -219,37 +216,39 @@ struct SSHCommandParser {
                     value = tokens[i].text
                 }
 
-                switch flag {
-                case "p":
-                    guard let p = Int(value), p > 0, p <= 65535 else {
-                        return .error("Invalid port number")
-                    }
-                    port = p
-                case "l":
-                    username = value
-                case "J":
-                    jumpHostString = value
-                case "i":
-                    identityFile = value
-                default: // "o"
+                var setting = flag
+                var settingValue = value
+                if flag == "o" {
                     guard let (key, optionValue) = parseOption(value) else {
                         return .error("unsupported option: -o \(value)")
                     }
                     guard let canonical = supportedOptions[key.lowercased()] else {
                         return .error("unsupported option: -o \(key)")
                     }
-                    sshOptions[canonical] = optionValue
+                    setting = optionFlags[canonical]!
+                    settingValue = optionValue
                 }
+                switch setting {
+                case "p":
+                    guard setPort(settingValue) else { return .error("Invalid port number") }
+                case "l":
+                    if username == nil { username = settingValue }
+                case "J":
+                    if jumpHostString == nil { jumpHostString = settingValue }
+                default: // "i"
+                    if identityFile == nil { identityFile = settingValue }
+                }
+            } else if host != nil {
+                // The fork opens an interactive session, never a remote
+                // command: a second positional is refused, not ignored.
+                // Options after the destination are accepted, as OpenSSH does.
+                return .error(remoteCommandUnsupported)
             } else {
                 // First positional argument - should be [user@]host[:port]
                 let parsed = parseDestination(token)
-                if let u = parsed.username {
-                    username = u
-                }
+                if username == nil { username = parsed.username }
                 host = parsed.host
-                if let p = parsed.port {
-                    port = p
-                }
+                if portValue == nil { portValue = parsed.port }
                 // An empty host would otherwise let the next token be read as
                 // the destination; stop here and report it below.
                 if host == nil { break }
@@ -258,22 +257,7 @@ struct SSHCommandParser {
             i += 1
         }
 
-        // Apply -o options that we recognize
-        if let optPort = sshOptions["Port"] {
-            guard let p = Int(optPort), p > 0, p <= 65535 else {
-                return .error("Invalid port number")
-            }
-            port = p
-        }
-        if let optUser = sshOptions["User"] {
-            username = optUser
-        }
-        if let optJump = sshOptions["ProxyJump"] {
-            jumpHostString = optJump
-        }
-        if let optIdentity = sshOptions["IdentityFile"] {
-            identityFile = optIdentity
-        }
+        let port = portValue ?? 22
 
         // Validate we have a host
         guard let finalHost = host, !finalHost.isEmpty else {

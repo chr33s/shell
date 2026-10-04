@@ -30,6 +30,10 @@ final class SessionTracker {
     /// Tab counts by scene session ID (for WindowAccessor lookups)
     private var sceneTabCounts: [String: Int] = [:]
 
+    /// The scene session each window last reported, so closing the window
+    /// also drops its scene count.
+    private var sceneIdByWindow: [String: String] = [:]
+
     /// Publisher that emits when any window's tab count changes
     /// Emits the windowId that changed
     let tabCountDidChange = PassthroughSubject<String, Never>()
@@ -55,6 +59,7 @@ final class SessionTracker {
         // Also store by scene session ID for WindowAccessor lookups
         if let sceneId = sceneSessionId {
             sceneTabCounts[sceneId] = tabCount
+            sceneIdByWindow[windowId] = sceneId
         }
 
         // Notify window-specific tab count change for drag blocker configuration
@@ -66,6 +71,9 @@ final class SessionTracker {
 
     /// Called when a window is closed to remove its counts
     func removeWindow(_ windowId: String) {
+        if let sceneId = sceneIdByWindow.removeValue(forKey: windowId) {
+            sceneTabCounts.removeValue(forKey: sceneId)
+        }
         guard let removedTabs = windowTabCounts.removeValue(forKey: windowId), removedTabs > 0 else { return }
         Self.logger.info("Window \(windowId) removed (had \(removedTabs) tabs)")
         tabCountDidChange.send(windowId)

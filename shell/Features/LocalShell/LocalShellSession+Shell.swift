@@ -317,13 +317,25 @@ extension LocalShellSession {
         }
     }
 
+    /// Words that run the command after them (`env ssh`, `exec ssh`).
+    private nonisolated static let commandPrefixes: Set<String> = [
+        "env", "command", "exec", "nohup", "builtin", "time"
+    ]
+
     /// True when any command position in `command` names `ssh` — the first
     /// word of the line or of a pipeline stage, list element, or compound
-    /// body. Used to refuse `ssh` on every path that would otherwise hand it
-    /// to ios_system, where no `ssh` executable exists.
+    /// body, including after a prefix such as `env` or `exec`. Used to refuse
+    /// `ssh` on every path that would otherwise hand it to ios_system, where
+    /// no `ssh` executable exists.
     nonisolated static func commandInvokesSSH(_ command: String) -> Bool {
+        // Every external command in a script or pipeline passes through here;
+        // only a line that mentions `ssh` at all is worth tokenizing.
+        guard command.range(of: "ssh", options: .caseInsensitive) != nil else { return false }
         let tokenizer = ShellTokenizer(source: command)
         var atCommandStart = true
+        // After a prefix, its options and `NAME=value` arguments still precede
+        // the command.
+        var afterPrefix = false
         while true {
             switch tokenizer.next() {
             case .eof:
@@ -331,14 +343,23 @@ extension LocalShellSession {
             case .assignmentWord, .redirect, .heredoc:
                 continue
             case .word(let word):
-                if atCommandStart, word.lowercased() == "ssh" { return true }
+                let name = word.lowercased()
+                if atCommandStart, name == "ssh" { return true }
+                if atCommandStart, Self.commandPrefixes.contains(name) {
+                    afterPrefix = true
+                    continue
+                }
+                if afterPrefix, word.hasPrefix("-") || word.contains("=") { continue }
+                afterPrefix = false
                 atCommandStart = false
             case .kw_for, .kw_in, .kw_case:
                 // Followed by a name or word list, not a command.
+                afterPrefix = false
                 atCommandStart = false
             default:
                 // Separators and reserved words (`|`, `;`, `&&`, `(`, `then`,
                 // `do`, `{`, `!`, …) introduce a new command.
+                afterPrefix = false
                 atCommandStart = true
             }
         }

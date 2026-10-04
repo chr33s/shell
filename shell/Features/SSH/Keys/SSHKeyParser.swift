@@ -5,8 +5,6 @@ import NIOSSH
 import NIOCore
 import NIOFoundationCompat
 
-// Import BoringSSL for RSA BIGNUM support
-
 /// Parser for SSH private keys in various formats.
 ///
 /// All entry points are pure functions over `Data`/`String`: no shared
@@ -576,9 +574,8 @@ nonisolated final class SSHKeyParser {
     // MARK: - ByteBuffer-based Parsers
 
     private static func parseOpenSSHRSA(buffer: inout ByteBuffer, wasEncrypted: Bool) throws -> ParsedKey {
-        // OpenSSH RSA format: n, e, d, iqmp (qInv), p, q
-        // Note: OpenSSH stores iqmp (q^-1 mod p), NOT coefficient in PKCS order
-        // We need to compute dP = d mod (p-1) and dQ = d mod (q-1) ourselves
+        // OpenSSH RSA format: n, e, d, iqmp (qInv), p, q. The key is built
+        // from n, e, d alone; the CRT values are only validated and skipped.
 
         // Read n (modulus)
         guard let nLength = buffer.readInteger(as: UInt32.self),
@@ -598,21 +595,13 @@ nonisolated final class SSHKeyParser {
             throw ParserError.parseError("Failed to read RSA private exponent")
         }
 
-        // Read iqmp (q^-1 mod p) - this is qInv in PKCS#1 terms
-        guard let iqmpBuffer = buffer.readSSHBuffer(),
-              iqmpBuffer.getData(at: iqmpBuffer.readerIndex, length: iqmpBuffer.readableBytes) != nil else {
+        guard buffer.readSSHBuffer() != nil else {
             throw ParserError.parseError("Failed to read RSA iqmp")
         }
-
-        // Read p (first prime)
-        guard let pBuffer = buffer.readSSHBuffer(),
-              pBuffer.getData(at: pBuffer.readerIndex, length: pBuffer.readableBytes) != nil else {
+        guard buffer.readSSHBuffer() != nil else {
             throw ParserError.parseError("Failed to read RSA prime p")
         }
-
-        // Read q (second prime)
-        guard let qBuffer = buffer.readSSHBuffer(),
-              qBuffer.getData(at: qBuffer.readerIndex, length: qBuffer.readableBytes) != nil else {
+        guard buffer.readSSHBuffer() != nil else {
             throw ParserError.parseError("Failed to read RSA prime q")
         }
 

@@ -33,24 +33,11 @@ extension Ghostty.TerminalView {
 
     /// Restores deferred scrollback after connection animation completes.
     /// Called from `.running` state handlers. Idempotent — safe to call multiple times.
-    ///
-    /// - Parameter trailer: Optional bytes to write **immediately after** the saved
-    ///   scrollback content and **before** the gate releases buffered live output.
-    ///   Used to atomically restore terminal modes (mouse capture, alt screen,
-    ///   etc.) that the resumed remote TUI expects to be active. The trailer is
-    ///   processed by ghostty in-order with the scrollback, so no live data can
-    ///   race ahead of it.
-    ///
-    /// When no scrollback restore is pending (e.g. the layout-deferred restore
-    /// already ran), the trailer is still written
-    /// directly to the buffered writer so resumed sessions don't silently lose
-    /// their mode-restore sequences. The post-drain render+mouse-capture sync
-    /// is also scheduled in that fallback path.
-    func restoreScrollbackAfterAnimation(trailer: Data? = nil) {
+    func restoreScrollbackAfterAnimation() {
         if restoredWasTmuxGateway {
             // The gateway is hidden while its projected panes are rebuilt from
-            // authoritative tmux captures. Do not replay its saved ANSI or mode
-            // trailer: pipe drain does not acknowledge parser consumption, so
+            // authoritative tmux captures. Do not replay its saved ANSI: pipe
+            // drain does not acknowledge parser consumption, so
             // those bytes could cross the asynchronous control-mode boundary.
             pendingScrollbackRestore = false
             releaseRestoredTmuxOutputGateWhenViewerIsArmed()
@@ -58,15 +45,7 @@ extension Ghostty.TerminalView {
         }
         if pendingScrollbackRestore {
             pendingScrollbackRestore = false
-            ScrollbackPersistenceManager.shared.restoreScrollback(
-                for: self,
-                trailer: trailer
-            )
-            return
-        }
-        if let trailer, !trailer.isEmpty {
-            outputPipeline.writeDirect(trailer)
-            didQueueScrollbackRestoreReplay()
+            ScrollbackPersistenceManager.shared.restoreScrollback(for: self)
         }
     }
 
@@ -80,10 +59,7 @@ extension Ghostty.TerminalView {
             return
         }
 
-        ScrollbackPersistenceManager.shared.restoreScrollback(
-            for: self,
-            keepGateOpen: false
-        )
+        ScrollbackPersistenceManager.shared.restoreScrollback(for: self)
     }
 
     /// Ensures the restore replay's final cursor positioning is rendered after
@@ -108,8 +84,8 @@ extension Ghostty.TerminalView {
             ghostty_surface_draw(surface)
         }
         // Sync the cached `@Published isMouseCaptured` mirror against ghostty's
-        // C state once the scrollback replay (and any restore-time trailer
-        // bytes such as DECSET 1000h for mouse mode) have been parsed.
+        // C state once the scrollback replay (including any DECSET 1000h for
+        // mouse mode it carries) has been parsed.
         updateMouseCaptureState()
     }
 }

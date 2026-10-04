@@ -520,32 +520,14 @@ final class ScrollbackPersistenceManager {
 
     // MARK: - Restore
 
-    /// Restore scrollback for a terminal by writing saved ANSI data through the bufferedWriter.
-    ///
-    /// - Parameter trailer: Optional bytes appended to the scrollback byte stream
-    ///   **before** `gate.finish()` releases buffered live output. Used by the
-    ///   trzsz resume path to atomically inject DECSET sequences (alt screen,
-    ///   mouse capture, cursor key mode, bracketed paste) so the resumed remote
-    ///   TUI's redraw is processed by ghostty with the correct modes already
-    ///   set, without any live data racing ahead of the trailer.
-    /// - Parameter keepGateOpen: When true, do **not** finish the
-    ///   scrollback-restore gate or schedule the post-drain replay-render here.
-    ///   The caller is taking responsibility for closing the gate later — used
-    ///   by shellLaunchedTrzsz restorations where layout fires before the
-    ///   embedded trzsz session reaches `.running`. The saved scrollback is
-    ///   written now (so the user sees their pre-eviction screen immediately),
-    ///   but the gate keeps buffering subsequent embedded-spinner frames /
-    ///   server attach response / resize-jiggle redraw until
-    ///   `applyResumeTrailer` writes the trailer and explicitly finishes the
-    ///   gate, preserving the desired
-    ///       saved-scrollback → trailer → buffered-server-output → live
-    ///   ordering.
-    func restoreScrollback(for terminal: Ghostty.TerminalView, trailer: Data? = nil, keepGateOpen: Bool = false) {
+    /// Restore scrollback for a terminal by writing saved ANSI data through the
+    /// bufferedWriter, then finish the scrollback-restore gate so buffered
+    /// live output follows the saved bytes.
+    func restoreScrollback(for terminal: Ghostty.TerminalView) {
         // Saved scrollback is replayed verbatim, BELs and all. Stripping
         // 0x07 is not an option (it also terminates OSC sequences), so mute
         // instead. This deadline covers the direct writes below; the gated
-        // output released with the gate is held until it has drained, since
-        // `keepGateOpen` can wait on `.running` for an unbounded time.
+        // output released with the gate is held until it has drained.
         TerminalBellSuppressor.suppress(
             terminal.uuid, for: TerminalBellSuppressor.forcedRedraw)
         // Deliberately NOT a rebuild window for agent detection. A restore
@@ -555,15 +537,10 @@ final class ScrollbackPersistenceManager {
         // instead froze every restored tab at launch.
 
         defer {
-            if let trailer, !trailer.isEmpty {
-                terminal.outputPipeline.writeDirect(trailer)
-            }
-            if !keepGateOpen {
-                terminal.outputPipeline.finishScrollbackRestoreGate()
-                TerminalBellSuppressor.suppress(
-                    terminal.uuid, untilDrained: terminal.outputPipeline)
-                terminal.didQueueScrollbackRestoreReplay()
-            }
+            terminal.outputPipeline.finishScrollbackRestoreGate()
+            TerminalBellSuppressor.suppress(
+                terminal.uuid, untilDrained: terminal.outputPipeline)
+            terminal.didQueueScrollbackRestoreReplay()
         }
 
         let uuid = terminal.uuid

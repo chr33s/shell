@@ -25,9 +25,11 @@ pristine upstream tree, and then *localizes* it:
     so nothing outside vendor/ is ever resolved;
   * `source=none` marks a binary-only package (every target it builds comes
     from `binaries=`): its never-compiled source tree is pruned, keeping only
-    the manifests, top-level license/notice/README files, and any top-level
-    entries named in `keep=` (e.g. a resource bundle the app embeds). The
-    full source stays at the pinned commit upstream (vendor/manifest.lock).
+    the manifests, top-level license/notice/README files, license files at
+    any depth (the shipped binaries' notices), and any top-level entries named
+    in `keep=` (e.g. a resource bundle the app embeds). Git-ignored local
+    state (`.swiftpm`) is left alone. The full source stays at the pinned
+    commit upstream (vendor/manifest.lock).
 
 Because every local change is mechanical and re-derived on each sync, pulling
 an upstream release is `update DIR REF` — there is nothing to merge. Hand
@@ -372,19 +374,62 @@ def localize_text(text: str, pkg: Package, by_identity: Dict[str, Package], rel:
 
 
 # Top-level files every pruned package keeps: legal text and a pointer to
-# where the rest of the source lives.
-ALWAYS_KEPT = re.compile(r"^(LICEN[CS]E|COPYING|NOTICE|AUTHORS|README)", re.IGNORECASE)
+# where the rest of the source lives. Whole names, files only.
+ALWAYS_KEPT = re.compile(r"(LICEN[CS]E|COPYING|NOTICE|AUTHORS|README)(\.[\w.-]+)?", re.IGNORECASE)
+
+# Legal text anywhere in a pruned tree (`awk/src/LICENSE`, `APPLE_LICENSE`,
+# `ICU-license.html`): the shipped binaries' notices must stay with them.
+LEGAL_FILE = re.compile(
+    r"(?:[A-Za-z0-9]+[_-])?(LICEN[CS]E|COPYING|COPYRIGHT|NOTICE)(?:\.[\w.-]+)?", re.IGNORECASE
+)
+
+# A directory of license texts (curl's REUSE-style `LICENSES/`), kept whole.
+LEGAL_DIR = re.compile(r"LICEN[CS]ES", re.IGNORECASE)
+
+
+def git_ignored(paths: List[str]) -> set:
+    """The subset of `paths` git ignores (local tool state such as `.swiftpm`)."""
+    if not paths:
+        return set()
+    result = git("check-ignore", "--stdin", check=False, input="\n".join(paths), capture_output=True, text=True)
+    return set(result.stdout.splitlines())
 
 
 def pruned_entries(pkg: Package) -> List[str]:
-    """Top-level entries of a `source=none` package that pruning removes."""
+    """Paths (relative to the package) a `source=none` package prunes: every
+    top-level entry except manifests, `keep=` names and top-level legal and
+    README files, descending into a directory only to spare its legal files."""
     if not pkg.source_pruned or not os.path.isdir(pkg.path):
         return []
     manifests = {os.path.basename(m) for m in manifests_in(pkg.path)}
-    return sorted(
-        e for e in os.listdir(pkg.path)
-        if e not in manifests and e not in pkg.keeps and not ALWAYS_KEPT.match(e)
-    )
+
+    def has_legal(directory: str) -> bool:
+        return any(
+            LEGAL_FILE.fullmatch(f) or LEGAL_DIR.fullmatch(os.path.basename(d))
+            for d, _, files in os.walk(directory)
+            for f in files
+        )
+
+    def removable(rel: str) -> List[str]:
+        full = os.path.join(pkg.path, rel)
+        if os.path.isdir(full) and not os.path.islink(full):
+            if LEGAL_DIR.fullmatch(os.path.basename(rel)):
+                return []
+            if not has_legal(full):
+                return [rel]
+            return [r for e in sorted(os.listdir(full)) for r in removable(os.path.join(rel, e))]
+        return [] if LEGAL_FILE.fullmatch(os.path.basename(rel)) else [rel]
+
+    candidates: List[str] = []
+    for e in sorted(os.listdir(pkg.path)):
+        full = os.path.join(pkg.path, e)
+        if e in manifests or e in pkg.keeps:
+            continue
+        if os.path.isfile(full) and ALWAYS_KEPT.fullmatch(e):
+            continue
+        candidates.extend(removable(e))
+    ignored = git_ignored([os.path.join(pkg.path, c) for c in candidates])
+    return [c for c in candidates if os.path.join(pkg.path, c) not in ignored]
 
 
 def prune_package(pkg: Package) -> None:

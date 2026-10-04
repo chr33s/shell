@@ -142,8 +142,32 @@ final class SSHNativeCommandContractTests {
 
     @Test
     func testShellCompositionIsRejected() {
-        #expect(error("ssh host ls | grep x") == SSHCommandParser.compositionUnsupported)
-        #expect(error("ssh host ls > out.txt") == SSHCommandParser.compositionUnsupported)
+        // `handleSSHCommand` refuses these before parsing, spaced or not.
+        for command in ["ssh host ls | grep x", "ssh host ls > out.txt", "ssh host|cat"] {
+            #expect(LocalShellSession.commandContainsUnquotedShellOperator(command), "\(command)")
+        }
+    }
+
+    /// OpenSSH keeps the first value obtained for a setting, from whichever
+    /// flag, `-o` option or destination supplied it.
+    @Test
+    func testFirstValueWins() throws {
+        #expect(try parsed("ssh -p 2222 -o Port=22 host").port == 2222)
+        #expect(try parsed("ssh -o Port=22 -p 2222 host").port == 22)
+        #expect(try parsed("ssh -J a@one -o ProxyJump=b@two host").jumpHost?.host == "one")
+        #expect(try parsed("ssh -l admin bob@host").username == "admin")
+        #expect(try parsed("ssh -o User=carol -l admin host").username == "carol")
+    }
+
+    @Test
+    func testOptionsMayFollowTheDestination() throws {
+        let config = try parsed("ssh host -p 2222 -l admin")
+        #expect(config.host == "host")
+        #expect(config.port == 2222)
+        #expect(config.username == "admin")
+        #expect(try parsed("ssh host --tmux").tmuxAutoEnable)
+        #expect(error("ssh host -p 2222 uname") == SSHCommandParser.remoteCommandUnsupported)
+        #expect(error("ssh -- host -p 2222") == SSHCommandParser.remoteCommandUnsupported)
     }
 
     // MARK: - No subprocess fallback
@@ -164,7 +188,12 @@ final class SSHNativeCommandContractTests {
             "true; ssh host",
             "(ssh host)",
             "if true; then ssh host; fi",
-            "SSH host"
+            "SSH host",
+            "env ssh host",
+            "env -i TERM=xterm ssh host",
+            "command ssh host",
+            "exec ssh host",
+            "echo hi | nohup ssh host"
         ] {
             #expect(LocalShellSession.commandInvokesSSH(command), "\(command)")
         }
@@ -177,7 +206,9 @@ final class SSHNativeCommandContractTests {
             "grep ssh /etc/services",
             "sshd -t",
             "for h in ssh scp; do echo $h; done",
-            "cat ~/.ssh/config"
+            "cat ~/.ssh/config",
+            "env | grep SSH_AUTH_SOCK",
+            "command -v sshd"
         ] {
             #expect(!LocalShellSession.commandInvokesSSH(command), "\(command)")
         }

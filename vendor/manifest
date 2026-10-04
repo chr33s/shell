@@ -10,7 +10,8 @@
 #     drop=X,Y       package identities to strip, together with the targets
 #                    that use them (things this project never builds)
 #     source=none    binary-only package: prune its uncompiled source tree,
-#                    keeping manifests and top-level license/README files
+#                    keeping manifests, top-level license/README files and
+#                    license files at any depth
 #     keep=A,B       with source=none, further top-level entries to keep
 #
 # Bump a pin with `./scripts/vendor.py update DIR REF`; `status` lists newer tags.

@@ -34,6 +34,7 @@ If this summary differs from an upstream license, the upstream license controls.
 | --- | --- | --- |
 | [Ghostty / libghostty](https://github.com/ghostty-org/ghostty) | Copyright (c) 2024 Mitchell Hashimoto and Ghostty contributors | MIT |
 | [ios_system](https://github.com/holzschu/ios_system) | Copyright (c) 2018 Nicolas Holzschuch | BSD 3-Clause |
+| [awk (the one true awk)](https://github.com/onetrue-awk/awk), in ios_system | Copyright (C) Lucent Technologies 1997 | Lucent license (notice below) |
 | [jq](https://github.com/jqlang/jq) | Copyright (c) 2012 Stephen Dolan | MIT |
 | [Vim](https://github.com/vim/vim) | Copyright (c) 1991-2024 Bram Moolenaar and the Vim contributors | Vim License |
 | [curl](https://github.com/curl/curl) | Copyright (c) 1996-2026 Daniel Stenberg and many contributors | curl License |
@@ -49,13 +50,42 @@ The app uses maintained rootshell forks or binary-package wrappers for some of
 these projects. A wrapper does not change the license of the software it
 contains. Every Swift package a build links is pinned in `vendor/manifest.lock`
 (repository URL and exact commit) and checked in under `vendor/<package>/` with
-its license text; each package's `Package.swift` there is mechanically rewritten
+its license text, including license files nested in its source tree; each package's `Package.swift` there is mechanically rewritten
 to resolve locally. Packages compiled from source are checked in whole. Binary-
 only packages (`source=none` in `vendor/manifest`: ios_system, curl, jq,
 libarchive, ripgrep, vim, GhosttyKit) ship prebuilt, checksum-verified
 xcframeworks; their complete corresponding source, including modification
 notices, is the upstream repository at the recorded commit. See the
 corresponding package repository for upstream history.
+
+ios_system's `awk` is distributed under this notice, which must appear in
+supporting documentation:
+
+> Copyright (C) Lucent Technologies 1997
+> All Rights Reserved
+>
+> Permission to use, copy, modify, and distribute this software and
+> its documentation for any purpose and without fee is hereby
+> granted, provided that the above copyright notice appear in all
+> copies and that both that the copyright notice and this
+> permission notice and warranty disclaimer appear in supporting
+> documentation, and that the name Lucent Technologies or any of
+> its entities not be used in advertising or publicity pertaining
+> to distribution of the software without specific, written prior
+> permission.
+>
+> LUCENT DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE,
+> INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS.
+> IN NO EVENT SHALL LUCENT OR ANY OF ITS ENTITIES BE LIABLE FOR ANY
+> SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+> WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER
+> IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+> ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
+> THIS SOFTWARE.
+
+Other ios_system commands keep their upstream license files under
+`vendor/ios_system-rootshell/` (for example `less-34/less/LICENSE` and
+`libinfo/APPLE_LICENSE`).
 
 Mac Catalyst builds ship a `libsodium.26.dylib` next to `vim.framework`. It is
 not [libsodium](https://github.com/jedisct1/libsodium) and contains no
