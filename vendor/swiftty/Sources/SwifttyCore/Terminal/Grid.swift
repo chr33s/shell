@@ -1,5 +1,17 @@
 import Darwin
 
+/// Shell-integration role of a row, from OSC 133 (FinalTerm semantic
+/// prompts). Only the row where each part starts is marked.
+public enum RowMark: UInt8, Sendable {
+    case none
+    /// `OSC 133 ; A`: a prompt starts on this row.
+    case prompt
+    /// `OSC 133 ; A ; k=s` (or `k=c`): a continuation prompt.
+    case promptContinuation
+    /// `OSC 133 ; C`: command output starts on this row.
+    case output
+}
+
 /// Screen cells plus (for the primary screen) scrollback history.
 ///
 /// All rows live in one pool of fixed-width, row-major rows allocated in
@@ -24,6 +36,10 @@ public struct Grid: ~Copyable {
     private var chunkCount = 0
     private let rowMap: UnsafeMutablePointer<Int32>
     private let wrapped: UnsafeMutablePointer<Bool>
+    /// Per physical row: `RowMark` raw value (OSC 133 semantic prompts),
+    /// plus `inputLineBit` on the first row of the line being edited.
+    private let marks: UnsafeMutablePointer<UInt8>
+    private static let inputLineBit: UInt8 = 0x80
     private let extents: UnsafeMutablePointer<Int32>
     private let free: UnsafeMutablePointer<Int32>
     private var freeCount = 0
@@ -51,6 +67,8 @@ public struct Grid: ~Copyable {
         rowMap = .allocate(capacity: rows)
         wrapped = .allocate(capacity: capacity)
         wrapped.initialize(repeating: false, count: capacity)
+        marks = .allocate(capacity: capacity)
+        marks.initialize(repeating: 0, count: capacity)
         extents = .allocate(capacity: capacity)
         extents.initialize(repeating: 0, count: capacity)
         free = .allocate(capacity: capacity)
@@ -66,6 +84,7 @@ public struct Grid: ~Copyable {
         chunks.deallocate()
         rowMap.deallocate()
         wrapped.deallocate()
+        marks.deallocate()
         extents.deallocate()
         free.deallocate()
     }
@@ -129,6 +148,42 @@ public struct Grid: ~Copyable {
         wrapped[Int(rowMap[y])] = value
     }
 
+    /// Semantic mark of row `y` (OSC 133).
+    @inline(__always)
+    public func mark(_ y: Int) -> RowMark {
+        RowMark(rawValue: marks[Int(rowMap[y])] & ~Self.inputLineBit) ?? .none
+    }
+
+    @inline(__always)
+    public func setMark(_ y: Int, _ value: RowMark) {
+        let p = Int(rowMap[y])
+        marks[p] = marks[p] & Self.inputLineBit | value.rawValue
+    }
+
+    /// Whether row `y` starts the command line being edited (OSC 133 ; B).
+    public func isInputLine(_ y: Int) -> Bool {
+        marks[Int(rowMap[y])] & Self.inputLineBit != 0
+    }
+
+    public func setInputLine(_ y: Int, _ value: Bool) {
+        let p = Int(rowMap[y])
+        marks[p] = value ? marks[p] | Self.inputLineBit : marks[p] & ~Self.inputLineBit
+    }
+
+    /// Clears row `y`'s mark and input-line flag.
+    public func clearMarks(_ y: Int) {
+        marks[Int(rowMap[y])] = 0
+    }
+
+    /// Both per-row flags as one byte, for copying rows (reflow).
+    func markBits(_ y: Int) -> UInt8 {
+        marks[Int(rowMap[y])]
+    }
+
+    func historyMarkBits(_ index: Int) -> UInt8 {
+        marks[Int(history.id(index))]
+    }
+
     @inline(__always)
     public func extent(_ y: Int) -> Int {
         Int(extents[Int(rowMap[y])])
@@ -164,6 +219,10 @@ public struct Grid: ~Copyable {
         return (UnsafeBufferPointer(start: physical(id), count: columns), wrapped[Int(id)])
     }
 
+    public func historyMark(_ index: Int) -> RowMark {
+        RowMark(rawValue: marks[Int(history.id(index))] & ~Self.inputLineBit) ?? .none
+    }
+
     func historyMutableCells(_ index: Int) -> UnsafeMutableBufferPointer<Cell> {
         UnsafeMutableBufferPointer(start: physical(history.id(index)), count: Int(extents[Int(history.id(index))]))
     }
@@ -190,7 +249,7 @@ public struct Grid: ~Copyable {
     }
 
     /// Appends a copy of `source` as the newest history line (reflow).
-    public mutating func appendHistory(_ source: UnsafeBufferPointer<Cell>, wrapped isWrapped: Bool) {
+    public mutating func appendHistory(_ source: UnsafeBufferPointer<Cell>, wrapped isWrapped: Bool, marks markBits: UInt8 = 0) {
         guard history.capacity > 0 else { return }
         let id: Int32
         if history.isFull {
@@ -201,7 +260,7 @@ public struct Grid: ~Copyable {
             id = takeRow()
             _ = history.push(id)
         }
-        write(id, source, wrapped: isWrapped)
+        write(id, source, wrapped: isWrapped, marks: markBits)
     }
 
     public mutating func clearHistory() {
@@ -240,6 +299,7 @@ public struct Grid: ~Copyable {
         for y in range {
             fill(row: y, from: 0, to: columns, with: cell)
             setWrapped(y, false)
+            clearMarks(y)
         }
     }
 
@@ -294,11 +354,11 @@ public struct Grid: ~Copyable {
     }
 
     /// Replaces row `y` with `source` (padded with blanks).
-    public func setRow(_ y: Int, _ source: UnsafeBufferPointer<Cell>, wrapped isWrapped: Bool) {
-        write(rowMap[y], source, wrapped: isWrapped)
+    public func setRow(_ y: Int, _ source: UnsafeBufferPointer<Cell>, wrapped isWrapped: Bool, marks markBits: UInt8 = 0) {
+        write(rowMap[y], source, wrapped: isWrapped, marks: markBits)
     }
 
-    private func write(_ id: Int32, _ source: UnsafeBufferPointer<Cell>, wrapped isWrapped: Bool) {
+    private func write(_ id: Int32, _ source: UnsafeBufferPointer<Cell>, wrapped isWrapped: Bool, marks markBits: UInt8 = 0) {
         var n = min(source.count, columns)
         while n > 0, source[n - 1].isBlank {
             n -= 1 // keep the extent tight
@@ -314,6 +374,7 @@ public struct Grid: ~Copyable {
         }
         extents[Int(id)] = Int32(n)
         wrapped[Int(id)] = isWrapped
+        marks[Int(id)] = markBits
     }
 
     /// Resizes keeping the top-left content and history (no reflow).
@@ -329,6 +390,7 @@ public struct Grid: ~Copyable {
             fresh.appendHistory(
                 UnsafeBufferPointer(start: physical(id), count: min(Int(extents[Int(id)]), newColumns)),
                 wrapped: newColumns == columns && wrapped[Int(id)],
+                marks: marks[Int(id)],
             )
         }
         for y in 0 ..< min(rows, newRows) {
@@ -336,6 +398,7 @@ public struct Grid: ~Copyable {
                 y,
                 UnsafeBufferPointer(start: row(y), count: min(extent(y), newColumns)),
                 wrapped: newColumns == columns && isWrapped(y),
+                marks: markBits(y),
             )
         }
         if newColumns < columns {

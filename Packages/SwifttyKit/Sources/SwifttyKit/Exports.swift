@@ -261,6 +261,19 @@ public func swiftty_surface_has_selection(_ s: swiftty_surface_t?) -> Bool {
     sfc(s)?.mirror.hasSelection ?? false
 }
 
+/// Whether the point (as for `swiftty_surface_mouse_pos`) lies in a
+/// command whose output OSC 133 marked.
+public func swiftty_surface_has_command_output(_ s: swiftty_surface_t?, _ x: Double, _ y: Double) -> Bool {
+    sfc(s)?.hasCommandOutput(atPoints: x, y) ?? false
+}
+
+/// Selects the output of the command at the point; false when there is none.
+@discardableResult
+public func swiftty_surface_select_command_output(_ s: swiftty_surface_t?, _ x: Double, _ y: Double) -> Bool {
+    guard let surface = sfc(s) else { return false }
+    return surface.selectCommandOutput(at: surface.cell(atPoints: x, y))
+}
+
 private func fill(_ out: UnsafeMutablePointer<swiftty_text_s>, text: String) {
     let bytes = Array(text.utf8)
     let buffer = UnsafeMutablePointer<CChar>.allocate(capacity: bytes.count + 1)

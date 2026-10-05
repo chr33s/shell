@@ -74,14 +74,16 @@ final class Surface: @unchecked Sendable {
             self.pane = pane
             let id = pane.id
             paneInput = { [weak viewer] bytes in viewer?.sendKeys(pane: id, bytes) }
-            let palette = config.palette
-            session.mutateAsync { $0.setDefaultPalette(palette) }
+            let palette = config.palette, scheme = config.colorScheme
+            session.mutateAsync { $0.setDefaultPalette(palette); $0.setColorScheme(scheme) }
         } else {
             var sessionConfig = SessionConfiguration()
             sessionConfig.palette = config.palette
             sessionConfig.scrollbackLimitBytes = Int.max / 4
             sessionConfig.scrollbackLimitRows = max(1, config.scrollbackLines)
             session = TerminalSession(columns: 80, rows: 24, configuration: sessionConfig)
+            let scheme = config.colorScheme
+            session.mutateAsync { $0.setColorScheme(scheme) }
         }
         let view = cfg.platform.ios.uiview.map { Unmanaged<PlatformView>.fromOpaque($0).takeUnretainedValue() }
         renderer = SurfaceRenderer(
@@ -141,8 +143,8 @@ final class Surface: @unchecked Sendable {
             return old
         }
         if old.palette != config.palette {
-            let palette = config.palette
-            session.mutateAsync { $0.setDefaultPalette(palette) }
+            let palette = config.palette, scheme = config.colorScheme
+            session.mutateAsync { $0.setDefaultPalette(palette); $0.setColorScheme(scheme) }
         }
         renderer.update(config: config)
     }
@@ -249,8 +251,33 @@ final class Surface: @unchecked Sendable {
             tmux?.start()
         case .controlModeEnded:
             tmux?.controlModeEnded()
-        case .exited:
+        case let .pointerShape(name):
+            let shape = Self.mouseShape(name)
+            app.post(self, tag: SWIFTTY_ACTION_MOUSE_SHAPE) { $0.mouse_shape = shape }
+        case .exited, .commandFinished:
             break
+        }
+    }
+
+    /// OSC 22 pointer names (CSS cursor keywords); unknown names fall back
+    /// to the default shape.
+    private static func mouseShape(_ name: String) -> swiftty_action_mouse_shape_e {
+        switch name {
+        case "context-menu": SWIFTTY_MOUSE_SHAPE_CONTEXT_MENU
+        case "pointer": SWIFTTY_MOUSE_SHAPE_POINTER
+        case "crosshair": SWIFTTY_MOUSE_SHAPE_CROSSHAIR
+        case "text": SWIFTTY_MOUSE_SHAPE_TEXT
+        case "vertical-text": SWIFTTY_MOUSE_SHAPE_VERTICAL_TEXT
+        case "not-allowed", "no-drop": SWIFTTY_MOUSE_SHAPE_NOT_ALLOWED
+        case "grab": SWIFTTY_MOUSE_SHAPE_GRAB
+        case "grabbing": SWIFTTY_MOUSE_SHAPE_GRABBING
+        case "n-resize": SWIFTTY_MOUSE_SHAPE_N_RESIZE
+        case "e-resize": SWIFTTY_MOUSE_SHAPE_E_RESIZE
+        case "s-resize": SWIFTTY_MOUSE_SHAPE_S_RESIZE
+        case "w-resize": SWIFTTY_MOUSE_SHAPE_W_RESIZE
+        case "ew-resize", "col-resize": SWIFTTY_MOUSE_SHAPE_EW_RESIZE
+        case "ns-resize", "row-resize": SWIFTTY_MOUSE_SHAPE_NS_RESIZE
+        default: SWIFTTY_MOUSE_SHAPE_DEFAULT
         }
     }
 

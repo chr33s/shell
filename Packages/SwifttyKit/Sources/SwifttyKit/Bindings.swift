@@ -48,6 +48,13 @@ extension Surface {
                     head: TerminalPoint(row: last, column: state.columns - 1),
                 ))
             }
+        case "jump_to_prompt", "jump_to_previous_prompt", "jump_to_next_prompt":
+            // OSC 133 prompts; Shell's keybind names carry the direction.
+            let delta = name == "jump_to_previous_prompt" ? -1 : name == "jump_to_next_prompt" ? 1 : param.flatMap(Int.init)
+            guard let delta, delta != 0 else { return false }
+            return session.mutate { $0.jumpToPrompt(delta) }
+        case "select_command_output":
+            return selectCommandOutput(at: nil)
         case "clear_screen": session.mutateAsync { $0.clearScreenKeepingCursorLine() }
         case "reset": session.mutateAsync { $0.reset() }
         case "start_search":
@@ -95,6 +102,27 @@ extension Surface {
             return false
         }
         return true
+    }
+
+    func hasCommandOutput(atPoints x: Double, _ y: Double) -> Bool {
+        let c = cell(atPoints: x, y)
+        return session.withState { state in
+            guard c.row >= 0, c.row < state.rows else { return false }
+            return state.commandOutputRange(at: TerminalPoint(row: state.absoluteRow(viewportRow: c.row), column: c.column)) != nil
+        }
+    }
+
+    /// Selects the output of the command at a viewport cell, or of the
+    /// last finished command; false without OSC 133 marks there.
+    func selectCommandOutput(at c: (column: Int, row: Int)?) -> Bool {
+        session.mutate { state -> Bool in
+            let p = c.map { TerminalPoint(row: state.absoluteRow(viewportRow: $0.row), column: $0.column) }
+                ?? TerminalPoint(row: state.promptRows().last.map { $0 - 1 } ?? 0, column: 0)
+            guard let range = state.commandOutputRange(at: p) else { return false }
+            state.setSelection(Selection(anchor: range.start, head: range.end))
+            state.scrollToShow(row: range.start.row)
+            return true
+        }
     }
 
     private func postSearch(total: Int?, selected: Int?) {

@@ -18,6 +18,8 @@ enum SwifttyCommandRouting {
         case scrollPageDown
         case scrollToTop
         case scrollToBottom
+        case previousPrompt
+        case nextPrompt
         case toggleCompose
         case toggleMouseCapture
         case cycleInputSource

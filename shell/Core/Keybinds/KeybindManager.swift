@@ -150,6 +150,8 @@ final class KeybindManager {
             Keybind(key: .down, modifiers: .command, action: .scroll_page_down),
             Keybind(key: .home, modifiers: .command, action: .scroll_to_top),
             Keybind(key: .end, modifiers: .command, action: .scroll_to_bottom),
+            Keybind(key: .up, modifiers: [.command, .shift], action: .jump_to_previous_prompt),
+            Keybind(key: .down, modifiers: [.command, .shift], action: .jump_to_next_prompt),
 
             // Terminal
             Keybind(key: .a, modifiers: .command, action: .select_all),

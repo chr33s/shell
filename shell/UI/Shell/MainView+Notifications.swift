@@ -129,6 +129,8 @@ extension MainView {
             case .scrollPageDown: terminal.menuScrollPageDown(nil)
             case .scrollToTop: terminal.menuScrollToTop(nil)
             case .scrollToBottom: terminal.menuScrollToBottom(nil)
+            case .previousPrompt: terminal.menuPreviousPrompt(nil)
+            case .nextPrompt: terminal.menuNextPrompt(nil)
             case .toggleCompose: terminal.menuToggleCompose(nil)
             case .toggleMouseCapture: terminal.menuToggleMouseCapture(nil)
             case .cycleInputSource: terminal.menuCycleInputSource(nil)

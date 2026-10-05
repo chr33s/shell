@@ -22,6 +22,12 @@ final class Config: @unchecked Sendable {
     var clipboardWrite = true
     var pasteSafeNewline = true
     var backgroundOpacity = 1.0
+    /// WCAG contrast ratio text is kept above (1 = off).
+    var minimumContrast = 1.0
+    /// Detect URLs in plain text (OSC 8 links always work).
+    var linkURL = true
+    /// Clicking in an OSC 133 command line moves the shell's cursor there.
+    var cursorClickToMove = true
     var paddingX = 2.0 // points
     var paddingY = 2.0
     var paddingBalance = false
@@ -47,13 +53,25 @@ final class Config: @unchecked Sendable {
 
     init() {}
 
+    /// Light or dark by the theme background's relative luminance; reported
+    /// to applications through mode 2031.
+    var colorScheme: ColorScheme {
+        let bg = palette.background
+        func channel(_ shift: UInt32) -> Double {
+            let c = Double((bg >> shift) & 0xFF) / 255
+            return c <= 0.03928 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
+        }
+        let luminance = 0.2126 * channel(16) + 0.7152 * channel(8) + 0.0722 * channel(0)
+        return luminance > 0.179 ? .light : .dark
+    }
+
     func clone() -> Config {
         let c = Config()
         c.theme = theme; c.fontSize = fontSize; c.fontFamily = fontFamily
         c.fontFeatures = fontFeatures; c.adjustCellWidth = adjustCellWidth; c.adjustCellHeight = adjustCellHeight
         c.scrollbackLines = scrollbackLines; c.copyOnSelect = copyOnSelect; c.optionAsAlt = optionAsAlt
         c.clipboardRead = clipboardRead; c.clipboardWrite = clipboardWrite; c.pasteSafeNewline = pasteSafeNewline
-        c.backgroundOpacity = backgroundOpacity; c.paddingX = paddingX; c.paddingY = paddingY
+        c.backgroundOpacity = backgroundOpacity; c.minimumContrast = minimumContrast; c.linkURL = linkURL; c.cursorClickToMove = cursorClickToMove; c.paddingX = paddingX; c.paddingY = paddingY
         c.paddingBalance = paddingBalance; c.cursorStyle = cursorStyle; c.cursorBlink = cursorBlink; c.cursorBlinkMode = cursorBlinkMode
         c.cursorColor = cursorColor; c.cursorText = cursorText; c.cursorOpacity = cursorOpacity
         c.selection = selection; c.keybinds = keybinds; c.palette = palette
@@ -114,6 +132,9 @@ final class Config: @unchecked Sendable {
         case "clipboard-write": clipboardWrite = value != "deny"
         case "clipboard-paste-bracketed-safe-newline": pasteSafeNewline = value == "true"
         case "background-opacity": guard let v = Double(value) else { return false }; backgroundOpacity = min(max(v, 0), 1)
+        case "minimum-contrast": guard let v = Double(value) else { return false }; minimumContrast = min(max(v, 1), 21)
+        case "link-url": linkURL = value != "false"
+        case "cursor-click-to-move": cursorClickToMove = value != "false"
         case "window-padding-x": guard let v = Self.firstNumber(value) else { return false }; paddingX = v
         case "window-padding-y": guard let v = Self.firstNumber(value) else { return false }; paddingY = v
         case "window-padding-balance": paddingBalance = value == "true"

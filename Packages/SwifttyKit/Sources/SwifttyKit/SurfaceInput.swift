@@ -318,10 +318,24 @@ extension Surface {
             return h
         }
         stopAutoScroll()
-        _ = handle
         if mods.contains(.superKey), let url = link(at: c)?.url {
             openURL(url)
             return
+        }
+        // Click-to-move: a plain click in the command line being edited
+        // (OSC 133) moves the shell's cursor there with arrow keys.
+        let plainClick = withInput { $0.clickCount == 1 && $0.lastClickCell == c }
+        if !handle, plainClick, mods.binding.isEmpty, config.cursorClickToMove, !mirror.hasSelection {
+            let moves = session.withState { state -> Int? in
+                guard c.row >= 0, c.row < state.rows else { return nil }
+                return state.promptCursorMoves(to: TerminalPoint(row: state.absoluteRow(viewportRow: c.row), column: c.column))
+            }
+            if let moves, moves != 0 {
+                let key = KeyEvent(moves < 0 ? .left : .right)
+                for _ in 0 ..< abs(moves) {
+                    sendInput(.key(key))
+                }
+            }
         }
         if config.copyOnSelect, let text = session.withState({ $0.selectionText }), !text.isEmpty {
             app.writeClipboard(self, text: text, location: SWIFTTY_CLIPBOARD_SELECTION)
@@ -440,56 +454,29 @@ extension Surface {
 
     // MARK: Links
 
-    private static let urlPattern = try? NSRegularExpression(
-        pattern: #"(?:https?|ftp|file|ssh|mailto):[^\s<>"'`()\[\]{}]*[^\s<>"'`()\[\]{}.,;:!?]"#,
-    )
-
-    /// URL under a viewport cell: its OSC 8 target, else one detected in
-    /// its logical line.
-    /// The URL plus its OSC 8 id (0 when detected from the text).
-    func link(at c: (column: Int, row: Int)) -> (url: String, id: UInt8)? {
-        session.withState { state -> (url: String, id: UInt8)? in
+    /// URL under a viewport cell: its OSC 8 target, else (with `link-url`)
+    /// one detected in its logical line.
+    func link(at c: (column: Int, row: Int)) -> TerminalLink? {
+        let detect = config.linkURL
+        return session.withState { state -> TerminalLink? in
             guard c.row >= 0, c.row < state.rows else { return nil }
-            let p = TerminalPoint(row: state.absoluteRow(viewportRow: c.row), column: c.column)
-            // An OSC 8 hyperlink wins over URL detection.
-            if let (cells, _) = state.line(absoluteRow: p.row), c.column < cells.count,
-               let target = state.hyperlink(cells[c.column].attributes.link) {
-                return (target, cells[c.column].attributes.link)
-            }
-            let line = state.lineRange(at: p)
-            var scalars: [Unicode.Scalar] = []
-            var points: [TerminalPoint] = []
-            for row in line.start.row ... line.end.row {
-                guard let (cells, _) = state.line(absoluteRow: row) else { continue }
-                for x in 0 ..< cells.count where !cells[x].isSpacer {
-                    let content = state.scalars(of: cells[x])
-                    for s in content.isEmpty ? [" "] : content {
-                        scalars.append(s); points.append(TerminalPoint(row: row, column: x))
-                    }
-                }
-            }
-            var text = String.UnicodeScalarView()
-            text.append(contentsOf: scalars)
-            let string = String(text)
-            let ns = string as NSString
-            guard let pattern = Self.urlPattern else { return nil }
-            for match in pattern.matches(in: string, range: NSRange(location: 0, length: ns.length)) {
-                // Map the UTF-16 range back to scalar indices.
-                let prefix = ns.substring(to: match.range.location).unicodeScalars.count
-                let length = ns.substring(with: match.range).unicodeScalars.count
-                guard prefix + length <= points.count else { continue }
-                if p >= points[prefix], p <= points[prefix + length - 1] {
-                    return (ns.substring(with: match.range), 0)
-                }
-            }
-            return nil
+            return state.link(at: TerminalPoint(row: state.absoluteRow(viewportRow: c.row), column: c.column), detectURLs: detect)
         }
     }
 
     private func updateLinkHover(cell c: (column: Int, row: Int), mods: Mods) {
         let hit = mods.contains(.superKey) ? link(at: c) : nil
         let url = hit?.url
-        renderer.setHoveredLink(hit?.id ?? 0)
+        // OSC 8 links underline by id; a detected URL by its cells.
+        let span = hit.flatMap { link in
+            link.id != 0 ? nil : session.withState { state in
+                HighlightSpan(
+                    startRow: state.viewportRow(absoluteRow: link.range.start.row), startColumn: link.range.start.column,
+                    endRow: state.viewportRow(absoluteRow: link.range.end.row), endColumn: link.range.end.column,
+                )
+            }
+        }
+        renderer.setHoveredLink(hit?.id ?? 0, span: span)
         let changed = withInput { s -> Bool in
             guard s.hoveredLink != url else { return false }
             s.hoveredLink = url

@@ -73,6 +73,9 @@ final class SurfaceRenderer: NSObject, @unchecked Sendable {
     private var blinkOn = true
     /// Opacity from an animated blink style (1 for `normal`).
     private var blinkAlpha = 1.0
+    /// SGR 5 text phase, and whether the last frame had any.
+    private var textBlinkOn = true
+    private var hasBlinkingText = false
     private var lastInputTime = CACurrentMediaTime()
     var preedit: String? {
         get { lock.withLockUnchecked { _preedit } }
@@ -270,10 +273,12 @@ final class SurfaceRenderer: NSObject, @unchecked Sendable {
         setNeedsDisplay(force: true)
     }
 
-    func setHoveredLink(_ id: UInt8) {
+    /// An OSC 8 link id to underline, or a detected URL's span (viewport rows).
+    func setHoveredLink(_ id: UInt8, span: HighlightSpan?) {
         let changed = lock.withLockUnchecked { () -> Bool in
-            guard _options.hoveredLink != id else { return false }
+            guard _options.hoveredLink != id || _options.underlinedSpan != span else { return false }
             _options.hoveredLink = id
+            _options.underlinedSpan = span
             return true
         }
         if changed {
@@ -323,14 +328,15 @@ final class SurfaceRenderer: NSObject, @unchecked Sendable {
 
     private func refreshBlink() {
         onMain {
-            let (focused, blink, mode) = self.lock.withLockUnchecked {
-                (self._options.isFocused, self.config.cursorBlink, self.config.cursorBlinkMode)
+            let (focused, blink, mode, blinkingText) = self.lock.withLockUnchecked {
+                (self._options.isFocused, self.config.cursorBlink, self.config.cursorBlinkMode, self.hasBlinkingText)
             }
-            let wantsTimer = focused && blink != false
+            let cursorAnimates = focused && blink != false
+            let wantsTimer = cursorAnimates || blinkingText
             // Animated styles redraw the cursor row at 30 fps, only when the
             // config turns blinking on; otherwise a cheap on/off timer serves
             // applications that request a blinking cursor.
-            let interval = mode != .normal && blink == true ? 1.0 / 30 : 0.6
+            let interval = cursorAnimates && mode != .normal && blink == true ? 1.0 / 30 : 0.6
             if wantsTimer, self.blinkTimer?.timeInterval != interval {
                 self.blinkTimer?.invalidate()
                 let timer = Timer(timeInterval: interval, repeats: true) { [weak renderer = self] _ in renderer?.blinkTick() }
@@ -342,19 +348,22 @@ final class SurfaceRenderer: NSObject, @unchecked Sendable {
                 self.lock.withLockUnchecked {
                     self.blinkOn = true
                     self.blinkAlpha = 1
+                    self.textBlinkOn = true
                 }
             }
         }
     }
 
     private func blinkTick() {
-        let (recent, blinkMode, mode, start) = lock.withLockUnchecked {
-            (CACurrentMediaTime() - lastInputTime < 0.6, config.cursorBlink, config.cursorBlinkMode, lastInputTime)
+        let (recent, blinkMode, mode, start, focused) = lock.withLockUnchecked {
+            (CACurrentMediaTime() - lastInputTime < 0.6, config.cursorBlink, config.cursorBlinkMode, lastInputTime, _options.isFocused)
         }
         let terminalBlinks = surface?.mirror.modes.contains(.cursorBlink) ?? false
-        let animate = visible && (blinkMode == true || terminalBlinks)
+        let animate = visible && focused && (blinkMode == true || terminalBlinks)
         let changed = lock.withLockUnchecked { () -> Bool in
-            let before = (blinkOn, blinkAlpha)
+            let before = (blinkOn, blinkAlpha, textBlinkOn)
+            // Text blinks on a fixed 0.6 s phase, whatever the timer rate.
+            textBlinkOn = !hasBlinkingText || Int(CACurrentMediaTime() / 0.6) % 2 == 0
             if !animate {
                 blinkOn = true
                 blinkAlpha = 1
@@ -366,7 +375,7 @@ final class SurfaceRenderer: NSObject, @unchecked Sendable {
                 blinkOn = true
                 blinkAlpha = recent ? 1 : CursorBlink.alpha(mode, at: CACurrentMediaTime() - start)
             }
-            return before != (blinkOn, blinkAlpha)
+            return before != (blinkOn, blinkAlpha, textBlinkOn)
         }
         if changed {
             setNeedsDisplay(force: true)
@@ -419,6 +428,8 @@ final class SurfaceRenderer: NSObject, @unchecked Sendable {
             o.scrollOffset = smoothOffset - rubberBand * _metrics.scale
             o.backgroundOpacity = config.backgroundOpacity
             o.cursorVisible = blinkOn
+            o.textBlinkVisible = textBlinkOn
+            o.minimumContrast = config.minimumContrast
             o.preedit = _preedit.map { Array($0.unicodeScalars) } ?? []
             switch config.cursorStyle {
             case .block: o.cursorStyle = nil
@@ -442,6 +453,16 @@ final class SurfaceRenderer: NSObject, @unchecked Sendable {
         guard visible else { return }
         if renderer?.draw(snapshot, options: options, layer: layer) == true {
             layer.markPresented()
+        }
+        // Blinking text needs the blink timer even when the cursor is solid.
+        let blinking = renderer?.hasBlinkingText ?? false
+        let blinkingChanged = lock.withLockUnchecked { () -> Bool in
+            guard hasBlinkingText != blinking else { return false }
+            hasBlinkingText = blinking
+            return true
+        }
+        if blinkingChanged {
+            refreshBlink()
         }
     }
 

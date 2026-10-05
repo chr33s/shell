@@ -2132,6 +2132,16 @@ extension Swiftty.TerminalView {
         performActionAsync("scroll_to_bottom")
     }
 
+    @objc func menuPreviousPrompt(_ sender: Any?) {
+        noteModTapCommand(sender as? UIKeyCommand)
+        performActionAsync("jump_to_prompt:-1")
+    }
+
+    @objc func menuNextPrompt(_ sender: Any?) {
+        noteModTapCommand(sender as? UIKeyCommand)
+        performActionAsync("jump_to_prompt:1")
+    }
+
     @objc func menuToggleCompose(_ sender: Any?) {
         noteModTapCommand(sender as? UIKeyCommand)
         if showComposeOverlay {

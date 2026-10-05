@@ -87,6 +87,14 @@ extension UIApplication {
         swiftty_postPaneCommand(.scrollToBottom)
     }
 
+    @objc func menuPreviousPrompt(_ sender: Any?) {
+        swiftty_postPaneCommand(.previousPrompt)
+    }
+
+    @objc func menuNextPrompt(_ sender: Any?) {
+        swiftty_postPaneCommand(.nextPrompt)
+    }
+
     @objc func menuToggleCompose(_ sender: Any?) {
         swiftty_postPaneCommand(.toggleCompose)
     }

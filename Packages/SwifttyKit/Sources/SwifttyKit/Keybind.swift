@@ -229,6 +229,8 @@ struct Keybind: Sendable {
         Keybind("super+page_down", "scroll_page_down"),
         Keybind("shift+page_up", "scroll_page_up"),
         Keybind("shift+page_down", "scroll_page_down"),
+        Keybind("super+shift+arrow_up", "jump_to_prompt:-1"),
+        Keybind("super+shift+arrow_down", "jump_to_prompt:1"),
         Keybind("super+f", "start_search"),
         Keybind("super+g", "navigate_search:next"),
         Keybind("super+shift+g", "navigate_search:previous"),

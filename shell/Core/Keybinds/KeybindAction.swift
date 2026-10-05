@@ -62,6 +62,10 @@ enum KeybindAction: String, CaseIterable, Codable, Identifiable, Hashable {
     case scroll_to_top = "scroll_to_top"
     /// Scroll to bottom of terminal
     case scroll_to_bottom = "scroll_to_bottom"
+    /// Scroll to the previous shell prompt (OSC 133)
+    case jump_to_previous_prompt = "jump_to_previous_prompt"
+    /// Scroll to the next shell prompt (OSC 133)
+    case jump_to_next_prompt = "jump_to_next_prompt"
     /// Select all text in terminal
     case select_all = "select_all"
     /// Clear screen and scrollback
@@ -205,6 +209,7 @@ enum KeybindAction: String, CaseIterable, Codable, Identifiable, Hashable {
         case .copy_to_clipboard, .paste_from_clipboard,
              .scroll_page_up, .scroll_page_down,
              .scroll_to_top, .scroll_to_bottom,
+             .jump_to_previous_prompt, .jump_to_next_prompt,
              .select_all, .clear_screen, .reset_terminal:
             return true
         case .ctrl_a, .ctrl_b, .ctrl_c, .ctrl_d, .ctrl_e, .ctrl_f, .ctrl_g,
@@ -271,7 +276,8 @@ enum KeybindAction: String, CaseIterable, Codable, Identifiable, Hashable {
         case .copy_to_clipboard, .paste_from_clipboard:
             return .clipboard
 
-        case .scroll_page_up, .scroll_page_down, .scroll_to_top, .scroll_to_bottom:
+        case .scroll_page_up, .scroll_page_down, .scroll_to_top, .scroll_to_bottom,
+             .jump_to_previous_prompt, .jump_to_next_prompt:
             return .navigation
 
         case .new_local_shell, .new_tab, .new_window, .close_tab, .duplicate_ssh_tab,
@@ -315,6 +321,8 @@ enum KeybindAction: String, CaseIterable, Codable, Identifiable, Hashable {
         case .scroll_page_down: return String(localized: "Scroll Page Down", comment: "Keybind action")
         case .scroll_to_top: return String(localized: "Scroll to Top", comment: "Keybind action")
         case .scroll_to_bottom: return String(localized: "Scroll to Bottom", comment: "Keybind action")
+        case .jump_to_previous_prompt: return String(localized: "Previous Prompt", comment: "Keybind action")
+        case .jump_to_next_prompt: return String(localized: "Next Prompt", comment: "Keybind action")
         case .select_all: return String(localized: "Select All", comment: "Keybind action")
         case .clear_screen: return String(localized: "Clear Screen", comment: "Keybind action")
         case .reset_terminal: return String(localized: "Reset Terminal", comment: "Keybind action")
@@ -457,6 +465,8 @@ enum KeybindAction: String, CaseIterable, Codable, Identifiable, Hashable {
         case .scroll_page_down: return "scroll_page_down"
         case .scroll_to_top: return "scroll_to_top"
         case .scroll_to_bottom: return "scroll_to_bottom"
+        case .jump_to_previous_prompt: return "jump_to_prompt:-1"
+        case .jump_to_next_prompt: return "jump_to_prompt:1"
         case .select_all: return "select_all"
         case .clear_screen: return "clear_screen"
         case .reset_terminal: return "reset"
@@ -567,6 +577,7 @@ enum KeybindAction: String, CaseIterable, Codable, Identifiable, Hashable {
         // Clipboard and terminal actions now have menu entries in AppCommands.swift
         case .copy_to_clipboard, .paste_from_clipboard,
              .scroll_page_up, .scroll_page_down, .scroll_to_top, .scroll_to_bottom,
+             .jump_to_previous_prompt, .jump_to_next_prompt,
              .clear_screen, .select_all, .toggle_compose,
              .toggle_full_screen, .toggle_mouse_capture, .cycle_input_source:
             return true

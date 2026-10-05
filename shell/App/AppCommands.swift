@@ -775,6 +775,22 @@ struct TerminalCommands: Commands {
             }
             .modifier(DynamicShortcut(action: .scroll_to_bottom, shortcuts: shortcutState.shortcuts))
 
+            Button("Previous Prompt") {
+                UIApplication.shared.sendMenuAction(
+                    #selector(Swiftty.TerminalView.menuPreviousPrompt(_:)),
+                    from: nil
+                )
+            }
+            .modifier(DynamicShortcut(action: .jump_to_previous_prompt, shortcuts: shortcutState.shortcuts))
+
+            Button("Next Prompt") {
+                UIApplication.shared.sendMenuAction(
+                    #selector(Swiftty.TerminalView.menuNextPrompt(_:)),
+                    from: nil
+                )
+            }
+            .modifier(DynamicShortcut(action: .jump_to_next_prompt, shortcuts: shortcutState.shortcuts))
+
             Divider()
 
             MenuToggleItem(kind: .compose, shortcuts: shortcutState.shortcuts)

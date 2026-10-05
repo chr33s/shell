@@ -1930,7 +1930,7 @@ extension Swiftty.TerminalView: UIEditMenuInteractionDelegate {
         // Full context menu for two-finger tap in scroll mode
         if isFullContextMenuPresentation {
             let probedLink = probeForLink(at: configuration.sourcePoint)
-            return buildContextMenu(linkURL: probedLink, suggestedEditActions: suggestedActions)
+            return buildContextMenu(linkURL: probedLink, suggestedEditActions: suggestedActions, point: configuration.sourcePoint)
         }
 
         // Build a simple Copy/Paste menu for text selection
@@ -2047,7 +2047,7 @@ extension Swiftty.TerminalView: UIContextMenuInteractionDelegate {
         let probedLink = probeForLink(at: location)
 
         return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { [weak self] _ in
-            self?.buildContextMenu(linkURL: probedLink)
+            self?.buildContextMenu(linkURL: probedLink, point: location)
         }
     }
 
@@ -2071,14 +2071,15 @@ extension Swiftty.TerminalView: UIContextMenuInteractionDelegate {
 
     #if targetEnvironment(macCatalyst)
     func nativeContextMenu(at point: CGPoint) -> [any MacMenuEntry] {
-        CatalystMenuEntry.entries(buildContextMenu(linkURL: probeForLink(at: point)), responder: self)
+        CatalystMenuEntry.entries(buildContextMenu(linkURL: probeForLink(at: point), point: point), responder: self)
     }
     #endif
 
     /// Build the full context menu with all terminal actions
     private func buildContextMenu(
         linkURL: String? = nil,
-        suggestedEditActions: [UIMenuElement] = []
+        suggestedEditActions: [UIMenuElement] = [],
+        point: CGPoint? = nil
     ) -> UIMenu {
         var menuItems: [UIMenuElement] = []
 
@@ -2116,6 +2117,25 @@ extension Swiftty.TerminalView: UIContextMenuInteractionDelegate {
                 image: UIImage(systemName: "doc.on.clipboard"),
                 action: #selector(Swiftty.TerminalView.paste(_:))
             ))
+        }
+
+        // Shell integration (OSC 133): select the output of the command
+        // under the menu's point.
+        if let point, let surface {
+            let pixelPoint = viewToPixelCoordinates(point)
+            if swiftty_surface_has_command_output(surface, pixelPoint.x, pixelPoint.y) {
+                menuItems.append(UIAction(
+                    title: String(localized: "Select Command Output", comment: "Context menu action: select the output of the command under the pointer"),
+                    image: UIImage(systemName: "text.badge.checkmark")
+                ) { [weak self] _ in
+                    guard let self, let surface = self.surface else { return }
+                    swiftty_surface_select_command_output(surface, pixelPoint.x, pixelPoint.y)
+                    // Touch selection handles only exist on iOS; Catalyst has none to reposition.
+                    #if !targetEnvironment(macCatalyst)
+                    self.updateSelectionHandlePositions()
+                    #endif
+                })
+            }
         }
 
         // Split actions menu

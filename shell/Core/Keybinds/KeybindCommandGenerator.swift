@@ -140,7 +140,8 @@ final class KeybindCommandGenerator {
         // Terminal actions are handled via swiftty_surface_binding_action
         // but some still need UIKeyCommands for menu display
         case .copy_to_clipboard, .paste_from_clipboard, .scroll_page_up, .scroll_page_down,
-             .scroll_to_top, .scroll_to_bottom, .clear_screen, .reset_terminal:
+             .scroll_to_top, .scroll_to_bottom, .jump_to_previous_prompt, .jump_to_next_prompt,
+             .clear_screen, .reset_terminal:
             return true
 
         // Send data actions need UIKeyCommands to intercept before system
