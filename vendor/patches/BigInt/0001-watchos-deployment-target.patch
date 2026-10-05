@@ -1,0 +1,13 @@
+diff --git a/vendor/BigInt/Package.swift b/vendor/BigInt/Package.swift
+index 1b21e241..2f2722ef 100644
+--- a/vendor/BigInt/Package.swift
++++ b/vendor/BigInt/Package.swift
+@@ -16,7 +16,7 @@ let package = Package(
+         .macOS(.v10_13),
+         .iOS(.v12),
+         .tvOS(.v12),
+-        .watchOS(.v4),
++        .watchOS(.v9),
+         .macCatalyst(.v13),
+         .visionOS(.v1),
+     ],

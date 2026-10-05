@@ -33688,161 +33688,6 @@
         }
       }
     },
-    "A swiftty-style text file: one `key = value` per line, `#` for comments. Every key in the file is kept on this device and ignores iCloud until you remove it. This is separate from the terminal engine's generated config, which rootshell rebuilds from your settings automatically." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ar" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ملف نصي بنمط swiftty: `key = value` واحد في كل سطر، و`#` للتعليقات. يُحفظ كل مفتاح في الملف على هذا الجهاز ويتجاهل iCloud حتى تزيله. هذا منفصل عن الإعدادات المولّدة لمحرك الطرفية، التي يعيد rootshell بناءها من إعداداتك تلقائيًا."
-          }
-        },
-        "ca" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Un fitxer de text a l'estil de swiftty: un `key = value` per línia, `#` per als comentaris. Totes les claus del fitxer es conserven en aquest dispositiu i ignoren iCloud fins que les elimineu. Això és independent de la configuració generada del motor del terminal, que rootshell reconstrueix automàticament a partir dels vostres ajustos."
-          }
-        },
-        "cs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Textový soubor ve stylu swiftty: jedno `key = value` na řádek, `#` pro komentáře. Každý klíč v souboru je ponechán na tomto zařízení a ignoruje iCloud, dokud jej neodeberete. Je to oddělené od vygenerované konfigurace jádra terminálu, kterou rootshell automaticky sestavuje z vašich nastavení."
-          }
-        },
-        "da" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "En tekstfil i swiftty-stil: én `key = value` per linje, `#` til kommentarer. Alle nøgler i filen beholdes på denne enhed og ignorerer iCloud, indtil du fjerner dem. Dette er adskilt fra terminalmotorens genererede konfiguration, som rootshell automatisk genopbygger ud fra dine indstillinger."
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Eine Textdatei im swiftty-Stil: ein `key = value` pro Zeile, `#` für Kommentare. Jeder Schlüssel in der Datei wird auf diesem Gerät behalten und ignoriert iCloud, bis Sie ihn entfernen. Dies ist getrennt von der generierten Konfiguration der Terminal-Engine, die rootshell automatisch aus Ihren Einstellungen neu erstellt."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Un archivo de texto al estilo de swiftty: un `key = value` por línea y `#` para los comentarios. Todas las claves del archivo se mantienen en este dispositivo e ignoran iCloud hasta que las elimines. Esto es distinto de la configuración generada del motor de la terminal, que rootshell reconstruye automáticamente a partir de tus ajustes."
-          }
-        },
-        "fi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "swiftty-tyylinen tekstitiedosto: yksi `key = value` riviä kohti, `#` aloittaa kommentin. Jokainen tiedoston avain säilytetään tällä laitteella ja ohittaa iCloudin, kunnes poistat sen. Tämä on eri asia kuin terminaalimoottorin luotu asetustiedosto, jonka rootshell rakentaa asetuksistasi automaattisesti uudelleen."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Un fichier texte de style swiftty : une paire `key = value` par ligne, `#` pour les commentaires. Chaque clé du fichier est conservée sur cet appareil et ignore iCloud jusqu'à ce que vous la supprimiez. C'est distinct de la configuration générée du moteur de terminal, que rootshell reconstruit automatiquement à partir de vos réglages."
-          }
-        },
-        "he" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "קובץ טקסט בסגנון swiftty: `key = value` אחד בכל שורה, `#` להערות. כל מפתח בקובץ נשמר במכשיר זה ומתעלם מ-iCloud עד שתסיר אותו. זהו קובץ נפרד מהתצורה שנוצרת עבור מנוע הטרמינל, שאותה rootshell בונה מחדש מההגדרות שלך באופן אוטומטי."
-          }
-        },
-        "hu" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Swiftty stílusú szövegfájl: soronként egy `key = value`, a megjegyzések jele `#`. A fájlban szereplő minden kulcs ezen az eszközön marad, és figyelmen kívül hagyja az iCloudot, amíg el nem távolítja. Ez különbözik a terminálmotor generált konfigurációjától, amelyet a rootshell automatikusan újraépít a beállításaiból."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Un file di testo in stile swiftty: un `key = value` per riga, `#` per i commenti. Ogni chiave presente nel file viene mantenuta su questo dispositivo e ignora iCloud finché non la rimuovi. È separato dalla configurazione generata del motore del terminale, che rootshell ricostruisce automaticamente dalle tue impostazioni."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "swiftty 形式のテキストファイルです。1行につき `key = value` を1つ記述し、コメントは `#` で始めます。ファイル内のすべてのキーはこのデバイスに保持され、削除するまで iCloud を無視します。これは rootshell が設定から自動的に再生成するターミナルエンジンの設定ファイルとは別のものです。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "swiftty 형식의 텍스트 파일입니다. 한 줄에 `key = value` 하나씩 쓰고, `#`는 주석입니다. 파일에 있는 모든 키는 이 기기에 유지되며, 제거하기 전까지 iCloud를 무시합니다. 이는 rootshell이 설정에서 자동으로 다시 만드는 터미널 엔진 생성 구성과는 별개입니다."
-          }
-        },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "En tekstfil i swiftty-stil: én `key = value` per linje, `#` for kommentarer. Hver nøkkel i filen beholdes på denne enheten og ignorerer iCloud til du fjerner den. Dette er atskilt fra terminalmotorens genererte konfigurasjon, som rootshell bygger opp automatisk fra innstillingene dine."
-          }
-        },
-        "nl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Een tekstbestand in swiftty-stijl: één `key = value` per regel, `#` voor opmerkingen. Elke sleutel in het bestand blijft op dit apparaat en negeert iCloud totdat u deze verwijdert. Dit staat los van de gegenereerde configuratie van de terminalengine, die rootshell automatisch opnieuw opbouwt uit uw instellingen."
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Plik tekstowy w stylu swiftty: jeden `key = value` w wierszu, `#` dla komentarzy. Każdy klucz w pliku jest zachowywany na tym urządzeniu i ignoruje iCloud, dopóki go nie usuniesz. Jest to niezależne od wygenerowanej konfiguracji silnika terminala, którą rootshell automatycznie odbudowuje na podstawie Twoich ustawień."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Um arquivo de texto no estilo do swiftty: um `key = value` por linha, `#` para comentários. Toda chave no arquivo é mantida neste dispositivo e ignora o iCloud até você removê-la. Isso é separado da configuração gerada do motor do terminal, que o rootshell reconstrói automaticamente a partir dos seus ajustes."
-          }
-        },
-        "pt-PT" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Um ficheiro de texto ao estilo do swiftty: um `key = value` por linha, `#` para comentários. Todas as chaves do ficheiro são mantidas neste dispositivo e ignoram o iCloud até as remover. Isto é distinto da configuração gerada pelo motor do terminal, que o rootshell reconstrói automaticamente a partir das suas definições."
-          }
-        },
-        "ro" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Un fișier text în stil swiftty: câte un `key = value` pe linie, `#` pentru comentarii. Fiecare cheie din fișier este păstrată pe acest dispozitiv și ignoră iCloud până când o elimini. Este separat de configurația generată a motorului de terminal, pe care rootshell o reconstruiește automat din setările tale."
-          }
-        },
-        "sl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Besedilna datoteka v slogu swiftty: en `key = value` na vrstico, `#` za komentarje. Vsak ključ v datoteki je ohranjen na tej napravi in prezre iCloud, dokler ga ne odstranite. To je ločeno od ustvarjene konfiguracije terminalskega pogona, ki jo rootshell samodejno znova zgradi iz vaših nastavitev."
-          }
-        },
-        "sv" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "En textfil i swiftty-stil: en `key = value` per rad, `#` för kommentarer. Varje nyckel i filen behålls på den här enheten och ignorerar iCloud tills du tar bort den. Detta är skilt från terminalmotorns genererade konfiguration, som rootshell bygger om automatiskt utifrån dina inställningar."
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Текстовий файл у стилі swiftty: один `key = value` на рядок, `#` для коментарів. Кожен ключ у файлі залишається на цьому пристрої й ігнорує iCloud, доки ви його не видалите. Це окремо від згенерованої конфігурації рушія термінала, яку rootshell автоматично перебудовує з ваших налаштувань."
-          }
-        },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tệp văn bản kiểu swiftty: mỗi dòng một `key = value`, `#` để ghi chú. Mọi khóa trong tệp đều được giữ trên thiết bị này và bỏ qua iCloud cho đến khi bạn xóa nó. Tệp này tách biệt với cấu hình do bộ máy terminal tạo ra, thứ mà rootshell tự động dựng lại từ cài đặt của bạn."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "一种 swiftty 风格的文本文件：每行一个 `key = value`，`#` 表示注释。文件中的每个键都会保留在此设备上并忽略 iCloud，直到您将其移除。这与终端引擎生成的配置不同，后者由 rootshell 根据您的设置自动重建。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "swiftty 格式的文字檔：每行一個 `key = value`，`#` 為註解。檔案中的每個鍵都會保留在此裝置上並忽略 iCloud，直到您將其移除。這與終端機引擎產生的設定檔不同，後者由 rootshell 依您的設定自動重建。"
-          }
-        }
-      }
-    },
     "A host is required." : {
       "extractionState" : "stale",
       "localizations" : {
@@ -34624,6 +34469,161 @@
     },
     "A standalone Shell Control installation already runs on this Mac. Only one may be the authority." : {
 
+    },
+    "A swiftty-style text file: one `key = value` per line, `#` for comments. Every key in the file is kept on this device and ignores iCloud until you remove it. This is separate from the terminal engine's generated config, which rootshell rebuilds from your settings automatically." : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ملف نصي بنمط swiftty: `key = value` واحد في كل سطر، و`#` للتعليقات. يُحفظ كل مفتاح في الملف على هذا الجهاز ويتجاهل iCloud حتى تزيله. هذا منفصل عن الإعدادات المولّدة لمحرك الطرفية، التي يعيد rootshell بناءها من إعداداتك تلقائيًا."
+          }
+        },
+        "ca" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un fitxer de text a l'estil de swiftty: un `key = value` per línia, `#` per als comentaris. Totes les claus del fitxer es conserven en aquest dispositiu i ignoren iCloud fins que les elimineu. Això és independent de la configuració generada del motor del terminal, que rootshell reconstrueix automàticament a partir dels vostres ajustos."
+          }
+        },
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Textový soubor ve stylu swiftty: jedno `key = value` na řádek, `#` pro komentáře. Každý klíč v souboru je ponechán na tomto zařízení a ignoruje iCloud, dokud jej neodeberete. Je to oddělené od vygenerované konfigurace jádra terminálu, kterou rootshell automaticky sestavuje z vašich nastavení."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En tekstfil i swiftty-stil: én `key = value` per linje, `#` til kommentarer. Alle nøgler i filen beholdes på denne enhed og ignorerer iCloud, indtil du fjerner dem. Dette er adskilt fra terminalmotorens genererede konfiguration, som rootshell automatisk genopbygger ud fra dine indstillinger."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eine Textdatei im swiftty-Stil: ein `key = value` pro Zeile, `#` für Kommentare. Jeder Schlüssel in der Datei wird auf diesem Gerät behalten und ignoriert iCloud, bis Sie ihn entfernen. Dies ist getrennt von der generierten Konfiguration der Terminal-Engine, die rootshell automatisch aus Ihren Einstellungen neu erstellt."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un archivo de texto al estilo de swiftty: un `key = value` por línea y `#` para los comentarios. Todas las claves del archivo se mantienen en este dispositivo e ignoran iCloud hasta que las elimines. Esto es distinto de la configuración generada del motor de la terminal, que rootshell reconstruye automáticamente a partir de tus ajustes."
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "swiftty-tyylinen tekstitiedosto: yksi `key = value` riviä kohti, `#` aloittaa kommentin. Jokainen tiedoston avain säilytetään tällä laitteella ja ohittaa iCloudin, kunnes poistat sen. Tämä on eri asia kuin terminaalimoottorin luotu asetustiedosto, jonka rootshell rakentaa asetuksistasi automaattisesti uudelleen."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un fichier texte de style swiftty : une paire `key = value` par ligne, `#` pour les commentaires. Chaque clé du fichier est conservée sur cet appareil et ignore iCloud jusqu'à ce que vous la supprimiez. C'est distinct de la configuration générée du moteur de terminal, que rootshell reconstruit automatiquement à partir de vos réglages."
+          }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "קובץ טקסט בסגנון swiftty: `key = value` אחד בכל שורה, `#` להערות. כל מפתח בקובץ נשמר במכשיר זה ומתעלם מ-iCloud עד שתסיר אותו. זהו קובץ נפרד מהתצורה שנוצרת עבור מנוע הטרמינל, שאותה rootshell בונה מחדש מההגדרות שלך באופן אוטומטי."
+          }
+        },
+        "hu" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Swiftty stílusú szövegfájl: soronként egy `key = value`, a megjegyzések jele `#`. A fájlban szereplő minden kulcs ezen az eszközön marad, és figyelmen kívül hagyja az iCloudot, amíg el nem távolítja. Ez különbözik a terminálmotor generált konfigurációjától, amelyet a rootshell automatikusan újraépít a beállításaiból."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un file di testo in stile swiftty: un `key = value` per riga, `#` per i commenti. Ogni chiave presente nel file viene mantenuta su questo dispositivo e ignora iCloud finché non la rimuovi. È separato dalla configurazione generata del motore del terminale, che rootshell ricostruisce automaticamente dalle tue impostazioni."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "swiftty 形式のテキストファイルです。1行につき `key = value` を1つ記述し、コメントは `#` で始めます。ファイル内のすべてのキーはこのデバイスに保持され、削除するまで iCloud を無視します。これは rootshell が設定から自動的に再生成するターミナルエンジンの設定ファイルとは別のものです。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "swiftty 형식의 텍스트 파일입니다. 한 줄에 `key = value` 하나씩 쓰고, `#`는 주석입니다. 파일에 있는 모든 키는 이 기기에 유지되며, 제거하기 전까지 iCloud를 무시합니다. 이는 rootshell이 설정에서 자동으로 다시 만드는 터미널 엔진 생성 구성과는 별개입니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En tekstfil i swiftty-stil: én `key = value` per linje, `#` for kommentarer. Hver nøkkel i filen beholdes på denne enheten og ignorerer iCloud til du fjerner den. Dette er atskilt fra terminalmotorens genererte konfigurasjon, som rootshell bygger opp automatisk fra innstillingene dine."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Een tekstbestand in swiftty-stijl: één `key = value` per regel, `#` voor opmerkingen. Elke sleutel in het bestand blijft op dit apparaat en negeert iCloud totdat u deze verwijdert. Dit staat los van de gegenereerde configuratie van de terminalengine, die rootshell automatisch opnieuw opbouwt uit uw instellingen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Plik tekstowy w stylu swiftty: jeden `key = value` w wierszu, `#` dla komentarzy. Każdy klucz w pliku jest zachowywany na tym urządzeniu i ignoruje iCloud, dopóki go nie usuniesz. Jest to niezależne od wygenerowanej konfiguracji silnika terminala, którą rootshell automatycznie odbudowuje na podstawie Twoich ustawień."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Um arquivo de texto no estilo do swiftty: um `key = value` por linha, `#` para comentários. Toda chave no arquivo é mantida neste dispositivo e ignora o iCloud até você removê-la. Isso é separado da configuração gerada do motor do terminal, que o rootshell reconstrói automaticamente a partir dos seus ajustes."
+          }
+        },
+        "pt-PT" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Um ficheiro de texto ao estilo do swiftty: um `key = value` por linha, `#` para comentários. Todas as chaves do ficheiro são mantidas neste dispositivo e ignoram o iCloud até as remover. Isto é distinto da configuração gerada pelo motor do terminal, que o rootshell reconstrói automaticamente a partir das suas definições."
+          }
+        },
+        "ro" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un fișier text în stil swiftty: câte un `key = value` pe linie, `#` pentru comentarii. Fiecare cheie din fișier este păstrată pe acest dispozitiv și ignoră iCloud până când o elimini. Este separat de configurația generată a motorului de terminal, pe care rootshell o reconstruiește automat din setările tale."
+          }
+        },
+        "sl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Besedilna datoteka v slogu swiftty: en `key = value` na vrstico, `#` za komentarje. Vsak ključ v datoteki je ohranjen na tej napravi in prezre iCloud, dokler ga ne odstranite. To je ločeno od ustvarjene konfiguracije terminalskega pogona, ki jo rootshell samodejno znova zgradi iz vaših nastavitev."
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En textfil i swiftty-stil: en `key = value` per rad, `#` för kommentarer. Varje nyckel i filen behålls på den här enheten och ignorerar iCloud tills du tar bort den. Detta är skilt från terminalmotorns genererade konfiguration, som rootshell bygger om automatiskt utifrån dina inställningar."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Текстовий файл у стилі swiftty: один `key = value` на рядок, `#` для коментарів. Кожен ключ у файлі залишається на цьому пристрої й ігнорує iCloud, доки ви його не видалите. Це окремо від згенерованої конфігурації рушія термінала, яку rootshell автоматично перебудовує з ваших налаштувань."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tệp văn bản kiểu swiftty: mỗi dòng một `key = value`, `#` để ghi chú. Mọi khóa trong tệp đều được giữ trên thiết bị này và bỏ qua iCloud cho đến khi bạn xóa nó. Tệp này tách biệt với cấu hình do bộ máy terminal tạo ra, thứ mà rootshell tự động dựng lại từ cài đặt của bạn."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "一种 swiftty 风格的文本文件：每行一个 `key = value`，`#` 表示注释。文件中的每个键都会保留在此设备上并忽略 iCloud，直到您将其移除。这与终端引擎生成的配置不同，后者由 rootshell 根据您的设置自动重建。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "swiftty 格式的文字檔：每行一個 `key = value`，`#` 為註解。檔案中的每個鍵都會保留在此裝置上並忽略 iCloud，直到您將其移除。這與終端機引擎產生的設定檔不同，後者由 rootshell 依您的設定自動重建。"
+          }
+        }
+      }
     },
     "About" : {
       "comment" : "Settings section title",
@@ -59872,6 +59872,7 @@
     },
     "Animated shrinking trail" : {
       "comment" : "Cursor effect description",
+      "extractionState" : "stale",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
@@ -73589,6 +73590,7 @@
     },
     "Aurora" : {
       "comment" : "Cursor effect: theme-aware aurora glow",
+      "extractionState" : "stale",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
@@ -88999,6 +89001,7 @@
     },
     "Blaze" : {
       "comment" : "Cursor effect: fiery blaze",
+      "extractionState" : "stale",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
@@ -90398,6 +90401,7 @@
     },
     "Blur Radius" : {
       "comment" : "Setting title",
+      "extractionState" : "stale",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
@@ -121070,6 +121074,7 @@
     },
     "Comet-like trail (kitty-style)" : {
       "comment" : "Cursor effect description",
+      "extractionState" : "stale",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
@@ -155356,6 +155361,7 @@
     },
     "Cursor Effect" : {
       "comment" : "Setting title",
+      "extractionState" : "stale",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
@@ -195982,6 +195988,7 @@
     },
     "Electric arc with branching" : {
       "comment" : "Cursor effect description",
+      "extractionState" : "stale",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
@@ -223538,6 +223545,7 @@
     },
     "Fiery blaze effect" : {
       "comment" : "Cursor effect description",
+      "extractionState" : "stale",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
@@ -243594,160 +243602,6 @@
         }
       }
     },
-    "Swiftty Default" : {
-      "localizations" : {
-        "ar" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Swiftty الافتراضي"
-          }
-        },
-        "ca" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Swiftty per defecte"
-          }
-        },
-        "cs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Výchozí Swiftty"
-          }
-        },
-        "da" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Swiftty-standard"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Swiftty-Standard"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Swiftty predeterminado"
-          }
-        },
-        "fi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Swiftty-oletus"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Swiftty par défaut"
-          }
-        },
-        "he" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ברירת מחדל של Swiftty"
-          }
-        },
-        "hu" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Swiftty alapértelmezett"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Swiftty predefinito"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Swifttyデフォルト"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Swiftty 기본값"
-          }
-        },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Swiftty-standard"
-          }
-        },
-        "nl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Swiftty-standaard"
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Domyślny Swiftty"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Padrão do Swiftty"
-          }
-        },
-        "pt-PT" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Predefinição Swiftty"
-          }
-        },
-        "ro" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Swiftty implicit"
-          }
-        },
-        "sl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Privzeto za Swiftty"
-          }
-        },
-        "sv" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Swiftty Standard"
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Swiftty за замовчуванням"
-          }
-        },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Mặc định Swiftty"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Swiftty 默认"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Swiftty 預設"
-          }
-        }
-      }
-    },
     "Git & VCS" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -245925,6 +245779,7 @@
     },
     "Glowing neon trail with color pulse" : {
       "comment" : "Cursor effect description",
+      "extractionState" : "stale",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
@@ -268930,6 +268785,315 @@
         }
       }
     },
+    "Import from OpenSSH" : {
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "استيراد من OpenSSH"
+          }
+        },
+        "ca" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importa des d’OpenSSH"
+          }
+        },
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importovat z OpenSSH"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importer fra OpenSSH"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aus OpenSSH importieren"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importar desde OpenSSH"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tuo OpenSSH:sta"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importer depuis OpenSSH"
+          }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ייבוא מ‑OpenSSH"
+          }
+        },
+        "hu" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importálás OpenSSH-ból"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importa da OpenSSH"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OpenSSH からインポート"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OpenSSH에서 가져오기"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importer fra OpenSSH"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importeren uit OpenSSH"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importuj z OpenSSH"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importar do OpenSSH"
+          }
+        },
+        "pt-PT" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importar do OpenSSH"
+          }
+        },
+        "ro" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importă din OpenSSH"
+          }
+        },
+        "sl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uvozi iz OpenSSH"
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importera från OpenSSH"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Імпортувати з OpenSSH"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nhập từ OpenSSH"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "从 OpenSSH 导入"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "從 OpenSSH 匯入"
+          }
+        }
+      }
+    },
+    "Import from SSH Agent" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "استيراد من وكيل SSH"
+          }
+        },
+        "ca" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importa des de l'agent SSH"
+          }
+        },
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importovat z agenta SSH"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importér fra SSH-agent"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aus SSH-Agent importieren"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importar desde el agente SSH"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tuo SSH-agentista"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importer depuis l'agent SSH"
+          }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ייבוא מסוכן SSH"
+          }
+        },
+        "hu" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importálás SSH-ügynökből"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importa dall'agente SSH"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SSH エージェントからインポート"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SSH 에이전트에서 가져오기"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importer fra SSH-agent"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importeren uit SSH-agent"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importuj z agenta SSH"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importar do agente SSH"
+          }
+        },
+        "pt-PT" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importar do agente SSH"
+          }
+        },
+        "ro" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importă din agentul SSH"
+          }
+        },
+        "sl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uvozi iz agenta SSH"
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importera från SSH-agent"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Імпортувати з SSH-агента"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nhập từ SSH agent"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "从 SSH 代理导入"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "從 SSH 代理匯入"
+          }
+        }
+      }
+    },
     "Import from Swiftty" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -269236,315 +269400,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "從 Swiftty 設定匯入"
-          }
-        }
-      }
-    },
-    "Import from OpenSSH" : {
-      "localizations" : {
-        "ar" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "استيراد من OpenSSH"
-          }
-        },
-        "ca" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Importa des d’OpenSSH"
-          }
-        },
-        "cs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Importovat z OpenSSH"
-          }
-        },
-        "da" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Importer fra OpenSSH"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Aus OpenSSH importieren"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Importar desde OpenSSH"
-          }
-        },
-        "fi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tuo OpenSSH:sta"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Importer depuis OpenSSH"
-          }
-        },
-        "he" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ייבוא מ‑OpenSSH"
-          }
-        },
-        "hu" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Importálás OpenSSH-ból"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Importa da OpenSSH"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "OpenSSH からインポート"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "OpenSSH에서 가져오기"
-          }
-        },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Importer fra OpenSSH"
-          }
-        },
-        "nl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Importeren uit OpenSSH"
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Importuj z OpenSSH"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Importar do OpenSSH"
-          }
-        },
-        "pt-PT" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Importar do OpenSSH"
-          }
-        },
-        "ro" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Importă din OpenSSH"
-          }
-        },
-        "sl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Uvozi iz OpenSSH"
-          }
-        },
-        "sv" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Importera från OpenSSH"
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Імпортувати з OpenSSH"
-          }
-        },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nhập từ OpenSSH"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "从 OpenSSH 导入"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "從 OpenSSH 匯入"
-          }
-        }
-      }
-    },
-    "Import from SSH Agent" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "ar" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "استيراد من وكيل SSH"
-          }
-        },
-        "ca" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Importa des de l'agent SSH"
-          }
-        },
-        "cs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Importovat z agenta SSH"
-          }
-        },
-        "da" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Importér fra SSH-agent"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Aus SSH-Agent importieren"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Importar desde el agente SSH"
-          }
-        },
-        "fi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tuo SSH-agentista"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Importer depuis l'agent SSH"
-          }
-        },
-        "he" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ייבוא מסוכן SSH"
-          }
-        },
-        "hu" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Importálás SSH-ügynökből"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Importa dall'agente SSH"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SSH エージェントからインポート"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "SSH 에이전트에서 가져오기"
-          }
-        },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Importer fra SSH-agent"
-          }
-        },
-        "nl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Importeren uit SSH-agent"
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Importuj z agenta SSH"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Importar do agente SSH"
-          }
-        },
-        "pt-PT" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Importar do agente SSH"
-          }
-        },
-        "ro" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Importă din agentul SSH"
-          }
-        },
-        "sl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Uvozi iz agenta SSH"
-          }
-        },
-        "sv" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Importera från SSH-agent"
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Імпортувати з SSH-агента"
-          }
-        },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nhập từ SSH agent"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "从 SSH 代理导入"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "從 SSH 代理匯入"
           }
         }
       }
@@ -315452,160 +315307,6 @@
         }
       }
     },
-    "Loading Swiftty..." : {
-      "localizations" : {
-        "ar" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "جارٍ تحميل Swiftty..."
-          }
-        },
-        "ca" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Carregant Swiftty..."
-          }
-        },
-        "cs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Načítání Swiftty…"
-          }
-        },
-        "da" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Indlæser Swiftty..."
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Swiftty wird geladen …"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Cargando Swiftty…"
-          }
-        },
-        "fi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ladataan Swifttyä..."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Chargement de Swiftty…"
-          }
-        },
-        "he" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "טוען את Swiftty..."
-          }
-        },
-        "hu" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Swiftty betöltése..."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Caricamento Swiftty..."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Swifttyを読み込み中..."
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Swiftty 로딩 중..."
-          }
-        },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Laster Swiftty …"
-          }
-        },
-        "nl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Swiftty laden..."
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Wczytywanie Swiftty..."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Carregando Swiftty..."
-          }
-        },
-        "pt-PT" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "A carregar Swiftty..."
-          }
-        },
-        "ro" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Se încarcă Swiftty…"
-          }
-        },
-        "sl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nalaganje Swiftty ..."
-          }
-        },
-        "sv" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Laddar Swiftty..."
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Завантаження Swiftty…"
-          }
-        },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Đang tải Swiftty..."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正在加载 Swiftty…"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正在載入 Swiftty⋯"
-          }
-        }
-      }
-    },
     "Loading instances..." : {
       "extractionState" : "stale",
       "localizations" : {
@@ -316066,6 +315767,160 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "正在載入公開金鑰⋯"
+          }
+        }
+      }
+    },
+    "Loading Swiftty..." : {
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "جارٍ تحميل Swiftty..."
+          }
+        },
+        "ca" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Carregant Swiftty..."
+          }
+        },
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Načítání Swiftty…"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Indlæser Swiftty..."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Swiftty wird geladen …"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cargando Swiftty…"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ladataan Swifttyä..."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chargement de Swiftty…"
+          }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "טוען את Swiftty..."
+          }
+        },
+        "hu" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Swiftty betöltése..."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Caricamento Swiftty..."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Swifttyを読み込み中..."
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Swiftty 로딩 중..."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Laster Swiftty …"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Swiftty laden..."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wczytywanie Swiftty..."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Carregando Swiftty..."
+          }
+        },
+        "pt-PT" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A carregar Swiftty..."
+          }
+        },
+        "ro" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se încarcă Swiftty…"
+          }
+        },
+        "sl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nalaganje Swiftty ..."
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Laddar Swiftty..."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Завантаження Swiftty…"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Đang tải Swiftty..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在加载 Swiftty…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在載入 Swiftty⋯"
           }
         }
       }
@@ -344080,6 +343935,7 @@
     },
     "Neon" : {
       "comment" : "Cursor effect: glowing neon trail",
+      "extractionState" : "stale",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
@@ -344390,6 +344246,7 @@
     },
     "Neovide-like trail effect" : {
       "comment" : "Cursor effect description",
+      "extractionState" : "stale",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
@@ -349365,7 +349222,7 @@
       }
     },
     "New Tab" : {
-      "comment" : "Keybind action\nToolbar item",
+      "comment" : "Keybind action",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
@@ -354658,6 +354515,7 @@
     },
     "No cursor effect" : {
       "comment" : "Cursor effect description",
+      "extractionState" : "stale",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
@@ -365996,7 +365854,7 @@
       }
     },
     "None" : {
-      "comment" : "Cursor effect: no effect\nKey auth requirement: none",
+      "comment" : "Key auth requirement: none",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
@@ -475907,160 +475765,6 @@
         }
       }
     },
-    "Select Swiftty Config File..." : {
-      "localizations" : {
-        "ar" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "اختر ملف إعدادات Swiftty…"
-          }
-        },
-        "ca" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Seleccioneu el fitxer de configuració de Swiftty..."
-          }
-        },
-        "cs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Vybrat konfigurační soubor Swiftty…"
-          }
-        },
-        "da" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Vælg Swiftty-konfigurationsfil..."
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Swiftty-Konfigurationsdatei auswählen …"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Seleccionar archivo de configuración de Swiftty…"
-          }
-        },
-        "fi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Valitse Swiftty-asetustiedosto..."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sélectionner le fichier de configuration Swiftty…"
-          }
-        },
-        "he" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "בחר קובץ תצורה של Swiftty..."
-          }
-        },
-        "hu" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Swiftty konfigurációs fájl kiválasztása..."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Seleziona file di configurazione Swiftty..."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Swiftty設定ファイルを選択..."
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Swiftty 설정 파일 선택..."
-          }
-        },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Velg Swiftty-konfigurasjonsfil..."
-          }
-        },
-        "nl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Selecteer Swiftty-configuratiebestand..."
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Wybierz plik konfiguracji Swiftty..."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Selecionar Arquivo de Configuração do Swiftty..."
-          }
-        },
-        "pt-PT" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Selecionar Ficheiro de Configuração Swiftty..."
-          }
-        },
-        "ro" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Selectați fișierul de configurare Swiftty…"
-          }
-        },
-        "sl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Izberi konfiguracijsko datoteko Swiftty …"
-          }
-        },
-        "sv" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Välj Swiftty-konfigurationsfil..."
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Оберіть файл конфігурації Swiftty..."
-          }
-        },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Chọn tệp cấu hình Swiftty..."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "选择 Swiftty 配置文件…"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "選擇 Swiftty 設定檔…"
-          }
-        }
-      }
-    },
     "Select HSS Config File" : {
       "comment" : "HSS config: select file button",
       "extractionState" : "stale",
@@ -476831,6 +476535,160 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "選擇訂閱"
+          }
+        }
+      }
+    },
+    "Select Swiftty Config File..." : {
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "اختر ملف إعدادات Swiftty…"
+          }
+        },
+        "ca" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Seleccioneu el fitxer de configuració de Swiftty..."
+          }
+        },
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vybrat konfigurační soubor Swiftty…"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vælg Swiftty-konfigurationsfil..."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Swiftty-Konfigurationsdatei auswählen …"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Seleccionar archivo de configuración de Swiftty…"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Valitse Swiftty-asetustiedosto..."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sélectionner le fichier de configuration Swiftty…"
+          }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "בחר קובץ תצורה של Swiftty..."
+          }
+        },
+        "hu" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Swiftty konfigurációs fájl kiválasztása..."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Seleziona file di configurazione Swiftty..."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Swiftty設定ファイルを選択..."
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Swiftty 설정 파일 선택..."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Velg Swiftty-konfigurasjonsfil..."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Selecteer Swiftty-configuratiebestand..."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wybierz plik konfiguracji Swiftty..."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Selecionar Arquivo de Configuração do Swiftty..."
+          }
+        },
+        "pt-PT" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Selecionar Ficheiro de Configuração Swiftty..."
+          }
+        },
+        "ro" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Selectați fișierul de configurare Swiftty…"
+          }
+        },
+        "sl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Izberi konfiguracijsko datoteko Swiftty …"
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Välj Swiftty-konfigurationsfil..."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Оберіть файл конфігурації Swiftty..."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chọn tệp cấu hình Swiftty..."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择 Swiftty 配置文件…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選擇 Swiftty 設定檔…"
           }
         }
       }
@@ -489923,7 +489781,7 @@
       }
     },
     "Settings" : {
-      "comment" : "Keybind action: open settings\nToolbar item",
+      "comment" : "Keybind action: open settings",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
@@ -532318,6 +532176,7 @@
     },
     "Sweep" : {
       "comment" : "Cursor effect: sweep trail",
+      "extractionState" : "stale",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
@@ -532467,6 +532326,160 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "掃掠"
+          }
+        }
+      }
+    },
+    "Swiftty Default" : {
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Swiftty الافتراضي"
+          }
+        },
+        "ca" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Swiftty per defecte"
+          }
+        },
+        "cs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Výchozí Swiftty"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Swiftty-standard"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Swiftty-Standard"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Swiftty predeterminado"
+          }
+        },
+        "fi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Swiftty-oletus"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Swiftty par défaut"
+          }
+        },
+        "he" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ברירת מחדל של Swiftty"
+          }
+        },
+        "hu" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Swiftty alapértelmezett"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Swiftty predefinito"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Swifttyデフォルト"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Swiftty 기본값"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Swiftty-standard"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Swiftty-standaard"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Domyślny Swiftty"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Padrão do Swiftty"
+          }
+        },
+        "pt-PT" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Predefinição Swiftty"
+          }
+        },
+        "ro" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Swiftty implicit"
+          }
+        },
+        "sl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Privzeto za Swiftty"
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Swiftty Standard"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Swiftty за замовчуванням"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mặc định Swiftty"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Swiftty 默认"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Swiftty 預設"
           }
         }
       }
@@ -544575,6 +544588,7 @@
     },
     "Tail" : {
       "comment" : "Cursor effect: comet tail",
+      "extractionState" : "stale",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
@@ -550058,6 +550072,7 @@
     },
     "Tesla Coil" : {
       "comment" : "Cursor effect: electric arc",
+      "extractionState" : "stale",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
@@ -563143,6 +563158,7 @@
     },
     "Theme-aware glow with color-shifting trail" : {
       "comment" : "Cursor effect description",
+      "extractionState" : "stale",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
@@ -590490,6 +590506,7 @@
       "comment" : "Setting title"
     },
     "tssh" : {
+      "extractionState" : "stale",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
@@ -630532,6 +630549,7 @@
     },
     "Warp" : {
       "comment" : "Cursor effect: warp trail",
+      "extractionState" : "stale",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
