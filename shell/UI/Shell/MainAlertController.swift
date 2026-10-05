@@ -62,12 +62,42 @@ import os
     func enqueue(_ kind: Kind) {
         guard isAvailable(kind) else { return }
         if presentedKind == nil {
-            presentedKind = kind
+            show(kind)
             return
         }
         guard presentedKind != kind,
               !pendingKinds.contains(kind) else { return }
         pendingKinds.append(kind)
+    }
+
+    /// Puts `kind` on screen. SwiftUI silently drops an alert raised while
+    /// the root is still presenting (a sheet finishing its dismissal), and
+    /// never retries — which left an SSH connection waiting forever on a
+    /// host-key prompt nobody could see. Re-raise until it is actually shown.
+    private func show(_ kind: Kind, attempt: Int = 0) {
+        presentedKind = kind
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(500))
+            guard let self, self.presentedKind == kind, attempt < 20, !Self.alertIsOnScreen else { return }
+            self.presentedKind = nil
+            try? await Task.sleep(for: .milliseconds(50))
+            guard self.presentedKind == nil, self.isAvailable(kind) else { return }
+            self.show(kind, attempt: attempt + 1)
+        }
+    }
+
+    private static var alertIsOnScreen: Bool {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .contains { window in
+                var controller = window.rootViewController
+                while let presented = controller?.presentedViewController {
+                    if presented is UIAlertController { return true }
+                    controller = presented
+                }
+                return false
+            }
     }
 
     private func isAvailable(_ kind: Kind) -> Bool {
@@ -83,7 +113,7 @@ import os
         while !pendingKinds.isEmpty {
             let next = pendingKinds.removeFirst()
             if isAvailable(next) {
-                presentedKind = next
+                show(next)
                 return
             }
         }
@@ -126,7 +156,7 @@ import os
 
     func handleHostKeyValidation(
         request: HostKeyValidationRequest,
-        terminalView: Ghostty.TerminalView
+        terminalView: Swiftty.TerminalView
     ) async -> HostKeyValidationResult {
         await withCheckedContinuation { continuation in
             let sessionLabel = terminalView.connectionConfig.displayName

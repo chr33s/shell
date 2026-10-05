@@ -149,13 +149,13 @@ enum LocalShellSettings: Sendable {
         return rest.split(separator: " ", maxSplits: 1).first.map(String.init)
     }
 
-    // MARK: - Ghostty Config
+    // MARK: - Swiftty Config
 
-    /// The `command = ...` line written into the generated ghostty config.
+    /// The `command = ...` line written into the generated swiftty config.
     ///
     /// A configured command is used verbatim: `-l` cannot be appended to a
     /// command line that already carries its own arguments.
-    nonisolated static var ghosttyConfigCommand: String {
+    nonisolated static var swifttyConfigCommand: String {
         let raw = SettingsStore.shared.value(Settings.Terminal.localShellCommand)
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty {

@@ -1,7 +1,7 @@
 # Mobile Connectivity and Session Recovery
 
 **Status:** First release (sections 1–9, 11–15) implemented; conditional tmux flow control/catch-up (section 10) not implemented; device/fault matrix (16.3) evidence not yet recorded.
-**Scope:** Recovering from mobile network disruption over the existing SSH, Network.framework, Ghostty, and tmux stack. Additive to [`shell.md`](shell.md); independent of [`control-protocol.md`](control-protocol.md).
+**Scope:** Recovering from mobile network disruption over the existing SSH, Network.framework, Swiftty, and tmux stack. Additive to [`shell.md`](shell.md); independent of [`control-protocol.md`](control-protocol.md).
 
 ## 1. Goal
 
@@ -19,11 +19,11 @@ Shell MUST distinguish three outcomes:
 
 ### 2.1 Required (first release)
 
-Everything in sections 3–9 and 11–14, for profile-launched and embedded-shell-launched SSH. MUST preserve all existing auth methods (password, saved password, software key, Secure Enclave, certificate, keyboard-interactive), known-host, and jump-host behavior, reusing Ghostty and the native tmux bridge.
+Everything in sections 3–9 and 11–14, for profile-launched and embedded-shell-launched SSH. MUST preserve all existing auth methods (password, saved password, software key, Secure Enclave, certificate, keyboard-interactive), known-host, and jump-host behavior, reusing Swiftty and the native tmux bridge.
 
 ### 2.2 Conditional follow-on
 
-tmux control-mode flow control and snapshot catch-up (section 10), only after the pinned Ghostty viewer and tested tmux versions demonstrate a safe synchronization boundary. MUST NOT block the first release; MUST have a non-dropping fallback.
+tmux control-mode flow control and snapshot catch-up (section 10), only after the pinned Swiftty viewer and tested tmux versions demonstrate a safe synchronization boundary. MUST NOT block the first release; MUST have a non-dropping fallback.
 
 ### 2.3 Excluded
 
@@ -44,7 +44,7 @@ No Mosh dependency, custom UDP/QUIC transport, MPTCP entitlement, predictive ech
 
 ## 4. Logical session model
 
-A `RecoveryContext` sits above the SSH session object; its policy MUST be testable without UIKit, a real network, or Ghostty.
+A `RecoveryContext` sits above the SSH session object; its policy MUST be testable without UIKit, a real network, or Swiftty.
 
 | Field | Contract |
 | --- | --- |
@@ -58,7 +58,7 @@ A `RecoveryContext` sits above the SSH session object; its policy MUST be testab
 | `freshness` | Last target activity, last confirmed round trip, probe state, pane sync state. |
 | `presentationState` | Tab/pane identity, selection, latest requested size, bounded read-only display. |
 
-Never serialize tasks, channels, key material, or Ghostty pointers; store credential references and resolve at connect time. A synced profile edit MUST NOT redirect an in-progress recovery. A name-only "last tmux session" preference is for initial selection only.
+Never serialize tasks, channels, key material, or Swiftty pointers; store credential references and resolve at connect time. A synced profile edit MUST NOT redirect an in-progress recovery. A name-only "last tmux session" preference is for initial selection only.
 
 ## 5. State machine
 
@@ -179,11 +179,11 @@ tmux control mode offers `pause-after`, `%pause`, `%continue`, `%extended-output
 
 ### 10.1 Capability gate
 
-Enable only when the actual server and bundled Ghostty viewer support all required messages, reply ordering, and state restoration — by feature probe, not version string. Developer-only switch, off by default. Verify against the exact pinned Citadel/GhosttyKit revisions.
+Enable only when the actual server and bundled Swiftty viewer support all required messages, reply ordering, and state restoration — by feature probe, not version string. Developer-only switch, off by default. Verify against the exact pinned Citadel/SwifttyKit revisions.
 
 ### 10.2 Safe state replacement
 
-The GhosttyKit tmux viewer stays the sole interpreter; `capture-pane` text is not a serialization. A tested snapshot/output barrier MUST cover buffers, cursor, attributes, dimensions, modes, pending escapes, Unicode state, and interleaved responses; snapshots are generation- and pane-bound. "Capture then replay everything" is unacceptable; without a safe boundary use non-dropping reattach. Visible panes first; mark history gaps; control responses are always delivered while output is paused.
+The SwifttyKit tmux viewer stays the sole interpreter; `capture-pane` text is not a serialization. A tested snapshot/output barrier MUST cover buffers, cursor, attributes, dimensions, modes, pending escapes, Unicode state, and interleaved responses; snapshots are generation- and pane-bound. "Capture then replay everything" is unacceptable; without a safe boundary use non-dropping reattach. Visible panes first; mark history gaps; control responses are always delivered while output is paused.
 
 ### 10.3 Hidden panes and other clients
 
@@ -191,7 +191,7 @@ Do not set hidden panes `off` to save bandwidth — it can stop tmux reading the
 
 ## 11. Recovery user interface
 
-Native, accessible status strip/overlay outside the Ghostty stream. Never inject spinners, countdowns, or messages into terminal content.
+Native, accessible status strip/overlay outside the Swiftty stream. Never inject spinners, countdowns, or messages into terminal content.
 
 | State | Status/action |
 | --- | --- |

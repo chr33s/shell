@@ -53,7 +53,7 @@ nonisolated extension Settings {
         ]
     }
 
-    /// Cursor appearance. Fed straight into the Ghostty config.
+    /// Cursor appearance. Fed straight into the Swiftty config.
     enum Cursor {
         static let style = SettingKey(
             "cursorStyle", default: CursorStyle.block, group: .cursor, configKey: "cursor-style",
@@ -109,17 +109,13 @@ nonisolated extension Settings {
         ]
     }
 
-    /// Terminal background opacity / blur, applied straight to the Ghostty surface.
+    /// Terminal background opacity / blur, applied straight to the Swiftty surface.
     /// Defaults mirror `TransparencyManager`'s; keep both in step.
     enum Transparency {
         static let backgroundOpacity = SettingKey(
             "backgroundOpacity", default: 0.8, group: .transparency, policy: .localByDefault,
             configKey: "background-opacity",
             title: String(localized: "Background Opacity", comment: "Setting title"))
-        static let backgroundBlurRadius = SettingKey(
-            "backgroundBlurRadius", default: 30.0, group: .transparency, policy: .localByDefault,
-            configKey: "background-blur",
-            title: String(localized: "Blur Radius", comment: "Setting title"))
         static let blurEnabled = SettingKey(
             "blurEnabled", default: true, group: .transparency, policy: .localByDefault,
             configKey: "blur-enabled",
@@ -134,7 +130,7 @@ nonisolated extension Settings {
             title: String(localized: "Transparent Pinned Sidebar", comment: "Setting title"))
 
         static let all: [AnySettingDefinition] = [
-            backgroundOpacity.erased, backgroundBlurRadius.erased, blurEnabled.erased, blurStyle.erased,
+            backgroundOpacity.erased, blurEnabled.erased, blurStyle.erased,
             pinnedSidebarTransparency.erased
         ]
     }

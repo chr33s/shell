@@ -1,9 +1,9 @@
 import UIKit
 import Combine
 import os
-import GhosttyKit
+import SwifttyKit
 
-extension Ghostty {
+extension Swiftty {
     /// A UIScrollView wrapper for TerminalView that provides native iOS scrollback functionality.
     /// Based on the macOS SurfaceScrollView implementation.
     ///
@@ -11,7 +11,7 @@ extension Ghostty {
     /// - In **normal mode**: UIScrollView handles finger scrolling with native physics
     /// - In **capture mode** (tmux, vim): UIScrollView is disabled, touches go to terminal
     /// - **Scroll wheel events** (Mac Catalyst, iPad trackpad) are handled by gesture recognizers
-    ///   in TerminalViewScroll.swift and sent directly to Ghostty as mouse_scroll events
+    ///   in TerminalViewScroll.swift and sent directly to Swiftty as mouse_scroll events
     @MainActor
     final class TerminalScrollView: UIView, UIScrollViewDelegate {
     // MARK: - Properties
@@ -98,13 +98,13 @@ extension Ghostty {
     private var catalystSelectionIndicatorNudgeOriginalOffset: CGPoint?
     #endif
 
-    /// Last row position sent to Ghostty core (prevents update loops)
+    /// Last row position sent to Swiftty core (prevents update loops)
     private var lastSentRow: Int = 0
 
-    /// Last render-only smooth scroll offset sent to Ghostty.
+    /// Last render-only smooth scroll offset sent to Swiftty.
     private var lastSentSmoothScrollOffset: CGFloat = 0
 
-    /// True after a user-driven primary scrollback gesture has put Ghostty in
+    /// True after a user-driven primary scrollback gesture has put Swiftty in
     /// smooth scrollback mode. Passive output scrollbar updates should preserve
     /// that mode until the viewport actually returns to the live bottom.
     private var userParkedInSmoothScrollback: Bool = false
@@ -112,7 +112,7 @@ extension Ghostty {
     /// Last scrollbar sample seen by this wrapper. Used to decide whether the
     /// native scroll view was at the live bottom before output grew the scroll
     /// range, even if Catalyst has `isLiveScrolling` set from scroll callbacks.
-    private var lastObservedScrollbar: Ghostty.Action.Scrollbar?
+    private var lastObservedScrollbar: Swiftty.Action.Scrollbar?
 
     /// Cached line-scroll setting used by the hot scroll path.
     private var useLineScrollback: Bool = SettingsStore.shared.value(Settings.Gestures.lineScrollback)
@@ -230,11 +230,11 @@ extension Ghostty {
     /// Override hit testing to bypass UIScrollView in capture mode
     /// This ensures touches reach TerminalView for tmux divider dragging, etc.
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        // Query Ghostty directly for capture state (don't rely on cached isMouseCaptured)
+        // Query Swiftty directly for capture state (don't rely on cached isMouseCaptured)
         // This ensures we have the current state at the moment of touch
         let isCaptured: Bool
         if let surface = terminalView.surface {
-            isCaptured = ghostty_surface_mouse_captured(surface)
+            isCaptured = swiftty_surface_mouse_captured(surface)
 
             // Hit testing can run during SwiftUI view updates. Defer publication
             // and re-read the current capture state when the callback executes.
@@ -560,9 +560,9 @@ extension Ghostty {
     }
 
     private func setupNotifications() {
-        // Listen for scrollbar updates from Ghostty core
+        // Listen for scrollbar updates from Swiftty core
         let scrollbarObserver = NotificationCenter.default.addObserver(
-            forName: .ghosttyDidUpdateScrollbar,
+            forName: .swifttyDidUpdateScrollbar,
             object: terminalView,
             queue: .main
         ) { [weak self] _ in
@@ -595,7 +595,7 @@ extension Ghostty {
 
         // Listen for input events to auto-scroll to bottom and cancel momentum
         let inputObserver = NotificationCenter.default.addObserver(
-            forName: .ghosttyDidReceiveInput,
+            forName: .swifttyDidReceiveInput,
             object: terminalView,
             queue: .main
         ) { [weak self] _ in
@@ -609,7 +609,7 @@ extension Ghostty {
         observers.append(inputObserver)
 
         let selectionScrollIndicatorObserver = NotificationCenter.default.addObserver(
-            forName: .ghosttySelectionScrollIndicatorActivity,
+            forName: .swifttySelectionScrollIndicatorActivity,
             object: terminalView,
             queue: .main
         ) { [weak self] _ in
@@ -650,7 +650,7 @@ extension Ghostty {
         // - iOS/iPadOS: UIScrollView handles scrolling with native momentum
         // - Mac Catalyst: UIScrollView handles native momentum while
         //   TerminalView stays pinned under its blank range model
-        // - scrollViewDidScroll → scroll_to_row for Ghostty scrollback
+        // - scrollViewDidScroll → scroll_to_row for Swiftty scrollback
         // - Context menu available for copy/paste
         // Prevent scroll view from cancelling touches delivered to terminal
         scrollView.canCancelContentTouches = !isCaptured
@@ -712,7 +712,7 @@ extension Ghostty {
     }
 
     /// Compute and apply the native scroll state from current mode.
-    /// Normal mode mirrors Ghostty scrollback. Multiplexer tracking mode
+    /// Normal mode mirrors Swiftty scrollback. Multiplexer tracking mode
     /// mirrors the multiplexer's scroll position while the multiplexer
     /// still renders the terminal.
     private func applyVerticalScrollState(isCaptured: Bool) {
@@ -770,7 +770,7 @@ extension Ghostty {
         // Listen for session changes on our terminal view.
         // The session is set asynchronously after view creation.
         let sessionObserver = NotificationCenter.default.addObserver(
-            forName: .ghosttySessionDidChange,
+            forName: .swifttySessionDidChange,
             object: terminalView,
             queue: .main
         ) { [weak self] _ in
@@ -903,7 +903,7 @@ extension Ghostty {
         }
     }
 
-    private func updateProgressBar(report: Ghostty.Action.ProgressReport?) {
+    private func updateProgressBar(report: Swiftty.Action.ProgressReport?) {
         guard !isProgressBarPresentationSuppressed else {
             removeProgressBarView()
             return
@@ -945,7 +945,7 @@ extension Ghostty {
 
     // MARK: - Scrollbar Update Handling
 
-    /// Handle scrollbar state updates from Ghostty core
+    /// Handle scrollbar state updates from Swiftty core
     private func handleScrollbarUpdate() {
         clearStaleLiveScrollStateIfNeeded()
 
@@ -1044,7 +1044,7 @@ extension Ghostty {
         scrollView.isDragging || scrollView.isTracking || scrollView.isDecelerating
     }
 
-    private func isVisuallyAtLiveBottom(scrollbar: Ghostty.Action.Scrollbar) -> Bool {
+    private func isVisuallyAtLiveBottom(scrollbar: Swiftty.Action.Scrollbar) -> Bool {
         let cellHeight = terminalView.cellSize.height
         guard cellHeight > 0 else { return false }
 
@@ -1127,7 +1127,7 @@ extension Ghostty {
     }
 
     /// Update document view height to match scrollback size
-    private func updateDocumentHeight(scrollbar: Ghostty.Action.Scrollbar) {
+    private func updateDocumentHeight(scrollbar: Swiftty.Action.Scrollbar) {
         let cellHeight = terminalView.cellSize.height
         guard cellHeight > 0 else {
             return
@@ -1147,7 +1147,7 @@ extension Ghostty {
 
         // Update the stored height constraint
         guard let heightConstraint = documentHeightConstraint else {
-            Ghostty.logger.error("TerminalScrollView: Height constraint not found!")
+            Swiftty.logger.error("TerminalScrollView: Height constraint not found!")
             return
         }
 
@@ -1161,8 +1161,8 @@ extension Ghostty {
         scrollView.layoutIfNeeded()
     }
 
-    /// Synchronize scrollbar position to match Ghostty's scrollback state
-    private func synchronizeScrollPosition(scrollbar: Ghostty.Action.Scrollbar) {
+    /// Synchronize scrollbar position to match Swiftty's scrollback state
+    private func synchronizeScrollPosition(scrollbar: Swiftty.Action.Scrollbar) {
         let cellHeight = terminalView.cellSize.height
         guard cellHeight > 0 else { return }
 
@@ -1225,7 +1225,7 @@ extension Ghostty {
         scrollView.flashScrollIndicators()
     }
 
-    /// Keep UIKit's real vertical scroll indicator visible while Ghostty's
+    /// Keep UIKit's real vertical scroll indicator visible while Swiftty's
     /// selection auto-scroll moves the viewport. `flashScrollIndicators()` fades
     /// on every call (flickery on iPad, unreliable on Catalyst for programmatic
     /// offsets), so we hold the actual UIScrollView indicator subviews visible
@@ -1398,7 +1398,7 @@ extension Ghostty {
 
         resetSmoothScrollOffset()
 
-        // Send scroll_to_row action to Ghostty to render the bottom rows
+        // Send scroll_to_row action to Swiftty to render the bottom rows
         _ = terminalView.performAction("scroll_to_row:\(bottomOffset)")
 
         // Update scroll position (for scrollbar indicator)
@@ -1422,7 +1422,7 @@ extension Ghostty {
         scrollView.decelerationRate = .normal
         #if !targetEnvironment(macCatalyst)
         isTouchScrolling = scrollView.panGestureRecognizer.numberOfTouches > 0
-        // Handles are window overlays; hide while the scroll view and Ghostty
+        // Handles are window overlays; hide while the scroll view and Swiftty
         // viewport are moving, then restore once scrolling has settled.
         terminalView.hideSelectionHandles(animated: false)
         #endif
@@ -1471,7 +1471,7 @@ extension Ghostty {
             settleSmoothScrollAtBounds()
             isLiveScrolling = false
             #if !targetEnvironment(macCatalyst)
-            terminalView.scheduleSelectionHandleSync(afterGhosttyAppTick: true)
+            terminalView.scheduleSelectionHandleSync()
             #endif
             applyVerticalScrollState(isCaptured: terminalView.isMouseCaptured)
         }
@@ -1505,7 +1505,7 @@ extension Ghostty {
         isTouchScrollbarDrag = false
         #endif
         #if !targetEnvironment(macCatalyst)
-        terminalView.scheduleSelectionHandleSync(afterGhosttyAppTick: true)
+        terminalView.scheduleSelectionHandleSync()
         #endif
         applyVerticalScrollState(isCaptured: terminalView.isMouseCaptured)
     }
@@ -1549,7 +1549,7 @@ extension Ghostty {
     }
 
     func scrollViewShouldScrollToTop(_ scrollView: UIScrollView) -> Bool {
-        // iOS status-bar tap. Use Ghostty's canonical scroll-to-top (same as
+        // iOS status-bar tap. Use Swiftty's canonical scroll-to-top (same as
         // Cmd+Home) instead of letting UIKit animate the raw content offset:
         // the native animation only fires scrollViewDidScroll (not
         // WillBeginDragging), so it would be gated out by isLiveScrolling and
@@ -1584,7 +1584,7 @@ extension Ghostty {
         guard cellHeight > 0 else { return }
 
         // Calculate which row is at the top of the visible area. UIScrollView
-        // may temporarily overshoot during rubber-band bounce; Ghostty should
+        // may temporarily overshoot during rubber-band bounce; Swiftty should
         // stay pinned to the nearest real scrollback row while UIKit animates.
         let rawOffsetY = scrollView.contentOffset.y
         let offsetY = scrollModelOffsetY(forContentOffsetY: rawOffsetY)
@@ -1724,7 +1724,7 @@ extension Ghostty {
 
     /// Scale between the UIScrollView physical (points) space and the terminal
     /// "model" space, which is in framebuffer PIXELS because `cellSize` is
-    /// reported by ghostty core in pixels and stored unconverted. Mapping
+    /// reported by swiftty core in pixels and stored unconverted. Mapping
     /// points→pixels by the display backing scale gives 1:1 finger tracking on
     /// every display scale (2x iPad, 3x iPhone, Retina Catalyst); `scrollSpeedGain`
     /// then scales that for reach. This applies to ALL scroll modes — normal
@@ -1847,7 +1847,7 @@ extension Ghostty {
         private let foregroundView = UIView()
         private var animationDisplayLink: CADisplayLink?
         private var animationStartTime: CFTimeInterval = 0
-        private var currentState: Ghostty.Action.ProgressReport.State = .remove
+        private var currentState: Swiftty.Action.ProgressReport.State = .remove
 
         override init(frame: CGRect) {
             super.init(frame: frame)
@@ -1884,7 +1884,7 @@ extension Ghostty {
             ])
         }
 
-        func update(with report: Ghostty.Action.ProgressReport) {
+        func update(with report: Swiftty.Action.ProgressReport) {
             currentState = report.state
             currentProgress = report.progress
 
@@ -1915,7 +1915,7 @@ extension Ghostty {
             }
         }
 
-        private func colorForState(_ state: Ghostty.Action.ProgressReport.State) -> UIColor {
+        private func colorForState(_ state: Swiftty.Action.ProgressReport.State) -> UIColor {
             switch state {
             case .error:
                 return .appDanger
@@ -2029,7 +2029,7 @@ extension Ghostty {
 
 // MARK: - UIDropInteractionDelegate
 
-extension Ghostty.TerminalScrollView: UIDropInteractionDelegate {
+extension Swiftty.TerminalScrollView: UIDropInteractionDelegate {
     /// Forward drop handling to the terminal view
     /// This catches drops at the scroll view level on Mac Catalyst where
     /// UIScrollView can intercept drops before they reach nested views

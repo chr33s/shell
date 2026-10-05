@@ -21,7 +21,7 @@ import IOKit.ps
 #endif
 
 extension Notification.Name {
-    /// Posted when the effective power tier changes. `GhosttyApp` observes
+    /// Posted when the effective power tier changes. `SwifttyApp` observes
     /// this and pushes the new frame-rate range to every live surface;
     /// other animation drivers re-read their targets from `PowerManager`.
     static let powerTierChanged = Notification.Name("dev.chr33s.shell.powerTierChanged")
@@ -172,7 +172,7 @@ final class PowerManager {
     }
 
     /// Frame-rate range for the core terminal display link, in the
-    /// `ghostty_surface_set_frame_rate_range` convention: (0, 0, 0) resets
+    /// `swiftty_surface_set_frame_rate_range` convention: (0, 0, 0) resets
     /// to the renderer's built-in default (60/120/120).
     var coreFrameRange: (min: UInt16, max: UInt16, preferred: UInt16) {
         switch tier {

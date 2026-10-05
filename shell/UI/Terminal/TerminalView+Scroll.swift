@@ -12,12 +12,12 @@
 
 import UIKit
 import os
-import GhosttyKit
+import SwifttyKit
 import ObjectiveC
 
 // MARK: - Scroll Gesture Setup
 
-extension Ghostty.TerminalView {
+extension Swiftty.TerminalView {
 
     /// Sets up platform-specific scroll handling
     /// Called from setupView() in TerminalView
@@ -33,7 +33,7 @@ extension Ghostty.TerminalView {
 // MARK: - Common Momentum Scrolling
 // Shared momentum physics implementation for both Mac Catalyst and iOS/visionOS
 
-extension Ghostty.TerminalView {
+extension Swiftty.TerminalView {
 
     // MARK: - Associated Object Keys for Momentum State
 
@@ -105,7 +105,7 @@ extension Ghostty.TerminalView {
         let deltaX = scrollVelocityX * CGFloat(frameDuration)
         let deltaY = scrollVelocityY * CGFloat(frameDuration)
 
-        // Send scroll event to Ghostty
+        // Send scroll event to Swiftty
         sendNativeScrollEvent(deltaX: deltaX, deltaY: deltaY)
     }
 
@@ -149,14 +149,14 @@ extension Ghostty.TerminalView {
             ? lastMousePosition
             : CGPoint(x: bounds.width / 2, y: bounds.height / 2)
 
-        ghostty_surface_mouse_pos(
+        swiftty_surface_mouse_pos(
             surface,
             Double(scrollPosition.x),
             Double(scrollPosition.y),
-            Ghostty.Input.Mods.none.cMods
+            Swiftty.Input.Mods.none.cMods
         )
 
-        let scrollMods = Ghostty.Input.ScrollMods(precision: true, momentum: .none)
+        let scrollMods = Swiftty.Input.ScrollMods(precision: true, momentum: .none)
         sendMouseScroll(deltaX: Double(deltaX), deltaY: Double(deltaY), mods: scrollMods.cMods)
 
         // Notify the multiplexer scroll-indicator observer that the user
@@ -244,7 +244,7 @@ extension Ghostty.TerminalView {
 // Used on both Mac Catalyst and iOS/iPadOS — each platform's setup calls
 // setupTrackpadTabSwipe() so the gesture coexists with its scroll handler.
 
-extension Ghostty.TerminalView {
+extension Swiftty.TerminalView {
     private enum TrackpadScrollAxis {
         case horizontal
         case vertical
@@ -623,7 +623,7 @@ extension Ghostty.TerminalView {
 }
 
 // MARK: - Mac Catalyst Scroll Handling
-// In capture mode: UIPanGestureRecognizer handles scroll wheel → sends mouse_scroll to Ghostty
+// In capture mode: UIPanGestureRecognizer handles scroll wheel → sends mouse_scroll to Swiftty
 // In non-capture mode: UIScrollView handles scrolling with native momentum → scroll_to_row
 //
 // Scroll wheel gestures don't have clear began/ended states like touch gestures.
@@ -631,7 +631,7 @@ extension Ghostty.TerminalView {
 
 #if targetEnvironment(macCatalyst)
 
-extension Ghostty.TerminalView {
+extension Swiftty.TerminalView {
 
     private static var catalystScrollGestureKey: UInt8 = 0
     private static var catalystCaptureTaskKey: UInt8 = 0
@@ -658,8 +658,8 @@ extension Ghostty.TerminalView {
 
     private func setupCatalystScrollHandling() {
         // Scroll-wheel gesture is always enabled; gateRecognizerShouldBegin queries
-        // ghostty_surface_mouse_captured() directly so the cached observed state
-        // (which can lag the C side when tmux's mouse-on sequence races with the
+        // swiftty_surface_mouse_captured() directly so the cached observed state
+        // (which can lag SwifttyKit when tmux's mouse-on sequence races with the
         // scrollbar callback that resyncs Swift) doesn't gate forwarding.
         let scrollGesture = UIPanGestureRecognizer(target: self, action: #selector(handleCatalystScrollGesture))
         scrollGesture.allowedScrollTypesMask = [.discrete, .continuous]
@@ -734,15 +734,15 @@ extension Ghostty.TerminalView {
 
 // MARK: - iOS/visionOS Scroll Handling
 // In capture mode:
-//   - Trackpad scroll gesture → sends mouse_scroll to Ghostty with momentum (timer-based)
-//   - Two-finger touch gesture → sends mouse_scroll to Ghostty with momentum (gesture-based)
+//   - Trackpad scroll gesture → sends mouse_scroll to Swiftty with momentum (timer-based)
+//   - Two-finger touch gesture → sends mouse_scroll to Swiftty with momentum (gesture-based)
 //   - Single-finger touches → sent to terminal for tmux dividers/selection
 // In non-capture mode:
 //   - UIScrollView handles all scrolling with native momentum
 
 #if !targetEnvironment(macCatalyst)
 
-extension Ghostty.TerminalView {
+extension Swiftty.TerminalView {
 
     // MARK: - Associated Objects for Scroll State
 

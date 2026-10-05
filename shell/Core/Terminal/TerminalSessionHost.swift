@@ -3,7 +3,7 @@ import Foundation
 /// The narrow set of view-side capabilities that the session domain needs.
 ///
 /// This is the boundary between `TerminalSessionController` (which owns the
-/// `TerminalSession` and wires its callbacks) and `Ghostty.TerminalView`
+/// `TerminalSession` and wires its callbacks) and `Swiftty.TerminalView`
 /// (which owns the surface, the I/O plumbing, and all UI state). The
 /// controller talks to the view *only* through this protocol — it never
 /// reaches into the view's stored properties.
@@ -52,7 +52,7 @@ protocol TerminalSessionControllerHost: TerminalSessionHost, TerminalResponsePip
     var terminalContainingTabID: UUID? { get }
     var terminalWindowID: String { get }
     var terminalConnectionConfig: ConnectionConfig { get set }
-    var terminalRestorationState: Ghostty.TerminalView.RestorationState { get set }
+    var terminalRestorationState: Swiftty.TerminalView.RestorationState { get set }
     var terminalSurfaceAvailable: Bool { get }
     var terminalSurfaceGridSize: (rows: UInt16, cols: UInt16)? { get }
     var terminalIsLiveDisconnectionOverlay: Bool { get set }
@@ -83,7 +83,7 @@ protocol TerminalSessionControllerHost: TerminalSessionHost, TerminalResponsePip
     func terminalProgressUpdate(message: String, style: SpinnerAnimator.ColorStyle)
     func terminalProgressFinish(_ mode: ConnectionProgressPresenter.FinishMode)
     func terminalRestoreScrollbackAfterAnimation()
-    func terminalWriteToGhostty(_ string: String)
+    func terminalWriteToSwiftty(_ string: String)
     func terminalUpdatePTYSize()
     func terminalPerformResetAction()
     func terminalSetLocalTaskActive(_ isActive: Bool)

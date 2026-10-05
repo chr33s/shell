@@ -8,7 +8,7 @@ import os
 /// resize jiggle (`TrzszSession.attemptResume`) and tsshd's attach handler
 /// does its own unconditionally. The remote answers that repaint with a BEL
 /// somewhere in the byte stream. Backgrounded output makes it worse — the
-/// core's `GHOSTTY_ACTION_RING_BELL` guard drops bells while backgrounded,
+/// core's `SWIFTTY_ACTION_RING_BELL` guard drops bells while backgrounded,
 /// but the *bytes* are buffered and replayed once we return, so a whole
 /// suspension's worth fires at once. None of those carry information: we
 /// asked for the bytes.

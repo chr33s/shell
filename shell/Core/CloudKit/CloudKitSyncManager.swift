@@ -1795,10 +1795,10 @@ final class CloudKitSyncManager {
         pathMonitor = monitor
 
         monitor.pathUpdateHandler = { [weak self] path in
-            guard !Ghostty.isAppBackgroundedAtomic,
+            guard !Swiftty.isAppBackgroundedAtomic,
                   !ForegroundActivationGate.shared.isUnsafeForSceneMutation else { return }
             Task { @MainActor in
-                guard !Ghostty.isAppBackgroundedAtomic,
+                guard !Swiftty.isAppBackgroundedAtomic,
                       !ForegroundActivationGate.shared.isUnsafeForSceneMutation else { return }
                 let wasAvailable = self?.isNetworkAvailable ?? false
                 self?.isNetworkAvailable = path.status == .satisfied

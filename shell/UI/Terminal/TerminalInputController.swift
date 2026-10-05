@@ -6,15 +6,15 @@
 //
 
 import UIKit
-import GhosttyKit
+import SwifttyKit
 
 @MainActor
 final class TerminalInputController {
     /// Key repeat manager for physical and command-routed keys.
-    let keyRepeatManager = Ghostty.KeyRepeatManager()
+    let keyRepeatManager = Swiftty.KeyRepeatManager()
 
     /// Mod-tap interceptor for dual-function keys (for example Caps Lock = Esc/Ctrl).
-    let modTapInterceptor = Ghostty.ModTapInterceptor()
+    let modTapInterceptor = Swiftty.ModTapInterceptor()
 
     /// Active virtual modifier supplied by a held mod-tap key.
     var virtualModTapModifier: ModTapModifier?
@@ -37,20 +37,20 @@ final class TerminalInputController {
     var didHandleSessionPickerKey = false
 
     /// Physical Option-key side tracking for Option-as-Alt and AltGr normalization.
-    var heldOptionSide: Ghostty.HeldOptionSide = .none
+    var heldOptionSide: Swiftty.HeldOptionSide = .none
 
     /// UIKit's logical modifier identities, including system remaps. Used to
     /// preserve a second modifier key when mod-tap substitutes the first.
     var heldModifierKeys: Set<UIKeyboardHIDUsage> = []
 
-    /// GCKeyboard bindings that send raw control bytes have no Ghostty key
+    /// GCKeyboard bindings that send raw control bytes have no Swiftty key
     /// press to release. Track them separately for repeat and focus cleanup.
     var controlCharacterPresses: [UIKeyboardHIDUsage: UInt8] = [:]
 
     /// Physical Control-key side tracking for AltGr normalization and right-Control reporting.
-    var heldControlSide: Ghostty.HeldControlSide = .none
+    var heldControlSide: Swiftty.HeldControlSide = .none
 
-    /// Press-time modifiers for special keys routed through Ghostty, so release events match.
+    /// Press-time modifiers for special keys routed through Swiftty, so release events match.
     var specialKeyPressModifiers: [UIKeyboardHIDUsage: UIKeyModifierFlags] = [:]
 
     /// Keys whose UIKeyCommand press was consumed by a one-shot action
@@ -60,7 +60,7 @@ final class TerminalInputController {
     var keysConsumedByOverlayAction: Set<UIKeyboardHIDUsage> = []
 
     /// Hardware modifiers currently held, tracked for mouse event modifier state.
-    var heldHardwareModifiers: Ghostty.Input.Mods = .none
+    var heldHardwareModifiers: Swiftty.Input.Mods = .none
 
     /// Whether GCKeyboard modifier snapshots can currently be trusted.
     var isGCKeyboardModifierStateTrusted = true
@@ -126,7 +126,7 @@ final class TerminalInputController {
             let command = UIKeyCommand(
                 input: String(char),
                 modifierFlags: .control,
-                action: #selector(Ghostty.TerminalView.handleControlKey(_:))
+                action: #selector(Swiftty.TerminalView.handleControlKey(_:))
             )
             command.wantsPriorityOverSystemBehavior = true
             command.allowKeyRepeat()
@@ -137,7 +137,7 @@ final class TerminalInputController {
             let command = UIKeyCommand(
                 input: String(char),
                 modifierFlags: .control,
-                action: #selector(Ghostty.TerminalView.handleControlKey(_:))
+                action: #selector(Swiftty.TerminalView.handleControlKey(_:))
             )
             command.wantsPriorityOverSystemBehavior = true
             command.allowKeyRepeat()
@@ -149,7 +149,7 @@ final class TerminalInputController {
             let command = UIKeyCommand(
                 input: String(char),
                 modifierFlags: [.control, .shift],
-                action: #selector(Ghostty.TerminalView.handleControlKey(_:))
+                action: #selector(Swiftty.TerminalView.handleControlKey(_:))
             )
             command.wantsPriorityOverSystemBehavior = true
             command.allowKeyRepeat()
@@ -217,7 +217,7 @@ final class TerminalInputController {
             let command = UIKeyCommand(
                 input: input,
                 modifierFlags: [],
-                action: #selector(Ghostty.TerminalView.handleModTapSourceKey(_:))
+                action: #selector(Swiftty.TerminalView.handleModTapSourceKey(_:))
             )
             command.wantsPriorityOverSystemBehavior = true
             commands.append(command)

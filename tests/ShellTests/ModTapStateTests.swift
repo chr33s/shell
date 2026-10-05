@@ -224,7 +224,7 @@ final class ModTapStateTests {
     }
 
     @Test
-    func testUnboundOptionChordStillUsesGhosttyEncoding() throws {
+    func testUnboundOptionChordStillUsesSwifttyEncoding() throws {
         let chord = try #require(ModifierPrintableChord(
             hardware: [.alternate, .shift], state: nil, originalShortcutIsBound: false,
             heldKeys: [.keyboardLeftAlt], optionActsAsAlt: true
@@ -296,7 +296,7 @@ final class ModTapStateTests {
             modifiers: chord.modifiers, fallbackCharacter: "a", translate: { _ in nil }
         ) == "A")
 
-        // Control/Alt are encoded by Ghostty; Command/Caps affect the layout.
+        // Control/Alt are encoded by Swiftty; Command/Caps affect the layout.
         let text = HardwareKeyboardText.printableText(
             modifiers: [.command, .control, .alternate, .alphaShift], fallbackCharacter: "a"
         ) {

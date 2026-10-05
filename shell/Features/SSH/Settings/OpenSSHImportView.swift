@@ -3,7 +3,7 @@
 //  shell
 //
 //  Settings entry for importing ~/.ssh/config (and the keys it references)
-//  as ConnectionProfiles. UX mirrors GhosttyConfigImportView: discovery
+//  as ConnectionProfiles. UX mirrors SwifttyConfigImportView: discovery
 //  section -> preview sheet -> folder picker -> summary sheet.
 //
 

@@ -1,7 +1,7 @@
 import Foundation
 import UIKit
 
-extension Ghostty.TerminalView {
+extension Swiftty.TerminalView {
     var hasActiveKoreanComposition: Bool {
         koreanCompositionModel.hasActiveComposition
     }
@@ -143,7 +143,7 @@ extension Ghostty.TerminalView {
     private func commitKoreanText(_ text: String, external: Bool) {
         guard !text.isEmpty else { return }
 
-        NotificationCenter.default.post(name: .ghosttyDidReceiveInput, object: self)
+        NotificationCenter.default.post(name: .swifttyDidReceiveInput, object: self)
         if let data = text.data(using: .utf8) {
             sendUserInput(data, documentMutation: .text(text))
         }

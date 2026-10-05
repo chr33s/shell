@@ -87,12 +87,12 @@ struct Keybind: Codable, Identifiable, Hashable, Sendable {
         self.source = source
     }
 
-    // MARK: - Ghostty Config Format
+    // MARK: - Swiftty Config Format
 
-    /// Parse from ghostty config format: "cmd+t=new_local_shell" or "cmd+p=increase_font_size:2"
-    init?(ghosttyLine: String, source: KeybindSource = .externalConfig) {
+    /// Parse from swiftty config format: "cmd+t=new_local_shell" or "cmd+p=increase_font_size:2"
+    init?(swifttyLine: String, source: KeybindSource = .externalConfig) {
         // Parse: keybind = trigger=action or keybind = trigger=action:param
-        let line = ghosttyLine.trimmingCharacters(in: .whitespaces)
+        let line = swifttyLine.trimmingCharacters(in: .whitespaces)
 
         // Remove "keybind = " prefix if present
         var content = line
@@ -124,7 +124,7 @@ struct Keybind: Codable, Identifiable, Hashable, Sendable {
             parameter = nil
         }
 
-        guard let sequence = KeySequence(ghosttyFormat: triggerStr),
+        guard let sequence = KeySequence(swifttyFormat: triggerStr),
               let action = KeybindAction(rawValue: actionStr) else {
             return nil
         }
@@ -138,12 +138,12 @@ struct Keybind: Codable, Identifiable, Hashable, Sendable {
         self.source = source
     }
 
-    /// Convert to ghostty config format
-    var ghosttyFormat: String {
+    /// Convert to swiftty config format
+    var swifttyFormat: String {
         if let param = actionParameter {
-            return "keybind = \(sequence.ghosttyFormat)=\(action.rawValue):\(param)"
+            return "keybind = \(sequence.swifttyFormat)=\(action.rawValue):\(param)"
         }
-        return "keybind = \(sequence.ghosttyFormat)=\(action.rawValue)"
+        return "keybind = \(sequence.swifttyFormat)=\(action.rawValue)"
     }
 
     /// Ordinary unbinds suppress an entire action. Parameterized unbinds
@@ -158,7 +158,7 @@ struct Keybind: Codable, Identifiable, Hashable, Sendable {
 
     // MARK: - Escape Sequence Decoding
 
-    /// Decode escape sequences in text action parameters (Ghostty config format).
+    /// Decode escape sequences in text action parameters (Swiftty config format).
     /// Handles: \x## (hex bytes), \e/\E (ESC), \n \r \t \a \b (C escapes), \\ (literal backslash)
     static func decodeEscapeSequence(_ text: String) -> Data {
         var result = Data()
@@ -225,6 +225,6 @@ enum KeybindSource: String, Codable, Sendable {
     case `default` = "default"
     /// User override via Settings UI
     case userOverride = "user_override"
-    /// From external ghostty config file
+    /// From external swiftty config file
     case externalConfig = "external_config"
 }

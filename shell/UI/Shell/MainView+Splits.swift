@@ -7,7 +7,7 @@
 //
 
 import SwiftUI
-import GhosttyKit
+import SwifttyKit
 import os
 
 // MARK: - Split Management
@@ -35,7 +35,7 @@ extension MainView {
                 NotificationCenter.default.post(name: .terminalLayoutInvalidation, object: nil)
             }
         } catch {
-            Ghostty.logger.error("Failed to resize split: \(error)")
+            Swiftty.logger.error("Failed to resize split: \(error)")
         }
     }
 
@@ -54,16 +54,16 @@ extension MainView {
             return
         }
 
-        guard let app = ghosttyApp.app else { return }
+        guard let app = swifttyApp.app else { return }
 
         // Get connection config from FOCUSED terminal (not tab level)
         // Use forNewSplit() to create fresh session IDs for K8s, etc.
         let connectionConfig = focusedTerminal.connectionConfig.forNewSplit()
 
         // Create a new terminal view for the split with inherited connection config
-        let newTerminalView = Ghostty.TerminalView(
+        let newTerminalView = Swiftty.TerminalView(
             app,
-            ghosttyApp: ghosttyApp,
+            swifttyApp: swifttyApp,
             connectionConfig: connectionConfig,
             windowId: windowId
         )
@@ -100,7 +100,7 @@ extension MainView {
                 NotificationCenter.default.post(name: .terminalLayoutInvalidation, object: nil)
             }
         } catch {
-            Ghostty.logger.error("Failed to create split: \(error)")
+            Swiftty.logger.error("Failed to create split: \(error)")
         }
     }
 
@@ -118,7 +118,7 @@ extension MainView {
     func navigateToTerminal(tabID: UUID, surfaceID: UUID) {
         // Find the tab index
         guard let tabIndex = terminals.firstIndex(where: { $0.id == tabID }) else {
-            Ghostty.logger.warning("Cannot navigate to terminal: tab \(tabID) not found")
+            Swiftty.logger.warning("Cannot navigate to terminal: tab \(tabID) not found")
             return
         }
 
@@ -129,7 +129,7 @@ extension MainView {
         for paneView in terminals[tabIndex].splitTree {
             if paneView.uuid == surfaceID {
                 setFocusedPane(paneView, inTab: tabIndex)
-                Ghostty.logger.info("Navigated to terminal \(surfaceID.uuidString.prefix(8)) in tab \(tabIndex)")
+                Swiftty.logger.info("Navigated to terminal \(surfaceID.uuidString.prefix(8)) in tab \(tabIndex)")
                 return
             }
         }
@@ -137,7 +137,7 @@ extension MainView {
         // If specific surface not found, just focus the first pane in the tab
         if let firstPane = terminals[tabIndex].splitTree.first {
             setFocusedPane(firstPane, inTab: tabIndex)
-            Ghostty.logger.info("Surface not found, focused first terminal in tab \(tabIndex)")
+            Swiftty.logger.info("Surface not found, focused first terminal in tab \(tabIndex)")
         }
     }
 
@@ -173,7 +173,7 @@ extension MainView {
     }
 
     func closeSplit(targeting targetPane: SplitPaneView? = nil) {
-        Ghostty.logger.info("closeSplit() called (target=\(targetPane?.uuid.uuidString.prefix(8).description ?? "nil"))")
+        Swiftty.logger.info("closeSplit() called (target=\(targetPane?.uuid.uuidString.prefix(8).description ?? "nil"))")
 
         // Resolve which tab + pane to close.
         // When a specific pane is provided (e.g. from `.closeSplit` posted by an
@@ -188,11 +188,11 @@ extension MainView {
             paneToClose = target
         } else {
             guard terminals.indices.contains(selectedTabIndex) else {
-                Ghostty.logger.warning("closeSplit: selectedTabIndex (\(selectedTabIndex)) >= terminals.count (\(terminals.count))")
+                Swiftty.logger.warning("closeSplit: selectedTabIndex (\(selectedTabIndex)) >= terminals.count (\(terminals.count))")
                 return
             }
             guard let focused = terminals[selectedTabIndex].focusedPane else {
-                Ghostty.logger.warning("closeSplit: no focused pane in tab \(selectedTabIndex)")
+                Swiftty.logger.warning("closeSplit: no focused pane in tab \(selectedTabIndex)")
                 return
             }
             tabIndex = selectedTabIndex
@@ -239,11 +239,11 @@ extension MainView {
         }
 
         guard let root = terminals[tabIndex].splitTree.root else {
-            Ghostty.logger.warning("closeSplit: no root in splitTree (tab \(tabIndex))")
+            Swiftty.logger.warning("closeSplit: no root in splitTree (tab \(tabIndex))")
             return
         }
         guard let currentNode = root.node(view: paneToClose) else {
-            Ghostty.logger.warning("closeSplit: target pane not found in tree (tab \(tabIndex))")
+            Swiftty.logger.warning("closeSplit: target pane not found in tree (tab \(tabIndex))")
             return
         }
 
@@ -253,7 +253,7 @@ extension MainView {
 
         // Capture window scene BEFORE cleanup (cleanup may nil out references)
         let windowSceneToClose = isLastSplitInTab && isLastTab ? paneToClose.window?.windowScene : nil
-        Ghostty.logger.info("closeSplit: tabIndex=\(tabIndex), isLastSplitInTab=\(isLastSplitInTab), isLastTab=\(isLastTab), capturedWindowScene=\(windowSceneToClose != nil)")
+        Swiftty.logger.info("closeSplit: tabIndex=\(tabIndex), isLastSplitInTab=\(isLastSplitInTab), isLastTab=\(isLastTab), capturedWindowScene=\(windowSceneToClose != nil)")
 
         // Find a logical neighbor to focus before removing the node
         // This ensures we focus the "other side" of the split that is disappearing
@@ -263,9 +263,9 @@ extension MainView {
             // If we have a neighbor, focus its most relevant leaf (e.g. leftmost)
             // We could be smarter here based on direction, but leftmost is a reasonable default
             nextFocusTarget = neighbor.leftmostLeaf()
-            Ghostty.logger.info("Found neighbor for closed split: \(String(describing: neighbor)), target view: \(nextFocusTarget?.uuid.uuidString ?? "nil")")
+            Swiftty.logger.info("Found neighbor for closed split: \(String(describing: neighbor)), target view: \(nextFocusTarget?.uuid.uuidString ?? "nil")")
         } else {
-            Ghostty.logger.warning("No neighbor found for closed split")
+            Swiftty.logger.warning("No neighbor found for closed split")
         }
 
         // Resign first responder before cleanup (cleanup sets surface to nil,
@@ -295,7 +295,7 @@ extension MainView {
                 #if targetEnvironment(macCatalyst)
                 // Mac Catalyst: closing last window is standard macOS behavior
                 // (app stays in Dock, user reopens from menu bar)
-                Ghostty.logger.info("Closing last split in last tab - closing window (Mac Catalyst)")
+                Swiftty.logger.info("Closing last split in last tab - closing window (Mac Catalyst)")
                 closeCurrentWindow(windowScene: windowSceneToClose)
                 #else
                 // iOS/iPadOS/visionOS: check if this is the only window scene.
@@ -304,10 +304,10 @@ extension MainView {
                     .compactMap { $0 as? UIWindowScene }
                     .count
                 if windowSceneCount > 1 {
-                    Ghostty.logger.info("Closing last split in last tab - closing window (\(windowSceneCount) scenes)")
+                    Swiftty.logger.info("Closing last split in last tab - closing window (\(windowSceneCount) scenes)")
                     closeCurrentWindow(windowScene: windowSceneToClose)
                 } else {
-                    Ghostty.logger.info("Closing last split in last tab - showing connection sheet (single scene)")
+                    Swiftty.logger.info("Closing last split in last tab - showing connection sheet (single scene)")
                     closeTab(at: tabIndex)
                 }
                 #endif
@@ -336,19 +336,19 @@ extension MainView {
             } else if let target = nextFocusTarget, newTree.contains(target) {
                 newFocus = target
             } else if let firstView = newTree.first {
-                Ghostty.logger.info("Neighbor target not found in new tree, falling back to first view: \(firstView.uuid.uuidString)")
+                Swiftty.logger.info("Neighbor target not found in new tree, falling back to first view: \(firstView.uuid.uuidString)")
                 newFocus = firstView
             } else {
-                Ghostty.logger.warning("New tree is not empty but has no first view? Tree size: \(newTree.count)")
+                Swiftty.logger.warning("New tree is not empty but has no first view? Tree size: \(newTree.count)")
                 newFocus = nil
             }
 
             if tabIndex == selectedTabIndex {
                 // Active tab: drive the full focus transfer (UIKit responder,
-                // Ghostty focus, focusGeneration bump, async retry).
+                // Swiftty focus, focusGeneration bump, async retry).
                 // setFocusedPane short-circuits when newFocus === current
                 // focused pane, so the no-change case is a true no-op.
-                Ghostty.logger.info("Focusing target in active tab: \(newFocus?.uuid.uuidString ?? "nil")")
+                Swiftty.logger.info("Focusing target in active tab: \(newFocus?.uuid.uuidString ?? "nil")")
                 setFocusedPane(newFocus, inTab: tabIndex)
             } else if newFocus !== currentFocused {
                 // Background tab, and the focused-split pointer actually
@@ -361,7 +361,7 @@ extension MainView {
                 // When the user later switches to this tab,
                 // handleSelectedTabChange reads the focused pane and performs
                 // the full focus transfer.
-                Ghostty.logger.info("Updating focused-split pointer in background tab \(tabIndex): \(newFocus?.uuid.uuidString ?? "nil")")
+                Swiftty.logger.info("Updating focused-split pointer in background tab \(tabIndex): \(newFocus?.uuid.uuidString ?? "nil")")
                 terminals[tabIndex].focusedPane = newFocus
                 setupTitleObservation(at: tabIndex)
             }
@@ -371,28 +371,28 @@ extension MainView {
     /// Closes the current window/scene properly
     /// Pass the windowScene if available (capture before cleanup), otherwise falls back to active scene
     func closeCurrentWindow(windowScene: UIWindowScene? = nil) {
-        Ghostty.logger.info("closeCurrentWindow called, passed windowScene: \(windowScene != nil)")
+        Swiftty.logger.info("closeCurrentWindow called, passed windowScene: \(windowScene != nil)")
 
         let sceneToClose: UIWindowScene?
 
         if let scene = windowScene {
             sceneToClose = scene
-            Ghostty.logger.info("Using passed windowScene")
+            Swiftty.logger.info("Using passed windowScene")
         } else {
             // Fall back to finding the active foreground scene
             let allScenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-            Ghostty.logger.info("No windowScene passed, found \(allScenes.count) connected scenes")
+            Swiftty.logger.info("No windowScene passed, found \(allScenes.count) connected scenes")
             sceneToClose = allScenes.first { scene in
                 scene.activationState == .foregroundActive || scene.activationState == .foregroundInactive
             }
         }
 
         guard let scene = sceneToClose else {
-            Ghostty.logger.warning("Could not find window scene to close")
+            Swiftty.logger.warning("Could not find window scene to close")
             return
         }
 
-        Ghostty.logger.info("Requesting destruction of scene: \(scene.session.persistentIdentifier)")
+        Swiftty.logger.info("Requesting destruction of scene: \(scene.session.persistentIdentifier)")
         let options = UIWindowSceneDestructionRequestOptions()
         options.windowDismissalAnimation = .standard
         UIApplication.shared.requestSceneSessionDestruction(

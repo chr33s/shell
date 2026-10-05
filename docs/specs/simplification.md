@@ -7,7 +7,7 @@ Capitalized MUST, MUST NOT, SHOULD, and MAY are normative.
 
 ## 1. Purpose and decision
 
-Simplify Shell without replacing the Ghostty embedder API or removing its supported terminal, SSH, tmux, synchronization, or optional Control capabilities.
+Simplify Shell without replacing the Swiftty embedder API or removing its supported terminal, SSH, tmux, synchronization, or optional Control capabilities.
 
 The recommended approach is to finish the architectural extractions already underway. Reduce the number of components that must coordinate to perform an action, the number of writable representations of the same state, and the number of independent execution paths for the same operation.
 
@@ -39,7 +39,7 @@ Do not introduce a new application framework, generic event bus, dependency-inje
 
 ### 2.3 Required product invariants
 
-The existing product specification requires Ghostty rendering, native tmux control-mode integration, independent jump-host authentication and trust, device-bound Secure Enclave identities, and separation of public CloudKit metadata from private credentials. These remain constraints on all changes. [Source: `shell.md`](shell.md).
+The existing product specification requires Swiftty rendering, native tmux control-mode integration, independent jump-host authentication and trust, device-bound Secure Enclave identities, and separation of public CloudKit metadata from private credentials. These remain constraints on all changes. [Source: `shell.md`](shell.md).
 
 The implementation MUST preserve:
 
@@ -147,7 +147,7 @@ Each flow has one request identity, one explicit connection intent, one stable p
 
 **SESSION-01.** Keep and complete the existing controller extraction. Connection configuration, session lifecycle, and restoration state MUST each have one authoritative session-domain owner.
 
-**SESSION-02.** Move session-domain state types out of `Ghostty.TerminalView` when they no longer belong to the view. Presentation MAY derive from those types without defining the domain contract.
+**SESSION-02.** Move session-domain state types out of `Swiftty.TerminalView` when they no longer belong to the view. Presentation MAY derive from those types without defining the domain contract.
 
 **SESSION-03.** A migrated state update MUST NOT require both mutating view-owned state and calling a separate notification method merely to announce the same mutation. Retain explicit notifications only for genuine boundaries that cannot observe the owning state directly.
 
@@ -173,7 +173,7 @@ Each flow has one request identity, one explicit connection intent, one stable p
 
 **CMD-03.** Use typed directions and payloads. Deferred commands MUST carry stable targets under Section 4. Immediate focus-based commands MUST resolve focus in the selected destination scene at dispatch time.
 
-**CMD-04.** Extend or consolidate existing typed command structures, including `GhosttyCommandRouting.PaneCommand`, rather than introducing a competing generic bus.
+**CMD-04.** Extend or consolidate existing typed command structures, including `SwifttyCommandRouting.PaneCommand`, rather than introducing a competing generic bus.
 
 **CMD-05.** Keep platform responder adapters and genuine system notifications. Removing internal command broadcasts does not require removing NotificationCenter everywhere.
 

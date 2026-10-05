@@ -239,7 +239,7 @@ final class SSHIdentityMetadataOwnershipTests {
         guard !storeName.isEmpty else { return }
         let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let directory = documents
-            .appendingPathComponent(".ghostty", isDirectory: true)
+            .appendingPathComponent(".swiftty", isDirectory: true)
             .appendingPathComponent("sync", isDirectory: true)
             .appendingPathComponent(storeName, isDirectory: true)
         try? FileManager.default.removeItem(at: directory)

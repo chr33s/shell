@@ -8,7 +8,7 @@
 
 import Crypto
 import SwiftUI
-import GhosttyKit
+import SwifttyKit
 import os
 import UIKit
 
@@ -48,7 +48,7 @@ nonisolated final class ShortRemoteSessionBackgroundTaskIDBox: Sendable {
 /// its execution. The UIKit notification that scheduled a deferred closure
 /// can be superseded by a later background notification before that closure
 /// runs. The existing
-/// `Ghostty.isAppBackgroundedAtomic` / `ghosttyApp.isInBackground` flags
+/// `Swiftty.isAppBackgroundedAtomic` / `swifttyApp.isInBackground` flags
 /// cannot be used as a proxy either: they are intentionally held TRUE
 /// throughout the entire backgrounded period and are only cleared by the FG
 /// body's own trailing gate flip, so reading them at FG entry would skip
@@ -154,7 +154,7 @@ extension MainView {
     #endif
 
     func handleScenePhaseChange(oldPhase: ScenePhase, newPhase: ScenePhase) {
-        Ghostty.logger.info("Scene phase changed: \(String(describing: oldPhase)) -> \(String(describing: newPhase))")
+        Swiftty.logger.info("Scene phase changed: \(String(describing: oldPhase)) -> \(String(describing: newPhase))")
 
         let isForegroundResume = newPhase == .active && (oldPhase == .background || oldPhase == .inactive)
 
@@ -162,7 +162,7 @@ extension MainView {
             // Focus state is restored as part of foreground resume.
             // Push the resume quiet-window deadline forward synchronously so
             // the bisection gates that check
-            // `Ghostty.isInResumeQuietWindowAtomic` are in effect immediately
+            // `Swiftty.isInResumeQuietWindowAtomic` are in effect immediately
             // as iOS dispatches backed-up notifications during the
             // scene-update transaction. The deadline-based implementation is
             // safe under rapid foreground/background bounces — see the
@@ -176,7 +176,7 @@ extension MainView {
             // headroom while staying well under perceptible UX delay.
             // Diagnostic builds during the bisection used 3.0s; that was
             // a safety margin, not a UX target.
-            Ghostty.extendResumeQuietWindow(by: 0.15)
+            Swiftty.extendResumeQuietWindow(by: 0.15)
 
             // Health-status publishes (per-session connectionHealth) get
             // their own longer window — the heartbeat fan-out across many
@@ -185,14 +185,14 @@ extension MainView {
             // Cached health values are replayed by
             // replayCachedSessionStateOnForeground anyway, so suppressing
             // live publishes for ~1.5s doesn't lose data.
-            Ghostty.extendResumeHealthQuietWindow(by: 1.5)
+            Swiftty.extendResumeHealthQuietWindow(by: 1.5)
         } else {
             updateWindowFocusState()
         }
 
         // Handle transition to inactive (device sleep/lock)
         if newPhase == .inactive && oldPhase == .active {
-            Ghostty.logger.info("Detected device sleep/inactive")
+            Swiftty.logger.info("Detected device sleep/inactive")
             #if !targetEnvironment(macCatalyst)
             // Stop GPU presentation BEFORE iOS captures the locked-screen
             // secure snapshot (this runs synchronously inside willResignActive,
@@ -204,13 +204,13 @@ extension MainView {
 
         // Handle transition to background
         if newPhase == .background {
-            Ghostty.logger.info("App entering background")
+            Swiftty.logger.info("App entering background")
             handleAppBackgrounded()
         }
 
         // Handle transition to foreground
         if isForegroundResume {
-            Ghostty.logger.info("App returning to foreground")
+            Swiftty.logger.info("App returning to foreground")
             handleAppForegrounded()
         }
     }
@@ -224,7 +224,7 @@ extension MainView {
     /// (`performBackgroundTransition` via `DispatchQueue.main.async`), so the
     /// Metal renderer is still presenting frames into the secure snapshot →
     /// FrontBoard `0x2BAD45EC` ("insecure drawing while in secure mode")
-    /// SIGKILL. `ghostty_surface_set_occlusion(false)` (inside
+    /// SIGKILL. `swiftty_surface_set_occlusion(false)` (inside
     /// `pauseRendererForBackground`) stops the IOSDisplayLink synchronously on
     /// the main thread, and the bounded drain confirms no `drawFrame` is in
     /// flight before the snapshot is taken.
@@ -264,7 +264,7 @@ extension MainView {
     /// authoritative app state (currently-selected tab + app active). The iOS
     /// counterpart to upstream's macOS `syncSurfaceTreeOcclusionState`.
     ///
-    /// The GhosttyKit merge (`renderer: skip updateFrame when surface is not
+    /// The SwifttyKit merge (`renderer: skip updateFrame when surface is not
     /// visible`) made the render thread *hard-stop* (disarm its draw timer)
     /// whenever a surface's `flags.visible` is `false`; the only recovery is an
     /// explicit `.visible = true`. So any transition that strands an on-screen
@@ -389,11 +389,11 @@ extension MainView {
         }.count
 
         guard sshSessionCount > 0 else {
-            Ghostty.logger.debug("Device going to sleep with no SSH sessions")
+            Swiftty.logger.debug("Device going to sleep with no SSH sessions")
             return
         }
 
-        Ghostty.logger.info("Device going to sleep with \(sshSessionCount) SSH session(s)")
+        Swiftty.logger.info("Device going to sleep with \(sshSessionCount) SSH session(s)")
     }
 
     func handleAppBackgrounded() {
@@ -406,7 +406,7 @@ extension MainView {
         // SYNCHRONOUS prelude — these atomic flags are the canonical
         // "skip MainActor work" gates consulted by output handlers, the
         // Trzsz health monitor, the Citadel heartbeat, and the action-callback
-        // Task spawn sites in GhosttyApp.swift. Set them before any renderer
+        // Task spawn sites in SwifttyApp.swift. Set them before any renderer
         // drain or per-terminal loop so backgrounding stops new work before
         // FrontBoard's scene-update transaction starts waiting on us.
         //
@@ -418,8 +418,8 @@ extension MainView {
         // Skip both the C-level flag and the Swift atomic on Catalyst to
         // avoid them getting stuck after a window close.
         #if !targetEnvironment(macCatalyst)
-        ghosttyApp.isInBackground = true
-        Ghostty.isAppBackgroundedAtomic = true
+        swifttyApp.isInBackground = true
+        Swiftty.isAppBackgroundedAtomic = true
         #endif
         pauseNetworkMonitorsForBackground()
 
@@ -454,7 +454,7 @@ extension MainView {
         // single-tick deferral window, skip the pause work and let the
         // foreground path handle re-entry.
         guard lifecycleScenePhase == .background else {
-            Ghostty.logger.info("performBackgroundTransition: scene re-foregrounded during defer, skipping")
+            Swiftty.logger.info("performBackgroundTransition: scene re-foregrounded during defer, skipping")
             return
         }
 
@@ -497,13 +497,13 @@ extension MainView {
                 do {
                     encryptionKey = try ScrollbackEncryptionManager.shared.encryptionKey()
                 } catch {
-                    Ghostty.logger.warning("Failed to pre-fetch encryption key, scrollback will not be saved: \(error.localizedDescription)")
+                    Swiftty.logger.warning("Failed to pre-fetch encryption key, scrollback will not be saved: \(error.localizedDescription)")
                     encryptionKey = nil
                     // Release in-flight markers since we won't be saving
                     ScrollbackPersistenceManager.clearInFlightSurfaces(terminalRefs)
                 }
             } else {
-                Ghostty.logger.warning("Protected data unavailable while backgrounding; skipping scrollback save (encryption key left untouched)")
+                Swiftty.logger.warning("Protected data unavailable while backgrounding; skipping scrollback save (encryption key left untouched)")
                 encryptionKey = nil
                 ScrollbackPersistenceManager.clearInFlightSurfaces(terminalRefs)
             }
@@ -532,9 +532,9 @@ extension MainView {
         }.count
 
         if sshSessionCount > 0 {
-            Ghostty.logger.info("App backgrounded with \(sshSessionCount) SSH session(s)")
+            Swiftty.logger.info("App backgrounded with \(sshSessionCount) SSH session(s)")
         } else {
-            Ghostty.logger.debug("App backgrounded with no SSH sessions")
+            Swiftty.logger.debug("App backgrounded with no SSH sessions")
         }
 
         if windowState != nil || (!terminalRefs.isEmpty && encryptionKey != nil) {
@@ -544,7 +544,7 @@ extension MainView {
                     WindowStateManager.writeStateToDisk(windowState)
                 }
 
-                // Save scrollback for each terminal (C API dump + encrypt + file write)
+                // Save scrollback for each terminal (dump + encrypt + file write)
                 if let encryptionKey {
                     for ref in terminalRefs {
                         ScrollbackPersistenceManager.saveScrollbackInBackground(
@@ -570,7 +570,7 @@ extension MainView {
         guard lifecycleScenePhase == .active else {
             return
         }
-        resumeGhosttyAfterForegroundSceneUpdate()
+        resumeSwifttyAfterForegroundSceneUpdate()
 
         // VNC panes: automatic recovery that exhausted its attempts while
         // backgrounded parks the session in .failed with nothing left to
@@ -580,7 +580,7 @@ extension MainView {
         // Settle-time occlusion backstop. The resume's setOcclusion(true) for
         // the visible tab is deferred ~150ms past the resume quiet window
         // (gate4) and, on a background/foreground bounce, can be deferred again
-        // or skipped — and post the GhosttyKit merge a missed un-occlusion is a
+        // or skipped — and post the SwifttyKit merge a missed un-occlusion is a
         // permanent render freeze, not a harmless soft-pause. Once the dangerous
         // scene-update/quiet window is well past, reconcile occlusion from
         // authoritative state so the visible surface is guaranteed a fresh
@@ -596,7 +596,7 @@ extension MainView {
         }
     }
 
-    func resumeGhosttyAfterForegroundSceneUpdate() {
+    func resumeSwifttyAfterForegroundSceneUpdate() {
         // Defer the entire resume body off the current FrontBoard scene-update
         // transaction.
         //
@@ -605,7 +605,7 @@ extension MainView {
         // remained synchronous on the transaction:
         //   - The atomic flip and the C-level `isInBackground = false` flip
         //     immediately re-opened the IO thread → MainActor pipeline. Action
-        //     callbacks in GhosttyApp.swift unconditionally spawn
+        //     callbacks in SwifttyApp.swift unconditionally spawn
         //     `Task { @MainActor in handler() }` for SET_TITLE, PWD, RING_BELL
         //     etc., and those landed mid-transaction.
         //   - LocationDiaryManager.replayCachedStateOnForeground,
@@ -627,7 +627,7 @@ extension MainView {
         // applyConnectionHealth (TerminalView.swift) and the session-protocol
         // onTitleChange / onWorkingDirectoryChange (TerminalViewSession.swift)
         // now gate @Published writes on `isAppBackgroundedAtomic` instead of
-        // `Ghostty.isAppBackgrounded` (the UIApplication-state read), so even
+        // `Swiftty.isAppBackgrounded` (the UIApplication-state read), so even
         // if a stray IO Task lands during the deferred frame it caches into
         // sessionProvided* without publishing.
         // Capture the lifecycle epoch at schedule time. The deferred body will
@@ -660,7 +660,7 @@ extension MainView {
         // suspension/wake (caughtit 14:33:09 → .ips 14:35:01).
         //
         // The lifecycle phase captured at schedule time is unreliable across
-        // the `.async` boundary, and `Ghostty.isAppBackgroundedAtomic` is held
+        // the `.async` boundary, and `Swiftty.isAppBackgroundedAtomic` is held
         // TRUE through the entire backgrounded period — so neither can
         // distinguish a clean resume from a re-bounced one. The epoch can.
         #if !targetEnvironment(macCatalyst)
@@ -673,7 +673,7 @@ extension MainView {
         // Background gate flip is deferred to the END of this function. Reason:
         // tssh Go threads keep firing output callbacks the moment iOS
         // unsuspends the app — `emitOutputFromGoCallback` consults
-        // `Ghostty.isAppBackgroundedAtomic` to decide buffer-vs-emit, and
+        // `Swiftty.isAppBackgroundedAtomic` to decide buffer-vs-emit, and
         // flipping that gate up front opens the floodgate while SwiftUI is
         // still mid-foreground-transaction. With many tssh sessions on a
         // flaky network, the resulting per-session @Published mutations land
@@ -693,8 +693,8 @@ extension MainView {
         // chunks complete.
         let visibleTab = resolveVisibleTab()
         let visibleTabID = visibleTab?.id
-        let visibleSplits: [Ghostty.TerminalView] = visibleTab.map { $0.splitTree.terminalLeaves } ?? []
-        let otherSplits: [Ghostty.TerminalView] = terminals
+        let visibleSplits: [Swiftty.TerminalView] = visibleTab.map { $0.splitTree.terminalLeaves } ?? []
+        let otherSplits: [Swiftty.TerminalView] = terminals
             .filter { $0.id != visibleTabID }
             .flatMap { $0.splitTree.terminalLeaves }
 
@@ -702,9 +702,9 @@ extension MainView {
         // window AND defer the chunked replay to start after it.
         // Toggle via BisectFlags.gate4_setOcclusion.
         //
-        // setOcclusion(true) calls ghostty_surface_set_occlusion via
-        // Self.ghosttyAPIQueue.async and also calls
-        // session?.setTabVisible(true) on main. The C-side occlusion flip
+        // setOcclusion(true) calls swiftty_surface_set_occlusion via
+        // Self.swifttyAPIQueue.async and also calls
+        // session?.setTabVisible(true) on main. The SwifttyKit occlusion flip
         // re-engages the surface's Metal renderer; under tssh load, that
         // re-engagement during the scene-update transaction has been
         // observed to stall the window's CADisplayLink-driven frame
@@ -726,7 +726,7 @@ extension MainView {
         let focusedTerminal = visibleTab?.focusedTerminal
         let canRestoreFocus = !isAnySheetPresented
 
-        let shouldDeferOcclusion = Ghostty.isInResumeQuietWindowAtomic
+        let shouldDeferOcclusion = Swiftty.isInResumeQuietWindowAtomic
         if shouldDeferOcclusion {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [self] in
 
@@ -741,7 +741,7 @@ extension MainView {
                     // defer. The chunked replay is stale (it re-publishes
                     // session state captured for the prior resume) and must not
                     // run — so we still skip it. But we must NOT strand the
-                    // visible surfaces occluded: post the GhosttyKit merge, a
+                    // visible surfaces occluded: post the SwifttyKit merge, a
                     // surface left at flags.visible == false hard-stops its
                     // render thread until an explicit un-occlusion (permanent
                     // freeze). The old code relied on "the next genuine resume"
@@ -758,7 +758,7 @@ extension MainView {
                 }
                 #endif
 
-                guard !Ghostty.isInResumeQuietWindowAtomic else {
+                guard !Swiftty.isInResumeQuietWindowAtomic else {
                     // A new background/foreground bounce extended the window.
                     // Run setOcclusion immediately for the user-visible work
                     // — staying paused longer just compounds the size issue —
@@ -775,9 +775,9 @@ extension MainView {
                 // Re-resolve at fire time — user may have switched tabs.
                 let currentTab = resolveVisibleTab()
                 let currentTabID = currentTab?.id
-                let currentVisible: [Ghostty.TerminalView] =
+                let currentVisible: [Swiftty.TerminalView] =
                     currentTab.map { $0.splitTree.terminalLeaves } ?? []
-                let currentOther: [Ghostty.TerminalView] = terminals
+                let currentOther: [Swiftty.TerminalView] = terminals
                     .filter { $0.id != currentTabID }
                     .flatMap { $0.splitTree.terminalLeaves }
 
@@ -806,9 +806,6 @@ extension MainView {
             let visiblePanes: [SplitPaneView] = visibleTab.map { Array($0.splitTree) } ?? []
             for pane in visiblePanes {
                 pane.setOcclusion(true)
-                if pane.asTerminal != nil {
-                    ghosttyApp.appTick()
-                }
             }
             scheduleDeferredForegroundReplay(
                 visibleSplits: visibleSplits,
@@ -831,7 +828,7 @@ extension MainView {
         // queue a body invalidation that drains in one expensive transaction
         // on resume, tripping the scene-update watchdog.
         // NOTE: NetworkReachabilityMonitor's background-path replay must
-        // happen AFTER `Ghostty.isAppBackgroundedAtomic` is flipped to
+        // happen AFTER `Swiftty.isAppBackgroundedAtomic` is flipped to
         // false (see the trailing dispatch at the end of this function,
         // search for `FG.gate.flipped`). Subscribers drop network events
         // while that atomic is true; a replay before the gate flip would be
@@ -927,7 +924,7 @@ extension MainView {
     /// then and now (epoch advanced).
     @MainActor
     private func openForegroundGate(bodyEpoch: UInt64) {
-        DispatchQueue.main.async { [ghosttyApp] in
+        DispatchQueue.main.async { [swifttyApp] in
             #if !targetEnvironment(macCatalyst)
             // Belt-and-suspenders to the FG.body.skipped guard at body entry.
             // A backgrounding that arrives before this tick advances the
@@ -938,8 +935,8 @@ extension MainView {
             guard currentBgEpoch == bodyEpoch, applicationState == .active else {
                 return
             }
-            ghosttyApp.isInBackground = false
-            Ghostty.isAppBackgroundedAtomic = false
+            swifttyApp.isInBackground = false
+            Swiftty.isAppBackgroundedAtomic = false
             #endif
 
             self.resumeNetworkMonitorsAfterForegroundGate()
@@ -952,21 +949,6 @@ extension MainView {
             // suspension and recovered before this resume — see the
             // method doc on `replayBackgroundPathIfAny()`.
             NetworkReachabilityMonitor.shared.replayBackgroundPathIfAny()
-
-            // BISECT GATE 3: defer the appTick mailbox drain during the
-            // resume quiet window. Toggle via BisectFlags.gate3_appTick.
-            // appTick() processes every buffered event synchronously; each
-            // fires action callbacks (SET_TITLE, PWD, RING_BELL, ...) that
-            // spawn @MainActor Tasks which mutate per-terminal @Published
-            // title/pwd. With many sessions and accumulated background
-            // events, that cluster of mutations hitting the SwiftUI graph
-            // during the scene-update settling window is a strong wedge
-            // candidate. The deferred tick retries until the quiet window
-            // closes, so we do not depend on a later wakeup_cb to drain the
-            // mailbox.
-            Task { @MainActor [ghosttyApp] in
-                ghosttyApp.appTickAfterResumeQuietWindow()
-            }
         }
     }
 
@@ -987,9 +969,9 @@ extension MainView {
     /// background scene-update.
     @MainActor
     private func scheduleDeferredForegroundReplay(
-        visibleSplits: [Ghostty.TerminalView],
-        otherSplits: [Ghostty.TerminalView],
-        focusedTerminal: Ghostty.TerminalView?,
+        visibleSplits: [Swiftty.TerminalView],
+        otherSplits: [Swiftty.TerminalView],
+        focusedTerminal: Swiftty.TerminalView?,
         canRestoreFocus: Bool,
         bodyEpoch: UInt64
     ) {
@@ -1023,10 +1005,10 @@ extension MainView {
                 if canRestoreFocus,
                    let terminal = focusedTerminal,
                    terminal.isLogicallyFocused, !terminal.isFirstResponder {
-                    Ghostty.logger.info("Restoring focus after deferred foreground replay")
+                    Swiftty.logger.info("Restoring focus after deferred foreground replay")
                     _ = terminal.becomeFirstResponder()
                 } else if !canRestoreFocus {
-                    Ghostty.logger.info("Skipping focus restoration: sheet is presented")
+                    Swiftty.logger.info("Skipping focus restoration: sheet is presented")
                 }
             }
 

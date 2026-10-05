@@ -11,7 +11,7 @@ import UniformTypeIdentifiers
 struct SettingsTerminalSection: View {
     // Font size and theme bind to their managers, not to the raw store keys.
     // A `@Setting` write is a local store change, and the refresh hub skips
-    // local origins, so the managers never learned about it and Ghostty was
+    // local origins, so the managers never learned about it and Swiftty was
     // never asked to reload until the next launch. The managers' setters
     // save to the store and publish the change.
     @State private var fontManager = FontManager.shared
@@ -88,8 +88,8 @@ struct SettingsTerminalSection: View {
                 .themedRow()
                 .onChange(of: scrollbackLimit) { _, _ in
                     // A local write does not reach SettingsRefreshHub (it skips
-                    // `.local` origins), so rewrite and push the Ghostty config here.
-                    Ghostty.App.shared?.reloadGlobalConfig()
+                    // `.local` origins), so rewrite and push the Swiftty config here.
+                    Swiftty.App.shared?.reloadGlobalConfig()
                 }
             } header: {
                 SettingGroupHeader("Scrollback", group: .scrollback)
@@ -140,7 +140,7 @@ struct SettingsTerminalSection: View {
                 SettingGroupHeader("TERM", group: .terminal)
             } footer: {
                 // The Local field is bound to `terminalTypeLocal`, whose registered
-                // default is `TerminalTypeSettings.localFallback` — "xterm-ghostty"
+                // default is `TerminalTypeSettings.localFallback` — "xterm-swiftty"
                 // on Mac Catalyst, where the bundled terminfo makes it resolvable.
                 // A single `fallback` sentence claimed "xterm-256color" for both
                 // fields there, contradicting what the Local field already shows.

@@ -87,7 +87,7 @@ final class KeychainManager {
 
         var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "com.ghostty.ssh.privatekey",
+            kSecAttrService as String: "com.swiftty.ssh.privatekey",
             kSecAttrAccount as String: identifier,
             kSecValueData as String: keyData,
             kSecAttrAccessGroup as String: accessGroup
@@ -215,7 +215,7 @@ final class KeychainManager {
     nonisolated func loadPrivateKey(identifier: String) throws -> Data {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "com.ghostty.ssh.privatekey",
+            kSecAttrService as String: "com.swiftty.ssh.privatekey",
             kSecAttrAccount as String: identifier,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
@@ -250,7 +250,7 @@ final class KeychainManager {
     ) throws -> Bool {
         var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "com.ghostty.ssh.privatekey",
+            kSecAttrService as String: "com.swiftty.ssh.privatekey",
             kSecAttrAccount as String: identifier,
             kSecReturnAttributes as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
@@ -289,7 +289,7 @@ final class KeychainManager {
     ) throws -> Data {
         var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "com.ghostty.ssh.privatekey",
+            kSecAttrService as String: "com.swiftty.ssh.privatekey",
             kSecAttrAccount as String: identifier,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
@@ -330,7 +330,7 @@ final class KeychainManager {
     func deletePrivateKey(identifier: String) throws {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "com.ghostty.ssh.privatekey",
+            kSecAttrService as String: "com.swiftty.ssh.privatekey",
             kSecAttrAccount as String: identifier,
             kSecAttrAccessGroup as String: accessGroup,
             kSecAttrSynchronizable as String: kSecAttrSynchronizableAny
@@ -354,7 +354,7 @@ final class KeychainManager {
     nonisolated func updatePrivateKey(_ keyData: Data, identifier: String, context: LAContext? = nil) throws {
         var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "com.ghostty.ssh.privatekey",
+            kSecAttrService as String: "com.swiftty.ssh.privatekey",
             kSecAttrAccount as String: identifier,
             kSecAttrAccessGroup as String: accessGroup,
             kSecAttrSynchronizable as String: kSecAttrSynchronizableAny
@@ -392,7 +392,7 @@ final class KeychainManager {
 
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "com.ghostty.ssh.passphrase",
+            kSecAttrService as String: "com.swiftty.ssh.passphrase",
             kSecAttrAccount as String: identifier,
             kSecValueData as String: passphraseData,
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
@@ -417,7 +417,7 @@ final class KeychainManager {
     nonisolated func loadPassphrase(forKey identifier: String) -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "com.ghostty.ssh.passphrase",
+            kSecAttrService as String: "com.swiftty.ssh.passphrase",
             kSecAttrAccount as String: identifier,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
@@ -441,7 +441,7 @@ final class KeychainManager {
     func deletePassphrase(forKey identifier: String) {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "com.ghostty.ssh.passphrase",
+            kSecAttrService as String: "com.swiftty.ssh.passphrase",
             kSecAttrAccount as String: identifier,
             kSecAttrAccessGroup as String: accessGroup
         ]
@@ -455,7 +455,7 @@ final class KeychainManager {
 
     // MARK: - Scrollback Encryption Key Storage
 
-    private let scrollbackEncryptionService = "com.ghostty.scrollback.encryptionkey"
+    private let scrollbackEncryptionService = "com.swiftty.scrollback.encryptionkey"
 
     func saveScrollbackEncryptionKey(_ keyData: Data) throws {
         let dataSize = keyData.count
@@ -512,7 +512,7 @@ final class KeychainManager {
 
     // MARK: - SSH Key Metadata Storage
 
-    nonisolated private let sshKeyMetadataService = "com.ghostty.ssh.keymetadata"
+    nonisolated private let sshKeyMetadataService = "com.swiftty.ssh.keymetadata"
 
     /// Saves SSH key metadata to the Keychain
     /// - Parameters:
@@ -704,8 +704,8 @@ final class KeychainManager {
 
     // MARK: - SSH Password Storage
 
-    private let sshPasswordService = "com.ghostty.ssh.password"
-    nonisolated private let sshPasswordMetadataService = "com.ghostty.ssh.password.metadata"
+    private let sshPasswordService = "com.swiftty.ssh.password"
+    nonisolated private let sshPasswordMetadataService = "com.swiftty.ssh.password.metadata"
 
     /// Saves an SSH password to the Keychain
     /// - Parameters:

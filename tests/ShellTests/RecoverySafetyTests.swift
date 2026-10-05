@@ -192,7 +192,7 @@ final class RecoverySafetyTests {
     /// name containing spaces survives.
     @Test
     func testContinuityParsingKeepsNamesWithSpaces() throws {
-        let body = "4242\t1700000000\t$7\t1700000100\t/tmp/tmux-501/default\tmy long name"
+        let body = "4242 1700000000 $7 1700000100 /tmp/tmux-501/default my long name"
         let parsed = try #require(TmuxRecoveryIdentity.parseContinuity(body))
 
         #expect(parsed.serverPID == 4242)

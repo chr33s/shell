@@ -173,7 +173,7 @@ nonisolated struct SettingKey<V: SettingValue>: Sendable, Hashable {
     let defaultValue: V
     let policy: SyncPolicy
     let group: SettingGroup
-    /// Name in the text config overlay; ghostty's name when semantics match. Nil = not file-editable.
+    /// Name in the text config overlay; swiftty's name when semantics match. Nil = not file-editable.
     let configKey: String?
     let title: String
 

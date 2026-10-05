@@ -10,8 +10,8 @@ struct TerminalOutputCoalescingConfig: Sendable {
     let debug: Bool
 
     static func fromEnvironment(defaultMinMs: Int? = nil) -> TerminalOutputCoalescingConfig {
-        let envMin = envInt("GHOSTTY_OUTPUT_COALESCE_MIN_MS")
-        let envMax = envInt("GHOSTTY_OUTPUT_COALESCE_MAX_MS")
+        let envMin = envInt("SWIFTTY_OUTPUT_COALESCE_MIN_MS")
+        let envMax = envInt("SWIFTTY_OUTPUT_COALESCE_MAX_MS")
 
         var minMs = envMin ?? defaultMinMs ?? defaultMinBatchIntervalMs()
         var maxMs = envMax ?? minMs * 3
@@ -24,11 +24,11 @@ struct TerminalOutputCoalescingConfig: Sendable {
         }
 
         return TerminalOutputCoalescingConfig(
-            inputDebounceMs: envInt("GHOSTTY_OUTPUT_COALESCE_INPUT_DEBOUNCE_MS") ?? 120,
+            inputDebounceMs: envInt("SWIFTTY_OUTPUT_COALESCE_INPUT_DEBOUNCE_MS") ?? 120,
             minBatchIntervalMs: minMs,
             maxBatchIntervalMs: maxMs,
-            useSynchronizedOutput: (envInt("GHOSTTY_OUTPUT_COALESCE_SYNC") ?? 0) != 0,
-            debug: (envInt("GHOSTTY_OUTPUT_COALESCE_DEBUG") ?? 0) != 0
+            useSynchronizedOutput: (envInt("SWIFTTY_OUTPUT_COALESCE_SYNC") ?? 0) != 0,
+            debug: (envInt("SWIFTTY_OUTPUT_COALESCE_DEBUG") ?? 0) != 0
         )
     }
 
@@ -61,7 +61,7 @@ struct TerminalOutputCoalescingConfig: Sendable {
 }
 
 /// Owns the terminal output byte path: session-output gating, buffered writes
-/// to Ghostty's external-IO pipe, and optional mouse-capture output coalescing.
+/// to Swiftty's external-IO pipe, and optional mouse-capture output coalescing.
 @MainActor
 final class TerminalOutputPipeline {
     private let writeQueue = DispatchQueue(label: "dev.chr33s.shell.pty.write", qos: .userInitiated)
@@ -105,21 +105,32 @@ final class TerminalOutputPipeline {
         bufferedWriter.cancel()
     }
 
+    /// Host-generated output (connection spinner, progress, notices).
+    /// Dropped while the session stream is inside a tmux control-mode DCS:
+    /// any escape sequence would terminate it, dumping the tmux protocol
+    /// onto the screen, and a control-mode gateway shows none of it anyway.
     func writeDirect(_ data: Data) {
+        guard !controlModeTracker.isInside else { return }
         bufferedWriter.write(data)
     }
 
     func writeDirect(_ string: String) {
-        bufferedWriter.write(Data(string.utf8))
+        writeDirect(Data(string.utf8))
     }
 
     func writeSessionOutput(_ data: Data) {
+        controlModeTracker.observe(data)
         scrollbackRestoreOutputGate.writeOrBuffer(data, to: bufferedWriter)
     }
 
     func enqueueCoalescedOutput(_ data: Data) {
+        controlModeTracker.observe(data)
         outputCoalescer.enqueue(data)
     }
+
+    /// Shared with the off-main session output sink; session bytes are
+    /// observed as they enter the pipeline, before any coalescing.
+    private let controlModeTracker = TmuxControlModeStreamGate()
 
     func setOutputCoalescingEnabled(_ enabled: Bool) {
         outputCoalescer.setEnabled(enabled)
@@ -188,6 +199,7 @@ final class TerminalOutputPipeline {
         let outputCoalescer: TerminalOutputCoalescer? = useOutputCoalescer ? self.outputCoalescer : nil
         let bufferedWriter = self.bufferedWriter
         let scrollbackRestoreOutputGate = self.scrollbackRestoreOutputGate
+        let controlModeTracker = self.controlModeTracker
         let persistenceNotifyPending = OSAllocatedUnfairLock<Bool>(initialState: false)
 
         let writeDirect: @Sendable (Data) -> Void = { data in
@@ -195,13 +207,14 @@ final class TerminalOutputPipeline {
         }
 
         return { data in
+            controlModeTracker.observe(data)
             if let outputCoalescer {
                 outputCoalescer.enqueue(data)
             } else {
                 writeDirect(data)
             }
 
-            guard !Ghostty.isAppBackgroundedAtomic else { return }
+            guard !Swiftty.isAppBackgroundedAtomic else { return }
 
             let shouldSpawn = persistenceNotifyPending.withLock { pending -> Bool in
                 guard !pending else { return false }
@@ -212,7 +225,7 @@ final class TerminalOutputPipeline {
 
             Task { @MainActor in
                 persistenceNotifyPending.withLock { $0 = false }
-                guard !Ghostty.isAppBackgroundedAtomic else { return }
+                guard !Swiftty.isAppBackgroundedAtomic else { return }
                 ScrollbackPersistenceManager.shared.notifyOutputReceived(terminalUUID: terminalUUID)
             }
         }
@@ -370,7 +383,7 @@ nonisolated final class TerminalOutputCoalescer: @unchecked Sendable {
         fastPathLock.unlock()
 
         if debug {
-            Ghostty.logger.debug("OutputCoalescer setEnabled(\(enabled)) generation=\(generation)")
+            Swiftty.logger.debug("OutputCoalescer setEnabled(\(enabled)) generation=\(generation)")
         }
 
         queue.async {
@@ -379,7 +392,7 @@ nonisolated final class TerminalOutputCoalescer: @unchecked Sendable {
             if !enabled {
                 if self.debug {
                     let byteCount = self.pending.count
-                    Ghostty.logger.debug("OutputCoalescer disabling; flushing \(byteCount) pending bytes")
+                    Swiftty.logger.debug("OutputCoalescer disabling; flushing \(byteCount) pending bytes")
                 }
                 self.flushLocked()
             }
@@ -402,7 +415,7 @@ nonisolated final class TerminalOutputCoalescer: @unchecked Sendable {
         if !enabled && !disablePending {
             if debug {
                 let byteCount = data.count
-                Ghostty.logger.debug("OutputCoalescer direct bypass: \(byteCount) bytes")
+                Swiftty.logger.debug("OutputCoalescer direct bypass: \(byteCount) bytes")
             }
             updateParseState(data)
             write(data)
@@ -601,7 +614,7 @@ nonisolated final class TerminalScrollbackRestoreOutputGate: @unchecked Sendable
             writer.write(data)
         }
         if result.shouldLogOverflow {
-            Ghostty.logger.warning("ScrollbackRestoreOutputGate exceeded 10MB; dropping oldest buffered live output")
+            Swiftty.logger.warning("ScrollbackRestoreOutputGate exceeded 10MB; dropping oldest buffered live output")
         }
     }
 
@@ -630,7 +643,7 @@ nonisolated final class TerminalScrollbackRestoreOutputGate: @unchecked Sendable
         }
 
         if shouldLogDrop {
-            Ghostty.logger.warning("ScrollbackRestoreOutputGate canceled; dropping buffered live output")
+            Swiftty.logger.warning("ScrollbackRestoreOutputGate canceled; dropping buffered live output")
         }
     }
 
@@ -741,7 +754,7 @@ nonisolated final class TerminalBufferedPipeWriter: @unchecked Sendable {
 
         guard fd >= 0, let source = writeSource else {
             bufferLock.unlock()
-            Ghostty.logger.warning("BufferedPipeWriter: no FD configured, dropping \(data.count) bytes")
+            Swiftty.logger.warning("BufferedPipeWriter: no FD configured, dropping \(data.count) bytes")
             return
         }
 
@@ -800,7 +813,7 @@ nonisolated final class TerminalBufferedPipeWriter: @unchecked Sendable {
         } else {
             appendChunkLocked(data)
             if combinedSize > Self.bufferWarningThreshold && combinedSize - data.count <= Self.bufferWarningThreshold {
-                Ghostty.logger.warning("BufferedPipeWriter: buffer exceeded 1MB (\(combinedSize) bytes)")
+                Swiftty.logger.warning("BufferedPipeWriter: buffer exceeded 1MB (\(combinedSize) bytes)")
             }
         }
 
@@ -813,7 +826,7 @@ nonisolated final class TerminalBufferedPipeWriter: @unchecked Sendable {
 
         if overflowToLog > 0 {
             let cap = Self.maxBufferedBytes
-            Ghostty.logger.error("BufferedPipeWriter: buffer exceeded \(cap) byte cap; dropping oldest \(overflowToLog) bytes (reader stalled or output firehose)")
+            Swiftty.logger.error("BufferedPipeWriter: buffer exceeded \(cap) byte cap; dropping oldest \(overflowToLog) bytes (reader stalled or output firehose)")
         }
     }
 
@@ -941,7 +954,7 @@ nonisolated final class TerminalBufferedPipeWriter: @unchecked Sendable {
                 source.suspend()
             }
             bufferLock.unlock()
-            Ghostty.logger.error("BufferedPipeWriter: write error \(err), dropping \(droppedBytes) bytes")
+            Swiftty.logger.error("BufferedPipeWriter: write error \(err), dropping \(droppedBytes) bytes")
             return
         }
 
@@ -1018,5 +1031,59 @@ nonisolated final class TerminalBufferedPipeWriter: @unchecked Sendable {
         let out = (pending: pendingByteCount, totalWritten: totalWritten, totalDropped: totalDropped)
         bufferLock.unlock()
         return out
+    }
+}
+
+/// Thread-safe `TmuxControlModeStreamTracker` shared by the session output
+/// sink (off main) and host writes (main actor).
+nonisolated final class TmuxControlModeStreamGate: @unchecked Sendable {
+    private let state = OSAllocatedUnfairLock(initialState: TmuxControlModeStreamTracker())
+
+    var isInside: Bool { state.withLock { $0.isInside } }
+
+    func observe(_ data: Data) {
+        state.withLock { $0.observe(data) }
+    }
+}
+
+/// Follows a session byte stream across chunk boundaries to tell whether it
+/// is inside tmux's control-mode DCS (`ESC P 1000 p` … `ESC \`). Inside it
+/// tmux sends no raw ESC until the closing string terminator.
+nonisolated struct TmuxControlModeStreamTracker: Sendable {
+    private(set) var isInside = false
+    /// Tail of the previous chunk, for a marker split across chunks.
+    private var carry: [UInt8] = []
+
+    private static let start: [UInt8] = Array("\u{1B}P1000p".utf8)
+    private static let end: [UInt8] = [0x1B, 0x5C]
+
+    mutating func observe(_ data: Data) {
+        guard isInside || data.contains(0x1B) || !carry.isEmpty else { return }
+        let bytes = carry + Array(data)
+        var i = 0
+        while i < bytes.count {
+            let marker = isInside ? Self.end : Self.start
+            if bytes[i] == 0x1B, Self.matches(marker, in: bytes, at: i) {
+                isInside.toggle()
+                i += marker.count
+            } else {
+                i += 1
+            }
+        }
+        // Keep a possible marker prefix at the end for the next chunk.
+        let keep = (isInside ? Self.end : Self.start).count - 1
+        let tail = bytes.suffix(keep)
+        if let esc = tail.lastIndex(of: 0x1B) {
+            let candidate = Array(bytes[esc...])
+            let marker = isInside ? Self.end : Self.start
+            carry = marker.starts(with: candidate) ? candidate : []
+        } else {
+            carry = []
+        }
+    }
+
+    private static func matches(_ marker: [UInt8], in bytes: [UInt8], at i: Int) -> Bool {
+        guard i + marker.count <= bytes.count else { return false }
+        return bytes[i ..< i + marker.count].elementsEqual(marker)
     }
 }

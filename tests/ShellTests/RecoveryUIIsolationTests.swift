@@ -9,7 +9,7 @@
 //  is labelled as such. The thing being guarded — "no recovery code path
 //  writes escape sequences into the surface" — is the *absence* of a call,
 //  and an absence cannot be observed at runtime. A behavioral test would
-//  need a live Ghostty surface, a real disconnection, and a byte-level
+//  need a live Swiftty surface, a real disconnection, and a byte-level
 //  comparison of the alternate screen, which this target cannot build.
 //
 //  The regression it exists for is concrete and was real: recovery status
@@ -35,7 +35,7 @@ final class RecoveryUIIsolationTests {
             .appendingPathComponent("Core/Terminal/Reconnect/TerminalReconnectionController.swift")
         let source = try String(contentsOf: file, encoding: .utf8)
 
-        #expect(!(source.contains("terminalWriteToGhostty")), """
+        #expect(!(source.contains("terminalWriteToSwiftty")), """
             TerminalReconnectionController writes to the terminal stream again. \
             Recovery status belongs in RecoveryStatusStrip, outside the surface \
             (docs/specs/mobile-connectivity.md §11, AC-18).
@@ -57,8 +57,8 @@ final class RecoveryUIIsolationTests {
         let source = try String(contentsOf: file, encoding: .utf8)
 
         #expect(source.contains("import SwiftUI"))
-        #expect(!(source.contains("terminalWriteToGhostty")))
-        #expect(!(source.contains("ghostty_surface_")))
+        #expect(!(source.contains("terminalWriteToSwiftty")))
+        #expect(!(source.contains("swiftty_surface_")))
     }
 
     /// Lint: the recovery path must never build a create-or-attach tmux

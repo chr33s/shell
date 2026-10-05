@@ -168,7 +168,7 @@ final class ThemeManager {
         self.themesDirectory = Self.locateThemesDirectory()
 
         // Parse exactly one theme file at launch. This init runs inside
-        // Ghostty.App.init() — i.e. before RootShellApp.init()'s body — so the
+        // Swiftty.App.init() — i.e. before RootShellApp.init()'s body — so the
         // full catalog (450+ files) is built off the main thread instead.
         self.currentThemeInfo = themeInfo(for: currentTheme)
         startBackgroundLoad()
@@ -236,33 +236,33 @@ final class ThemeManager {
 
         // Try multiple possible locations for themes directory
         let possiblePaths: [URL?] = [
-            // Direct in bundle (based on Ghostty's log output)
+            // Direct in bundle (based on Swiftty's log output)
             Bundle.main.bundleURL.appendingPathComponent("themes"),
 
             // In resources directory
             Bundle.main.resourceURL?.appendingPathComponent("themes"),
 
-            // In Resources/ghostty subdirectory
+            // In Resources/swiftty subdirectory
             Bundle.main.resourceURL?
                 .appendingPathComponent("Resources")
-                .appendingPathComponent("ghostty")
+                .appendingPathComponent("swiftty")
                 .appendingPathComponent("themes"),
 
-            // In bundle root's Resources/ghostty
+            // In bundle root's Resources/swiftty
             Bundle.main.bundleURL
                 .appendingPathComponent("Resources")
-                .appendingPathComponent("ghostty")
+                .appendingPathComponent("swiftty")
                 .appendingPathComponent("themes")
         ]
 
         for path in possiblePaths.compactMap({ $0 }) where fileManager.fileExists(atPath: path.path) {
-            Ghostty.logger.info("✓ Found themes directory at: \(path.path)")
+            Swiftty.logger.info("✓ Found themes directory at: \(path.path)")
             return path
         }
 
-        Ghostty.logger.error("Failed to find themes directory in bundle. Checked paths:")
+        Swiftty.logger.error("Failed to find themes directory in bundle. Checked paths:")
         for path in possiblePaths.compactMap({ $0 }) {
-            Ghostty.logger.error("  - \(path.path)")
+            Swiftty.logger.error("  - \(path.path)")
         }
         return nil
     }
@@ -275,7 +275,7 @@ final class ThemeManager {
             includingPropertiesForKeys: keys,
             options: [.skipsHiddenFiles]
         ) else {
-            Ghostty.logger.error("Failed to enumerate themes at: \(directory.path)")
+            Swiftty.logger.error("Failed to enumerate themes at: \(directory.path)")
             return []
         }
 
@@ -337,7 +337,7 @@ final class ThemeManager {
         }
         availableThemes = themes
 
-        Ghostty.logger.info("Loaded \(themes.count) themes")
+        Swiftty.logger.info("Loaded \(themes.count) themes")
     }
 
     /// Returns `nil` when the file can't be read, which is how `themeInfo(for:)`
@@ -387,7 +387,7 @@ final class ThemeManager {
             // Convert palette dict to ordered array (ANSI 0-15)
             palette = (0..<16).compactMap { paletteEntries[$0] }
 
-            // Resolve Ghostty keyword values (e.g. "cell-foreground") to concrete hex
+            // Resolve Swiftty keyword values (e.g. "cell-foreground") to concrete hex
             cursor = Color.resolveKeywordColor(cursor, foreground: foreground, background: background)
 
             return ThemeInfo.ThemeColors(
@@ -398,7 +398,7 @@ final class ThemeManager {
             )
 
         } catch {
-            Ghostty.logger.error("Failed to parse theme file \(url.lastPathComponent): \(error)")
+            Swiftty.logger.error("Failed to parse theme file \(url.lastPathComponent): \(error)")
             return nil
         }
     }

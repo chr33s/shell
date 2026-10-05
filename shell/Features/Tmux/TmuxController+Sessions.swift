@@ -3,7 +3,7 @@
 //  shell
 //
 //  Session dashboard support for tmux control mode: an async command/reply
-//  layer over ghostty_surface_tmux_command_with_reply, plus the session
+//  layer over swiftty_surface_tmux_command_with_reply, plus the session
 //  operations (list / switch / create / rename / kill / detach) the dashboard drives.
 //
 //  One control client shows ONE session at a time (tmux gates %output on the
@@ -14,7 +14,7 @@
 //
 
 import Foundation
-import GhosttyKit
+import SwifttyKit
 
 extension Notification.Name {
     /// Posted (object: the gateway's owner terminal UUID) when the tmux server's
@@ -43,7 +43,7 @@ extension TmuxController {
     ) async throws -> String {
         // ownerSurfaceFreed: the gateway view freed ownerSurface (tab/scene
         // teardown) without ever setting didEnd, so sendRawCommandWithReply's
-        // ghostty_surface_tmux_command_with_reply would be a use-after-free.
+        // swiftty_surface_tmux_command_with_reply would be a use-after-free.
         // A surviving dashboard/task is the path that reaches here post-free.
         // ROOTSHELL-TMUX (id=tmux-gateway-surface-freed)
         guard !didEnd, !isDetaching, !ownerSurfaceFreed else { throw TmuxCommandError.gatewayEnded }
@@ -79,7 +79,7 @@ extension TmuxController {
         if data.last != UInt8(ascii: "\n") { data.append(UInt8(ascii: "\n")) }
         data.withUnsafeBytes { raw in
             guard let base = raw.baseAddress else { return }
-            ghostty_surface_tmux_command_with_reply(
+            swiftty_surface_tmux_command_with_reply(
                 gatewaySurfaceForCommands,
                 base.assumingMemoryBound(to: CChar.self),
                 UInt(data.count),
@@ -87,7 +87,7 @@ extension TmuxController {
         }
     }
 
-    /// Deliver a GHOSTTY_ACTION_TMUX_COMMAND_RESPONSE to its waiting request.
+    /// Deliver a SWIFTTY_ACTION_TMUX_COMMAND_RESPONSE to its waiting request.
     /// Unknown tags (timed-out requests answering late) are dropped.
     func handleCommandReply(_ reply: TmuxCommandReply) {
         replyTimeouts.removeValue(forKey: reply.tag)?.cancel()
@@ -112,7 +112,7 @@ extension TmuxController {
 
     // MARK: - Attached-session identity
 
-    /// GHOSTTY_ACTION_TMUX_SESSION_CHANGED: the session this gateway is
+    /// SWIFTTY_ACTION_TMUX_SESSION_CHANGED: the session this gateway is
     /// attached to (startup, switch, or rename). Persists the name for
     /// reconnect-by-name and nudges the dashboard.
     func updateCurrentSession(id: Int, name: String, generation: UInt64? = nil) {
@@ -154,7 +154,7 @@ extension TmuxController {
         }
     }
 
-    /// GHOSTTY_ACTION_TMUX_SESSIONS_CHANGED: server session list churn.
+    /// SWIFTTY_ACTION_TMUX_SESSIONS_CHANGED: server session list churn.
     func noteSessionsChanged() {
         NotificationCenter.default.post(
             name: .tmuxSessionsDidChange,
@@ -222,7 +222,7 @@ extension TmuxController {
     /// server. One query refreshes all projected pane labels.
     func paneDisplayIdentities() async throws -> [Int: TmuxPaneDisplayIdentity] {
         let body = try await sendCommandWithReply(
-            "list-panes -a -F \"#{pane_id}\t#{pane_title}\t#{pane_current_command}\"",
+            "list-panes -a -F \"#{pane_id} #{pane_current_command} #{pane_title}\"",
             timeout: .seconds(4)
         )
         return TmuxPaneDisplayIdentityParser.parse(body)

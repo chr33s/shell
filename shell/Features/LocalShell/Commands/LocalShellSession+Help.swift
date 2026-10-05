@@ -19,7 +19,7 @@ extension LocalShellSession {
         let logoutDesc = String(localized: "Same as exit", comment: "Help: logout command description")
         let sourceDesc = String(localized: "Re-source .shellrc (or source <file>)", comment: "Help: source command description")
         let editrcDesc = String(localized: "Edit .shellrc ($EDITOR or vim)", comment: "Help: editrc command description")
-        let reloadConfigDesc = String(localized: "Reload imported Ghostty keybind config", comment: "Help: reloadconfig command description")
+        let reloadConfigDesc = String(localized: "Reload imported Swiftty keybind config", comment: "Help: reloadconfig command description")
         let shortcutsHeader = String(localized: "Keyboard Shortcuts:", comment: "Help: keyboard shortcuts section header")
         let ctrlADesc = String(localized: "Move to beginning of line", comment: "Help: Ctrl-A description")
         let ctrlEDesc = String(localized: "Move to end of line", comment: "Help: Ctrl-E description")
@@ -116,7 +116,7 @@ Reset the terminal state and clear scrollback.
         let helpText = """
 usage: reloadconfig
 
-Reload the imported Ghostty keybind config from ~/.ghostty/imported_keybinds.conf.
+Reload the imported Swiftty keybind config from ~/.swiftty/imported_keybinds.conf.
 Use this after editing the file from a local shell or through a symlink in your home directory.
 
 """

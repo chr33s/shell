@@ -97,7 +97,7 @@ final class KeySequenceTracker {
             // Check if this completes a valid sequence
             if let keybind = keybindManager.keybind(for: sequence) {
                 let actionName = keybind.action.rawValue
-                let seqFormat = sequence.ghosttyFormat
+                let seqFormat = sequence.swifttyFormat
                 Self.logger.info("Sequence completed: \(seqFormat) -> \(actionName)")
                 reset()
                 return .keybind(keybind)
@@ -182,7 +182,7 @@ final class KeySequenceTracker {
                 // case — users who want tmux-style prefixes should pick a key
                 // whose default isn't a control char.
                 if directKeybind.source == .default && directKeybind.action.isControlCharacter {
-                    let trigFormat = trigger.ghosttyFormat
+                    let trigFormat = trigger.swifttyFormat
                     Self.logger.info("Default control-char shadows sequence prefix, passing through: \(trigFormat)")
                     return .passthrough
                 }
@@ -191,13 +191,13 @@ final class KeySequenceTracker {
                     bindings: sequenceBindings,
                     directKeybind: directKeybind
                 )
-                let trigFormat = trigger.ghosttyFormat
+                let trigFormat = trigger.swifttyFormat
                 Self.logger.info("Trigger may be sequence prefix, waiting: \(trigFormat)")
                 return .pendingSequence(prefix: trigger, possibleBindings: sequenceBindings)
             }
 
             // Direct match, no conflict
-            let trigFormat = trigger.ghosttyFormat
+            let trigFormat = trigger.swifttyFormat
             let actionName = directKeybind.action.rawValue
             Self.logger.info("Direct binding: \(trigFormat) -> \(actionName)")
             return .keybind(directKeybind)
@@ -210,7 +210,7 @@ final class KeySequenceTracker {
                 bindings: sequenceBindings,
                 directKeybind: nil
             )
-            let trigFormat = trigger.ghosttyFormat
+            let trigFormat = trigger.swifttyFormat
             Self.logger.info("Sequence prefix detected: \(trigFormat)")
             return .pendingSequence(prefix: trigger, possibleBindings: sequenceBindings)
         }

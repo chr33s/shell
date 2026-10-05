@@ -294,7 +294,7 @@ final class TerminalKeyboardAccessoryController: NSObject {
         if changed {
             let tracker = KeyboardTracker.shared
             let isDocked = KeyboardGeometryMonitor.shared.isKeyboardDocked
-            Ghostty.logger.debug(
+            Swiftty.logger.debug(
                 "Reserved home-indicator strip: \(height, privacy: .public)pt (toolbarOnly=\(self.toolbarOnlyMode, privacy: .public), software=\(tracker.isSoftwareKeyboardVisible, privacy: .public), hardware=\(tracker.isHardwareKeyboard, privacy: .public), docked=\(isDocked, privacy: .public))"
             )
         }
@@ -400,7 +400,7 @@ final class TerminalKeyboardAccessoryController: NSObject {
 
         keyboardAccessory?.onModifiersChanged = { [weak self] modifiers in
             self?.activeKeyboardModifiers = modifiers
-            Ghostty.logger.debug("TerminalView: Toolbar modifiers changed to rawValue: \(modifiers.rawValue)")
+            Swiftty.logger.debug("TerminalView: Toolbar modifiers changed to rawValue: \(modifiers.rawValue)")
         }
 
         keyboardAccessory?.onDismissRequested = { [weak self] in
@@ -502,7 +502,7 @@ final class TerminalKeyboardAccessoryController: NSObject {
         shouldShowKeyboardToolbar = initialShowToolbar
         KeyboardGeometryMonitor.shared.notifyKeyboardToolbarLayoutChanged()
         let initialToolbarVisible = shouldShowKeyboardToolbar
-        Ghostty.logger.debug(
+        Swiftty.logger.debug(
             "TerminalView.setupKeyboard: Initial state - isHardware=\(tracker.isHardwareKeyboard), softwareVisible=\(tracker.isSoftwareKeyboardVisible), showToolbar=\(initialToolbarVisible)"
         )
 
@@ -875,7 +875,7 @@ final class TerminalKeyboardAccessoryController: NSObject {
             keyboardToolbarCollapsed = false
         }
         if shouldShowKeyboardToolbar != newShouldShow {
-            Ghostty.logger.debug(
+            Swiftty.logger.debug(
                 "TerminalView: Keyboard toolbar visibility updated (\(reason)) - isHardware=\(tracker.isHardwareKeyboard), softwareVisible=\(tracker.isSoftwareKeyboardVisible), showToolbar=\(newShouldShow)"
             )
             shouldShowKeyboardToolbar = newShouldShow

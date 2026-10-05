@@ -9,7 +9,7 @@ import Foundation
 /// Resolves `TERM` for every session type.
 ///
 /// Two independent globals, because the two sides have different terminfo
-/// databases. A recent Linux host knows `xterm-ghostty`, but neither iOS nor
+/// databases. A recent Linux host knows `xterm-swiftty`, but neither iOS nor
 /// macOS ships that entry, so a value that works remotely can leave local
 /// `vim`/`less` with no terminal capabilities at all. Both default to
 /// `xterm-256color`, which every side understands.
@@ -29,22 +29,22 @@ enum TerminalTypeSettings: Sendable {
     /// Default for the local shell.
     ///
     /// macOS ships a real ncurses that reads `TERMINFO`, and we bundle the
-    /// compiled `xterm-ghostty` entry (`Resources/terminfo`), so the local shell
-    /// can have full Ghostty capabilities out of the box — the same thing
-    /// Ghostty.app does. iOS has no terminfo database at all and its bundled
+    /// compiled `xterm-swiftty` entry (`Resources/terminfo`), so the local shell
+    /// can have full Swiftty capabilities out of the box — the same thing
+    /// desktop terminals do. iOS has no terminfo database at all and its bundled
     /// tools fall back to built-in termcap, so it stays on `xterm-256color`.
     nonisolated static var localFallback: String {
         #if targetEnvironment(macCatalyst)
-        return "xterm-ghostty"
+        return "xterm-swiftty"
         #else
         return fallback
         #endif
     }
 
     /// Path to the bundled terminfo database, exported as `TERMINFO` so
-    /// `xterm-ghostty` resolves. ncurses searches `TERMINFO` first and then
+    /// `xterm-swiftty` resolves. ncurses searches `TERMINFO` first and then
     /// falls through to the system database, so pointing at a directory that
-    /// only holds `xterm-ghostty` never breaks lookups of other names.
+    /// only holds `xterm-swiftty` never breaks lookups of other names.
     nonisolated static var terminfoPath: String? {
         guard let resources = Bundle.main.resourceURL?.appendingPathComponent("terminfo"),
               FileManager.default.fileExists(atPath: resources.path) else {
@@ -64,7 +64,7 @@ enum TerminalTypeSettings: Sendable {
     /// the conservative choice, and `vt100` the last resort for old hosts.
     nonisolated static let presets = [
         "xterm-256color",
-        "xterm-ghostty",
+        "xterm-swiftty",
         "xterm",
         "vt100"
     ]

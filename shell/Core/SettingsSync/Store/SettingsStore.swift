@@ -271,7 +271,7 @@ final class SettingsStore {
 
     private func emit(_ change: SettingsChange) {
         // External batches already went through the hub inside `applyBatch`,
-        // while `isApplyingBatch` was still set (managers and GhosttyApp rely on
+        // while `isApplyingBatch` was still set (managers and SwifttyApp rely on
         // that flag). Local writes never reached it at all, which is why every
         // setting whose consumer is a view or a session — rather than a manager
         // that writes the key itself — only took effect on the next launch.

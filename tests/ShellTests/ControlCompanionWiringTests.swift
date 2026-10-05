@@ -103,7 +103,7 @@ final class ControlCompanionWiringTests {
     }
 
     /// The tripwire pair for the two call sites that live in an app delegate
-    /// and a Ghostty callback, neither of which a unit test can drive.
+    /// and a Swiftty callback, neither of which a unit test can drive.
     @Test(.enabled(if: SourceTree.isAvailable, "App sources are not readable from this build"))
     @MainActor
     func testTripwireAppDelegateRegistersCategoriesAndTerminalRoutesOSCToAlerts() throws {
@@ -111,7 +111,7 @@ final class ControlCompanionWiringTests {
         let source = SourceTree.allAppSource()
         #expect(source.count > 100_000)
         #expect(source.contains("ControlNotifications.registerCategories()"), "AppDelegate must register the control categories before any scene is constructed")
-        #expect(source.contains("ControlNotifications.postLocalTerminalAlert(title: title, body: body)"), "The Ghostty desktop-notification callback must route to an informational alert")
+        #expect(source.contains("ControlNotifications.postLocalTerminalAlert(title: title, body: body)"), "The Swiftty desktop-notification callback must route to an informational alert")
     }
 
     private func controlSource() throws -> String {

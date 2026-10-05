@@ -5,7 +5,7 @@
 //  Native recovery status strip (docs/specs/mobile-connectivity.md §11).
 //
 //  Recovery status lives here, not in the terminal stream. Writing a spinner,
-//  a countdown, a "✓ Reconnected!" line, or an error into Ghostty corrupts
+//  a countdown, a "✓ Reconnected!" line, or an error into Swiftty corrupts
 //  whatever the remote program is drawing — catastrophically so for a
 //  full-screen alternate-screen application, whose bytes must come back
 //  byte-identical after a recovery (AC-18).

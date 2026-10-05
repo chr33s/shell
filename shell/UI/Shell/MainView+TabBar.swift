@@ -220,7 +220,7 @@ extension MainView {
             options: nil,
             errorHandler: { error in
                 TabTransferCoordinator.shared.cancelPendingMoveTabsToNewWindow(tabIDs, from: windowId)
-                Ghostty.logger.error("Failed to create transfer window: \(error.localizedDescription)")
+                Swiftty.logger.error("Failed to create transfer window: \(error.localizedDescription)")
             }
         )
         #else

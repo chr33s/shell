@@ -1,7 +1,7 @@
 // swift-tools-version: 6.2
 import PackageDescription
 
-// ShellControlCore is portable Swift: no UIKit, Ghostty, Citadel, terminal
+// ShellControlCore is portable Swift: no UIKit, Swiftty, Citadel, terminal
 // surface, SSH credential, or CloudKit dependency (docs/specs/control-protocol.md section 20).
 let package = Package(
     name: "ShellControlCore",

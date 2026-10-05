@@ -41,16 +41,18 @@ nonisolated enum TmuxRecoveryIdentity {
     ///
     /// `#{pid}` and `#{start_time}` describe the *server* process;
     /// `#{session_id}` and `#{session_created}` describe the session. Name
-    /// last, because session names may contain spaces.
+    /// last, because session names may contain spaces. Fields are separated
+    /// by spaces, not tabs: tmux replaces control characters in format output
+    /// with `_` for clients without a UTF-8 locale.
     static let continuityFormat =
-        "#{pid}\t#{start_time}\t#{session_id}\t#{session_created}\t#{socket_path}\t#{session_name}"
+        "#{pid} #{start_time} #{session_id} #{session_created} #{socket_path} #{session_name}"
 
     /// Parse one `display-message -p` / `list-sessions` line in
     /// `continuityFormat`. Server-derived text is untrusted: it is parsed into
     /// typed fields and never interpreted as an instruction.
     @MainActor static func parseContinuity(_ body: String) -> TmuxContinuityEvidence? {
         guard let line = body.split(whereSeparator: \.isNewline).first else { return nil }
-        let fields = line.split(separator: "\t", maxSplits: 5, omittingEmptySubsequences: false)
+        let fields = line.split(separator: " ", maxSplits: 5, omittingEmptySubsequences: false)
         guard fields.count >= 6 else { return nil }
         guard fields[2].hasPrefix("$"), let sessionID = Int(fields[2].dropFirst()) else { return nil }
 

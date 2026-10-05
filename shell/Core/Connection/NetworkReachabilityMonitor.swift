@@ -82,7 +82,7 @@ final class NetworkReachabilityMonitor {
     private var deferredPath: NWPath?
     private var deferredFlushScheduled = false
 
-    /// Latest path observed while `Ghostty.isAppBackgroundedAtomic` was true.
+    /// Latest path observed while `Swiftty.isAppBackgroundedAtomic` was true.
     /// `replayBackgroundPathIfAny()` (called from the FG resume path after
     /// the gate flips) drains it and runs `handlePathUpdate` once on real
     /// main-thread runtime. Mutex-protected because writes happen on
@@ -202,7 +202,7 @@ final class NetworkReachabilityMonitor {
             // saw three `Net.path.received` events with zero
             // `Net.path.dispatched` over a 30s window. Stash the latest
             // path; the FG resume path replays it on real runtime.
-            if Ghostty.isAppBackgroundedAtomic || ForegroundActivationGate.shared.isUnsafeForSceneMutation {
+            if Swiftty.isAppBackgroundedAtomic || ForegroundActivationGate.shared.isUnsafeForSceneMutation {
                 let isDown = path.status != .satisfied
                 self.backgroundPath.withLock { state in
                     state.pendingPath = path
@@ -256,7 +256,7 @@ final class NetworkReachabilityMonitor {
     }
 
     /// Replay the latest path that was suppressed while backgrounded, if
-    /// any. Must be called AFTER `Ghostty.isAppBackgroundedAtomic` is
+    /// any. Must be called AFTER `Swiftty.isAppBackgroundedAtomic` is
     /// flipped to false — several subscribers (TrzszSession, MoshSession)
     /// drop network events while that atomic is true, so a replay before
     /// the gate flip would be drained and ignored with no second chance.
@@ -313,12 +313,12 @@ final class NetworkReachabilityMonitor {
             return state.generation
         }
 
-        guard !Ghostty.isAppBackgroundedAtomic,
+        guard !Swiftty.isAppBackgroundedAtomic,
               UIApplication.shared.applicationState == .active else {
             return
         }
 
-        guard !Ghostty.isInResumeQuietWindowAtomic,
+        guard !Swiftty.isInResumeQuietWindowAtomic,
               !ForegroundActivationGate.shared.isUnsafeForSceneMutation else {
             let nextAttempt = latestGeneration == generation ? attempt + 1 : 0
             guard nextAttempt < Self.maxActivationPathFlushAttempts else {
@@ -357,7 +357,7 @@ final class NetworkReachabilityMonitor {
     func replayLatestPathAfterResumeQuietWindow() {
         guard let path = latestPath.withLock({ $0 }) else { return }
 
-        guard !Ghostty.isAppBackgroundedAtomic, !Ghostty.isInResumeQuietWindowAtomic else {
+        guard !Swiftty.isAppBackgroundedAtomic, !Swiftty.isInResumeQuietWindowAtomic else {
             deferredPath = path
             deferredPathSynthesizesConnectivityRestored = false
             scheduleDeferredPathFlush()
@@ -402,7 +402,7 @@ final class NetworkReachabilityMonitor {
         // converge on the most recent state. The synthetic-restored flag
         // travels with the path so a fresh overwrite drops a stale
         // synthesis along with the stale path.
-        if Ghostty.isInResumeQuietWindowAtomic ||
+        if Swiftty.isInResumeQuietWindowAtomic ||
             ForegroundActivationGate.shared.isUnsafeForSceneMutation {
             deferredPath = path
             deferredPathSynthesizesConnectivityRestored = synthesizeConnectivityRestored
@@ -504,8 +504,8 @@ final class NetworkReachabilityMonitor {
             guard let self else { return }
             self.deferredFlushScheduled = false
             guard self.deferredPath != nil else { return }
-            guard !Ghostty.isAppBackgroundedAtomic,
-                  !Ghostty.isInResumeQuietWindowAtomic,
+            guard !Swiftty.isAppBackgroundedAtomic,
+                  !Swiftty.isInResumeQuietWindowAtomic,
                   !ForegroundActivationGate.shared.isUnsafeForSceneMutation else {
                 self.scheduleDeferredPathFlush()
                 return

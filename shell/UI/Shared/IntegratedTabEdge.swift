@@ -289,7 +289,7 @@ struct IntegratedTabOutlineView: View {
 /// from `MainView`. Core Animation owns the bouncing segment, so no display-link
 /// updates enter SwiftUI's view graph.
 struct IntegratedOSCProgressEdgeHost: View {
-    var terminalView: Ghostty.TerminalView
+    var terminalView: Swiftty.TerminalView
     let activeTabRect: CGRect
     let rowSize: CGSize
     let selectedTabID: UUID
@@ -322,7 +322,7 @@ struct IntegratedOSCProgressEdgeHost: View {
 private struct IntegratedOSCProgressLayerView: UIViewRepresentable {
     let path: CGPath
     let lineWidth: CGFloat
-    let report: Ghostty.Action.ProgressReport
+    let report: Swiftty.Action.ProgressReport
     let selectedTabID: UUID
     let animateSelectionChanges: Bool
 
@@ -404,7 +404,7 @@ private final class IntegratedOSCProgressLayerUIView: UIView {
     func configure(
         path: CGPath,
         lineWidth: CGFloat,
-        report: Ghostty.Action.ProgressReport,
+        report: Swiftty.Action.ProgressReport,
         selectedTabID newSelectedTabID: UUID,
         animateSelectionChanges: Bool
     ) {
@@ -448,7 +448,7 @@ private final class IntegratedOSCProgressLayerUIView: UIView {
         }
     }
 
-    private static func color(for state: Ghostty.Action.ProgressReport.State) -> UIColor {
+    private static func color(for state: Swiftty.Action.ProgressReport.State) -> UIColor {
         switch state {
         case .error:
             return .appDanger

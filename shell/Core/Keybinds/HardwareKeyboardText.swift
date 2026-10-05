@@ -16,7 +16,7 @@ enum HardwareKeyboardModifiers {
 enum HardwareKeyboardText {
     private static let textModifiers: UIKeyModifierFlags = [.command, .control, .alternate, .shift, .alphaShift]
 
-    /// Text supplied to Ghostty for a printable physical key. Control and Alt
+    /// Text supplied to Swiftty for a printable physical key. Control and Alt
     /// belong to the encoder, while Shift, Caps Lock and Command select text
     /// from the keyboard layout. Used for both GCKeyboard presses and repeats.
     static func printableText(

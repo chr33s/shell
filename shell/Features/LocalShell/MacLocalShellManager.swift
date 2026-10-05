@@ -41,15 +41,15 @@ enum MacLocalShellManager {
         // This dictionary is the child's ENTIRE environment: `NativeShellProcess` turns it
         // into an explicit `envp` for `execve`, so nothing the app process exports is
         // inherited. TERM therefore has to be resolved from the synced setting right here —
-        // it was hardcoded to "xterm-ghostty", which made Settings > Terminal > TERM > Local
+        // it was hardcoded to "xterm-swiftty", which made Settings > Terminal > TERM > Local
         // a no-op on Catalyst while it worked on iOS. Likewise TERM_PROGRAM must say
-        // "ghostty" (tools sniff it for terminal capabilities, and the iOS and app-process
+        // "swiftty" (tools sniff it for terminal capabilities, and the iOS and app-process
         // spawn sites both say it) rather than the product name.
         var environment = ["HOME": home, "USER": login, "LOGNAME": login,
                            "SHELL": isPath ? executable : defaultShell,
                            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin",
                            "TERM": TerminalTypeSettings.local, "COLORTERM": "truecolor",
-                           "TERM_PROGRAM": "ghostty",
+                           "TERM_PROGRAM": "swiftty",
                            "TERM_PROGRAM_VERSION": TerminalIdentity.shortVersion,
                            "LANG": LocaleHelper.posixLocale]
         // Product identity, in the one namespace that survives SSH to a remote host — the
@@ -58,29 +58,29 @@ enum MacLocalShellManager {
         var arguments = isPath ? ["-l"] : ["-c", "exec " + executable]
         if let resources = Bundle.main.resourcePath {
             environment["TERMINFO"] = resources + "/terminfo"
-            environment["GHOSTTY_RESOURCES_DIR"] = resources
+            environment["SWIFTTY_RESOURCES_DIR"] = resources
             if integration {
                 switch shellName {
                 case "zsh":
                     environment["ZDOTDIR"] = resources + "/shell-integration/zsh"
-                    environment["GHOSTTY_SHELL_FEATURES"] = "cursor,title"
+                    environment["SWIFTTY_SHELL_FEATURES"] = "cursor,title"
                 case "bash" where isPath:
                     // bash only sources $ENV when it is in POSIX mode, so the
-                    // bundled Resources/shell-integration/bash/ghostty.bash (which
+                    // bundled Resources/shell-integration/bash/swiftty.bash (which
                     // ships in the .app and, until now, was never activated by
-                    // anything) is installed the way upstream ghostty does it:
+                    // anything) is installed the way upstream swiftty does it:
                     // launch `bash --posix -l`, point ENV at the script, and let
-                    // GHOSTTY_BASH_INJECT tell it to replay bash's normal startup
+                    // SWIFTTY_BASH_INJECT tell it to replay bash's normal startup
                     // sequence and then `set +o posix`. Long options must precede
                     // short ones — `bash -l --posix` is rejected as "invalid
                     // option" — hence the prepend. A POSIX-mode bash skips the
                     // profile files itself, so the script sourcing them is not a
                     // double-source. This dictionary is the child's whole
                     // environment, so there is no inherited ENV/HISTFILE to
-                    // preserve into GHOSTTY_BASH_ENV.
-                    environment["ENV"] = resources + "/shell-integration/bash/ghostty.bash"
-                    environment["GHOSTTY_BASH_INJECT"] = "1"
-                    environment["GHOSTTY_SHELL_FEATURES"] = "cursor,title"
+                    // preserve into SWIFTTY_BASH_ENV.
+                    environment["ENV"] = resources + "/shell-integration/bash/swiftty.bash"
+                    environment["SWIFTTY_BASH_INJECT"] = "1"
+                    environment["SWIFTTY_SHELL_FEATURES"] = "cursor,title"
                     arguments.insert("--posix", at: 0)
                 default:
                     break

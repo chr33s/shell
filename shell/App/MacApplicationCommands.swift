@@ -49,7 +49,7 @@ struct MacApplicationCommands: Commands {
         CommandGroup(replacing: .textFormatting) {}
         CommandGroup(after: .newItem) {
             Button("Close Tab") {
-                if !UIApplication.shared.sendAction(#selector(Ghostty.TerminalView.closeSplit(_:)),
+                if !UIApplication.shared.sendAction(#selector(Swiftty.TerminalView.closeSplit(_:)),
                                                      to: nil, from: nil, for: nil) {
                     MacSupport.bridge?.closeKeyWindow()
                 }

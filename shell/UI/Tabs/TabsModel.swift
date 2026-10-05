@@ -8,7 +8,7 @@
 //  Why this exists
 //  ---------------
 //  The previous design stored tabs as a value-type array under SwiftUI `@State`,
-//  with each tab a struct that mirrored data from a class (`Ghostty.TerminalView`)
+//  with each tab a struct that mirrored data from a class (`Swiftty.TerminalView`)
 //  via Combine sinks (`setupTitleObservation`). Every per-tab title or
 //  connection-health update mutated the `@State` array, which invalidated all
 //  of `MainView`'s body — including the tab bar, the terminal area, modal
@@ -27,14 +27,14 @@
 //  ---------
 //  - `TabModel.startObserving()` is invoked when a tab is added to a
 //    `TabsModel`, or when its focused split changes. It observes the focused
-//    `Ghostty.TerminalView`'s `title` and `connectionHealth` and writes the
+//    `Swiftty.TerminalView`'s `title` and `connectionHealth` and writes the
 //    resolved values into its own `@Observable` properties.
 //  - `TabModel.stopObserving()` is invoked when removed (and from `deinit`).
 //
 
 import Foundation
 import SwiftUI
-import GhosttyKit
+import SwifttyKit
 import os
 #if canImport(Darwin)
 import Darwin
@@ -318,8 +318,8 @@ final class TabModel: Identifiable {
     /// Terminal-typed view of `focusedPane`. Kept as a shim so the many
     /// terminal-only call sites read/write focus with correct semantics:
     /// reads are nil when a non-terminal pane holds focus.
-    var focusedTerminal: Ghostty.TerminalView? {
-        get { focusedPane as? Ghostty.TerminalView }
+    var focusedTerminal: Swiftty.TerminalView? {
+        get { focusedPane as? Swiftty.TerminalView }
         set { focusedPane = newValue }
     }
 
@@ -340,7 +340,7 @@ final class TabModel: Identifiable {
     // MARK: - Mirrored State (driven by the focused terminal's observed state)
 
     /// Resolved tab title — either the focused split's session-provided title
-    /// or, when that title is empty/"ghostty", the connection's display name.
+    /// or, when that title is empty/"swiftty", the connection's display name.
     /// Only observers of *this tab's* title invalidate when it changes
     /// (the @Observable macro tracks per-property reads).
     var title: String = "Terminal"
@@ -405,7 +405,7 @@ final class TabModel: Identifiable {
         startObserving()
     }
 
-    convenience init(terminalView: Ghostty.TerminalView? = nil, title: String = "Terminal", windowId: String) {
+    convenience init(terminalView: Swiftty.TerminalView? = nil, title: String = "Terminal", windowId: String) {
         self.init(paneView: terminalView, title: title, windowId: windowId)
     }
 
@@ -418,7 +418,7 @@ final class TabModel: Identifiable {
     /// Initializer used by session restoration. Wires up the split tree,
     /// focused pane, and saved title, then starts observation with
     /// `preserveExistingTitle: true` so the focused split's pre-connect
-    /// "ghostty" title doesn't overwrite the saved one. The order of
+    /// "swiftty" title doesn't overwrite the saved one. The order of
     /// assignments matters — see the comment in the body.
     init(restoringTitle title: String,
          splitTree: SplitTree<SplitPaneView>,
@@ -451,7 +451,7 @@ final class TabModel: Identifiable {
     ///
     /// Pass `preserveExistingTitle: true` during restoration so the saved tab
     /// title isn't immediately overwritten by the focused view's pre-connect
-    /// title (typically "ghostty").
+    /// title (typically "swiftty").
     func startObserving(preserveExistingTitle: Bool = false) {
         cancelObservationTasks()
         cancelPendingTitlePublication()
@@ -491,7 +491,7 @@ final class TabModel: Identifiable {
         //
         // During restoration the saved tab title must survive until the live
         // session emits a *real* (non-fallback) title. Pre-connect surface
-        // SET_TITLE actions emit "ghostty" or "", which would otherwise
+        // SET_TITLE actions emit "swiftty" or "", which would otherwise
         // resolve to the connection's `displayName` via `resolveTitle` and
         // overwrite the saved title. Gate the observation on "have we ever received
         // a real title?" — for restored tabs, fallback emissions are dropped
@@ -548,7 +548,7 @@ final class TabModel: Identifiable {
     func applyResolvedTitle(_ resolved: String) {
         // An empty title means "no update", never "blank the tab". For tmux
         // window tabs the reconcile is the sole title writer, so a blank that
-        // lands here is permanent until the next topology rebuild — the Zig
+        // lands here is permanent until the next topology rebuild — the viewer
         // snapshot deliberately sends "" for a title it can't validate.
         guard !resolved.isEmpty else { return }
         if tabsModel?.isTabSwitchAnimating == true {
@@ -616,8 +616,8 @@ final class TabModel: Identifiable {
     /// Returns the tab title to display for a focused terminal given its raw
     /// title. Returns nil for the `.local` fallback case where the existing
     /// tab title should be preserved (we don't overwrite a custom title with
-    /// "ghostty" or "").
-    static func resolveTitle(rawTitle: String, on terminal: Ghostty.TerminalView) -> String? {
+    /// "swiftty" or "").
+    static func resolveTitle(rawTitle: String, on terminal: Swiftty.TerminalView) -> String? {
         if !shouldUseFallbackTitle(rawTitle) { return rawTitle }
         switch terminal.connectionConfig {
         case .ssh(let config): return config.displayName
@@ -627,7 +627,7 @@ final class TabModel: Identifiable {
     }
 
     static func shouldUseFallbackTitle(_ title: String) -> Bool {
-        return title.isEmpty || title == "ghostty"
+        return title.isEmpty || title == "swiftty"
     }
 
     /// Allow callers to force a fallback title (used during restoration when
@@ -1626,7 +1626,7 @@ final class TabsModel {
             try? await Task.sleep(for: .milliseconds(600))
             guard let self, self.displayRevealGeneration == generation else { return }
             guard self.displayedTabID != targetID else { return }
-            Ghostty.logger.warning("Tab reveal timed out waiting for first frame; revealing anyway")
+            Swiftty.logger.warning("Tab reveal timed out waiting for first frame; revealing anyway")
             self.displayedTabID = targetID
             guard let target = self.tab(withID: targetID) else { return }
             for view in target.splitTree.terminalLeaves where view.isTmuxPane && !view.hasRenderedFirstFrame {

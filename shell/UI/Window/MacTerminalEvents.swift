@@ -1,7 +1,7 @@
 #if targetEnvironment(macCatalyst)
 import UIKit
 import AppKit
-import GhosttyKit
+import SwifttyKit
 
 @MainActor
 enum MacTerminalEvents {
@@ -15,11 +15,11 @@ enum MacTerminalEvents {
             guard !WindowDragObserver.shared.isWindowMoving else { return true }
             terminal.lastMousePosition = location
             _ = terminal.cancelMomentumScrolling()
-            let mods = Ghostty.Input.ScrollMods(precision: precise,
-                momentum: Ghostty.Input.Momentum(rawValue: UInt8(phase)) ?? .none)
+            let mods = Swiftty.Input.ScrollMods(precision: precise,
+                momentum: Swiftty.Input.Momentum(rawValue: UInt8(phase)) ?? .none)
             if let surface = terminal.surface {
                 let pixels = terminal.viewToPixelCoordinates(location)
-                ghostty_surface_mouse_pos(surface, pixels.x, pixels.y, Ghostty.Input.Mods.none.cMods)
+                swiftty_surface_mouse_pos(surface, pixels.x, pixels.y, Swiftty.Input.Mods.none.cMods)
             }
             terminal.sendMouseScroll(deltaX: dx, deltaY: dy, mods: mods.cMods)
             terminal.multiplexerScrollObserver?.notifyScrollActivity()
@@ -33,24 +33,24 @@ enum MacTerminalEvents {
             CatalystCursorCoordinator.shared.ensure(cursorToken, cursor: cursor, priority: .terminal)
         }, menu: { nativeWindow, point in
             guard let (terminal, location) = target(nativeWindow, at: point),
-                  let surface = terminal.surface, !ghostty_surface_mouse_captured(surface) else { return nil }
+                  let surface = terminal.surface, !swiftty_surface_mouse_captured(surface) else { return nil }
             _ = terminal.becomeFirstResponder()
             NotificationCenter.default.post(name: .focusSplit, object: terminal)
             return terminal.nativeContextMenu(at: location)
         })
     }
 
-    private static func target(_ nativeWindow: NSObject, at normalizedPoint: CGPoint) -> (Ghostty.TerminalView, CGPoint)? {
+    private static func target(_ nativeWindow: NSObject, at normalizedPoint: CGPoint) -> (Swiftty.TerminalView, CGPoint)? {
         guard let sceneID = WindowAccessor.sceneSessionId(for: nativeWindow),
               let scene = UIApplication.shared.connectedScenes.first(where: { $0.session.persistentIdentifier == sceneID }) as? UIWindowScene,
               let window = scene.windows.first(where: { $0.isKeyWindow }) ?? scene.windows.first else { return nil }
         let location = CGPoint(x: normalizedPoint.x * window.bounds.width, y: normalizedPoint.y * window.bounds.height)
         var view = window.hitTest(location, with: nil)
         while let candidate = view {
-            if let terminal = candidate as? Ghostty.TerminalView {
+            if let terminal = candidate as? Swiftty.TerminalView {
                 return (terminal, terminal.convert(location, from: window))
             }
-            if let scroll = candidate as? Ghostty.TerminalScrollView {
+            if let scroll = candidate as? Swiftty.TerminalScrollView {
                 return (scroll.terminalView, scroll.terminalView.convert(location, from: window))
             }
             view = candidate.superview

@@ -5,7 +5,7 @@
 //  Binds one terminal to its `ReconnectionManager` and publishes recovery
 //  status to the native strip (docs/specs/mobile-connectivity.md §11).
 //
-//  This file used to write recovery UI into Ghostty: a spinner animated at
+//  This file used to write recovery UI into Swiftty: a spinner animated at
 //  0.08s, a 0.1s countdown timer rewriting a status line, a centred error
 //  message, and a "✓ Reconnected!" line — all as escape sequences injected
 //  into the terminal's byte stream. That is unrecoverable corruption for any
@@ -51,7 +51,7 @@ final class TerminalReconnectionController {
         reconnect: @escaping @MainActor () async throws -> Void
     ) {
         guard session.supportsAutoReconnect else {
-            Ghostty.logger.debug("Session type does not support auto-reconnect")
+            Swiftty.logger.debug("Session type does not support auto-reconnect")
             return
         }
 
@@ -115,15 +115,15 @@ final class TerminalReconnectionController {
             guard let self else { return }
             guard let current = currentSession(),
                   ObjectIdentifier(current as AnyObject) == configuredSessionID else {
-                Ghostty.logger.info("Ignoring disconnect from stale session: \(reason.description)")
+                Swiftty.logger.info("Ignoring disconnect from stale session: \(reason.description)")
                 return
             }
-            Ghostty.logger.info("Session disconnected: \(reason.description)")
+            Swiftty.logger.info("Session disconnected: \(reason.description)")
             self.host?.terminalSessionWillChange()
             self.manager?.handleDisconnect(reason: reason)
         }
 
-        Ghostty.logger.info("Reconnection manager configured for session")
+        Swiftty.logger.info("Reconnection manager configured for session")
     }
 
     /// Give the coordinator the trust scope and intent it must reconnect with.

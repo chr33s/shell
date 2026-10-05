@@ -213,7 +213,7 @@ private final class TransparentWindowView: UIView {
             .store(in: &cancellables)
 
         // Listen for surface count changes
-        Ghostty.App.shared?.surfaceCountDidChange
+        Swiftty.App.shared?.surfaceCountDidChange
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.configureWindow()
@@ -342,7 +342,7 @@ private final class TransparentWindowView: UIView {
 
         if shouldApplyTransparency {
             // Using a very low alpha value (0.001) instead of pure clear
-            // This matches ghostty macOS behavior and provides better visual results
+            // This matches swiftty macOS behavior and provides better visual results
             window.backgroundColor = .white.withAlphaComponent(0.001)
             window.isOpaque = false
 
@@ -409,7 +409,7 @@ private final class TransparentWindowView: UIView {
     private func currentWindowConfigSignature() -> WindowConfigSignature? {
         guard let uiWindow = self.window else { return nil }
         let sceneSessionId = uiWindow.windowScene?.session.persistentIdentifier ?? ""
-        let hasActiveSurfaces = Ghostty.App.shared?.hasActiveSurfaces ?? false
+        let hasActiveSurfaces = Swiftty.App.shared?.hasActiveSurfaces ?? false
         let opacity = TransparencyManager.shared.backgroundOpacity
         let store = SettingsStore.shared
         return WindowConfigSignature(
@@ -483,12 +483,12 @@ private final class TransparentWindowView: UIView {
     private func makeNSWindowTransparent() {
         guard let uiWindow = self.window else { return }
 
-        // Check if there are active Ghostty surfaces
-        let hasActiveSurfaces = Ghostty.App.shared?.hasActiveSurfaces ?? false
+        // Check if there are active Swiftty surfaces
+        let hasActiveSurfaces = Swiftty.App.shared?.hasActiveSurfaces ?? false
         let opacity = TransparencyManager.shared.backgroundOpacity
 
         // Only apply transparency if:
-        // 1. There are active Ghostty surfaces, AND
+        // 1. There are active Swiftty surfaces, AND
         // 2. Opacity is less than 1.0
         // Otherwise, use a solid background color
         let shouldApplyTransparency = hasActiveSurfaces && opacity < 1.0
@@ -615,7 +615,7 @@ private final class TransparentWindowView: UIView {
 
         // Blur is per-NSWindow state and dies with the old window on reopen;
         // re-assert it in the same pass that configures the claimed window.
-        Ghostty.App.shared?.applyWindowBlur(to: window)
+        Swiftty.App.shared?.applyWindowBlur(to: window)
 
         // Re-assert the UIKit side: SwiftUI's scene bring-up repaints the
         // UIWindow opaque between configureWindow's write and this pass on a

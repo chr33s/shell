@@ -73,7 +73,7 @@ final class KeybindCommandGenerator {
             guard !binding.action.isControlCharacter else { continue }
 
             // Skip terminal-only actions that don't need UIKeyCommands
-            // (handled directly via ghostty_surface_binding_action)
+            // (handled directly via swiftty_surface_binding_action)
             guard shouldGenerateCommand(for: binding) else { continue }
 
             // Only generate commands for the first trigger of sequences
@@ -137,7 +137,7 @@ final class KeybindCommandGenerator {
              .reset_font_size, .start_search, .select_all:
             return true
 
-        // Terminal actions are handled via ghostty_surface_binding_action
+        // Terminal actions are handled via swiftty_surface_binding_action
         // but some still need UIKeyCommands for menu display
         case .copy_to_clipboard, .paste_from_clipboard, .scroll_page_up, .scroll_page_down,
              .scroll_to_top, .scroll_to_bottom, .clear_screen, .reset_terminal:
@@ -193,9 +193,9 @@ final class KeybindCommandGenerator {
             // Paste is privacy-sensitive on iOS. Dispatching it through the
             // generic keybind handler loses UIKit's verified keyboard-paste
             // intent even when the physical shortcut is Command-V.
-            action = #selector(Ghostty.TerminalView.paste(_:))
+            action = #selector(Swiftty.TerminalView.paste(_:))
         } else {
-            action = #selector(Ghostty.TerminalView.handleKeybindCommand(_:))
+            action = #selector(Swiftty.TerminalView.handleKeybindCommand(_:))
         }
 
         let command = UIKeyCommand(
@@ -250,7 +250,7 @@ final class KeybindCommandGenerator {
                 let cmd = UIKeyCommand(
                     input: arrowInput,
                     modifierFlags: modFlags,
-                    action: #selector(Ghostty.TerminalView.handleArrowKey(_:))
+                    action: #selector(Swiftty.TerminalView.handleArrowKey(_:))
                 )
                 cmd.wantsPriorityOverSystemBehavior = true
                 cmd.allowKeyRepeat()
@@ -268,7 +268,7 @@ final class KeybindCommandGenerator {
             let returnCommand = UIKeyCommand(
                 input: "\r",
                 modifierFlags: [],
-                action: #selector(Ghostty.TerminalView.handleReturnKey(_:))
+                action: #selector(Swiftty.TerminalView.handleReturnKey(_:))
             )
             returnCommand.allowKeyRepeat()
             commands.append(returnCommand)
@@ -291,7 +291,7 @@ final class KeybindCommandGenerator {
             let command = UIKeyCommand(
                 input: "\r",
                 modifierFlags: flags,
-                action: #selector(Ghostty.TerminalView.handleModifiedReturnKey(_:))
+                action: #selector(Swiftty.TerminalView.handleModifiedReturnKey(_:))
             )
             command.wantsPriorityOverSystemBehavior = true
             // .automatic resolves to non-repeatable for modifier combos like
@@ -312,7 +312,7 @@ final class KeybindCommandGenerator {
             let escapeCommand = UIKeyCommand(
                 input: UIKeyCommand.inputEscape,
                 modifierFlags: [],
-                action: #selector(Ghostty.TerminalView.handleEscapeKey(_:))
+                action: #selector(Swiftty.TerminalView.handleEscapeKey(_:))
             )
             // Prevent system Cancel behavior from stealing focus on Mac Catalyst.
             escapeCommand.wantsPriorityOverSystemBehavior = true
@@ -327,7 +327,7 @@ final class KeybindCommandGenerator {
             let optionEscapeCommand = UIKeyCommand(
                 input: UIKeyCommand.inputEscape,
                 modifierFlags: .alternate,
-                action: #selector(Ghostty.TerminalView.handleEscapeKey(_:))
+                action: #selector(Swiftty.TerminalView.handleEscapeKey(_:))
             )
             optionEscapeCommand.wantsPriorityOverSystemBehavior = true
             optionEscapeCommand.allowKeyRepeat()
@@ -345,7 +345,7 @@ final class KeybindCommandGenerator {
             let cancelCommand = UIKeyCommand(
                 input: ".",
                 modifierFlags: .command,
-                action: #selector(Ghostty.TerminalView.handleSystemCancelCommand(_:))
+                action: #selector(Swiftty.TerminalView.handleSystemCancelCommand(_:))
             )
             cancelCommand.wantsPriorityOverSystemBehavior = true
             commands.append(cancelCommand)
@@ -354,9 +354,9 @@ final class KeybindCommandGenerator {
 
         // Tab key — each combo skipped if claimed by a binding or sequence prefix.
         let tabVariants: [(UIKeyModifierFlags, Selector)] = [
-            ([], #selector(Ghostty.TerminalView.handleTabKey(_:))),
-            (.shift, #selector(Ghostty.TerminalView.handleShiftTabKey(_:))),
-            (.alternate, #selector(Ghostty.TerminalView.handleTabKey(_:)))
+            ([], #selector(Swiftty.TerminalView.handleTabKey(_:))),
+            (.shift, #selector(Swiftty.TerminalView.handleShiftTabKey(_:))),
+            (.alternate, #selector(Swiftty.TerminalView.handleTabKey(_:)))
         ]
         for (flags, selector) in tabVariants {
             let trigger = KeyTrigger(
@@ -398,7 +398,7 @@ final class KeybindCommandGenerator {
                 let cmd = UIKeyCommand(
                     input: fKeyInput,
                     modifierFlags: modFlags,
-                    action: #selector(Ghostty.TerminalView.handleFunctionKey(_:))
+                    action: #selector(Swiftty.TerminalView.handleFunctionKey(_:))
                 )
                 cmd.wantsPriorityOverSystemBehavior = true
                 cmd.allowKeyRepeat()

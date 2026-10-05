@@ -5,7 +5,7 @@
 # Usage: ./scripts/build-watch.sh [log-path]
 #
 # The Watch target is built separately from the iOS target on purpose: it does
-# not share the iOS bridging header, bundle identity, or Ghostty linker flags
+# not share the iOS bridging header or bundle identity
 # (docs/specs/control-protocol.md section 20).
 set -uo pipefail
 

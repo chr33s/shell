@@ -13,7 +13,7 @@ import Foundation
 /// `AcceptEnv LANG LC_*`. `LC_TERMINAL` is not a real locale category, so `setlocale`
 /// ignores it.
 ///
-/// This is deliberately separate from `TERM_PROGRAM`, which stays `ghostty` because
+/// This is deliberately separate from `TERM_PROGRAM`, which stays `swiftty` because
 /// tools sniff it for terminal capabilities, and from `TERM`, which is terminfo identity.
 ///
 /// All members are `nonisolated` since they are read from NIO event loop contexts.

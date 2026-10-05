@@ -57,7 +57,7 @@ final class SettingsSyncSidecarStore {
     static var fileURL: URL {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         return docs
-            .appendingPathComponent(".ghostty", isDirectory: true)
+            .appendingPathComponent(".swiftty", isDirectory: true)
             .appendingPathComponent("sync", isDirectory: true)
             .appendingPathComponent("settings_sync_state.json")
     }

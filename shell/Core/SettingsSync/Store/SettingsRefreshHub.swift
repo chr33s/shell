@@ -27,8 +27,8 @@ final class SettingsRefreshHub {
 
     private var registrations: [Token: Registration] = [:]
 
-    /// Groups whose keys feed the generated GhosttyKit config.
-    static let ghosttyGroups: Set<SettingGroup> = [
+    /// Groups whose keys feed the generated SwifttyKit config.
+    static let swifttyGroups: Set<SettingGroup> = [
         .theme, .font, .cursor, .selection, .transparency, .keybinds, .terminal, .keyboard
     ]
 
@@ -67,7 +67,7 @@ final class SettingsRefreshHub {
     }
 
     /// Called by the store for every batch: the per-instance notifications above
-    /// fire on any origin, the manager registrations and the ghostty reload only
+    /// fire on any origin, the manager registrations and the swiftty reload only
     /// for non-local batches, while `isApplyingBatch` is set.
     func dispatch(_ change: SettingsChange) {
         guard !change.keys.isEmpty else { return }
@@ -97,8 +97,8 @@ final class SettingsRefreshHub {
             if !hit.isEmpty { registration.reload(hit) }
         }
 
-        if !groups.isDisjoint(with: Self.ghosttyGroups) {
-            Ghostty.App.shared?.reloadGlobalConfig()
+        if !groups.isDisjoint(with: Self.swifttyGroups) {
+            Swiftty.App.shared?.reloadGlobalConfig()
         }
         Self.logger.info("Dispatched \(change.keys.count) \(change.origin.rawValue, privacy: .public) keys to \(self.registrations.count) registrations")
     }

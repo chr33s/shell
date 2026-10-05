@@ -51,7 +51,7 @@ nonisolated struct SerializableSplitTree: Codable, Equatable, Sendable {
             /// True when this terminal was running a live `tmux -CC` control-mode
             /// gateway at save time (its `tmuxController` was non-nil). On
             /// restore, once this terminal's tssh session resumes the live pty,
-            /// the app calls `ghostty_surface_tmux_resume` to re-enter control
+            /// the app calls `swiftty_surface_tmux_resume` to re-enter control
             /// mode and reproject the tmux window tabs. Optional so older saved
             /// state (without the key) decodes as `nil` (= not a gateway).
             let wasTmuxGateway: Bool?

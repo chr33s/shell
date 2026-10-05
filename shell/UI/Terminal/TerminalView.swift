@@ -9,18 +9,18 @@ import UIKit
 import SwiftUI
 import Combine
 import os
-import GhosttyKit
+import SwifttyKit
 import UserNotifications
 import UniformTypeIdentifiers
 #if targetEnvironment(macCatalyst)
 import AppKit
 #endif
 
-extension Ghostty {
+extension Swiftty {
 
     /// Controls whether the physical Option key acts as terminal Alt/Meta (sends ESC prefix)
     /// or as a character-producing modifier (sends OS-translated character, e.g., @ for ⌥L on German).
-    /// Matches Ghostty's `macos-option-as-alt` setting.
+    /// Matches Swiftty's `macos-option-as-alt` setting.
     enum OptionKeyAsAlt: String, CaseIterable, Sendable {
         case off                 // Option produces OS characters (default, correct for international layouts)
         case on                  // Both Option keys act as terminal Alt (ESC prefix)
@@ -71,13 +71,13 @@ extension Ghostty {
         /// assignment does not wake observers.
         @Observable
         final class ObservedState {
-            var title: String = "ghostty"
+            var title: String = "swiftty"
             var pwd: String?
             var cellSize: CGSize = .zero
             var error: Error?
-            var searchState: Ghostty.SearchState?
+            var searchState: Swiftty.SearchState?
             var isMouseCaptured: Bool = false
-            var progressReport: Ghostty.Action.ProgressReport?
+            var progressReport: Swiftty.Action.ProgressReport?
             var connectionHealth: ConnectionHealth?
             var restorationState: RestorationState = .none
             var recoveryStatus: RecoveryStatusPresentation?
@@ -123,7 +123,7 @@ extension Ghostty {
         }
 
         /// Maps characters to HID usages for routing virtual keyboard
-        /// key presses through Ghostty's key encoding pipeline.
+        /// key presses through Swiftty's key encoding pipeline.
         /// This enables proper CSI u / kitty protocol encoding for modified keys.
         static let characterHIDUsageMap: [Character: UIKeyboardHIDUsage] = {
             var map: [Character: UIKeyboardHIDUsage] = [
@@ -280,7 +280,7 @@ extension Ghostty {
         /// Most recent working directory the terminal has reported. Cached in a
         /// non-observed property so we can keep it up to date while the resume
         /// gate is up without triggering SwiftUI scene updates (see
-        /// `Ghostty.isAppBackgroundedAtomic`). On foreground return,
+        /// `Swiftty.isAppBackgroundedAtomic`). On foreground return,
         /// `replayCachedSessionStateOnForeground()` pushes this into the
         /// observed `pwd` so the UI catches up.
         var sessionProvidedPwd: String?
@@ -310,7 +310,7 @@ extension Ghostty {
         }
 
         /// Search state for scrollback search.
-        var searchState: Ghostty.SearchState? {
+        var searchState: Swiftty.SearchState? {
             get { observed.searchState }
             set {
                 if observed.searchState !== newValue {
@@ -334,7 +334,7 @@ extension Ghostty {
                 updateOutputCoalescingState()
                 // When capture ends, force-reset the tmux scroll observer so
                 // it doesn't keep `isTracking == true` (and thus block
-                // Ghostty's native handleScrollbar values from updating the
+                // Swiftty's native handleScrollbar values from updating the
                 // indicator) while it sits in `.fading`.
                 if oldValue && !newValue {
                     multiplexerScrollObserver?.reset()
@@ -350,13 +350,13 @@ extension Ghostty {
         /// User-toggled override that force-disables mouse reporting for this terminal.
         /// When active, native text selection and scrolling work even when the
         /// terminal program has mouse reporting enabled (tmux, vim, etc.).
-        /// This uses ghostty's built-in `toggle_mouse_reporting` action which sets
-        /// `config.mouse_reporting = false`, making `ghostty_surface_mouse_captured()`
-        /// return false and suppressing mouse protocol reports at the ghostty level.
+        /// This uses swiftty's built-in `toggle_mouse_reporting` action which sets
+        /// `config.mouse_reporting = false`, making `swiftty_surface_mouse_captured()`
+        /// return false and suppressing mouse protocol reports at the swiftty level.
         var mouseCaptureOverrideActive: Bool = false
 
         /// Progress report state (for OSC 9;4 progress indicators).
-        var progressReport: Ghostty.Action.ProgressReport? {
+        var progressReport: Swiftty.Action.ProgressReport? {
             get { observed.progressReport }
             set {
                 if observed.progressReport != newValue {
@@ -385,29 +385,29 @@ extension Ghostty {
         }
 
         /// Surface size information
-        var surfaceSize: ghostty_surface_size_s? {
+        var surfaceSize: swiftty_surface_size_s? {
             guard let surface = self.surface else { return nil }
-            return ghostty_surface_size(surface)
+            return swiftty_surface_size(surface)
         }
 
         // MARK: Session State
 
-        var surface: ghostty_surface_t? {
+        var surface: swiftty_surface_t? {
             didSet {
                 if surface != oldValue { invalidateInputDocument(resetDocument: true) }
             }
         }
-        var ghosttyApp: Ghostty.App?
+        var swifttyApp: Swiftty.App?
 
         /// When set, this view renders a tmux control mode PANE rather than
         /// running its own session. Its surface is created via
-        /// `ghostty_surface_new_tmux_pane` bound to the viewer-owner's pane
+        /// `swiftty_surface_new_tmux_pane` bound to the viewer-owner's pane
         /// terminal (single-terminal model): it has no PTY/pipe and no
         /// `TerminalSession`. Keyboard/text input flows to the tmux backend,
         /// which relays it to the parent as `send-keys`. Must be assigned
         /// before the view is added to a window (before `createSurface`).
         struct TmuxPaneBinding {
-            let parentSurface: ghostty_surface_t
+            let parentSurface: swiftty_surface_t
             /// Stable identity of the gateway terminal that owns `parentSurface`
             /// (the gateway view's `uuid`, == its `TmuxController.ownerTerminalUUID`),
             /// captured at bind time. `parentSurface` is a raw pointer whose ADDRESS
@@ -435,7 +435,7 @@ extension Ghostty {
         var isTmuxPane: Bool { tmuxPaneBinding != nil }
 
         /// Per-pane identity queried from tmux. A projected tmux surface has a
-        /// synthetic Ghostty title such as "Pane%196", so its ordinary OSC
+        /// synthetic Swiftty title such as "Pane%196", so its ordinary OSC
         /// title publisher cannot be used as the pane label.
         var tmuxReportedPaneTitle: String? {
             didSet { refreshPanePresentationTitle() }
@@ -444,7 +444,7 @@ extension Ghostty {
             didSet { refreshPanePresentationTitle() }
         }
 
-        /// Read from `ghosttyAPIQueue` by the surface size path while tmux
+        /// Read from `swifttyAPIQueue` by the surface size path while tmux
         /// writes it on the main actor, so it is lock-backed.
         nonisolated var tmuxDetachInProgressAtomic: Bool {
             get { tmuxDetachInProgressFlag.withLock { $0 } }
@@ -494,7 +494,7 @@ extension Ghostty {
         /// never compare equal. ROOTSHELL-TMUX (id=tmux-title-only-fast-path)
         weak var tmuxReboundSession: AnyObject?
 
-        /// Attached-session identity (GHOSTTY_ACTION_TMUX_SESSION_CHANGED)
+        /// Attached-session identity (SWIFTTY_ACTION_TMUX_SESSION_CHANGED)
         /// that arrived BEFORE the first reconcile created `tmuxController`
         /// (startup emits it alongside the first command, well before the
         /// topology). Flushed into the controller at creation
@@ -587,7 +587,7 @@ extension Ghostty {
                 #endif
                 // Same reason as `isMouseCaptured`: the Compose checkmark reads
                 // this flag off a UIView. Every write site is covered here, not
-                // just the ones that post `.ghosttyComposeStateChanged`.
+                // just the ones that post `.swifttyComposeStateChanged`.
                 MenuFocusState.shared.notePaneStateChanged()
             }
         }
@@ -628,7 +628,7 @@ extension Ghostty {
         /// Timestamp of last space insertion for double-space-for-period detection
         private var lastSpaceInsertTime: Date?
 
-        /// Last URL detected by Ghostty's mouse-over-link action (set synchronously by probe)
+        /// Last URL detected by Swiftty's mouse-over-link action (set synchronously by probe)
         var lastProbedLinkURL: String?
 
         /// Connection configuration for this terminal session
@@ -647,13 +647,13 @@ extension Ghostty {
         /// Set on a restored gateway terminal whose saved leaf had
         /// `wasTmuxGateway == true`. When this terminal's tssh session resumes
         /// the live pty (`.running` + `wasResumed`), the app calls
-        /// `ghostty_surface_tmux_resume` to re-enter tmux control mode. Kept true
+        /// `swiftty_surface_tmux_resume` to re-enter tmux control mode. Kept true
         /// while resume is pending so autosave can still identify the gateway;
         /// cleared on successful reconcile or resume abort. See
         /// `maybeResumeTmuxControlMode`.
         var restoredWasTmuxGateway: Bool = false
 
-        /// True once `ghostty_surface_tmux_resume` has been fired for this
+        /// True once `swiftty_surface_tmux_resume` has been fired for this
         /// restored gateway, so the resume + watchdog are armed at most once.
         var tmuxResumeRequested: Bool = false
 
@@ -670,12 +670,12 @@ extension Ghostty {
         /// in `applyTmuxReconcile`.
         var tmuxResumeWatchdog: Task<Void, Never>?
 
-        /// Keeps restored tssh output behind the scrollback gate until Ghostty
+        /// Keeps restored tssh output behind the scrollback gate until Swiftty
         /// has actually created its tmux viewer. The hidden gateway's saved ANSI
         /// replay is skipped; projected panes are rebuilt from tmux. Without
         /// this handshake, a fast roaming reattach can
         /// feed raw `%output` records to the ordinary shell parser before the
-        /// asynchronous resume mailbox message is consumed.
+        /// asynchronous resume request is consumed.
         var tmuxResumeGateReleaseScheduled = false
         var tmuxResumeGateReleaseTask: Task<Void, Never>?
 
@@ -686,11 +686,11 @@ extension Ghostty {
         var onAuthenticationRequired: (@MainActor @Sendable (SSHConfig) -> Void)?
 
         // Callback for SSH host key validation
-        var onHostKeyValidationRequired: (@MainActor @Sendable (HostKeyValidationRequest, Ghostty.TerminalView) async -> HostKeyValidationResult)?
+        var onHostKeyValidationRequired: (@MainActor @Sendable (HostKeyValidationRequest, Swiftty.TerminalView) async -> HostKeyValidationResult)?
 
         // Callback for keyboard-interactive (RFC 4256) SSH challenges. Returns one
         // response per prompt, or nil if the user cancelled.
-        var onKeyboardInteractiveChallengeRequired: (@MainActor @Sendable (KeyboardInteractiveChallenge, Ghostty.TerminalView) async -> [String]?)?
+        var onKeyboardInteractiveChallengeRequired: (@MainActor @Sendable (KeyboardInteractiveChallenge, Swiftty.TerminalView) async -> [String]?)?
 
         // Connection health for SSH sessions.
         // Mutate via `applyConnectionHealth(_:)` so writes are equality-guarded
@@ -787,13 +787,13 @@ extension Ghostty {
         // `isLogicallyFocused` (logically focused in the split tree) is
         // inherited from SplitPaneView.
 
-        // Slave FD for writing session output to Ghostty
+        // Slave FD for writing session output to Swiftty
         var slaveFd: Int32 {
             get { surfaceController.slaveFd }
             set { surfaceController.slaveFd = newValue }
         }
 
-        // Response pipe read FD for reading terminal responses from Ghostty (e.g., cursor position queries)
+        // Response pipe read FD for reading terminal responses from Swiftty (e.g., cursor position queries)
         var responseFd: Int32 {
             get { surfaceController.responseFd }
             set { surfaceController.responseFd = newValue }
@@ -817,7 +817,7 @@ extension Ghostty {
 
         // MARK: Size Change Tracking
 
-        static let logFrequentLayout = ProcessInfo.processInfo.environment["GHOSTTY_LOG_FREQUENT_LAYOUT"] == "1"
+        static let logFrequentLayout = ProcessInfo.processInfo.environment["SWIFTTY_LOG_FREQUENT_LAYOUT"] == "1"
 
         /// Suppresses PTY size updates during background transitions to prevent spurious
         /// SIGWINCH signals that corrupt cursor position. Set to true when entering background,
@@ -926,7 +926,7 @@ extension Ghostty {
         /// against its own documentView, so two of them leave cross-hierarchy
         /// constraints behind and fight over the view on every layout pass. Declared
         /// outside the Catalyst gate below — the wrapper exists on every platform.
-        weak var enclosingTerminalScrollView: Ghostty.TerminalScrollView?
+        weak var enclosingTerminalScrollView: Swiftty.TerminalScrollView?
 
         #if !targetEnvironment(macCatalyst)
         /// Pan gesture for text selection on iOS/iPadOS (movement-based, not long press)
@@ -994,7 +994,7 @@ extension Ghostty {
         /// Coalesces deferred selection-handle visibility refreshes.
         var selectionHandleSyncPending: Bool = false
         /// Which handle is currently being dragged
-        var activeHandleDrag: Ghostty.SelectionHandlePosition?
+        var activeHandleDrag: Swiftty.SelectionHandlePosition?
         /// Magnifier shown during touch selection and selection-handle drags.
         var selectionMagnifierView: SelectionMagnifierView?
         /// System loupe used when the iOS/iPadOS native-loupe preference is enabled.
@@ -1059,7 +1059,7 @@ extension Ghostty {
         // accessors keep the existing input and gesture code compiling while
         // input behavior is separated from the UIView identity.
         var keyRepeatManager: KeyRepeatManager { inputController.keyRepeatManager }
-        var modTapInterceptor: Ghostty.ModTapInterceptor { inputController.modTapInterceptor }
+        var modTapInterceptor: Swiftty.ModTapInterceptor { inputController.modTapInterceptor }
         var virtualModTapModifier: ModTapModifier? {
             get { inputController.virtualModTapModifier }
             set { inputController.virtualModTapModifier = newValue }
@@ -1108,7 +1108,7 @@ extension Ghostty {
             set { inputController.heldControlSide = newValue }
         }
 
-        // Track modifiers used at press time for special keys routed through Ghostty,
+        // Track modifiers used at press time for special keys routed through Swiftty,
         // so release events use the same modifiers (avoids mismatched key event pairs).
         var specialKeyPressModifiers: [UIKeyboardHIDUsage: UIKeyModifierFlags] {
             get { inputController.specialKeyPressModifiers }
@@ -1123,7 +1123,7 @@ extension Ghostty {
         }
 
         /// Currently held hardware keyboard modifiers (tracked for mouse event modifier state).
-        var heldHardwareModifiers: Ghostty.Input.Mods {
+        var heldHardwareModifiers: Swiftty.Input.Mods {
             get { inputController.heldHardwareModifiers }
             set { inputController.heldHardwareModifiers = newValue }
         }
@@ -1217,7 +1217,7 @@ extension Ghostty {
         /// with multiplexer-derived values so the existing scrollbar plumbing
         /// (handleScrollbarUpdate in TerminalScrollView) drives UIScrollView's
         /// native indicator.
-        var multiplexerScrollObserver: Ghostty.MultiplexerScrollIndicatorObserver?
+        var multiplexerScrollObserver: Swiftty.MultiplexerScrollIndicatorObserver?
 
         /// True while `multiplexerScrollObserver` is feeding multiplexer-
         /// derived values into scrollbarTotal/Offset/Len. Used by
@@ -1245,7 +1245,7 @@ extension Ghostty {
         private var nativeScrollbarSnapshotLen: UInt64?
 
         /// Current scrollbar state (exposed for TerminalScrollView)
-        var scrollbar: Ghostty.Action.Scrollbar? {
+        var scrollbar: Swiftty.Action.Scrollbar? {
             // tmux control-mode panes render a viewer-owned terminal while the
             // surface's io.terminal is only a relay placeholder. Query the full
             // displayed-terminal scrollbar so total and offset come from the
@@ -1254,18 +1254,18 @@ extension Ghostty {
                 // Without the viewer surface there is no displayed sample;
                 // the cached relay scrollbar is not a substitute.
                 guard let surface else { return nil }
-                var scrollbar = ghostty_action_scrollbar_s()
+                var scrollbar = swiftty_action_scrollbar_s()
                 // This blocking query also returns false for valid empty
                 // history (total <= len), not just a missing primary screen.
-                guard ghostty_surface_display_scrollbar(surface, &scrollbar) else { return nil }
-                return Ghostty.Action.Scrollbar(
+                guard swiftty_surface_display_scrollbar(surface, &scrollbar) else { return nil }
+                return Swiftty.Action.Scrollbar(
                     total: scrollbar.total,
                     offset: scrollbar.offset,
                     len: scrollbar.len
                 )
             }
             guard scrollbarTotal > 0 else { return nil }
-            return Ghostty.Action.Scrollbar(
+            return Swiftty.Action.Scrollbar(
                 total: scrollbarTotal,
                 offset: scrollbarOffset,
                 len: scrollbarLen
@@ -1296,13 +1296,13 @@ extension Ghostty {
 
         // MARK: - Initialization
 
-        var ghosttyAppRef: Ghostty.App?
-        var appPtr: ghostty_app_t?
+        var swifttyAppRef: Swiftty.App?
+        var appPtr: swiftty_app_t?
 
-        init(_ app: ghostty_app_t, ghosttyApp: Ghostty.App, uuid: UUID? = nil, connectionConfig: ConnectionConfig = .local(), windowId: String) {
+        init(_ app: swiftty_app_t, swifttyApp: Swiftty.App, uuid: UUID? = nil, connectionConfig: ConnectionConfig = .local(), windowId: String) {
             self.windowId = windowId
-            self.ghosttyApp = ghosttyApp
-            self.ghosttyAppRef = ghosttyApp
+            self.swifttyApp = swifttyApp
+            self.swifttyAppRef = swifttyApp
             self.appPtr = app
             self.connectionConfig = connectionConfig
 
@@ -1359,7 +1359,7 @@ extension Ghostty {
                 }
             }
 
-            Ghostty.logger.info("TerminalView initialized for window \(windowId), deferring surface creation until view is in window")
+            Swiftty.logger.info("TerminalView initialized for window \(windowId), deferring surface creation until view is in window")
 
             // Setup view properties
             setupView()
@@ -1380,7 +1380,7 @@ extension Ghostty {
                 // teardownSurface() normally does this; if it didn't run, a
                 // stale entry would keep taking config pushes after the free
                 // and double-free the surface's link regexes.
-                if let app = Ghostty.App.shared {
+                if let app = Swiftty.App.shared {
                     app.unregisterSurfaceTab(surface)
                     app.unregisterSurfaceWindow(surface)
                     app.unregisterSurfaceDelegate(surface)
@@ -1389,17 +1389,17 @@ extension Ghostty {
 
                 // Free on background queue - may block on IO thread join
                 nonisolated(unsafe) let surfacePtr = surface
-                Self.ghosttyAPIQueue.async {
+                Self.swifttyAPIQueue.async {
                     // Wait (bounded) for any in-flight background save before
                     // freeing. If the save doesn't finish within 500 ms, leak
                     // the surface rather than risk a use-after-free — the
-                    // save dumps `ghostty_surface_dump_primary_screen` and
+                    // save dumps `swiftty_surface_dump_primary_screen` and
                     // freeing under it crashes. A wedged save would also
                     // saturate this serial queue and stall every queued
                     // occlusion/render call behind it.
                     let saveCompleted = ScrollbackPersistenceManager.waitForSurfaceSave(surfacePtr)
                     if saveCompleted {
-                        ghostty_surface_free(surfacePtr)
+                        swiftty_surface_free(surfacePtr)
                     }
                 }
             }
@@ -1512,7 +1512,7 @@ extension Ghostty {
             //
             // Tear down tmux gateway state bound to this surface BEFORE it is
             // freed. teardownSurface nils the view's surface now, then frees the
-            // real surface async on ghosttyAPIQueue. The TmuxController captured
+            // real surface async on swifttyAPIQueue. The TmuxController captured
             // that surface as a raw pointer (always-on recovery watchdog, command
             // sends, and queued reconciles all deref it), and the response
             // pipeline reports this view as a gateway while tmuxController /
@@ -1572,16 +1572,16 @@ extension Ghostty {
 #endif
 
             // Log display properties
-            Ghostty.logger.info("Display properties:")
-            Ghostty.logger.info("   contentScaleFactor: \(self.contentScaleFactor) (set to match screen)")
+            Swiftty.logger.info("Display properties:")
+            Swiftty.logger.info("   contentScaleFactor: \(self.contentScaleFactor) (set to match screen)")
 #if !os(visionOS)
             // Diagnostics only. `UIScreen.main` is deprecated, and `nativeScale`
             // has no trait equivalent, so report the view's own screen when one
             // is already attached (setup usually runs before that).
-            Ghostty.logger.info("   Trait displayScale: \(self.traitCollection.displayScale)")
+            Swiftty.logger.info("   Trait displayScale: \(self.traitCollection.displayScale)")
             if let screen = window?.windowScene?.screen {
-                Ghostty.logger.info("   Screen scale: \(screen.scale)")
-                Ghostty.logger.info("   Screen nativeScale: \(screen.nativeScale)")
+                Swiftty.logger.info("   Screen scale: \(screen.scale)")
+                Swiftty.logger.info("   Screen nativeScale: \(screen.nativeScale)")
             }
 #endif
 
@@ -1750,7 +1750,7 @@ extension Ghostty {
 
             // Add context menu interaction for copy/paste/split/etc
             // Note: Right-click in mouse capture mode (tmux, vim) is handled in the
-            // contextMenuInteraction delegate by sending events to Ghostty and polling for release
+            // contextMenuInteraction delegate by sending events to Swiftty and polling for release
             let contextInteraction = UIContextMenuInteraction(delegate: self)
             addInteraction(contextInteraction)
             self.contextMenuInteraction = contextInteraction
@@ -1937,7 +1937,7 @@ extension Ghostty {
             // derived values during mouse-captured scrolling. Hooked to the
             // surface and grid via closures so the observer stays decoupled
             // from the view's lifecycle.
-            multiplexerScrollObserver = Ghostty.MultiplexerScrollIndicatorObserver(
+            multiplexerScrollObserver = Swiftty.MultiplexerScrollIndicatorObserver(
                 surfaceProvider: { [weak self] in self?.surface },
                 gridSizeProvider: { [weak self] in
                     guard let size = self?.surfaceSize else { return nil }
@@ -1945,15 +1945,15 @@ extension Ghostty {
                 },
                 altScreenActive: { [weak self] in
                     guard let surface = self?.surface else { return false }
-                    return ghostty_surface_is_alternate_active(surface)
+                    return swiftty_surface_is_alternate_active(surface)
                 },
-                // Query the C side directly. The cached observed
+                // Query SwifttyKit directly. The cached observed
                 // `isMouseCaptured` can lag tmux's mouse-on sequence (same
                 // reason the scroll handlers query C directly — see comment
                 // at TerminalViewScroll.swift:425).
                 mouseCaptured: { [weak self] in
                     guard let surface = self?.surface else { return false }
-                    return ghostty_surface_mouse_captured(surface)
+                    return swiftty_surface_mouse_captured(surface)
                 },
                 onSample: { [weak self] sample in
                     self?.applyMultiplexerScrollSample(sample)
@@ -2023,7 +2023,7 @@ extension Ghostty {
 
                 guard let data = action.data else { return }
 
-                NotificationCenter.default.post(name: .ghosttyDidReceiveInput, object: self)
+                NotificationCenter.default.post(name: .swifttyDidReceiveInput, object: self)
                 self.sendUserInput(data)
             }
             modTapInterceptor.onModifierChanged = { [weak self] modifier in
@@ -2069,7 +2069,7 @@ extension Ghostty {
         override func setOverlayOwnsKeyboard(_ owns: Bool) {
             guard overlayOwnsKeyboard != owns else { return }
             overlayOwnsKeyboard = owns
-            Ghostty.logger.info("setOverlayOwnsKeyboard(\(owns)) terminal=\(self.uuid.uuidString.prefix(8)) isFR=\(self.isFirstResponder) logical=\(self.isLogicallyFocused)")
+            Swiftty.logger.info("setOverlayOwnsKeyboard(\(owns)) terminal=\(self.uuid.uuidString.prefix(8)) isFR=\(self.isFirstResponder) logical=\(self.isLogicallyFocused)")
             if owns {
                 if isFirstResponder {
                     // Snapshot the live toolbar reserve while it is still valid
@@ -2119,7 +2119,7 @@ extension Ghostty {
                 if !overlayOwnsKeyboard {
                     clearOverlayLatchedToolbarReserve()
                 }
-                Ghostty.logger.info("reconcile bail attempt=\(attempt) terminal=\(self.uuid.uuidString.prefix(8)) gate=\(self.overlayOwnsKeyboard) logical=\(self.isLogicallyFocused) winActive=\(self.windowIsActiveForFocus())")
+                Swiftty.logger.info("reconcile bail attempt=\(attempt) terminal=\(self.uuid.uuidString.prefix(8)) gate=\(self.overlayOwnsKeyboard) logical=\(self.isLogicallyFocused) winActive=\(self.windowIsActiveForFocus())")
                 return
             }
             // A modal still presented at gate-down time is necessarily ANIMATING
@@ -2135,7 +2135,7 @@ extension Ghostty {
             if isModalPresented() {
                 guard attempt < 24 else {
                     clearOverlayLatchedToolbarReserve()
-                    Ghostty.logger.warning("reconcile GAVE UP (modal still presented) after \(attempt) attempts terminal=\(self.uuid.uuidString.prefix(8))")
+                    Swiftty.logger.warning("reconcile GAVE UP (modal still presented) after \(attempt) attempts terminal=\(self.uuid.uuidString.prefix(8))")
                     return
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
@@ -2152,12 +2152,12 @@ extension Ghostty {
                 // valid again and the latch can drop without a layout jump.
                 clearOverlayLatchedToolbarReserve()
                 reloadInputViews()
-                Ghostty.logger.info("reconcile SUCCESS attempt=\(attempt) terminal=\(self.uuid.uuidString.prefix(8))")
+                Swiftty.logger.info("reconcile SUCCESS attempt=\(attempt) terminal=\(self.uuid.uuidString.prefix(8))")
                 return
             }
             guard attempt < 24 else {
                 clearOverlayLatchedToolbarReserve()
-                Ghostty.logger.warning("reconcile GAVE UP after \(attempt) attempts terminal=\(self.uuid.uuidString.prefix(8))")
+                Swiftty.logger.warning("reconcile GAVE UP after \(attempt) attempts terminal=\(self.uuid.uuidString.prefix(8))")
                 return
             }
             // Transient failure: re-attempt on the next runloop turn. No fixed
@@ -2198,52 +2198,52 @@ extension Ghostty {
             }
         }
 
-        /// Background queue for Ghostty surface API calls that may block on the termio mailbox.
-        /// When the mailbox is full (e.g., during heavy zellij output), calls like `ghostty_surface_set_focus`,
-        /// `ghostty_surface_mouse_button`, and `ghostty_surface_key` can block indefinitely.
+        /// Background queue for SwifttyKit surface calls that may block on a busy terminal.
+        /// During heavy output (e.g., zellij), calls like `swiftty_surface_set_focus`,
+        /// `swiftty_surface_mouse_button`, and `swiftty_surface_key` can block indefinitely.
         /// By dispatching to this background queue, we keep the main thread free to run `appTick()`,
-        /// which drains the mailbox and prevents deadlocks.
-        nonisolated static let ghosttyAPIQueue = DispatchQueue(label: "dev.chr33s.shell.surface.api", qos: .userInitiated)
+        /// which keeps the surface draining and prevents deadlocks.
+        nonisolated static let swifttyAPIQueue = DispatchQueue(label: "dev.chr33s.shell.surface.api", qos: .userInitiated)
 
-        /// Send mouse button event to Ghostty on background queue to avoid blocking main thread.
+        /// Send mouse button event to Swiftty on background queue to avoid blocking main thread.
         func sendMouseButton(
-            _ action: ghostty_input_mouse_state_e,
-            button: ghostty_input_mouse_button_e,
-            mods: ghostty_input_mods_e = Ghostty.Input.Mods.none.cMods
+            _ action: swiftty_input_mouse_state_e,
+            button: swiftty_input_mouse_button_e,
+            mods: swiftty_input_mods_e = Swiftty.Input.Mods.none.cMods
         ) {
             invalidateInputDocument()
             guard let surface = surface else { return }
-            Self.ghosttyAPIQueue.async {
-                ghostty_surface_mouse_button(surface, action, button, mods)
+            Self.swifttyAPIQueue.async {
+                swiftty_surface_mouse_button(surface, action, button, mods)
             }
         }
 
-        /// Send mouse scroll event to Ghostty on background queue to avoid blocking main thread.
-        func sendMouseScroll(deltaX: Double, deltaY: Double, mods: ghostty_input_scroll_mods_t = Ghostty.Input.ScrollMods.none.cMods) {
+        /// Send mouse scroll event to Swiftty on background queue to avoid blocking main thread.
+        func sendMouseScroll(deltaX: Double, deltaY: Double, mods: swiftty_input_scroll_mods_t = Swiftty.Input.ScrollMods.none.cMods) {
             invalidateInputDocument()
             guard let surface = surface else { return }
-            Self.ghosttyAPIQueue.async {
-                ghostty_surface_mouse_scroll(surface, deltaX, deltaY, mods)
+            Self.swifttyAPIQueue.async {
+                swiftty_surface_mouse_scroll(surface, deltaX, deltaY, mods)
             }
         }
 
-        /// Set Ghostty's visual vertical scroll offset for smooth primary
+        /// Set Swiftty's visual vertical scroll offset for smooth primary
         /// scrollback.
         func setSmoothScrollOffset(_ offset: CGFloat) {
             let normalizedOffset = max(0, offset)
             smoothScrollOffset = normalizedOffset
             smoothScrollActive = normalizedOffset > 0
             guard let surface = surface else { return }
-            ghostty_surface_set_smooth_scroll_offset(surface, Double(normalizedOffset))
+            swiftty_surface_set_smooth_scroll_offset(surface, Double(normalizedOffset))
         }
 
-        /// Set Ghostty's render-only signed rubber-band offset.
+        /// Set Swiftty's render-only signed rubber-band offset.
         func setRubberBandOffset(_ offset: CGFloat) {
             guard let surface = surface else { return }
-            ghostty_surface_set_rubber_band_offset(surface, Double(offset))
+            swiftty_surface_set_rubber_band_offset(surface, Double(offset))
         }
 
-        /// Atomically scroll Ghostty to an absolute row and apply a render-only
+        /// Atomically scroll Swiftty to an absolute row and apply a render-only
         /// vertical offset for smooth primary scrollback.
         func scrollToRowSmooth(row: Int, offset: CGFloat) {
             let normalizedOffset = max(0, offset)
@@ -2251,7 +2251,7 @@ extension Ghostty {
             let bottomRow = scrollbarTotal > scrollbarLen ? Int(scrollbarTotal - scrollbarLen) : 0
             smoothScrollActive = normalizedOffset > 0 || row < bottomRow
             guard let surface = surface else { return }
-            ghostty_surface_scroll_to_row_smooth(surface, UInt(row), Double(normalizedOffset))
+            swiftty_surface_scroll_to_row_smooth(surface, UInt(row), Double(normalizedOffset))
         }
 
         /// The portion of this surface's drawable that overlaps the window's
@@ -2291,25 +2291,25 @@ extension Ghostty {
             surfaceController.updateBottomInset()
         }
 
-        /// Toggle mouse reporting via ghostty's built-in action.
-        /// This flips `config.mouse_reporting` inside ghostty so that
-        /// `ghostty_surface_mouse_captured()` returns false and mouse events
+        /// Toggle mouse reporting via swiftty's built-in action.
+        /// This flips `config.mouse_reporting` inside swiftty so that
+        /// `swiftty_surface_mouse_captured()` returns false and mouse events
         /// are treated as selection instead of being reported to the program.
         func toggleMouseReporting() {
             guard let surface = surface else { return }
             mouseCaptureOverrideActive.toggle()
             activeToolbarView?.setMouseCaptureOverrideActive(mouseCaptureOverrideActive)
 
-            // Call toggle_mouse_reporting synchronously so ghostty's internal
+            // Call toggle_mouse_reporting synchronously so swiftty's internal
             // config.mouse_reporting flips immediately. This makes
-            // ghostty_surface_mouse_captured() return the correct value
+            // swiftty_surface_mouse_captured() return the correct value
             // before any subsequent touch/hitTest queries.
             let action = "toggle_mouse_reporting"
             action.withCString { cString in
-                _ = ghostty_surface_binding_action(surface, cString, UInt(action.utf8.count))
+                _ = swiftty_surface_binding_action(surface, cString, UInt(action.utf8.count))
             }
 
-            // Sync cached isMouseCaptured from ghostty's now-updated state
+            // Sync cached isMouseCaptured from swiftty's now-updated state
             updateMouseCaptureState()
 
             #if !targetEnvironment(macCatalyst)
@@ -2318,7 +2318,7 @@ extension Ghostty {
         }
 
         /// Dispatch a terminal binding action off the main thread so heavy
-        /// mailbox contention doesn't block UI responsiveness.
+        /// surface contention doesn't block UI responsiveness.
         func performActionAsync(_ action: String) {
             invalidateInputDocument()
             guard let surface = surface else { return }
@@ -2329,33 +2329,33 @@ extension Ghostty {
                 noteUserScrollForScrollIndicator()
             }
 
-            Self.ghosttyAPIQueue.async { [weak self] in
+            Self.swifttyAPIQueue.async { [weak self] in
                 let performed = action.withCString { cString in
-                    ghostty_surface_binding_action(surface, cString, UInt(len - 1))
+                    swiftty_surface_binding_action(surface, cString, UInt(len - 1))
                 }
 
                 #if !targetEnvironment(macCatalyst)
                 guard performed else { return }
                 DispatchQueue.main.async { [weak self] in
-                    self?.scheduleSelectionHandleSync(afterGhosttyAppTick: true)
+                    self?.scheduleSelectionHandleSync()
                 }
                 #endif
             }
         }
 
-        private func applyGhosttyFocus(_ focused: Bool) {
+        private func applySwifttyFocus(_ focused: Bool) {
             guard let surface = surface else { return }
 
             // Dispatch focus change to background queue to prevent main thread deadlock.
-            // The termio mailbox can become full during heavy I/O (e.g., zellij startup),
-            // causing ghostty_surface_set_focus to block indefinitely. By running on a
+            // The surface can be busy during heavy I/O (e.g., zellij startup),
+            // causing swiftty_surface_set_focus to block indefinitely. By running on a
             // background queue, the main thread stays responsive for appTick().
-            Self.ghosttyAPIQueue.async {
-                ghostty_surface_set_focus(surface, focused)
+            Self.swifttyAPIQueue.async {
+                swiftty_surface_set_focus(surface, focused)
             }
 
             // Refresh can stay on main thread - it just schedules a redraw
-            ghostty_surface_refresh(surface)
+            swiftty_surface_refresh(surface)
 
         }
 
@@ -2386,7 +2386,7 @@ extension Ghostty {
                 hideSelectionHandles(animated: false)
                 hideSelectionMagnifier(animated: false)
             } else {
-                scheduleSelectionHandleSync(afterGhosttyAppTick: true)
+                scheduleSelectionHandleSync()
             }
         }
 
@@ -2416,16 +2416,13 @@ extension Ghostty {
             syncSelectionHandleVisibility(forActiveSurface: activeSurface)
         }
 
-        func scheduleSelectionHandleSync(afterGhosttyAppTick: Bool = false) {
+        func scheduleSelectionHandleSync() {
             guard !selectionHandleSyncPending else { return }
             selectionHandleSyncPending = true
 
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.selectionHandleSyncPending = false
-                if afterGhosttyAppTick {
-                    self.ghosttyApp?.appTick()
-                }
                 self.syncSelectionHandlesForSurfaceActivity()
             }
         }
@@ -2451,12 +2448,12 @@ extension Ghostty {
         }
         #endif
 
-        /// Notify Ghostty of surface visibility (occlusion) state.
+        /// Notify Swiftty of surface visibility (occlusion) state.
         /// When occluded (visible=false), the internal IOSDisplayLink stops
         /// and the renderer thread drops to low priority, saving GPU resources.
         /// Also notifies the session for CPU throttling (e.g., Mosh sessions).
         override func setOcclusion(_ visible: Bool) {
-            Ghostty.logger.info("setOcclusion(\(visible)): terminal=\(self.uuid.uuidString.prefix(8))")
+            Swiftty.logger.info("setOcclusion(\(visible)): terminal=\(self.uuid.uuidString.prefix(8))")
             hasExplicitTabVisibility = true
             isTabVisible = visible
             if !visible {
@@ -2481,7 +2478,7 @@ extension Ghostty {
         /// to guarantee a surface that should be on-screen is actually un-occluded
         /// and (when it should be focused) holds first responder.
         ///
-        /// Post the GhosttyKit merge a surface stranded at `flags.visible == false`
+        /// Post the SwifttyKit merge a surface stranded at `flags.visible == false`
         /// hard-stops its render thread (a permanent freeze, not a soft pause).
         /// `setOcclusion(true)` silently no-ops when the surface was briefly nil at
         /// the original switch and never retries; `becomeFirstResponder()` can be
@@ -2556,9 +2553,9 @@ extension Ghostty {
         /// background scene-transition path. Returns true if the renderer
         /// was confirmed paused within the timeout.
         ///
-        /// On the C side this:
+        /// In SwifttyKit this:
         ///   1. Stops the per-surface CADisplayLink on the main thread
-        ///      (ghostty_surface_set_occlusion → renderer.setVisible →
+        ///      (swiftty_surface_set_occlusion → renderer.setVisible →
         ///      IOSDisplayLink.stop, which now hops to main if not already
         ///      there).
         ///   2. Pushes a `drain_to_idle` ack the renderer thread signals
@@ -2582,7 +2579,7 @@ extension Ghostty {
         func pauseReconnectionUI() {
             // Suppress PTY size updates during background to prevent SIGWINCH cursor corruption
             suppressPTYSizeUpdates = true
-            Ghostty.logger.info("pauseReconnectionUI: PTY size updates suppressed")
+            Swiftty.logger.info("pauseReconnectionUI: PTY size updates suppressed")
 
             sessionController.pauseReconnectionUI()
 
@@ -2611,7 +2608,7 @@ extension Ghostty {
         /// to ensure layout passes don't get incorrectly suppressed.
         func clearSizeSuppression() {
             if surfaceController.clearSizeSuppression() {
-                Ghostty.logger.info("clearSizeSuppression: PTY size updates re-enabled")
+                Swiftty.logger.info("clearSizeSuppression: PTY size updates re-enabled")
             }
 
             // Force a fresh size sync. UIKit may have laid out views during
@@ -2620,7 +2617,7 @@ extension Ghostty {
             // sizeDidChange calls were suppressed by the atomic / suppress
             // gates above. Now that suppression is cleared, UIKit will not
             // re-fire layout on its own — push current dims through
-            // ghostty_surface_set_size + updatePTYSize so both ghostty's grid
+            // swiftty_surface_set_size + updatePTYSize so both swiftty's grid
             // and the shell's tty know the correct size. Without this the
             // shell wedges at whatever dim was last seen pre-background and
             // helix / cursor render is corrupt until the user manually
@@ -2643,7 +2640,7 @@ extension Ghostty {
         func clearTouchState() {
             let preserveTouchSelection: Bool
             if let surface {
-                preserveTouchSelection = ghostty_surface_has_selection(surface)
+                preserveTouchSelection = swiftty_surface_has_selection(surface)
             } else {
                 preserveTouchSelection = false
             }
@@ -2680,7 +2677,7 @@ extension Ghostty {
             #if !targetEnvironment(macCatalyst)
             if !windowActive || sceneIsDeactivating,
                shouldPreserveFirstResponderForSoftwareKeyboardAppTransition(sceneIsDeactivating: sceneIsDeactivating) {
-                applyGhosttyFocus(true)
+                applySwifttyFocus(true)
                 return
             }
             #endif
@@ -2697,10 +2694,10 @@ extension Ghostty {
             // one tab. Every legitimate focus path sets isLogicallyFocused
             // alongside the flag, so real focus is unaffected.
             // ROOTSHELL-TMUX (id=tmux-focus-cursor-logical-only)
-            applyGhosttyFocus(windowActive && isLogicallyFocused)
+            applySwifttyFocus(windowActive && isLogicallyFocused)
             #if !targetEnvironment(macCatalyst)
             if windowActive {
-                scheduleSelectionHandleSync(afterGhosttyAppTick: true)
+                scheduleSelectionHandleSync()
             } else {
                 syncSelectionHandlesForSurfaceActivity()
             }
@@ -2711,7 +2708,7 @@ extension Ghostty {
                 // Don't steal focus if a sheet/modal is presented - this prevents
                 // keyboard from appearing over Settings, PIN dialogs, etc.
                 if isModalPresented() {
-                    Ghostty.logger.info("syncFocusForWindowStateChange: skipping focus - modal presented")
+                    Swiftty.logger.info("syncFocusForWindowStateChange: skipping focus - modal presented")
                     return
                 }
                 // In-hierarchy overlays (the tab sidebar isn't a presented
@@ -2733,7 +2730,7 @@ extension Ghostty {
                                   !self.isFirstResponder else { return }
                             // A modal or HUD field may take focus after scheduling.
                             if self.isModalPresented() || self.isHUDFieldFocused() {
-                                Ghostty.logger.info("syncFocusForWindowStateChange retry: skipping focus - modal or HUD owns keyboard")
+                                Swiftty.logger.info("syncFocusForWindowStateChange retry: skipping focus - modal or HUD owns keyboard")
                                 return
                             }
                             let retryResult = self.becomeFirstResponder()
@@ -2752,7 +2749,7 @@ extension Ghostty {
                 // The character palette temporarily deactivates the window.
                 // Keep its text-input destination installed: resigning here
                 // leaves UIKit with no responder when the palette commits.
-                // Ghostty focus was cleared above; real pane/overlay handoffs
+                // Swiftty focus was cleared above; real pane/overlay handoffs
                 // still resign through their own focus paths.
                 if isLogicallyFocused && !windowActive { return }
                 #endif
@@ -2772,9 +2769,9 @@ extension Ghostty {
         /// rendered as multiple active cursors across tmux splits. Safe to
         /// call broadly: no-op for the real focused pane.
         /// ROOTSHELL-TMUX (id=tmux-focus-cursor-sweep)
-        func clearStaleGhosttyFocus() {
+        func clearStaleSwifttyFocus() {
             guard !isLogicallyFocused, !isFirstResponder else { return }
-            applyGhosttyFocus(false)
+            applySwifttyFocus(false)
         }
 
         /// Re-assert UIKit first responder for the pane that is logically
@@ -2843,8 +2840,8 @@ extension Ghostty {
             guard windowId != newWindowId else { return }
             windowId = newWindowId
             guard let surface else { return }
-            ghosttyAppRef?.registerSurfaceWindow(surface, windowId: newWindowId)
-            ghosttyAppRef?.refreshSurfaceTheme(surface, tabId: containingTabID, windowId: newWindowId)
+            swifttyAppRef?.registerSurfaceWindow(surface, windowId: newWindowId)
+            swifttyAppRef?.refreshSurfaceTheme(surface, tabId: containingTabID, windowId: newWindowId)
         }
 
         // MARK: - Input Mode Indicator
@@ -2906,16 +2903,16 @@ extension Ghostty {
         // MARK: - UIView Overrides
 
         // NOTE: We do NOT override layerClass to CAMetalLayer.
-        // Ghostty's Metal renderer creates and manages its own CAMetalLayer,
-        // which it adds as a sublayer to our view's default layer (per Metal.zig iOS path)
+        // Swiftty's Metal renderer creates and manages its own CAMetalLayer,
+        // which it adds as a sublayer to our view's default layer
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
 
             if window == nil {
-                Ghostty.logger.warning("didMoveToWindow called but window is nil!")
+                Swiftty.logger.warning("didMoveToWindow called but window is nil!")
                 windowFocus.stop()
-                applyGhosttyFocus(false)
+                applySwifttyFocus(false)
                 resetKeyboardInteractionState(sendSyntheticKeyReleases: true)
                 #if !targetEnvironment(macCatalyst)
                 syncSelectionHandlesForSurfaceActivity()
@@ -2930,11 +2927,11 @@ extension Ghostty {
 
             clearInputAssistantsRecursively()
 
-            Ghostty.logger.info("didMoveToWindow: surface=\(self.surface != nil), isLogicallyFocused=\(self.isLogicallyFocused), shouldBecomeFirstResponderWhenReady=\(self.shouldBecomeFirstResponderWhenReady)")
+            Swiftty.logger.info("didMoveToWindow: surface=\(self.surface != nil), isLogicallyFocused=\(self.isLogicallyFocused), shouldBecomeFirstResponderWhenReady=\(self.shouldBecomeFirstResponderWhenReady)")
 
             // If we have a surface but it's not created yet (deferred), create it now
             if surface == nil {
-                Ghostty.logger.info("View added to window, creating Ghostty surface now...")
+                Swiftty.logger.info("View added to window, creating Swiftty surface now...")
                 createSurface()
             }
 
@@ -2954,7 +2951,7 @@ extension Ghostty {
                     let result = self.becomeFirstResponder()
                     if result {
                         self.reloadInputViews()
-                        Ghostty.logger.info("didMoveToWindow backup retry succeeded")
+                        Swiftty.logger.info("didMoveToWindow backup retry succeeded")
                     }
                 }
             }
@@ -3013,7 +3010,7 @@ extension Ghostty {
             CATransaction.setDisableActions(true)
             #endif
 
-            // FIX: Ghostty's iOS Metal renderer creates IOSurfaceLayer that doesn't auto-resize
+            // FIX: Swiftty's iOS Metal renderer creates IOSurfaceLayer that doesn't auto-resize
             // Always update the sublayer frame to match view bounds
             if let sublayers = self.layer.sublayers {
                 for sublayer in sublayers {
@@ -3091,19 +3088,19 @@ extension Ghostty {
             // flag, so a stale retry from a prior sidebar-toggle cycle is a
             // correct no-op instead of a focus thief.
             guard !overlayOwnsKeyboard else {
-                Ghostty.logger.info("becomeFirstResponder() BLOCKED on terminal \(self.uuid.uuidString.prefix(8)) - overlay owns keyboard")
+                Swiftty.logger.info("becomeFirstResponder() BLOCKED on terminal \(self.uuid.uuidString.prefix(8)) - overlay owns keyboard")
                 return false
             }
 
             // Guard: Only allow becoming first responder if logically focused or pending initial focus
             // This prevents old terminals from stealing focus during view hierarchy updates
             guard isLogicallyFocused || shouldBecomeFirstResponderWhenReady else {
-                Ghostty.logger.info("becomeFirstResponder() BLOCKED on terminal \(self.uuid.uuidString.prefix(8)) - not logically focused")
+                Swiftty.logger.info("becomeFirstResponder() BLOCKED on terminal \(self.uuid.uuidString.prefix(8)) - not logically focused")
                 return false
             }
 
             guard windowIsActiveForFocus() else {
-                Ghostty.logger.info("becomeFirstResponder() BLOCKED on terminal \(self.uuid.uuidString.prefix(8)) - window inactive")
+                Swiftty.logger.info("becomeFirstResponder() BLOCKED on terminal \(self.uuid.uuidString.prefix(8)) - window inactive")
                 return false
             }
 
@@ -3113,8 +3110,8 @@ extension Ghostty {
             // Left to the foreground resume, which re-focuses from
             // `isLogicallyFocused` (preserved here) rather than a re-armed hint —
             // a stale hint on a pane that later loses focus is a focus thief.
-            guard !Ghostty.isSecureDrawProhibitedAtomic else {
-                Ghostty.logger.info("becomeFirstResponder() BLOCKED on terminal \(self.uuid.uuidString.prefix(8)) - secure draw prohibited")
+            guard !Swiftty.isSecureDrawProhibitedAtomic else {
+                Swiftty.logger.info("becomeFirstResponder() BLOCKED on terminal \(self.uuid.uuidString.prefix(8)) - secure draw prohibited")
                 return false
             }
 
@@ -3146,12 +3143,12 @@ extension Ghostty {
                 KeyboardGeometryMonitor.shared.notifyKeyboardToolbarLayoutChanged()
             }
 
-            // Sync Ghostty surface focus when UIKit grants us focus
-            // This ensures Ghostty cursor state matches UIKit even when
+            // Sync Swiftty surface focus when UIKit grants us focus
+            // This ensures Swiftty cursor state matches UIKit even when
             // becomeFirstResponder() is called directly (e.g., from session ready callbacks)
             if result, self.surface != nil {
-                Ghostty.logger.info("becomeFirstResponder() SUCCESS on terminal \(self.uuid.uuidString.prefix(8)) - setting Ghostty focus")
-                applyGhosttyFocus(true)
+                Swiftty.logger.info("becomeFirstResponder() SUCCESS on terminal \(self.uuid.uuidString.prefix(8)) - setting Swiftty focus")
+                applySwifttyFocus(true)
                 // Point the sequence tracker's deferred-action callback at the
                 // currently focused view. didMoveToWindow fires on window entry
                 // regardless of focus, so installing there would leave the
@@ -3159,7 +3156,7 @@ extension Ghostty {
                 // window rather than the one actually receiving keystrokes.
                 installSequenceTrackerTimeoutHandler()
             } else if !result {
-                Ghostty.logger.info("becomeFirstResponder() FAILED on terminal \(self.uuid.uuidString.prefix(8)) - not setting Ghostty focus")
+                Swiftty.logger.info("becomeFirstResponder() FAILED on terminal \(self.uuid.uuidString.prefix(8)) - not setting Swiftty focus")
             }
 
             return result
@@ -3170,8 +3167,8 @@ extension Ghostty {
             invalidateInputDocument(resetDocument: true)
             #if !targetEnvironment(macCatalyst)
             if shouldPreserveFirstResponderForSoftwareKeyboardAppTransition() {
-                Ghostty.logger.info("resignFirstResponder() blocked to preserve software keyboard during app transition")
-                applyGhosttyFocus(true)
+                Swiftty.logger.info("resignFirstResponder() blocked to preserve software keyboard during app transition")
+                applySwifttyFocus(true)
                 return false
             }
             #endif
@@ -3179,8 +3176,8 @@ extension Ghostty {
             // Tearing down the input view set animates an input-window placement
             // move, which draws into the lock snapshot (FrontBoard 0x2BAD45EC).
             // Responder status is frozen until the foreground resume reconciles it.
-            if isFirstResponder, Ghostty.isSecureDrawProhibitedAtomic {
-                Ghostty.logger.info("resignFirstResponder() blocked on terminal \(self.uuid.uuidString.prefix(8)) - secure draw prohibited")
+            if isFirstResponder, Swiftty.isSecureDrawProhibitedAtomic {
+                Swiftty.logger.info("resignFirstResponder() blocked on terminal \(self.uuid.uuidString.prefix(8)) - secure draw prohibited")
                 return false
             }
 
@@ -3190,7 +3187,7 @@ extension Ghostty {
             if keyboardToolbarCollapsed {
                 keyboardToolbarCollapsed = false
             }
-            Ghostty.logger.info("resignFirstResponder() called on terminal \(self.uuid.uuidString.prefix(8))")
+            Swiftty.logger.info("resignFirstResponder() called on terminal \(self.uuid.uuidString.prefix(8))")
             let result = super.resignFirstResponder()
             if result {
                 KeyboardGeometryMonitor.shared.notifyKeyboardToolbarLayoutChanged()
@@ -3199,11 +3196,11 @@ extension Ghostty {
                 #endif
             }
 
-            // Sync Ghostty surface focus when UIKit resigns us
+            // Sync Swiftty surface focus when UIKit resigns us
             // This handles auto-resign when another view becomes first responder
             if result, self.surface != nil {
-                Ghostty.logger.info("resignFirstResponder() SUCCESS - clearing Ghostty focus")
-                applyGhosttyFocus(false)
+                Swiftty.logger.info("resignFirstResponder() SUCCESS - clearing Swiftty focus")
+                applySwifttyFocus(false)
             }
 
             // Focus loss can swallow key-up events for modifiers and special keys.
@@ -3246,7 +3243,7 @@ extension Ghostty {
             // Rebuilding the input view set moves the input window placement,
             // which animates and draws. That lands in the lock snapshot while
             // the secure-draw latch is armed — FrontBoard 0x2BAD45EC.
-            guard !Ghostty.isSecureDrawProhibitedAtomic else {
+            guard !Swiftty.isSecureDrawProhibitedAtomic else {
                 pendingInputViewReload = false
                 return
             }
@@ -3275,7 +3272,7 @@ extension Ghostty {
             }
             // Same secure-mode rule as `reloadInputViews()`: never rebuild the
             // input set while the lock snapshot could capture it.
-            guard !Ghostty.isSecureDrawProhibitedAtomic else {
+            guard !Swiftty.isSecureDrawProhibitedAtomic else {
                 pendingInputViewReload = false
                 return
             }
@@ -3369,7 +3366,7 @@ extension Ghostty {
         }
 
         private func catalystArrowSequence(_ keyCode: UIKeyboardHIDUsage) -> String {
-            let appMode = surface.map { ghostty_surface_cursor_key_mode($0) } ?? false
+            let appMode = surface.map { swiftty_surface_cursor_key_mode($0) } ?? false
             switch keyCode {
             case .keyboardUpArrow:
                 return appMode ? "\u{1B}OA" : "\u{1B}[A"
@@ -3432,12 +3429,12 @@ extension Ghostty {
                 case .arrow(let sequence):
                     commitKoreanCompositionIfNeeded(external: false)
                     if let data = sequence.data(using: .utf8) {
-                        NotificationCenter.default.post(name: .ghosttyDidReceiveInput, object: self)
+                        NotificationCenter.default.post(name: .swifttyDidReceiveInput, object: self)
                         sendUserInput(data)
                     }
                 case .other(let byte):
                     commitKoreanCompositionIfNeeded(external: false)
-                    NotificationCenter.default.post(name: .ghosttyDidReceiveInput, object: self)
+                    NotificationCenter.default.post(name: .swifttyDidReceiveInput, object: self)
                     sendUserInput(Data([byte]))
                 }
                 return
@@ -3459,7 +3456,7 @@ extension Ghostty {
             }
 
             // Notify that input was received (for scroll-to-bottom behavior)
-            NotificationCenter.default.post(name: .ghosttyDidReceiveInput, object: self)
+            NotificationCenter.default.post(name: .swifttyDidReceiveInput, object: self)
 
             // Handle OPTION+key on Catalyst
             // Behavior depends on optionKeyAsAlt setting:
@@ -3505,7 +3502,7 @@ extension Ghostty {
 
             if finalText == "\n" || finalText == "\r",
                !activeKeyboardModifiers.isEmpty || virtualModTapModifier != nil,
-               sendEnterKeyViaGhostty(toolbarModifiers: activeKeyboardModifiers, virtualModifier: virtualModTapModifier) {
+               sendEnterKeyViaSwiftty(toolbarModifiers: activeKeyboardModifiers, virtualModifier: virtualModTapModifier) {
                 mutateInputDocument(.reset)
                 DispatchQueue.main.async { [weak self] in
                     guard let self else { return }
@@ -3529,10 +3526,10 @@ extension Ghostty {
             }
 
             // Apply active toolbar modifiers to the typed character.
-            // Route through Ghostty's key encoding pipeline when possible for
+            // Route through Swiftty's key encoding pipeline when possible for
             // correct CSI u / kitty protocol support.
             if !activeKeyboardModifiers.isEmpty {
-                Ghostty.logger.debug("TerminalView.insertText: Applying modifiers rawValue=\(self.activeKeyboardModifiers.rawValue) to '\(text)'")
+                Swiftty.logger.debug("TerminalView.insertText: Applying modifiers rawValue=\(self.activeKeyboardModifiers.rawValue) to '\(text)'")
 
                 // Ctrl-C: interrupt local shell (matches hardware keyboard behavior in TerminalViewKeyboard.swift)
                 if activeKeyboardModifiers.contains(.control), text.lowercased() == "c",
@@ -3543,14 +3540,14 @@ extension Ghostty {
                     return
                 }
 
-                // Try routing through Ghostty's key encoder first
+                // Try routing through Swiftty's key encoder first
                 if text.count == 1, let char = text.first,
-                   sendViaGhosttyKeyEvent(char, modifiers: activeKeyboardModifiers) {
+                   sendViaSwifttyKeyEvent(char, modifiers: activeKeyboardModifiers) {
                     activeToolbarView?.clearOneShotModifiers()
                     return
                 }
 
-                // Fallback: manually encode for keys without Ghostty mapping
+                // Fallback: manually encode for keys without Swiftty mapping
                 // Handle Control modifier
                 if activeKeyboardModifiers.contains(.control) {
                     if text.count == 1, let char = text.first {
@@ -3560,7 +3557,7 @@ extension Ghostty {
                             let controlChar = asciiValue - 96
                             finalText = String(UnicodeScalar(controlChar))
                             let upper = char.uppercased()
-                            Ghostty.logger.debug("TerminalView.insertText: Converted to Ctrl-\(upper) (ASCII \(controlChar))")
+                            Swiftty.logger.debug("TerminalView.insertText: Converted to Ctrl-\(upper) (ASCII \(controlChar))")
                         } else if let ctrlCode = Self.controlCharacterMap[char] {
                             finalText = String(UnicodeScalar(ctrlCode))
                         }
@@ -3591,7 +3588,7 @@ extension Ghostty {
             // Apply active mod-tap virtual modifier when input is routed through UITextInput.
             // This is primarily a Catalyst fallback for keys that bypass pressesBegan.
             if let virtualModifier = virtualModTapModifier {
-                // Try Ghostty key encoding first for proper protocol support
+                // Try Swiftty key encoding first for proper protocol support
                 if finalText.count == 1, let char = finalText.first {
                     var modTapMods = KeyModifiers()
                     switch virtualModifier {
@@ -3600,7 +3597,7 @@ extension Ghostty {
                     case .shift: modTapMods.insert(.shift)
                     case .command: modTapMods.insert(.command)
                     }
-                    if sendViaGhosttyKeyEvent(char, modifiers: modTapMods) {
+                    if sendViaSwifttyKeyEvent(char, modifiers: modTapMods) {
                         return
                     }
                 }
@@ -3634,9 +3631,9 @@ extension Ghostty {
                 return
             }
 
-            // Send input to Ghostty which will route it appropriately
+            // Send input to Swiftty which will route it appropriately
             guard let data = finalText.data(using: .utf8) else { return }
-            // Ghostty.logger.debug("TerminalView.insertText: Sending bytes: \(data.hexDescription)")
+            // Swiftty.logger.debug("TerminalView.insertText: Sending bytes: \(data.hexDescription)")
             sendUserInput(data, documentMutation: .text(finalText))
             // Some dictation deliveries have no placeholder or alternatives.
             // Retain a narrowly scoped fallback for their immediate replace.
@@ -3666,7 +3663,7 @@ extension Ghostty {
             lastSpaceInsertTime = nil
 
             // Notify that input was received (for scroll-to-bottom behavior)
-            NotificationCenter.default.post(name: .ghosttyDidReceiveInput, object: self)
+            NotificationCenter.default.post(name: .swifttyDidReceiveInput, object: self)
 
             // Send backspace/delete character (DEL = 0x7F)
             sendUserInput(Data("\u{7F}".utf8), documentMutation: .backspace)
@@ -3732,7 +3729,7 @@ extension Ghostty {
             // Check cursor key application mode (DECCKM) for arrow key sequences
             // Application mode (smkx set): SS3 format \x1bOX
             // Normal mode (rmkx set): CSI format \x1b[X
-            let appMode = surface.map { ghostty_surface_cursor_key_mode($0) } ?? false
+            let appMode = surface.map { swiftty_surface_cursor_key_mode($0) } ?? false
 
             switch key.keyCode {
             // Arrow keys - use SS3 in application mode, CSI in normal mode
@@ -3776,14 +3773,14 @@ extension Ghostty {
 
         /// Updates the PTY/SSH session with the current terminal grid size
         /// Note: Only needed for external I/O mode (SSH, iOS local shell)
-        /// In Catalyst PTY mode, Ghostty manages window size internally
+        /// In Catalyst PTY mode, Swiftty manages window size internally
         /// `applied` is the grid the IO thread just resized to (pty_resize
         /// action). Without it the surface's requested size is used, which a
         /// queued resize may not have reached yet.
         func updatePTYSize(applied: (rows: UInt16, cols: UInt16, widthPx: UInt16, heightPx: UInt16)? = nil) {
             guard let surfaceSize = surfaceSize else {
                 if Self.logFrequentLayout {
-                    Ghostty.logger.debug("   surfaceSize is nil, cannot update PTY size")
+                    Swiftty.logger.debug("   surfaceSize is nil, cannot update PTY size")
                 }
                 return
             }
@@ -3793,7 +3790,7 @@ extension Ghostty {
 
             // tmux single-pane window: the pane IS the window, so push this
             // window's per-window tmux size from the pane's OWN grid. This runs
-            // after ghostty_surface_set_size, so surfaceSize is fresh — unlike
+            // after swiftty_surface_set_size, so surfaceSize is fresh — unlike
             // the split container, which would read it before the child re-laid
             // out on a bounds-only change (rotation, sidebar/tab-bar). Multi-pane
             // windows are driven by the container instead. Respect the
@@ -3827,7 +3824,7 @@ extension Ghostty {
                 return
             }
 
-            // In PTY mode (Catalyst local shell), session is nil and Ghostty handles sizing internally
+            // In PTY mode (Catalyst local shell), session is nil and Swiftty handles sizing internally
             guard let session = session else {
                 // Expected for Catalyst PTY mode - no action needed
                 return
@@ -3839,7 +3836,7 @@ extension Ghostty {
                 ?? (rows: surfaceSize.rows, cols: surfaceSize.columns)
             if !surfaceController.shouldSendPTYSize(for: sessionID, gridSize: gridSize) {
                 // Debug log for cursor position bug investigation
-                Ghostty.logger.debug("updatePTYSize: skipped (cache hit) \(gridSize.rows)x\(gridSize.cols)")
+                Swiftty.logger.debug("updatePTYSize: skipped (cache hit) \(gridSize.rows)x\(gridSize.cols)")
                 return
             }
 
@@ -3847,7 +3844,7 @@ extension Ghostty {
             // cursor corruption. Two gates:
             //   - `suppressPTYSizeUpdates` is the per-terminal flag set by
             //     pauseReconnectionUI / cleared by clearSizeSuppression.
-            //   - `Ghostty.isAppBackgroundedAtomic` is the synchronous global
+            //   - `Swiftty.isAppBackgroundedAtomic` is the synchronous global
             //     gate flipped at the entry of handleAppBackgrounded — closes
             //     the window between scenePhase=.background and the deferred
             //     performBackgroundTransition where iOS's scene-update may
@@ -3855,13 +3852,13 @@ extension Ghostty {
             //     rotation) and produce intermediate-dim SIGWINCH that wedges
             //     the shell at the wrong size until a manual resize.
             if surfaceController.sizeUpdatesSuppressed {
-                Ghostty.logger.info("updatePTYSize: SUPPRESSED during background transition \(gridSize.rows)x\(gridSize.cols)")
+                Swiftty.logger.info("updatePTYSize: SUPPRESSED during background transition \(gridSize.rows)x\(gridSize.cols)")
                 return
             }
 
             // Debug log for cursor position bug investigation
             let lastSizeStr = surfaceController.lastSentPTYGridDescription
-            Ghostty.logger.info("updatePTYSize: SENDING resize \(lastSizeStr) -> \(gridSize.rows)x\(gridSize.cols)")
+            Swiftty.logger.info("updatePTYSize: SENDING resize \(lastSizeStr) -> \(gridSize.rows)x\(gridSize.cols)")
 
             let scale = contentScaleFactor
             let size = bounds.size
@@ -3878,10 +3875,10 @@ extension Ghostty {
                 try session.setSize(ptySize)
                 surfaceController.markPTYSizeSent(gridSize)
                 if Self.logFrequentLayout {
-                    Ghostty.logger.debug("   Sent size update to session: \(ptySize.rows)x\(ptySize.cols)")
+                    Swiftty.logger.debug("   Sent size update to session: \(ptySize.rows)x\(ptySize.cols)")
                 }
             } catch {
-                Ghostty.logger.error("   Failed to set session size: \(error)")
+                Swiftty.logger.error("   Failed to set session size: \(error)")
             }
         }
 
@@ -3926,7 +3923,7 @@ extension Ghostty {
                 }
                 return
             }
-            let captured = ghostty_surface_mouse_captured(surface)
+            let captured = swiftty_surface_mouse_captured(surface)
             if isMouseCaptured != captured {
                 isMouseCaptured = captured
             }
@@ -3967,29 +3964,29 @@ extension Ghostty {
                 // async fallback.
                 let capturedVersion = MainView.incrementFocusGeneration()
                 guard windowIsActiveForFocus() else {
-                    Ghostty.logger.info("focusDidChange(true): Window inactive, deferring focus")
-                    applyGhosttyFocus(false)
+                    Swiftty.logger.info("focusDidChange(true): Window inactive, deferring focus")
+                    applySwifttyFocus(false)
                     #if !targetEnvironment(macCatalyst)
                     syncSelectionHandlesForSurfaceActivity()
                     #endif
                     return false
                 }
 
-                // Set Ghostty focus immediately if surface exists
+                // Set Swiftty focus immediately if surface exists
                 // This is independent of UIKit first responder - we want the cursor
                 // to appear focused even before becomeFirstResponder() succeeds
                 if surface != nil {
-                    Ghostty.logger.info("focusDidChange(true): Setting Ghostty focus immediately")
-                    applyGhosttyFocus(true)
+                    Swiftty.logger.info("focusDidChange(true): Setting Swiftty focus immediately")
+                    applySwifttyFocus(true)
                 } else {
-                    Ghostty.logger.info("focusDidChange(true): No surface yet, will set focus in didMoveToWindow")
+                    Swiftty.logger.info("focusDidChange(true): No surface yet, will set focus in didMoveToWindow")
                 }
 
                 // Attempt UIKit focus - defer only if necessary
                 if window != nil {
                     // View is in window, try synchronous focus
                     let result = becomeFirstResponder()
-                    Ghostty.logger.info("focusDidChange(true): becomeFirstResponder() = \(result)")
+                    Swiftty.logger.info("focusDidChange(true): becomeFirstResponder() = \(result)")
                     if result {
                         #if !targetEnvironment(macCatalyst)
                         syncSelectionHandlesForSurfaceActivity()
@@ -4007,16 +4004,16 @@ extension Ghostty {
                     guard let self = self else { return }
                     // Check GLOBAL version - any focus change anywhere will invalidate this
                     guard MainView.focusGeneration == capturedVersion else {
-                        Ghostty.logger.debug("Skipping stale becomeFirstResponder (version \(capturedVersion) != \(MainView.focusGeneration))")
+                        Swiftty.logger.debug("Skipping stale becomeFirstResponder (version \(capturedVersion) != \(MainView.focusGeneration))")
                         return
                     }
                     guard self.isLogicallyFocused else {
-                        Ghostty.logger.debug("Skipping async becomeFirstResponder - not logically focused")
+                        Swiftty.logger.debug("Skipping async becomeFirstResponder - not logically focused")
                         return
                     }
                     if self.window != nil && !self.isFirstResponder {
                         let result = self.becomeFirstResponder()
-                        Ghostty.logger.info("focusDidChange async: becomeFirstResponder() = \(result)")
+                        Swiftty.logger.info("focusDidChange async: becomeFirstResponder() = \(result)")
                         #if !targetEnvironment(macCatalyst)
                         self.syncSelectionHandlesForSurfaceActivity()
                         #endif
@@ -4024,11 +4021,11 @@ extension Ghostty {
                 }
                 return false
             } else {
-                Ghostty.logger.info("focusDidChange(false): Unfocusing terminal")
+                Swiftty.logger.info("focusDidChange(false): Unfocusing terminal")
                 if keyboardToolbarCollapsed {
                     keyboardToolbarCollapsed = false
                 }
-                applyGhosttyFocus(false)
+                applySwifttyFocus(false)
                 #if !targetEnvironment(macCatalyst)
                 syncSelectionHandlesForSurfaceActivity()
                 #endif
@@ -4036,7 +4033,7 @@ extension Ghostty {
                 clearCursorRegistration()
                 #endif
                 if !skipResign {
-                    // Ghostty focus is synced via resignFirstResponder() override
+                    // Swiftty focus is synced via resignFirstResponder() override
                     resignFirstResponder()
                 }
                 return true
@@ -4047,7 +4044,7 @@ extension Ghostty {
 
 // MARK: - TerminalKeyboardAccessoryHost
 
-extension Ghostty.TerminalView: TerminalKeyboardAccessoryHost {
+extension Swiftty.TerminalView: TerminalKeyboardAccessoryHost {
     var keyboardHostView: UIView { self }
     var keyboardIsFirstResponder: Bool { isFirstResponder }
 
@@ -4103,7 +4100,7 @@ extension Ghostty.TerminalView: TerminalKeyboardAccessoryHost {
             becomeFirstResponder()
         }
         showComposeOverlay.toggle()
-        NotificationCenter.default.post(name: .ghosttyComposeStateChanged, object: self)
+        NotificationCenter.default.post(name: .swifttyComposeStateChanged, object: self)
     }
 
     func keyboardToggleMouseCapture() {
@@ -4112,9 +4109,9 @@ extension Ghostty.TerminalView: TerminalKeyboardAccessoryHost {
 
 }
 
-// MARK: - GhosttyActionDelegate
+// MARK: - SwifttyActionDelegate
 
-extension Ghostty.TerminalView: GhosttyActionDelegate {
+extension Swiftty.TerminalView: SwifttyActionDelegate {
     func handleTitleChange(_ title: String) {
         // Coalesce rapid title changes with a timer (0.075s, like macOS)
         // This prevents flickering and excessive updates
@@ -4127,11 +4124,11 @@ extension Ghostty.TerminalView: GhosttyActionDelegate {
             MainActor.assumeIsolated {
                 guard let self = self else { return }
                 if self.suppressesTitleUpdate() {
-                    Ghostty.logger.debug("Swallowed transient mid-switch title: \(title)")
+                    Swiftty.logger.debug("Swallowed transient mid-switch title: \(title)")
                     return
                 }
                 if self.consumesCommandEcho(title) {
-                    Ghostty.logger.debug("Swallowed command-echo title: \(title)")
+                    Swiftty.logger.debug("Swallowed command-echo title: \(title)")
                     return
                 }
                 // Always cache the session-provided title so foreground replay has it.
@@ -4141,7 +4138,7 @@ extension Ghostty.TerminalView: GhosttyActionDelegate {
                 // true through the deferred-resume window, after applicationState
                 // has already flipped to .active. replayCachedSessionStateOnForeground()
                 // pushes the cached value into `self.title` on resume.
-                guard !Ghostty.isAppBackgroundedAtomic else { return }
+                guard !Swiftty.isAppBackgroundedAtomic else { return }
                 if self.userOverrideTitle == nil {
                     self.title = title
                 }
@@ -4154,13 +4151,13 @@ extension Ghostty.TerminalView: GhosttyActionDelegate {
         let pwd = WorkingDirectoryURI.path(reported)
         // Always cache so we don't lose the latest value while backgrounded.
         self.sessionProvidedPwd = pwd
-        guard !Ghostty.isAppBackgroundedAtomic else { return }
+        guard !Swiftty.isAppBackgroundedAtomic else { return }
         self.pwd = pwd
         // Keep connectionConfig in sync (mirrors onWorkingDirectoryChange callback)
         if case .local = connectionConfig {
             connectionConfig = .local(workingDirectory: pwd)
         }
-        Ghostty.logger.info("PWD changed: \(pwd)")
+        Swiftty.logger.info("PWD changed: \(pwd)")
     }
 
     /// Pushes cached title/pwd/health into the observed properties that were
@@ -4192,7 +4189,7 @@ extension Ghostty.TerminalView: GhosttyActionDelegate {
     @MainActor
     func applyConnectionHealth(_ health: ConnectionHealth?) {
         sessionProvidedConnectionHealth = health
-        guard !Ghostty.isAppBackgroundedAtomic else { return }
+        guard !Swiftty.isAppBackgroundedAtomic else { return }
         // BISECT GATE 2: also gate during the post-foreground health quiet
         // window — a longer-than-general window scoped specifically to
         // health publishes. Toggle via BisectFlags.gate2_connectionHealth.
@@ -4250,7 +4247,7 @@ extension Ghostty.TerminalView: GhosttyActionDelegate {
 
     func handleCellSizeChange(width: CGFloat, height: CGFloat) {
         self.cellSize = CGSize(width: width, height: height)
-        Ghostty.logger.info("Cell size changed: \(width)x\(height)")
+        Swiftty.logger.info("Cell size changed: \(width)x\(height)")
         // The grid's whole-row remainder (terminalTopGridAlignmentPadding)
         // depends on the cell height, which SwiftUI does not otherwise observe.
         KeyboardGeometryMonitor.shared.notifyGridMetricsChanged()
@@ -4259,7 +4256,7 @@ extension Ghostty.TerminalView: GhosttyActionDelegate {
         // Cell size change means the grid dimensions (rows/cols) have changed
         // even though the framebuffer pixel dimensions are the same.
         // Clear the framebuffer cache to force a full resize, which will:
-        // 1. Call ghostty_surface_set_size() to recalculate the grid
+        // 1. Call swiftty_surface_set_size() to recalculate the grid
         // 2. Call updatePTYSize() to notify the PTY/shell of new dimensions
         surfaceController.invalidateCachedSize()
         sizeDidChange(bounds.size)
@@ -4290,44 +4287,44 @@ extension Ghostty.TerminalView: GhosttyActionDelegate {
         }
         #endif
 
-        Ghostty.logger.debug("Mouse shape changed: \(shape)")
+        Swiftty.logger.debug("Mouse shape changed: \(shape)")
     }
 
     #if targetEnvironment(macCatalyst)
-    /// Maps Ghostty mouse shape values to NSCursor instances
+    /// Maps Swiftty mouse shape values to NSCursor instances
     private func nsCursorForShape(_ shape: Int) -> NSCursor {
-        let ghosttyShape = ghostty_action_mouse_shape_e(rawValue: UInt32(shape))
+        let swifttyShape = swiftty_action_mouse_shape_e(rawValue: UInt32(shape))
 
-        switch ghosttyShape {
-        case GHOSTTY_MOUSE_SHAPE_DEFAULT:
+        switch swifttyShape {
+        case SWIFTTY_MOUSE_SHAPE_DEFAULT:
             return .arrow
-        case GHOSTTY_MOUSE_SHAPE_TEXT:
+        case SWIFTTY_MOUSE_SHAPE_TEXT:
             return .iBeam
-        case GHOSTTY_MOUSE_SHAPE_POINTER:
+        case SWIFTTY_MOUSE_SHAPE_POINTER:
             return .pointingHand
-        case GHOSTTY_MOUSE_SHAPE_GRAB:
+        case SWIFTTY_MOUSE_SHAPE_GRAB:
             return .openHand
-        case GHOSTTY_MOUSE_SHAPE_GRABBING:
+        case SWIFTTY_MOUSE_SHAPE_GRABBING:
             return .closedHand
-        case GHOSTTY_MOUSE_SHAPE_CROSSHAIR:
+        case SWIFTTY_MOUSE_SHAPE_CROSSHAIR:
             return .crosshair
-        case GHOSTTY_MOUSE_SHAPE_NOT_ALLOWED:
+        case SWIFTTY_MOUSE_SHAPE_NOT_ALLOWED:
             return .operationNotAllowed
-        case GHOSTTY_MOUSE_SHAPE_VERTICAL_TEXT:
+        case SWIFTTY_MOUSE_SHAPE_VERTICAL_TEXT:
             return .iBeamCursorForVerticalLayout
-        case GHOSTTY_MOUSE_SHAPE_CONTEXT_MENU:
+        case SWIFTTY_MOUSE_SHAPE_CONTEXT_MENU:
             return .contextualMenu
-        case GHOSTTY_MOUSE_SHAPE_E_RESIZE:
+        case SWIFTTY_MOUSE_SHAPE_E_RESIZE:
             return .resizeRight
-        case GHOSTTY_MOUSE_SHAPE_W_RESIZE:
+        case SWIFTTY_MOUSE_SHAPE_W_RESIZE:
             return .resizeLeft
-        case GHOSTTY_MOUSE_SHAPE_N_RESIZE:
+        case SWIFTTY_MOUSE_SHAPE_N_RESIZE:
             return .resizeUp
-        case GHOSTTY_MOUSE_SHAPE_S_RESIZE:
+        case SWIFTTY_MOUSE_SHAPE_S_RESIZE:
             return .resizeDown
-        case GHOSTTY_MOUSE_SHAPE_EW_RESIZE:
+        case SWIFTTY_MOUSE_SHAPE_EW_RESIZE:
             return .resizeLeftRight
-        case GHOSTTY_MOUSE_SHAPE_NS_RESIZE:
+        case SWIFTTY_MOUSE_SHAPE_NS_RESIZE:
             return .resizeUpDown
         default:
             // For any unhandled shapes, default to I-beam (text cursor)
@@ -4347,7 +4344,7 @@ extension Ghostty.TerminalView: GhosttyActionDelegate {
         }
         #endif
 
-        Ghostty.logger.debug("Mouse visibility changed: \(visible)")
+        Swiftty.logger.debug("Mouse visibility changed: \(visible)")
     }
 
     func handleDesktopNotification(title: String?, body: String?) {
@@ -4355,7 +4352,7 @@ extension Ghostty.TerminalView: GhosttyActionDelegate {
         // local alert and nothing else: it never mints approval authority, and
         // it never becomes a signed host claim or a permission request
         // (docs/specs/control-protocol.md sections 20.2 and 12).
-        Ghostty.logger.debug("Terminal desktop notification: title=\(title ?? "nil")")
+        Swiftty.logger.debug("Terminal desktop notification: title=\(title ?? "nil")")
         ControlNotifications.postLocalTerminalAlert(title: title, body: body)
     }
 
@@ -4405,16 +4402,16 @@ extension Ghostty.TerminalView: GhosttyActionDelegate {
                                          in: bounds, mouseCaptured: isMouseCaptured)
 
         // Notify TerminalScrollView of scrollbar updates
-        NotificationCenter.default.post(name: .ghosttyDidUpdateScrollbar, object: self)
+        NotificationCenter.default.post(name: .swifttyDidUpdateScrollbar, object: self)
     }
 
     /// Apply a multiplexer-derived scrollbar sample (or clear it). Maps the
-    /// multiplexer's `(oy, history)` semantics into Ghostty's `(total,
+    /// multiplexer's `(oy, history)` semantics into Swiftty's `(total,
     /// offset_from_top, len)` model and writes them into
     /// scrollbarTotal/Offset/Len so TerminalScrollView's existing
     /// handleScrollbarUpdate path sizes the document and flashes
     /// UIScrollView's native scroll indicator.
-    func applyMultiplexerScrollSample(_ sample: Ghostty.MultiplexerScrollIndicatorObserver.Sample?) {
+    func applyMultiplexerScrollSample(_ sample: Swiftty.MultiplexerScrollIndicatorObserver.Sample?) {
         guard let sample = sample else {
             // Tracking ended. Restore the pre-tracking native scrollbar
             // state so TerminalScrollView resizes its document view back
@@ -4435,7 +4432,7 @@ extension Ghostty.TerminalView: GhosttyActionDelegate {
             nativeScrollbarSnapshotOffset = nil
             nativeScrollbarSnapshotLen = nil
             multiplexerScrollActive = false
-            NotificationCenter.default.post(name: .ghosttyDidUpdateScrollbar, object: self)
+            NotificationCenter.default.post(name: .swifttyDidUpdateScrollbar, object: self)
             return
         }
 
@@ -4471,35 +4468,35 @@ extension Ghostty.TerminalView: GhosttyActionDelegate {
         if !multiplexerScrollActive {
             multiplexerScrollActive = true
         }
-        NotificationCenter.default.post(name: .ghosttyDidUpdateScrollbar, object: self)
+        NotificationCenter.default.post(name: .swifttyDidUpdateScrollbar, object: self)
     }
 
-    func handleProgressReport(_ report: Ghostty.Action.ProgressReport) {
+    func handleProgressReport(_ report: Swiftty.Action.ProgressReport) {
         // Update the progress report state
         // The TerminalScrollView observer will automatically update the UI
         self.progressReport = report
-        Ghostty.logger.debug("Progress report updated: state=\(report.state), progress=\(report.progress?.description ?? "nil")")
+        Swiftty.logger.debug("Progress report updated: state=\(report.state), progress=\(report.progress?.description ?? "nil")")
     }
 
     // MARK: - Search Delegate
 
-    func handleStartSearch(_ startSearch: Ghostty.Action.StartSearch) {
+    func handleStartSearch(_ startSearch: Swiftty.Action.StartSearch) {
         if searchState != nil {
             // Same shortcut that opened search now dismisses it.
             closeSearch()
         } else {
-            searchState = Ghostty.SearchState(from: startSearch)
+            searchState = Swiftty.SearchState(from: startSearch)
             // Notify MainView to re-render with search overlay
-            NotificationCenter.default.post(name: .ghosttySearchStateChanged, object: self)
+            NotificationCenter.default.post(name: .swifttySearchStateChanged, object: self)
         }
-        Ghostty.logger.info("Search started with needle: \(startSearch.needle ?? "(empty)")")
+        Swiftty.logger.info("Search started with needle: \(startSearch.needle ?? "(empty)")")
     }
 
     func handleEndSearch() {
         searchState = nil
         // Notify MainView to re-render without search overlay
-        NotificationCenter.default.post(name: .ghosttySearchStateChanged, object: self)
-        Ghostty.logger.info("Search ended")
+        NotificationCenter.default.post(name: .swifttySearchStateChanged, object: self)
+        Swiftty.logger.info("Search ended")
 
         // Restore focus to terminal
         self.becomeFirstResponder()
@@ -4507,12 +4504,12 @@ extension Ghostty.TerminalView: GhosttyActionDelegate {
 
     func handleSearchTotal(_ total: UInt?) {
         searchState?.total = total
-        Ghostty.logger.debug("Search total: \(total?.description ?? "nil")")
+        Swiftty.logger.debug("Search total: \(total?.description ?? "nil")")
     }
 
     func handleSearchSelected(_ selected: UInt?) {
         searchState?.selected = selected
-        Ghostty.logger.debug("Search selected: \(selected?.description ?? "nil")")
+        Swiftty.logger.debug("Search selected: \(selected?.description ?? "nil")")
     }
 
     func handleMouseOverLink(url: String?) {
@@ -4545,12 +4542,12 @@ extension Ghostty.TerminalView: GhosttyActionDelegate {
         let len = action.utf8CString.count
         if len == 0 { return false }
         let performed = action.withCString { cString in
-            ghostty_surface_binding_action(surface, cString, UInt(len - 1))
+            swiftty_surface_binding_action(surface, cString, UInt(len - 1))
         }
 
         #if !targetEnvironment(macCatalyst)
         if performed {
-            scheduleSelectionHandleSync(afterGhosttyAppTick: true)
+            scheduleSelectionHandleSync()
         }
         #endif
 
@@ -4574,7 +4571,7 @@ extension Ghostty.TerminalView: GhosttyActionDelegate {
 
 // MARK: - Pane Presentation
 
-extension Ghostty.TerminalView {
+extension Swiftty.TerminalView {
     /// Keep split chrome and pane-level agent cards on a stable, non-empty
     /// title without changing the existing tab-title rules.
     func refreshPanePresentationTitle() {
@@ -4631,18 +4628,18 @@ extension Ghostty.TerminalView {
     }
 }
 
-// MARK: - Ghostty Key Event Routing
+// MARK: - Swiftty Key Event Routing
 
-extension Ghostty.TerminalView {
-    func sendEnterKeyViaGhostty(modifiers: UIKeyModifierFlags) -> Bool {
-        sendKeyViaGhostty(
+extension Swiftty.TerminalView {
+    func sendEnterKeyViaSwiftty(modifiers: UIKeyModifierFlags) -> Bool {
+        sendKeyViaSwiftty(
             keyCode: .keyboardReturnOrEnter,
             action: .press,
             modifiers: modifiers
         )
     }
 
-    func sendEnterKeyViaGhostty(
+    func sendEnterKeyViaSwiftty(
         toolbarModifiers: KeyModifiers = [],
         virtualModifier: ModTapModifier? = nil
     ) -> Bool {
@@ -4656,24 +4653,24 @@ extension Ghostty.TerminalView {
             modifiers.insert(virtualModifier.uiKeyModifierFlag)
         }
 
-        return sendEnterKeyViaGhostty(modifiers: modifiers)
+        return sendEnterKeyViaSwiftty(modifiers: modifiers)
     }
 
-    /// Routes a modified key press through Ghostty's key encoding pipeline
-    /// (`ghostty_surface_key`) instead of manually building escape sequences.
+    /// Routes a modified key press through Swiftty's key encoding pipeline
+    /// (`swiftty_surface_key`) instead of manually building escape sequences.
     /// This enables proper CSI u / kitty protocol encoding for keys like
     /// Ctrl+;, Ctrl+-, Ctrl+Shift+- that have no legacy control character.
     ///
     /// - Parameters:
     ///   - char: The character being pressed (lowercase for letters)
     ///   - modifiers: Active keyboard modifiers from toolbar
-    /// - Returns: `true` if the key was handled via Ghostty, `false` if no mapping exists
-    private func sendViaGhosttyKeyEvent(_ char: Character, modifiers: KeyModifiers) -> Bool {
+    /// - Returns: `true` if the key was handled via Swiftty, `false` if no mapping exists
+    private func sendViaSwifttyKeyEvent(_ char: Character, modifiers: KeyModifiers) -> Bool {
         let lookupChar = char.lowercased().first ?? char
         guard let hidUsage = Self.characterHIDUsageMap[lookupChar] else { return false }
 
-        // Convert KeyModifiers to Ghostty mods
-        var mods = Ghostty.Input.Mods.none
+        // Convert KeyModifiers to Swiftty mods
+        var mods = Swiftty.Input.Mods.none
         if modifiers.contains(.control) { mods.insert(.ctrl) }
         if modifiers.contains(.shift) { mods.insert(.shift) }
         if modifiers.contains(.alt) { mods.insert(.alt) }
@@ -4688,7 +4685,7 @@ extension Ghostty.TerminalView {
         // Determine the unshifted codepoint (what the key produces without Shift)
         let unshiftedCodepoint = UInt32(lookupChar.asciiValue ?? 0)
 
-        guard sendKeyViaGhostty(
+        guard sendKeyViaSwiftty(
             keyCode: hidUsage,
             action: .press,
             mods: mods,
@@ -4697,32 +4694,32 @@ extension Ghostty.TerminalView {
             unshiftedCodepoint: unshiftedCodepoint
         ) else { return false }
 
-        // Also send a release event so Ghostty doesn't think the key is held.
-        _ = sendKeyViaGhostty(keyCode: hidUsage, action: .release, mods: mods)
+        // Also send a release event so Swiftty doesn't think the key is held.
+        _ = sendKeyViaSwiftty(keyCode: hidUsage, action: .release, mods: mods)
 
         return true
     }
 
-    /// Route a key through Ghostty's encoder via `ghostty_surface_key()`.
-    /// For modifier shortcuts (Ctrl/Alt/Cmd), text=nil lets Ghostty encode from keycode.
-    /// Maps UIKeyboardHIDUsage → native macOS CGKeyCode (what Ghostty core expects).
+    /// Route a key through Swiftty's encoder via `swiftty_surface_key()`.
+    /// For modifier shortcuts (Ctrl/Alt/Cmd), text=nil lets Swiftty encode from keycode.
+    /// Maps UIKeyboardHIDUsage → native macOS CGKeyCode (what Swiftty core expects).
     @discardableResult
-    func sendKeyViaGhostty(
+    func sendKeyViaSwiftty(
         keyCode: UIKeyboardHIDUsage,
-        action: Ghostty.Input.Action,
-        mods: Ghostty.Input.Mods,
-        consumedMods: Ghostty.Input.Mods = .none,
+        action: Swiftty.Input.Action,
+        mods: Swiftty.Input.Mods,
+        consumedMods: Swiftty.Input.Mods = .none,
         text: String? = nil,
         unshiftedCodepoint: UInt32 = 0
     ) -> Bool {
         invalidateInputDocument()
         guard let surface = surface else { return false }
-        guard let nativeKeycode = Ghostty.Input.nativeKeyCode(for: keyCode) else { return false }
+        guard let nativeKeycode = Swiftty.Input.nativeKeyCode(for: keyCode) else { return false }
 
         // A UIKit sentinel is a key name, not text.
         let text = text.flatMap { KeyCode.isUIKeyInputSentinel($0) ? nil : $0 }
 
-        let event = Ghostty.Input.KeyEvent(
+        let event = Swiftty.Input.KeyEvent(
             nativeKeyCode: nativeKeycode,
             action: action,
             text: text,
@@ -4730,33 +4727,33 @@ extension Ghostty.TerminalView {
             consumedMods: consumedMods,
             unshiftedCodepoint: unshiftedCodepoint
         )
-        event.withCValue { ghostty_surface_key(surface, $0) }
+        event.withCValue { swiftty_surface_key(surface, $0) }
         return true
     }
 
-    /// Convenience: build Ghostty mods from UIKeyModifierFlags.
+    /// Convenience: build Swiftty mods from UIKeyModifierFlags.
     @discardableResult
-    func sendKeyViaGhostty(
+    func sendKeyViaSwiftty(
         keyCode: UIKeyboardHIDUsage,
-        action: Ghostty.Input.Action,
+        action: Swiftty.Input.Action,
         modifiers: UIKeyModifierFlags
     ) -> Bool {
-        let mods = ghosttyInputMods(from: modifiers)
-        return sendKeyViaGhostty(keyCode: keyCode, action: action, mods: mods)
+        let mods = swifttyInputMods(from: modifiers)
+        return sendKeyViaSwiftty(keyCode: keyCode, action: action, mods: mods)
     }
 
     /// Look up the native macOS CGKeyCode for a HID usage code.
     func cgKeyCode(for hidUsage: UIKeyboardHIDUsage) -> UInt32? {
-        Ghostty.Input.nativeKeyCode(for: hidUsage)
+        Swiftty.Input.nativeKeyCode(for: hidUsage)
     }
 }
 
 // MARK: - KeyboardButtonDelegate
 
-extension Ghostty.TerminalView: KeyboardButtonDelegate {
+extension Swiftty.TerminalView: KeyboardButtonDelegate {
     func keyPressed(_ key: String, modifiers: KeyModifiers) {
         // Debug logging
-        Ghostty.logger.debug("TerminalView.keyPressed: key=\(key), modifiers rawValue=\(modifiers.rawValue)")
+        Swiftty.logger.debug("TerminalView.keyPressed: key=\(key), modifiers rawValue=\(modifiers.rawValue)")
 
         // A UIKit sentinel is a key name, not text.
         guard !KeyCode.isUIKeyInputSentinel(key) else { return }
@@ -4791,18 +4788,18 @@ extension Ghostty.TerminalView: KeyboardButtonDelegate {
         commitKoreanCompositionIfNeeded(external: true)
 
         // Notify that input was received (for scroll-to-bottom behavior)
-        NotificationCenter.default.post(name: .ghosttyDidReceiveInput, object: self)
+        NotificationCenter.default.post(name: .swifttyDidReceiveInput, object: self)
 
         if key == "\r" || key == "\n",
            !modifiers.isEmpty,
-           sendEnterKeyViaGhostty(toolbarModifiers: modifiers) {
+           sendEnterKeyViaSwiftty(toolbarModifiers: modifiers) {
             notifyInputDelegateOfExternalChange {
                 mutateInputDocument(.reset)
             }
             return
         }
 
-        // For single-character keys with modifiers, route through Ghostty's key
+        // For single-character keys with modifiers, route through Swiftty's key
         // encoding pipeline. This produces correct output for all keyboard protocol
         // modes (legacy, fixterms/CSI u, kitty) and handles keys like Ctrl+;,
         // Ctrl+-, Ctrl+Shift+- that have no legacy control character mapping.
@@ -4815,19 +4812,19 @@ extension Ghostty.TerminalView: KeyboardButtonDelegate {
         }
 
         if !modifiers.isEmpty, key.count == 1, let char = key.first {
-            if sendViaGhosttyKeyEvent(char, modifiers: modifiers) {
+            if sendViaSwifttyKeyEvent(char, modifiers: modifiers) {
                 return
             }
         }
 
         // Fallback: manually build escape sequences for keys that don't have
-        // a Ghostty key mapping (e.g., multi-byte escape sequences for arrows)
+        // a Swiftty key mapping (e.g., multi-byte escape sequences for arrows)
         // or when the surface is unavailable.
         var keySequence = key
 
         // Handle DECCKM mode for arrow keys (before modifier processing)
         // Only convert plain arrows - modified arrows keep CSI format
-        let applicationMode = surface.map { ghostty_surface_cursor_key_mode($0) } ?? false
+        let applicationMode = surface.map { swiftty_surface_cursor_key_mode($0) } ?? false
         if modifiers.isEmpty,
            key.count == 3,
            key.hasPrefix("\u{1B}["),
@@ -4888,17 +4885,17 @@ extension Ghostty.TerminalView: KeyboardButtonDelegate {
 
         // Send to session
         guard let data = keySequence.data(using: .utf8) else {
-            Ghostty.logger.error("TerminalView: Failed to encode keySequence to UTF-8")
+            Swiftty.logger.error("TerminalView: Failed to encode keySequence to UTF-8")
             return
         }
-        Ghostty.logger.debug("TerminalView: Sending sequence bytes: \(data.hexDescription)")
+        Swiftty.logger.debug("TerminalView: Sending sequence bytes: \(data.hexDescription)")
         sendUserInput(data)
     }
 
     func sendRawData(_ data: Data) {
         commitKoreanCompositionIfNeeded(external: true)
-        NotificationCenter.default.post(name: .ghosttyDidReceiveInput, object: self)
-        Ghostty.logger.debug("TerminalView: Sending raw data (\(data.count) bytes)")
+        NotificationCenter.default.post(name: .swifttyDidReceiveInput, object: self)
+        Swiftty.logger.debug("TerminalView: Sending raw data (\(data.count) bytes)")
         sendUserInput(data)
     }
 }

@@ -7,7 +7,7 @@
 
 import SwiftUI
 import UIKit
-import GhosttyKit
+import SwifttyKit
 import os
 
 struct TerminalSplitTreeView: UIViewRepresentable {
@@ -183,7 +183,7 @@ final class SplitTreeHostingView: UIView {
     /// full screen lives under the takeover container.
     func detachAllPanes() {
         for (_, container) in attachedContainers where container.superview === self {
-            (container as? Ghostty.TerminalScrollView)?
+            (container as? Swiftty.TerminalScrollView)?
                 .setProgressBarPresentationSuppressed(false)
         }
         for (_, container) in attachedContainers where container.superview === self {
@@ -205,7 +205,7 @@ final class SplitTreeHostingView: UIView {
 
         // Invalidate cached sizes and force layout on all attached panes
         for (_, container) in attachedContainers {
-            (container as? Ghostty.TerminalScrollView)?.terminalView.invalidateCachedSize()
+            (container as? Swiftty.TerminalScrollView)?.terminalView.invalidateCachedSize()
             container.setNeedsLayout()
             container.layoutIfNeeded()
         }
@@ -379,7 +379,7 @@ final class SplitTreeHostingView: UIView {
     /// The first tmux pane in this container, its window id, and its live
     /// controller, if any. Both the dead-margin geometry and the divider math
     /// resolve through here, matching the lookup `pushTmuxClientSizeIfNeeded` uses.
-    private func tmuxPaneAndController() -> (pane: Ghostty.TerminalView, windowId: Int, controller: TmuxController)? {
+    private func tmuxPaneAndController() -> (pane: Swiftty.TerminalView, windowId: Int, controller: TmuxController)? {
         guard let tree,
               let pane = tree.terminalLeaves.first(where: { $0.isTmuxPane }),
               let binding = pane.tmuxPaneBinding,
@@ -604,8 +604,8 @@ final class SplitTreeHostingView: UIView {
             if let existingWrapper = terminalView.enclosingTerminalScrollView {
                 container = existingWrapper
             } else {
-                Ghostty.logger.info("SplitTreeHostingView: Creating TerminalScrollView wrapper for terminal \(terminalView.uuid)")
-                container = Ghostty.TerminalScrollView(terminalView: terminalView)
+                Swiftty.logger.info("SplitTreeHostingView: Creating TerminalScrollView wrapper for terminal \(terminalView.uuid)")
+                container = Swiftty.TerminalScrollView(terminalView: terminalView)
             }
             attachedContainers[identifier] = container
         } else {
@@ -663,7 +663,7 @@ final class SplitTreeHostingView: UIView {
     }
 
     private func updateProgressBarRouting(for identifier: ObjectIdentifier, container: UIView) {
-        guard let scrollView = container as? Ghostty.TerminalScrollView else { return }
+        guard let scrollView = container as? Swiftty.TerminalScrollView else { return }
         let focusedID = focusedPane.map(ObjectIdentifier.init)
         let suppressesLocalBar = routesFocusedProgressToIntegratedEdge
             && isActiveTab
@@ -811,8 +811,8 @@ final class SplitTreeHostingView: UIView {
                     containersToRemove.append(identifier)
                     continue
                 }
-                Ghostty.logger.debug("SplitTreeHostingView: Removing container for unused pane")
-                (container as? Ghostty.TerminalScrollView)?
+                Swiftty.logger.debug("SplitTreeHostingView: Removing container for unused pane")
+                (container as? Swiftty.TerminalScrollView)?
                     .setProgressBarPresentationSuppressed(false)
                 container.removeFromSuperview()
                 borderEligibility.removeValue(forKey: identifier)
@@ -1096,11 +1096,11 @@ extension Notification.Name {
     static let browseProfiles = Notification.Name("dev.chr33s.shell.browseProfiles")
     /// Open a saved SSH profile chosen from the File > Open Recent menu or the Dock menu.
     static let openRecentProfile = Notification.Name("dev.chr33s.shell.openRecentProfile")
-    static let ghosttyDidUpdateScrollbar = Notification.Name("dev.chr33s.shell.didUpdateScrollbar")
-    static let ghosttySelectionScrollIndicatorActivity = Notification.Name("dev.chr33s.shell.selectionScrollIndicatorActivity")
-    static let ghosttyDidReceiveInput = Notification.Name("dev.chr33s.shell.didReceiveInput")
-    static let ghosttySessionDidChange = Notification.Name("dev.chr33s.shell.sessionDidChange")
-    static let ghosttySearchStateChanged = Notification.Name("dev.chr33s.shell.searchStateChanged")
+    static let swifttyDidUpdateScrollbar = Notification.Name("dev.chr33s.shell.didUpdateScrollbar")
+    static let swifttySelectionScrollIndicatorActivity = Notification.Name("dev.chr33s.shell.selectionScrollIndicatorActivity")
+    static let swifttyDidReceiveInput = Notification.Name("dev.chr33s.shell.didReceiveInput")
+    static let swifttySessionDidChange = Notification.Name("dev.chr33s.shell.sessionDidChange")
+    static let swifttySearchStateChanged = Notification.Name("dev.chr33s.shell.searchStateChanged")
     static let bellTriggered = Notification.Name("dev.chr33s.shell.bellTriggered")
     static let toggleTabBar = Notification.Name("dev.chr33s.shell.toggleTabBar")
     /// Window menu: pull the selected tab out into its own window.
@@ -1114,7 +1114,7 @@ extension Notification.Name {
     static let touchModeChanged = Notification.Name("dev.chr33s.shell.touchModeChanged")
     static let previousGroup = Notification.Name("dev.chr33s.shell.previousGroup")
     static let nextGroup = Notification.Name("dev.chr33s.shell.nextGroup")
-    static let ghosttyComposeStateChanged = Notification.Name("dev.chr33s.shell.composeStateChanged")
+    static let swifttyComposeStateChanged = Notification.Name("dev.chr33s.shell.composeStateChanged")
     static let toggleFullScreen = Notification.Name("dev.chr33s.shell.toggleFullScreen")
     static let showTmuxSessions = Notification.Name("dev.chr33s.shell.showTmuxSessions")
     static let detachOtherClients = Notification.Name("dev.chr33s.shell.detachOtherClients")

@@ -7,7 +7,7 @@
 //
 
 import SwiftUI
-import GhosttyKit
+import SwifttyKit
 import os
 import UIKit
 
@@ -55,7 +55,7 @@ extension MainView {
     /// The native recovery status strip for the focused terminal.
     ///
     /// This is where recovery status belongs: above the surface, never inside
-    /// it. A spinner or countdown written into Ghostty would overwrite
+    /// it. A spinner or countdown written into Swiftty would overwrite
     /// whatever a full-screen remote application is drawing, and the terminal
     /// contents must come back unchanged after a recovery (AC-18).
     @ViewBuilder
@@ -107,7 +107,7 @@ extension MainView {
     }
 
     /// Find the tab ID that owns a given terminal view, or nil if not in any tab.
-    func tabID(for terminalView: Ghostty.TerminalView) -> UUID? {
+    func tabID(for terminalView: Swiftty.TerminalView) -> UUID? {
         for tab in terminals {
             if tab.splitTree.contains(where: { $0 === terminalView }) {
                 return tab.id
@@ -196,7 +196,7 @@ extension MainView {
                     // so the keyboard transitions smoothly without bounce
                     focusedTerminal.becomeFirstResponder()
                     focusedTerminal.showComposeOverlay = false
-                    NotificationCenter.default.post(name: .ghosttyComposeStateChanged, object: focusedTerminal)
+                    NotificationCenter.default.post(name: .swifttyComposeStateChanged, object: focusedTerminal)
                 },
                 onTextChanged: { newText in
                     focusedTerminal.composeText = newText
@@ -407,7 +407,7 @@ extension MainView {
             userActivity: nil,
             options: nil,
             errorHandler: { error in
-                Ghostty.logger.error("Failed to activate gateway window: \(error.localizedDescription)")
+                Swiftty.logger.error("Failed to activate gateway window: \(error.localizedDescription)")
             }
         )
     }
@@ -700,7 +700,7 @@ extension MainView {
     ) -> CGFloat {
         guard let node = tab.splitTree.zoomed ?? tab.splitTree.root,
               case .leaf(let pane) = node,
-              let terminal = pane as? Ghostty.TerminalView,
+              let terminal = pane as? Swiftty.TerminalView,
               let size = terminal.surfaceSize,
               size.cell_height_px > 0
         else { return 0 }
@@ -740,7 +740,7 @@ extension MainView {
         // `inner` sits outside the container safe-area escape and `expanded`
         // inside it, so their height difference is the expansion UIKit granted
         // this pass. The escape lets the drawable extend into the home-indicator
-        // strip; the grid stays above it via ghostty_surface_set_bottom_inset.
+        // strip; the grid stays above it via swiftty_surface_set_bottom_inset.
         // visionOS/macCatalyst add the bottom inset in terminalBottomPadding
         // instead, so they keep the single-reader path.
         GeometryReader { inner in
@@ -839,7 +839,7 @@ extension MainView {
                             && !tabBarHidden
                     )
                     // NOTE: the tmux control-mode client size is NOT driven from here.
-                    // A tmux pane is a real ghostty surface, so its grid is recomputed
+                    // A tmux pane is a real swiftty surface, so its grid is recomputed
                     // in the core (cell/font/inset-aware) on every resize/keyboard/font
                     // change exactly like a normal surface, and the tmux backend relays
                     // it; the viewer turns a single-pane window's resize into
@@ -927,7 +927,7 @@ extension MainView {
                 }
                 if other != tabID {
                     let paneUUID = pane.uuid
-                    Ghostty.logger.fault(
+                    Swiftty.logger.fault(
                         "pane \(paneUUID) is in two tabs' split trees: \(other) and \(tabID)")
                 }
             }

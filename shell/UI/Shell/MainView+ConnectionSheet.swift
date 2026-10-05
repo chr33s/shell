@@ -61,7 +61,7 @@ extension MainView {
     @ViewBuilder
     func connectionPresentationContent(sheetTheme: ResolvedSheetTheme) -> some View {
         connectionSheetContent
-            .environment(ghosttyApp)
+            .environment(swifttyApp)
             .interactiveDismissDisabled(terminals.isEmpty)
             .themedSheet(
                 themeColors: sheetTheme.themeColors,

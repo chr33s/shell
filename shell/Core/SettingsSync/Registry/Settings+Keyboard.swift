@@ -7,14 +7,14 @@
 
 import Foundation
 
-extension Ghostty.OptionKeyAsAlt: SettingValue {}
+extension Swiftty.OptionKeyAsAlt: SettingValue {}
 extension DrawerToggleMode: SettingValue {}
 extension KeyboardArrowJoystickButton.Mode: SettingValue {}
 
 nonisolated extension Settings {
     enum Keyboard {
         static let optionKeyAsAlt = SettingKey(
-            "optionKeyAsAlt", default: Ghostty.OptionKeyAsAlt.off, group: .keyboard,
+            "optionKeyAsAlt", default: Swiftty.OptionKeyAsAlt.off, group: .keyboard,
             configKey: "macos-option-as-alt",
             title: String(localized: "Option Key as Alt", comment: "Setting title"))
         static let forceASCIIKeyboard = SettingKey(
@@ -77,17 +77,17 @@ nonisolated extension Settings {
             "modTapRules", default: nil, group: .keybinds,
             title: String(localized: "Mod-Tap Rules", comment: "Setting title"))
         static let externalConfigPath = SettingKey<String?>(
-            "externalGhosttyConfigPath", default: nil, group: .keybinds, policy: .deviceOnly,
+            "externalSwifttyConfigPath", default: nil, group: .keybinds, policy: .deviceOnly,
             title: String(localized: "Imported Config Path", comment: "Setting title"))
         static let externalConfigOriginalFilename = SettingKey<String?>(
-            "externalGhosttyConfigPath_originalFilename", default: nil, group: .keybinds, policy: .deviceOnly,
+            "externalSwifttyConfigPath_originalFilename", default: nil, group: .keybinds, policy: .deviceOnly,
             title: String(localized: "Imported Config Filename", comment: "Setting title"))
         /// Security-scoped bookmark for the imported config file. Reached only by
         /// string interpolation ("\(externalConfigPathKey)_bookmark") in
         /// KeybindManager, so a symbol search will not find a reference — the
         /// registration is what declares its .deviceOnly policy. Do not remove.
         static let externalConfigBookmark = SettingKey<Data?>(
-            "externalGhosttyConfigPath_bookmark", default: nil, group: .keybinds, policy: .deviceOnly,
+            "externalSwifttyConfigPath_bookmark", default: nil, group: .keybinds, policy: .deviceOnly,
             title: String(localized: "Imported Config Bookmark", comment: "Setting title"))
 
         static let all: [AnySettingDefinition] = [

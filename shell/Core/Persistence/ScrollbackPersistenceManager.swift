@@ -4,12 +4,12 @@
 //
 //  Manages periodic persistence of terminal scrollback buffers to disk,
 //  and restoration on session reconnect. Scrollback is dumped as ANSI-styled
-//  text from Ghostty's primary screen buffer, preserving colors and styles.
+//  text from Swiftty's primary screen buffer, preserving colors and styles.
 //
 
 import Crypto
 import Foundation
-import GhosttyKit
+import SwifttyKit
 import os
 import UIKit
 
@@ -43,7 +43,7 @@ final class ScrollbackPersistenceManager {
     // MARK: - State
 
     private struct TerminalRef {
-        weak var terminal: Ghostty.TerminalView?
+        weak var terminal: Swiftty.TerminalView?
     }
 
     private var registeredTerminals: [UUID: TerminalRef] = [:]
@@ -62,7 +62,7 @@ final class ScrollbackPersistenceManager {
 
     private var scrollbackDirectory: URL {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-        return docs.appendingPathComponent(".ghostty/scrollback", isDirectory: true)
+        return docs.appendingPathComponent(".swiftty/scrollback", isDirectory: true)
     }
 
     private func scrollbackFileURL(for uuid: UUID) -> URL {
@@ -153,7 +153,7 @@ final class ScrollbackPersistenceManager {
 
     // MARK: - Registration
 
-    func registerTerminal(_ terminal: Ghostty.TerminalView) {
+    func registerTerminal(_ terminal: Swiftty.TerminalView) {
         guard Self.isEnabled else { return }
         let uuid = terminal.uuid
         registeredTerminals[uuid] = TerminalRef(terminal: terminal)
@@ -201,11 +201,11 @@ final class ScrollbackPersistenceManager {
     // uncheckedState: the keys are raw surface pointers, which carry no
     // Sendable conformance. The lock itself is what makes access safe.
     nonisolated private static let inFlightSurfaces = OSAllocatedUnfairLock(
-        uncheckedState: [ghostty_surface_t: SurfaceGuard]()
+        uncheckedState: [swiftty_surface_t: SurfaceGuard]()
     )
 
     /// Increment the in-flight refcount for a surface. Creates the guard if first save.
-    nonisolated private static func retainSurface(_ surface: ghostty_surface_t) {
+    nonisolated private static func retainSurface(_ surface: swiftty_surface_t) {
         nonisolated(unsafe) let surface = surface
         inFlightSurfaces.withLock { dict in
             if var guard_ = dict[surface] {
@@ -218,7 +218,7 @@ final class ScrollbackPersistenceManager {
     }
 
     /// Decrement the in-flight refcount. Signals the semaphore when it reaches zero.
-    nonisolated private static func releaseSurface(_ surface: ghostty_surface_t) {
+    nonisolated private static func releaseSurface(_ surface: swiftty_surface_t) {
         nonisolated(unsafe) let surface = surface
         let shouldSignal = inFlightSurfaces.withLock { dict -> DispatchSemaphore? in
             guard var guard_ = dict[surface] else { return nil }
@@ -235,15 +235,15 @@ final class ScrollbackPersistenceManager {
     }
 
     /// Block until all background saves for this surface complete, with a
-    /// 500 ms cap. Callers use this before `ghostty_surface_free` to avoid
+    /// 500 ms cap. Callers use this before `swiftty_surface_free` to avoid
     /// use-after-free, since the in-flight save dumps the surface's primary
     /// screen. Returns `true` if all saves completed; returns `false` on
     /// timeout, in which case the caller MUST NOT free the surface (the
     /// save is still using it). Accepting a leak is the right tradeoff —
-    /// a wedged save would otherwise saturate `ghosttyAPIQueue` and stall
+    /// a wedged save would otherwise saturate `swifttyAPIQueue` and stall
     /// every subsequent occlusion/render call queued behind it.
     @discardableResult
-    nonisolated static func waitForSurfaceSave(_ surface: ghostty_surface_t) -> Bool {
+    nonisolated static func waitForSurfaceSave(_ surface: swiftty_surface_t) -> Bool {
         nonisolated(unsafe) let surface = surface
         guard let sem = inFlightSurfaces.withLock({ $0[surface]?.semaphore }) else { return true }
         let result = sem.wait(timeout: .now() + 0.5)
@@ -262,7 +262,7 @@ final class ScrollbackPersistenceManager {
     /// @unchecked because the raw surface pointer has no Sendable conformance;
     /// the retain/release refcount above is what keeps it alive across the hop.
     nonisolated struct BackgroundTerminalRef: @unchecked Sendable {
-        let surfacePointer: ghostty_surface_t
+        let surfacePointer: swiftty_surface_t
         let uuid: UUID
         let isAtPrompt: Bool
     }
@@ -310,7 +310,7 @@ final class ScrollbackPersistenceManager {
     }
 
     /// Save scrollback for a single terminal in the background. Thread-safe.
-    /// The C API call `ghostty_surface_dump_primary_screen` acquires its own mutex.
+    /// `swiftty_surface_dump_primary_screen` acquires its own lock.
     /// Removes the surface from the in-flight set when done (even on failure).
     nonisolated static func saveScrollbackInBackground(
         ref: BackgroundTerminalRef,
@@ -318,11 +318,11 @@ final class ScrollbackPersistenceManager {
     ) {
         defer { releaseSurface(ref.surfacePointer) }
 
-        // Dump the primary screen (thread-safe C API call)
+        // Dump the primary screen (thread-safe)
         var len: UInt = 0
-        guard let ptr = ghostty_surface_dump_primary_screen(ref.surfacePointer, &len) else { return }
+        guard let ptr = swiftty_surface_dump_primary_screen(ref.surfacePointer, &len) else { return }
         var data = Data(bytes: ptr, count: Int(len))
-        ghostty_surface_free_dump(ptr, len)
+        swiftty_surface_free_dump(ptr, len)
 
         // Truncate from front if too large (keep most recent content)
         let maxSize = 10 * 1024 * 1024
@@ -362,7 +362,7 @@ final class ScrollbackPersistenceManager {
 
         // Write to disk
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-        let scrollbackDir = docs.appendingPathComponent(".ghostty/scrollback", isDirectory: true)
+        let scrollbackDir = docs.appendingPathComponent(".swiftty/scrollback", isDirectory: true)
         let fileURL = scrollbackDir.appendingPathComponent("\(ref.uuid.uuidString).ansi.enc")
         let promptFlagURL = scrollbackDir.appendingPathComponent("\(ref.uuid.uuidString).atprompt.enc")
 
@@ -453,9 +453,9 @@ final class ScrollbackPersistenceManager {
 
         // Dump the primary screen with ANSI styling
         var len: UInt = 0
-        guard let ptr = ghostty_surface_dump_primary_screen(surface, &len) else { return }
+        guard let ptr = swiftty_surface_dump_primary_screen(surface, &len) else { return }
         var data = Data(bytes: ptr, count: Int(len))
-        ghostty_surface_free_dump(ptr, len)
+        swiftty_surface_free_dump(ptr, len)
 
         // Truncate from front if too large (keep most recent content).
         // Must happen *before* hashing so both save paths (main-actor here
@@ -524,7 +524,7 @@ final class ScrollbackPersistenceManager {
     /// Restore scrollback for a terminal by writing saved ANSI data through the
     /// bufferedWriter, then finish the scrollback-restore gate so buffered
     /// live output follows the saved bytes.
-    func restoreScrollback(for terminal: Ghostty.TerminalView) {
+    func restoreScrollback(for terminal: Swiftty.TerminalView) {
         // Saved scrollback is replayed verbatim, BELs and all. Stripping
         // 0x07 is not an option (it also terminates OSC sequences), so mute
         // instead. This deadline covers the direct writes below; the gated

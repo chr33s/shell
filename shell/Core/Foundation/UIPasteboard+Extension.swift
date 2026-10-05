@@ -11,7 +11,7 @@ import UniformTypeIdentifiers
 extension UIPasteboard {
     /// Gets clipboard contents with terminal-paste semantics:
     /// 1. URLs first — file URLs become shell-escaped absolute paths, other URLs
-    ///    become their absoluteString. Matches upstream Ghostty macOS so that
+    ///    become their absoluteString. Matches desktop terminals so that
     ///    copying a file from Finder pastes the full path, not just the filename.
     /// 2. Falls back to strictly-read plain-text UTIs (avoids Mac Catalyst's
     ///    `.string` bridge, which can surface HTML/RTF bytes when a source
@@ -21,7 +21,7 @@ extension UIPasteboard {
             return urls
                 .map { url -> String in
                     if url.isFileURL {
-                        return Ghostty.Shell.escape(url.path)
+                        return Swiftty.Shell.escape(url.path)
                     } else {
                         return url.absoluteString
                     }

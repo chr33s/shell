@@ -9,7 +9,7 @@
 @preconcurrency import UIKit
 import SwiftUI
 import os
-import GhosttyKit
+import SwifttyKit
 import GameController
 import UniformTypeIdentifiers
 #if targetEnvironment(macCatalyst)
@@ -21,12 +21,12 @@ import AppKit
 private nonisolated final class PasteLoadBox: @unchecked Sendable {
     let candidates: [(provider: NSItemProvider, typeIdentifier: String)]
     let completion: ((Bool) -> Void)?
-    weak var view: Ghostty.TerminalView?
+    weak var view: Swiftty.TerminalView?
 
     init(
         candidates: [(provider: NSItemProvider, typeIdentifier: String)],
         completion: ((Bool) -> Void)?,
-        view: Ghostty.TerminalView
+        view: Swiftty.TerminalView
     ) {
         self.candidates = candidates
         self.completion = completion
@@ -60,7 +60,7 @@ final class TouchOnlyGestureDelegate: NSObject, UIGestureRecognizerDelegate {
 
 // MARK: - Gesture Handlers
 
-extension Ghostty.TerminalView {
+extension Swiftty.TerminalView {
 
     @objc func handleTap(_ gesture: UITapGestureRecognizer) {
         // Notify MainView to update focused terminal
@@ -85,16 +85,16 @@ extension Ghostty.TerminalView {
             hideSelectionHandles(animated: false)
             let tapLocation = gesture.location(in: self)
             let pixelPoint = viewToPixelCoordinates(tapLocation)
-            ghostty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, Ghostty.Input.Mods.none.cMods)
-            sendMouseButton(GHOSTTY_MOUSE_PRESS, button: GHOSTTY_MOUSE_LEFT)
-            sendMouseButton(GHOSTTY_MOUSE_RELEASE, button: GHOSTTY_MOUSE_LEFT)
+            swiftty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, Swiftty.Input.Mods.none.cMods)
+            sendMouseButton(SWIFTTY_MOUSE_PRESS, button: SWIFTTY_MOUSE_LEFT)
+            sendMouseButton(SWIFTTY_MOUSE_RELEASE, button: SWIFTTY_MOUSE_LEFT)
         }
         #endif
     }
 
     #if !targetEnvironment(macCatalyst)
     @objc func handleDoubleTap(_ gesture: UITapGestureRecognizer) {
-        // Mouse/trackpad: don't show context menu — matches macOS Ghostty behavior.
+        // Mouse/trackpad: don't show context menu — matches macOS Swiftty behavior.
         guard lastContextMenuTriggerWasFinger else { return }
         scheduleDoubleTapContextMenu(at: gesture.location(in: self))
     }
@@ -110,13 +110,13 @@ extension Ghostty.TerminalView {
         case .began, .changed:
             // Send position update
             let pixelPoint = viewToPixelCoordinates(point)
-            ghostty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, Ghostty.Input.Mods.none.cMods)
+            swiftty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, Swiftty.Input.Mods.none.cMods)
 
         case .ended, .cancelled:
             // Send release
             let pixelPoint = viewToPixelCoordinates(point)
-            ghostty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, Ghostty.Input.Mods.none.cMods)
-            sendMouseButton(GHOSTTY_MOUSE_RELEASE, button: GHOSTTY_MOUSE_RIGHT)
+            swiftty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, Swiftty.Input.Mods.none.cMods)
+            sendMouseButton(SWIFTTY_MOUSE_RELEASE, button: SWIFTTY_MOUSE_RIGHT)
             mousePressed = false
             stopRightClickMonitoring()
 
@@ -153,7 +153,7 @@ extension Ghostty.TerminalView {
 #endif
             lastMousePosition = point
 
-            // Send hover position to Ghostty so apps like tmux can track cursor position
+            // Send hover position to Swiftty so apps like tmux can track cursor position
             // This is critical for tmux divider detection - tmux needs to know the cursor
             // is on a divider BEFORE you click, not just when you click
             // BUT: Skip if mouse button is pressed - touch events handle position during drag
@@ -161,7 +161,7 @@ extension Ghostty.TerminalView {
             // Pass modifier state so Cmd+hover triggers link detection (pointing hand cursor)
             if let surface = surface, !mousePressed {
                 let pixelPoint = viewToPixelCoordinates(point)
-                ghostty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, currentMouseMods())
+                swiftty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, currentMouseMods())
             }
 
             #if targetEnvironment(macCatalyst)
@@ -235,7 +235,7 @@ extension Ghostty.TerminalView {
 
             if isSelecting {
                 let pixelPoint = viewToPixelCoordinates(location)
-                ghostty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, Ghostty.Input.Mods.none.cMods)
+                swiftty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, Swiftty.Input.Mods.none.cMods)
                 noteSelectionScrollIndicatorActivity()
                 updateCaptureMagnifier(at: location)
             }
@@ -246,15 +246,15 @@ extension Ghostty.TerminalView {
 
             if isSelecting {
                 let pixelPoint = viewToPixelCoordinates(location)
-                ghostty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, Ghostty.Input.Mods.none.cMods)
-                sendMouseButton(GHOSTTY_MOUSE_RELEASE, button: GHOSTTY_MOUSE_LEFT)
+                swiftty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, Swiftty.Input.Mods.none.cMods)
+                sendMouseButton(SWIFTTY_MOUSE_RELEASE, button: SWIFTTY_MOUSE_LEFT)
                 hideSelectionMagnifier()
                 isSelecting = false
                 selectionStartedFromPan = false
                 reloadInputViews()
 
                 // Show edit menu and selection handles if selection was created
-                if ghostty_surface_has_selection(surface) {
+                if swiftty_surface_has_selection(surface) {
                     selectionWasTouchInitiated = true
                     presentTransientEditMenu(at: location)
                     syncSelectionHandlesForSurfaceActivity()
@@ -283,8 +283,8 @@ extension Ghostty.TerminalView {
         selectionStartedFromPan = true
 
         let pixelPoint = viewToPixelCoordinates(startPoint)
-        ghostty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, Ghostty.Input.Mods.none.cMods)
-        sendMouseButton(GHOSTTY_MOUSE_PRESS, button: GHOSTTY_MOUSE_LEFT)
+        swiftty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, Swiftty.Input.Mods.none.cMods)
+        sendMouseButton(SWIFTTY_MOUSE_PRESS, button: SWIFTTY_MOUSE_LEFT)
         showCaptureMagnifier(at: startPoint)
         triggerHapticFeedback()
 
@@ -330,14 +330,14 @@ extension Ghostty.TerminalView {
 
         let location = point ?? selectionStartPoint ?? .zero
         let pixelPoint = viewToPixelCoordinates(location)
-        ghostty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, Ghostty.Input.Mods.none.cMods)
-        sendMouseButton(GHOSTTY_MOUSE_RELEASE, button: GHOSTTY_MOUSE_LEFT)
+        swiftty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, Swiftty.Input.Mods.none.cMods)
+        sendMouseButton(SWIFTTY_MOUSE_RELEASE, button: SWIFTTY_MOUSE_LEFT)
         hideSelectionMagnifier(animated: false)
         isSelecting = false
 
         if selectionStartedFromPan {
-            sendMouseButton(GHOSTTY_MOUSE_PRESS, button: GHOSTTY_MOUSE_LEFT)
-            sendMouseButton(GHOSTTY_MOUSE_RELEASE, button: GHOSTTY_MOUSE_LEFT)
+            sendMouseButton(SWIFTTY_MOUSE_PRESS, button: SWIFTTY_MOUSE_LEFT)
+            sendMouseButton(SWIFTTY_MOUSE_RELEASE, button: SWIFTTY_MOUSE_LEFT)
         }
     }
 
@@ -393,8 +393,8 @@ extension Ghostty.TerminalView {
             selectionStartPoint = location
 
             let pixelPoint = viewToPixelCoordinates(location)
-            ghostty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, Ghostty.Input.Mods.none.cMods)
-            sendMouseButton(GHOSTTY_MOUSE_PRESS, button: GHOSTTY_MOUSE_LEFT)
+            swiftty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, Swiftty.Input.Mods.none.cMods)
+            sendMouseButton(SWIFTTY_MOUSE_PRESS, button: SWIFTTY_MOUSE_LEFT)
             showCaptureMagnifier(at: location)
 
             triggerHapticFeedback()
@@ -406,7 +406,7 @@ extension Ghostty.TerminalView {
             guard let surface = surface else { return }
             if isSelecting {
                 let pixelPoint = viewToPixelCoordinates(location)
-                ghostty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, Ghostty.Input.Mods.none.cMods)
+                swiftty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, Swiftty.Input.Mods.none.cMods)
                 noteSelectionScrollIndicatorActivity()
                 updateCaptureMagnifier(at: location)
             }
@@ -414,13 +414,13 @@ extension Ghostty.TerminalView {
         case .ended, .cancelled, .failed:
             if isSelecting, let surface = surface {
                 let pixelPoint = viewToPixelCoordinates(location)
-                ghostty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, Ghostty.Input.Mods.none.cMods)
-                sendMouseButton(GHOSTTY_MOUSE_RELEASE, button: GHOSTTY_MOUSE_LEFT)
+                swiftty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, Swiftty.Input.Mods.none.cMods)
+                sendMouseButton(SWIFTTY_MOUSE_RELEASE, button: SWIFTTY_MOUSE_LEFT)
                 hideSelectionMagnifier()
                 reloadInputViews()
 
                 // Show edit menu and selection handles if selection was created
-                if ghostty_surface_has_selection(surface) {
+                if swiftty_surface_has_selection(surface) {
                     selectionWasTouchInitiated = true
                     presentTransientEditMenu(at: location)
                     syncSelectionHandlesForSurfaceActivity()
@@ -545,7 +545,7 @@ extension Ghostty.TerminalView {
 
     /// Handle pinch gesture for font size adjustment in scroll mode
     @objc func handlePinchZoom(_ gesture: UIPinchGestureRecognizer) {
-        guard surface != nil, ghosttyApp != nil else { return }
+        guard surface != nil, swifttyApp != nil else { return }
 
         switch gesture.state {
         case .began:
@@ -702,8 +702,8 @@ extension Ghostty.TerminalView {
 
             // Send mouse press event to start selection
             let pixelPoint = viewToPixelCoordinates(location)
-            ghostty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, Ghostty.Input.Mods.none.cMods)
-            sendMouseButton(GHOSTTY_MOUSE_PRESS, button: GHOSTTY_MOUSE_LEFT)
+            swiftty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, Swiftty.Input.Mods.none.cMods)
+            sendMouseButton(SWIFTTY_MOUSE_PRESS, button: SWIFTTY_MOUSE_LEFT)
 
             // Route focus through notification system like handleTap
             NotificationCenter.default.post(name: .focusSplit, object: self)
@@ -713,8 +713,8 @@ extension Ghostty.TerminalView {
             // End selection and show edit menu based on what happened
             if isSelecting {
                 let pixelPoint = viewToPixelCoordinates(location)
-                ghostty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, Ghostty.Input.Mods.none.cMods)
-                sendMouseButton(GHOSTTY_MOUSE_RELEASE, button: GHOSTTY_MOUSE_LEFT)
+                swiftty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, Swiftty.Input.Mods.none.cMods)
+                sendMouseButton(SWIFTTY_MOUSE_RELEASE, button: SWIFTTY_MOUSE_LEFT)
 
                 isSelecting = false
                 selectionStartPoint = nil
@@ -727,7 +727,7 @@ extension Ghostty.TerminalView {
             // Update selection as finger moves during long press
             if isSelecting {
                 let pixelPoint = viewToPixelCoordinates(location)
-                ghostty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, Ghostty.Input.Mods.none.cMods)
+                swiftty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, Swiftty.Input.Mods.none.cMods)
                 noteSelectionScrollIndicatorActivity()
             }
 
@@ -737,9 +737,9 @@ extension Ghostty.TerminalView {
     }
     #endif
 
-    /// Convert view coordinates to pixel coordinates for Ghostty
+    /// Convert view coordinates to pixel coordinates for Swiftty
     func viewToPixelCoordinates(_ point: CGPoint) -> CGPoint {
-        // Since we call ghostty_surface_set_content_scale(), Ghostty knows about
+        // Since we call swiftty_surface_set_content_scale(), Swiftty knows about
         // the scale factor and will apply it internally. So we pass coordinates
         // in points, not pre-scaled pixels.
         return point
@@ -747,10 +747,10 @@ extension Ghostty.TerminalView {
 
     // MARK: - Modifier-Driven Link Refresh
 
-    /// Send a modifier key event to Ghostty when modifier keys change.
-    /// This mirrors macOS AppKit's `flagsChanged` → `ghostty_surface_key` path,
+    /// Send a modifier key event to Swiftty when modifier keys change.
+    /// This mirrors macOS AppKit's `flagsChanged` → `swiftty_surface_key` path,
     /// triggering `keyCallback` → `modsChanged` → `mouseRefreshLinks` in the
-    /// Zig backend to update link detection without requiring mouse movement.
+    /// SwifttyKit surface to update link detection without requiring mouse movement.
     func handleModifierKeyChange(keyCode: GCKeyCode, pressed: Bool) {
         lastHardwareTextInputTime = ProcessInfo.processInfo.systemUptime
         invalidateInputDocument()
@@ -774,7 +774,7 @@ extension Ghostty.TerminalView {
         }
 
         // Read current modifier state from GCKeyboard (most up-to-date source)
-        var mods = Ghostty.Input.Mods.none
+        var mods = Swiftty.Input.Mods.none
         #if !os(visionOS)
         if let input = GCKeyboard.coalesced?.keyboardInput {
             let leftCmd = input.button(forKeyCode: .leftGUI)?.isPressed ?? false
@@ -805,7 +805,7 @@ extension Ghostty.TerminalView {
         // Update heldHardwareModifiers so subsequent hover events have correct state
         heldHardwareModifiers = mods
 
-        // We only need to forward Command modifier transitions to Ghostty to
+        // We only need to forward Command modifier transitions to Swiftty to
         // trigger Cmd+hover link refresh. Forwarding Alt/Shift/Ctrl modifier-only
         // events can interfere with terminal input handling.
         let hidUsage: UIKeyboardHIDUsage
@@ -817,16 +817,16 @@ extension Ghostty.TerminalView {
         default:
             return
         }
-        guard let nativeKeyCode = Ghostty.Input.nativeKeyCode(for: hidUsage) else { return }
+        guard let nativeKeyCode = Swiftty.Input.nativeKeyCode(for: hidUsage) else { return }
 
-        let action: Ghostty.Input.Action = pressed ? .press : .release
-        let event = Ghostty.Input.KeyEvent(
+        let action: Swiftty.Input.Action = pressed ? .press : .release
+        let event = Swiftty.Input.KeyEvent(
             nativeKeyCode: nativeKeyCode,
             action: action,
             mods: mods
         )
         event.withCValue { cEvent in
-            ghostty_surface_key(surface, cEvent)
+            swiftty_surface_key(surface, cEvent)
         }
     }
 
@@ -834,9 +834,9 @@ extension Ghostty.TerminalView {
 
     /// Query current keyboard modifier state for pointer events.
     /// On Catalyst, reads from CGEvent; on iPad, uses tracked hardware modifiers.
-    func currentMouseMods() -> ghostty_input_mods_e {
+    func currentMouseMods() -> swiftty_input_mods_e {
         #if targetEnvironment(macCatalyst)
-        var mods = Ghostty.Input.Mods.none
+        var mods = Swiftty.Input.Mods.none
         if let flags = CGEvent(source: nil)?.flags {
             if flags.contains(.maskCommand) { mods.insert(.cmd) }
             if flags.contains(.maskControl) { mods.insert(.ctrl) }
@@ -849,58 +849,58 @@ extension Ghostty.TerminalView {
         #endif
     }
 
-    /// Probe Ghostty for a hyperlink at the given view coordinate.
+    /// Probe Swiftty for a hyperlink at the given view coordinate.
     /// Sends mouse_pos with super modifier to trigger link detection,
     /// reads the synchronously-stored URL, then resets modifier state.
     func probeForLink(at point: CGPoint) -> String? {
         guard let surface = surface else { return nil }
         let pixelPoint = viewToPixelCoordinates(point)
         lastProbedLinkURL = nil
-        // Reset Ghostty's link_point dedup state by moving to a different grid
+        // Reset Swiftty's link_point dedup state by moving to a different grid
         // position first. Regular mouse hover/movement already sends mouse_pos
         // as the cursor tracks to this cell, setting link_point. Without this
-        // nudge, the dedup check in Surface.zig cursorPosCallback sees
+        // nudge, SwifttyKit's mouse-position dedup sees
         // (over_link=false, link_point==pos_vp) and skips link detection.
-        ghostty_surface_mouse_pos(surface, 0, 0, Ghostty.Input.Mods.none.cMods)
-        // Probe: super modifier triggers link detection in Surface.zig linkAtPos()
-        ghostty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, Ghostty.Input.Mods.cmd.cMods)
+        swiftty_surface_mouse_pos(surface, 0, 0, Swiftty.Input.Mods.none.cMods)
+        // Probe: super modifier triggers link detection in SwifttyKit
+        swiftty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, Swiftty.Input.Mods.cmd.cMods)
         let url = lastProbedLinkURL
         // Reset: clear modifier so link underline/cursor doesn't persist
-        ghostty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, Ghostty.Input.Mods.none.cMods)
+        swiftty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, Swiftty.Input.Mods.none.cMods)
         return url
     }
 }
 
 // MARK: - Copy/Paste
 
-extension Ghostty.TerminalView {
+extension Swiftty.TerminalView {
 
     override func copy(_ sender: Any?) {
         noteModTapCommand(sender as? UIKeyCommand)
         guard let surface = surface else { return }
 
         // Check if there's a selection
-        guard ghostty_surface_has_selection(surface) else {
-            Ghostty.logger.info("No selection to copy")
+        guard swiftty_surface_has_selection(surface) else {
+            Swiftty.logger.info("No selection to copy")
             return
         }
 
         // Read the selection
-        var textStruct = ghostty_text_s()
-        ghostty_surface_read_selection(surface, &textStruct)
+        var textStruct = swiftty_text_s()
+        swiftty_surface_read_selection(surface, &textStruct)
 
         // Check if we got valid text
         guard textStruct.text_len > 0, let textPtr = textStruct.text else {
-            Ghostty.logger.info("No text in selection")
+            Swiftty.logger.info("No text in selection")
             return
         }
-        defer { ghostty_surface_free_text(surface, &textStruct) }
+        defer { swiftty_surface_free_text(surface, &textStruct) }
 
         // Copy to clipboard
         let data = Data(bytes: textPtr, count: Int(textStruct.text_len))
         if let string = String(data: data, encoding: .utf8) {
             UIPasteboard.general.string = string
-            Ghostty.logger.info("Copied \(string.count) characters to clipboard")
+            Swiftty.logger.info("Copied \(string.count) characters to clipboard")
         }
     }
 
@@ -930,7 +930,7 @@ extension Ghostty.TerminalView {
         // turn the latter access into a separately authorized pasteboard read.
         if pasteboard.hasURLs, let urls = pasteboard.urls, !urls.isEmpty {
             let text = urls.map { url in
-                url.isFileURL ? Ghostty.Shell.escape(url.path) : url.absoluteString
+                url.isFileURL ? Swiftty.Shell.escape(url.path) : url.absoluteString
             }.joined(separator: " ")
             _ = insertPastedText(text)
             return
@@ -960,7 +960,7 @@ extension Ghostty.TerminalView {
         let typeSummary = itemProviders
             .map { $0.registeredTypeIdentifiers.joined(separator: "|") }
             .joined(separator: " ; ")
-        Ghostty.logger.info("paste(itemProviders:) offered types: \(typeSummary)")
+        Swiftty.logger.info("paste(itemProviders:) offered types: \(typeSummary)")
 
         loadTextPaste(from: itemProviders)
     }
@@ -1006,7 +1006,7 @@ extension Ghostty.TerminalView {
                 defer { group.leave() }
                 guard error == nil, let url else { return }
                 let value = url.isFileURL
-                    ? Ghostty.Shell.escape(url.path)
+                    ? Swiftty.Shell.escape(url.path)
                     : url.absoluteString
                 lock.lock()
                 values[index] = value
@@ -1139,7 +1139,7 @@ extension Ghostty.TerminalView {
     }
 
     /// Insert already-authorized paste content without temporarily replacing
-    /// the system pasteboard. Ghostty treats surface text as paste input and
+    /// the system pasteboard. Swiftty treats surface text as paste input and
     /// applies bracketed-paste markers when the running program requests them.
     @discardableResult
     func insertPastedText(_ text: String, recordHistory: Bool = true) -> Bool {
@@ -1147,22 +1147,22 @@ extension Ghostty.TerminalView {
         guard let surface, !text.isEmpty else { return false }
 
         text.withCString { ptr in
-            ghostty_surface_text(surface, ptr, UInt(text.utf8.count))
+            swiftty_surface_text(surface, ptr, UInt(text.utf8.count))
         }
-        NotificationCenter.default.post(name: .ghosttyDidReceiveInput, object: self)
+        NotificationCenter.default.post(name: .swifttyDidReceiveInput, object: self)
         return true
     }
 
     override func selectAll(_ sender: Any?) {
         noteModTapCommand(sender as? UIKeyCommand)
-        // Use Ghostty's select_all binding action
+        // Use Swiftty's select_all binding action
         _ = performAction("select_all")
     }
 
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
         if action == #selector(copy(_:)) {
             guard let surface = surface else { return false }
-            return ghostty_surface_has_selection(surface)
+            return swiftty_surface_has_selection(surface)
         }
         if action == #selector(paste(_:)) {
             // Use non-prompting detection APIs here. UIKit re-validates this on
@@ -1201,7 +1201,7 @@ extension Ghostty.TerminalView {
                 return
             }
             let currentTitle = self.title
-            if currentTitle.isEmpty || currentTitle == "ghostty" {
+            if currentTitle.isEmpty || currentTitle == "swiftty" {
                 switch self.connectionConfig {
                 case .local:
                     textField.text = nil
@@ -1252,7 +1252,7 @@ extension Ghostty.TerminalView {
 
 // MARK: - Terminal I/O
 
-extension Ghostty.TerminalView {
+extension Swiftty.TerminalView {
 
     /// Sends user input to the appropriate destination based on platform
     func sendUserInput(_ data: Data, documentMutation: TerminalCorrectionContext.Mutation? = nil) {
@@ -1309,7 +1309,7 @@ extension Ghostty.TerminalView {
             sendInputToPaneSurface(data)
         }
         #else
-        // For iOS/visionOS: Send to session or Ghostty
+        // For iOS/visionOS: Send to session or Swiftty
         if let session = session {
             session.sendInput(data)
         } else {
@@ -1317,24 +1317,24 @@ extension Ghostty.TerminalView {
         }
 
         if selectionHandlesVisible || activeHandleDrag != nil {
-            scheduleSelectionHandleSync(afterGhosttyAppTick: true)
+            scheduleSelectionHandleSync()
         }
         #endif
     }
 
     /// Send already-encoded input bytes to a tmux control-mode pane surface
-    /// (which has no `session`). Routes through `ghostty_surface_send_input` so
+    /// (which has no `session`). Routes through `swiftty_surface_send_input` so
     /// the bytes reach tmux verbatim as `send-keys`, bypassing the clipboard-
-    /// paste path (`ghostty_surface_text` → `completeClipboardPaste`) that frames
+    /// paste path (`swiftty_surface_text` → `completeClipboardPaste`) that frames
     /// in bracketed paste and applies paste-protection filtering — which silently
     /// drops or corrupts control keys like backspace (`0x7f`), arrows, and Ctrl-*.
-    /// The apprt has already encoded the key event into terminal bytes, so no
+    /// SwifttyKit has already encoded the key event into terminal bytes, so no
     /// re-encoding is needed; they are relayed as-is.
     private func sendInputToPaneSurface(_ data: Data) {
         guard let surface = surface, !data.isEmpty else { return }
         data.withUnsafeBytes { raw in
             guard let base = raw.baseAddress else { return }
-            ghostty_surface_send_input(
+            swiftty_surface_send_input(
                 surface,
                 base.assumingMemoryBound(to: CChar.self),
                 UInt(data.count))
@@ -1345,7 +1345,7 @@ extension Ghostty.TerminalView {
     func sendComposedText(_ text: String) {
         commitKoreanCompositionIfNeeded(external: true)
         guard let data = text.data(using: .utf8) else { return }
-        NotificationCenter.default.post(name: .ghosttyDidReceiveInput, object: self)
+        NotificationCenter.default.post(name: .swifttyDidReceiveInput, object: self)
         sendUserInput(data)
     }
 
@@ -1355,7 +1355,7 @@ extension Ghostty.TerminalView {
         if shouldUseOutputCoalescer && isMouseCaptured {
             outputPipeline.enqueueCoalescedOutput(data)
         } else {
-            writeSessionOutputToGhostty(data: data)
+            writeSessionOutputToSwiftty(data: data)
         }
     }
 
@@ -1364,23 +1364,23 @@ extension Ghostty.TerminalView {
         if shouldUseOutputCoalescer && isMouseCaptured {
             outputPipeline.enqueueCoalescedOutput(data)
         } else {
-            writeSessionOutputToGhostty(data: data)
+            writeSessionOutputToSwiftty(data: data)
         }
     }
 
-    func writeToGhostty(data: Data) {
+    func writeToSwiftty(data: Data) {
         // Write raw bytes to the buffered writer.
         // The buffered writer handles backpressure by buffering data when the
         // pipe is full, preventing data loss during heavy I/O from apps like zellij.
         outputPipeline.writeDirect(data)
     }
 
-    func writeToGhostty(string: String) {
+    func writeToSwiftty(string: String) {
         // Convert string to UTF-8 and write via buffered writer
         outputPipeline.writeDirect(string)
     }
 
-    func writeSessionOutputToGhostty(data: Data) {
+    func writeSessionOutputToSwiftty(data: Data) {
         outputPipeline.writeSessionOutput(data)
     }
 
@@ -1394,9 +1394,9 @@ extension Ghostty.TerminalView {
 
 // MARK: - Paste Helpers
 
-extension Ghostty.TerminalView {
+extension Swiftty.TerminalView {
 
-    /// Paste arbitrary text through Ghostty's bracketed-paste path without
+    /// Paste arbitrary text through Swiftty's bracketed-paste path without
     /// reading or replacing the system pasteboard.
     func pasteText(_ text: String) {
         _ = insertPastedText(text, recordHistory: false)
@@ -1405,14 +1405,14 @@ extension Ghostty.TerminalView {
 
 // MARK: - Mouse/Trackpad Support
 
-extension Ghostty.TerminalView {
+extension Swiftty.TerminalView {
 
     // Scroll handling for mouse capture mode (tmux, vim) is done by TerminalScrollView.
-    // It intercepts UIScrollView events, forwards deltas to Ghostty, and resets the
+    // It intercepts UIScrollView events, forwards deltas to Swiftty, and resets the
     // scroll position to prevent visual scrolling while maintaining native physics.
 
     /// Track which mouse button is currently pressed for proper release event
-    private static var pressedMouseButton: ghostty_input_mouse_button_e = GHOSTTY_MOUSE_LEFT
+    private static var pressedMouseButton: swiftty_input_mouse_button_e = SWIFTTY_MOUSE_LEFT
 
     #if !targetEnvironment(macCatalyst)
     // Track if mouse down was cancelled because touch became multi-finger (scroll gesture)
@@ -1462,7 +1462,7 @@ extension Ghostty.TerminalView {
               isTouchScrollMode,
               !mousePressed,
               let surface = surface,
-              ghostty_surface_mouse_captured(surface)
+              swiftty_surface_mouse_captured(surface)
         else {
             return false
         }
@@ -1482,7 +1482,7 @@ extension Ghostty.TerminalView {
 
         cancelMomentumScrolling()
         handleMouseDown(at: point, isRightClick: false)
-        guard mousePressed, Self.pressedMouseButton == GHOSTTY_MOUSE_LEFT else {
+        guard mousePressed, Self.pressedMouseButton == SWIFTTY_MOUSE_LEFT else {
             return false
         }
         handleMouseUp(at: point)
@@ -1495,7 +1495,7 @@ extension Ghostty.TerminalView {
         // restore it. A hidden keyboard stays hidden: becomeFirstResponder()
         // re-applies the window's hide intent.
         if isLogicallyFocused && !isFirstResponder {
-            Ghostty.logger.debug("touchesBegan: Restoring focus via tap")
+            Swiftty.logger.debug("touchesBegan: Restoring focus via tap")
             _ = becomeFirstResponder()
         }
 
@@ -1539,8 +1539,8 @@ extension Ghostty.TerminalView {
             if let surface = surface {
                 let point = touch.location(in: self)
                 let pixelPoint = viewToPixelCoordinates(point)
-                ghostty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, Ghostty.Input.Mods.none.cMods)
-                sendMouseButton(GHOSTTY_MOUSE_RELEASE, button: GHOSTTY_MOUSE_LEFT)
+                swiftty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, Swiftty.Input.Mods.none.cMods)
+                sendMouseButton(SWIFTTY_MOUSE_RELEASE, button: SWIFTTY_MOUSE_LEFT)
             }
             fingerDragActive = false
             pencilPointerDragActive = false
@@ -1574,7 +1574,7 @@ extension Ghostty.TerminalView {
         // own it, so it must not fall into the finger capture branch below.
         if touch.type == .pencil {
             if allTouches.count == 1, let surface = surface {
-                let captured = ghostty_surface_mouse_captured(surface)
+                let captured = swiftty_surface_mouse_captured(surface)
                 if isMouseCaptured != captured {
                     isMouseCaptured = captured
                 }
@@ -1592,7 +1592,7 @@ extension Ghostty.TerminalView {
         // Finger touch in capture mode - send mouse down immediately for responsive drags
         // If a second finger arrives later, we'll cancel the drag
         if allTouches.count == 1, let surface = surface {
-            let captured = ghostty_surface_mouse_captured(surface)
+            let captured = swiftty_surface_mouse_captured(surface)
             // Update cached state if it changed
             if isMouseCaptured != captured {
                 isMouseCaptured = captured
@@ -1805,7 +1805,7 @@ extension Ghostty.TerminalView {
     }
 
     func captureAutoScrollMouseStateAllowsDrag() -> Bool {
-        mousePressed && Self.pressedMouseButton == GHOSTTY_MOUSE_LEFT && !selectionMouseDragActive
+        mousePressed && Self.pressedMouseButton == SWIFTTY_MOUSE_LEFT && !selectionMouseDragActive
     }
 
     func handleMouseDown(at point: CGPoint, isRightClick: Bool = false) {
@@ -1814,7 +1814,7 @@ extension Ghostty.TerminalView {
         guard let surface = surface else { return }
 
         // If we're already tracking a right-click from context menu, don't process again
-        if mousePressed && Self.pressedMouseButton == GHOSTTY_MOUSE_RIGHT {
+        if mousePressed && Self.pressedMouseButton == SWIFTTY_MOUSE_RIGHT {
             return
         }
 
@@ -1824,16 +1824,16 @@ extension Ghostty.TerminalView {
         // Handle right-clicks early: for non-captured terminals, return immediately
         // so that UIContextMenuInteraction's probeForLink() is the first mouse_pos
         // call at this position. Sending mouse_pos here without Cmd would set
-        // Ghostty's link_point dedup state, causing the subsequent probeForLink()
+        // Swiftty's link_point dedup state, causing the subsequent probeForLink()
         // call at the same position to skip link detection entirely.
         if isRightClick {
-            if ghostty_surface_mouse_captured(surface) {
+            if swiftty_surface_mouse_captured(surface) {
                 let mods = currentMouseMods()
                 let pixelPoint = viewToPixelCoordinates(point)
-                ghostty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, mods)
+                swiftty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, mods)
                 mousePressed = true
-                Self.pressedMouseButton = GHOSTTY_MOUSE_RIGHT
-                sendMouseButton(GHOSTTY_MOUSE_PRESS, button: GHOSTTY_MOUSE_RIGHT, mods: mods)
+                Self.pressedMouseButton = SWIFTTY_MOUSE_RIGHT
+                sendMouseButton(SWIFTTY_MOUSE_PRESS, button: SWIFTTY_MOUSE_RIGHT, mods: mods)
             }
             return
         }
@@ -1841,33 +1841,33 @@ extension Ghostty.TerminalView {
         let mods = currentMouseMods()
         let pixelPoint = viewToPixelCoordinates(point)
         // mouse_pos fires mouse_over_link callback synchronously, setting lastProbedLinkURL
-        ghostty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, mods)
+        swiftty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, mods)
 
         // Cmd+click on a hyperlink: open it directly.
-        // We can't rely on sendMouseButton → ghostty_surface_mouse_button for this because
-        // it dispatches to ghosttyAPIQueue (async), and by the time the mailbox processes the
+        // We can't rely on sendMouseButton → swiftty_surface_mouse_button for this because
+        // it dispatches to swifttyAPIQueue (async), and by the time the surface processes the
         // button event the synchronous link state from mouse_pos is gone.
-        let ghosttyMods = Ghostty.Input.Mods(cMods: mods)
-        if ghosttyMods.contains(.cmd), let linkURL = lastProbedLinkURL,
+        let swifttyMods = Swiftty.Input.Mods(cMods: mods)
+        if swifttyMods.contains(.cmd), let linkURL = lastProbedLinkURL,
            let url = URL(string: linkURL) {
             lastProbedLinkURL = nil
             // Reset modifier state so link underline doesn't persist
-            ghostty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, Ghostty.Input.Mods.none.cMods)
+            swiftty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, Swiftty.Input.Mods.none.cMods)
             UIApplication.shared.open(url)
             return
         }
 
         mousePressed = true
-        Self.pressedMouseButton = GHOSTTY_MOUSE_LEFT
-        selectionMouseDragActive = !ghostty_surface_mouse_captured(surface)
-        sendMouseButton(GHOSTTY_MOUSE_PRESS, button: GHOSTTY_MOUSE_LEFT, mods: mods)
+        Self.pressedMouseButton = SWIFTTY_MOUSE_LEFT
+        selectionMouseDragActive = !swiftty_surface_mouse_captured(surface)
+        sendMouseButton(SWIFTTY_MOUSE_PRESS, button: SWIFTTY_MOUSE_LEFT, mods: mods)
     }
 
     func handleMouseMove(at point: CGPoint) {
         guard let surface = surface else { return }
 
         let pixelPoint = viewToPixelCoordinates(point)
-        ghostty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, currentMouseMods())
+        swiftty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, currentMouseMods())
         updateCaptureAutoScroll(at: point)
         if selectionMouseDragActive {
             noteSelectionScrollIndicatorActivity()
@@ -1875,7 +1875,7 @@ extension Ghostty.TerminalView {
     }
 
     func noteSelectionScrollIndicatorActivity() {
-        NotificationCenter.default.post(name: .ghosttySelectionScrollIndicatorActivity, object: self)
+        NotificationCenter.default.post(name: .swifttySelectionScrollIndicatorActivity, object: self)
     }
 
     func handleMouseUp(at point: CGPoint) {
@@ -1884,8 +1884,8 @@ extension Ghostty.TerminalView {
 
         let mods = currentMouseMods()
         let pixelPoint = viewToPixelCoordinates(point)
-        ghostty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, mods)
-        sendMouseButton(GHOSTTY_MOUSE_RELEASE, button: Self.pressedMouseButton, mods: mods)
+        swiftty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, mods)
+        sendMouseButton(SWIFTTY_MOUSE_RELEASE, button: Self.pressedMouseButton, mods: mods)
 
         mousePressed = false
         selectionMouseDragActive = false
@@ -1894,7 +1894,7 @@ extension Ghostty.TerminalView {
 
 // MARK: - UIPointerInteractionDelegate
 
-extension Ghostty.TerminalView: UIPointerInteractionDelegate {
+extension Swiftty.TerminalView: UIPointerInteractionDelegate {
     public func pointerInteraction(_ interaction: UIPointerInteraction, styleFor region: UIPointerRegion) -> UIPointerStyle? {
         #if targetEnvironment(macCatalyst)
         // On Mac Catalyst, return nil to let NSCursor handle cursor management.
@@ -1916,7 +1916,7 @@ extension Ghostty.TerminalView: UIPointerInteractionDelegate {
 // MARK: - UIEditMenuInteractionDelegate
 
 #if !targetEnvironment(macCatalyst)
-extension Ghostty.TerminalView: UIEditMenuInteractionDelegate {
+extension Swiftty.TerminalView: UIEditMenuInteractionDelegate {
     public func editMenuInteraction(
         _ interaction: UIEditMenuInteraction,
         menuFor configuration: UIEditMenuConfiguration,
@@ -1973,14 +1973,14 @@ extension Ghostty.TerminalView: UIEditMenuInteractionDelegate {
 
 // MARK: - UIContextMenuInteractionDelegate
 
-extension Ghostty.TerminalView: UIContextMenuInteractionDelegate {
+extension Swiftty.TerminalView: UIContextMenuInteractionDelegate {
     public func contextMenuInteraction(
         _ interaction: UIContextMenuInteraction,
         configurationForMenuAtLocation location: CGPoint
     ) -> UIContextMenuConfiguration? {
         // When terminal has mouse capture (tmux, vim), don't show context menu
         // Instead, send right-click to terminal and start tracking for drag/release
-        if let surface = surface, ghostty_surface_mouse_captured(surface) {
+        if let surface = surface, swiftty_surface_mouse_captured(surface) {
             #if !targetEnvironment(macCatalyst)
             // A captured pencil hold is already a left-button drag; firing the
             // right-click press here would corrupt it. Barrel tap is the
@@ -2008,10 +2008,10 @@ extension Ghostty.TerminalView: UIContextMenuInteractionDelegate {
 
             // Send right-click press to terminal
             let pixelPoint = viewToPixelCoordinates(location)
-            ghostty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, Ghostty.Input.Mods.none.cMods)
-            sendMouseButton(GHOSTTY_MOUSE_PRESS, button: GHOSTTY_MOUSE_RIGHT)
+            swiftty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, Swiftty.Input.Mods.none.cMods)
+            sendMouseButton(SWIFTTY_MOUSE_PRESS, button: SWIFTTY_MOUSE_RIGHT)
             mousePressed = true
-            Self.pressedMouseButton = GHOSTTY_MOUSE_RIGHT
+            Self.pressedMouseButton = SWIFTTY_MOUSE_RIGHT
 
             // Start monitoring mouse events for drag and release
             startRightClickMonitoring()
@@ -2104,17 +2104,17 @@ extension Ghostty.TerminalView: UIContextMenuInteractionDelegate {
         } else {
             // UIContextMenuInteraction (right-click) supplies no suggested edit
             // actions, so use responder-chain commands rather than closures.
-            if let surface = surface, ghostty_surface_has_selection(surface) {
+            if let surface = surface, swiftty_surface_has_selection(surface) {
                 menuItems.append(UICommand(
                     title: String(localized: "Copy"),
                     image: UIImage(systemName: "doc.on.doc"),
-                    action: #selector(Ghostty.TerminalView.copy(_:))
+                    action: #selector(Swiftty.TerminalView.copy(_:))
                 ))
             }
             menuItems.append(UICommand(
                 title: String(localized: "Paste"),
                 image: UIImage(systemName: "doc.on.clipboard"),
-                action: #selector(Ghostty.TerminalView.paste(_:))
+                action: #selector(Swiftty.TerminalView.paste(_:))
             ))
         }
 
@@ -2322,7 +2322,7 @@ extension Ghostty.TerminalView: UIContextMenuInteractionDelegate {
             textField.placeholder = String(localized: "Pane title")
             if let self {
                 let current = self.title
-                textField.text = (current.isEmpty || current == "ghostty") ? nil : current
+                textField.text = (current.isEmpty || current == "swiftty") ? nil : current
             }
         }
 
@@ -2347,7 +2347,7 @@ extension Ghostty.TerminalView: UIContextMenuInteractionDelegate {
 
 // MARK: - UIGestureRecognizerDelegate
 
-extension Ghostty.TerminalView: UIGestureRecognizerDelegate {
+extension Swiftty.TerminalView: UIGestureRecognizerDelegate {
     public func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         return true
     }
@@ -2388,13 +2388,13 @@ extension Ghostty.TerminalView: UIGestureRecognizerDelegate {
         }
 
         #if targetEnvironment(macCatalyst)
-        // Gate the scroll-wheel forwarding gesture on the live C-side capture
+        // Gate the scroll-wheel forwarding gesture on the live SwifttyKit capture
         // state, not on the @Published cache. The cache can lag when tmux's
         // mouse-on sequence is processed after the alt-screen scrollbar update
         // that resyncs Swift, leaving forwarding disabled until app restart.
         if gestureRecognizer === catalystScrollGesture {
             guard let surface = surface else { return false }
-            let captured = ghostty_surface_mouse_captured(surface)
+            let captured = swiftty_surface_mouse_captured(surface)
             // Self-heal stale Swift state so observers (scrollView.isScrollEnabled,
             // output coalescer, scroll indicator) re-sync.
             if isMouseCaptured != captured {
@@ -2554,7 +2554,7 @@ extension Ghostty.TerminalView: UIGestureRecognizerDelegate {
 
 // MARK: - Viewport Geometry
 
-extension Ghostty.TerminalView {
+extension Swiftty.TerminalView {
     /// Top-origin correction for viewport row → point math: the sub-cell pad
     /// above row 0, minus the smooth-scroll shift. Shared by selection-handle
     /// placement and TextRegionTracker's band rects — keep them on the same
@@ -2568,7 +2568,7 @@ extension Ghostty.TerminalView {
         var y: Double = 0
         var width: Double = 0
         var height: Double = 0
-        ghostty_surface_ime_point(surface, &x, &y, &width, &height)
+        swiftty_surface_ime_point(surface, &x, &y, &width, &height)
 
         let effectiveCellHeight = height > 0 ? height : cellHeight
         guard effectiveCellHeight > 0 else { return nil }
@@ -2594,7 +2594,7 @@ extension Ghostty.TerminalView {
 // MARK: - Selection Handles
 
 #if !targetEnvironment(macCatalyst)
-extension Ghostty.TerminalView {
+extension Swiftty.TerminalView {
 
     private func selectionHandleStemHeight(for cellHeight: Double) -> CGFloat {
         let height = CGFloat(cellHeight)
@@ -2602,11 +2602,11 @@ extension Ghostty.TerminalView {
     }
 
     private func selectionHandleFrame(
-        for position: Ghostty.SelectionHandlePosition,
+        for position: Swiftty.SelectionHandlePosition,
         anchor: CGPoint,
         stemHeight: CGFloat
     ) -> CGRect {
-        let handleHeight = stemHeight + Ghostty.SelectionHandleView.circleDiameter
+        let handleHeight = stemHeight + Swiftty.SelectionHandleView.circleDiameter
         let originY: CGFloat = if position == .start {
             anchor.y - handleHeight
         } else {
@@ -2614,9 +2614,9 @@ extension Ghostty.TerminalView {
         }
 
         return CGRect(
-            x: anchor.x - Ghostty.SelectionHandleView.totalWidth / 2,
+            x: anchor.x - Swiftty.SelectionHandleView.totalWidth / 2,
             y: originY,
-            width: Ghostty.SelectionHandleView.totalWidth,
+            width: Swiftty.SelectionHandleView.totalWidth,
             height: handleHeight
         )
     }
@@ -2641,7 +2641,7 @@ extension Ghostty.TerminalView {
     /// Compute selection bounds plus the geometry needed to map handle drags
     /// back into viewport cell coordinates.
     private func selectionHandleMetrics() -> SelectionHandleMetrics? {
-        guard let surface = surface, ghostty_surface_has_selection(surface) else { return nil }
+        guard let surface = surface, swiftty_surface_has_selection(surface) else { return nil }
 
         // Which endpoints fall within the viewport. read_selection clamps an
         // off-screen endpoint to the viewport edge, so the core has to tell us
@@ -2649,11 +2649,11 @@ extension Ghostty.TerminalView {
         // taller than the viewport.
         var startVisible = true
         var endVisible = true
-        _ = ghostty_surface_selection_viewport_visibility(surface, &startVisible, &endVisible)
+        _ = swiftty_surface_selection_viewport_visibility(surface, &startVisible, &endVisible)
 
-        var textStruct = ghostty_text_s()
-        guard ghostty_surface_read_selection(surface, &textStruct) else { return nil }
-        defer { ghostty_surface_free_text(surface, &textStruct) }
+        var textStruct = swiftty_text_s()
+        guard swiftty_surface_read_selection(surface, &textStruct) else { return nil }
+        defer { swiftty_surface_free_text(surface, &textStruct) }
         guard textStruct.tl_px_x.isFinite,
               textStruct.tl_px_y.isFinite,
               textStruct.tl_px_x >= 0,
@@ -2726,13 +2726,13 @@ extension Ghostty.TerminalView {
     private func magnifierCenter(
         for point: CGPoint,
         horizontalOffset: CGFloat,
-        magnifier: Ghostty.SelectionMagnifierView,
+        magnifier: Swiftty.SelectionMagnifierView,
         in window: UIWindow
     ) -> CGPoint {
         let windowPoint = convert(point, to: window)
         let windowFrame = window.bounds.insetBy(dx: 8, dy: 8)
         let safeFrame = window.safeAreaLayoutGuide.layoutFrame.insetBy(dx: 8, dy: 8)
-        let minimumSize = Ghostty.SelectionMagnifierView.contentSize
+        let minimumSize = Swiftty.SelectionMagnifierView.contentSize
         let usableFrame: CGRect
         if safeFrame.width >= minimumSize.width,
            safeFrame.height >= minimumSize.height,
@@ -2776,8 +2776,8 @@ extension Ghostty.TerminalView {
     /// `.start` handle sits at the top-left of the selection and the `.end`
     /// handle at the bottom-right, so we offset the magnifier away from each
     /// to keep the finger from obscuring the magnified content.
-    private static func handleMagnifierOffset(for handle: Ghostty.SelectionHandlePosition) -> CGFloat {
-        (handle == .start ? 1 : -1) * Ghostty.SelectionMagnifierView.horizontalOffset
+    private static func handleMagnifierOffset(for handle: Swiftty.SelectionHandlePosition) -> CGFloat {
+        (handle == .start ? 1 : -1) * Swiftty.SelectionMagnifierView.horizontalOffset
     }
 
     private func magnifierCellSize() -> CGSize? {
@@ -2818,7 +2818,7 @@ extension Ghostty.TerminalView {
         }
     }
 
-    func showSelectionMagnifier(at point: CGPoint, for handle: Ghostty.SelectionHandlePosition) {
+    func showSelectionMagnifier(at point: CGPoint, for handle: Swiftty.SelectionHandlePosition) {
         if prefersNativeSelectionLoupe {
             let widget = handle == .start ? selectionStartHandle : selectionEndHandle
             if presentNativeSelectionLoupe(at: point, widget: widget) {
@@ -2833,7 +2833,7 @@ extension Ghostty.TerminalView {
     private func showCustomSelectionMagnifier(at point: CGPoint, horizontalOffset: CGFloat) {
         guard let window = self.window else { return }
 
-        let magnifier = selectionMagnifierView ?? Ghostty.SelectionMagnifierView()
+        let magnifier = selectionMagnifierView ?? Swiftty.SelectionMagnifierView()
         if selectionMagnifierView == nil {
             window.addSubview(magnifier)
             selectionMagnifierView = magnifier
@@ -2857,7 +2857,7 @@ extension Ghostty.TerminalView {
         magnifier.present(animated: true)
     }
 
-    func updateSelectionMagnifier(at point: CGPoint, for handle: Ghostty.SelectionHandlePosition) {
+    func updateSelectionMagnifier(at point: CGPoint, for handle: Swiftty.SelectionHandlePosition) {
         if selectionLoupe != nil {
             selectionMagnifierPoint = point
             syncNativeHandleDragLoupe(touchPoint: point)
@@ -2900,7 +2900,7 @@ extension Ghostty.TerminalView {
             return true
         }
 
-        selectionLoupe = Ghostty.SelectionLoupe.begin(
+        selectionLoupe = Swiftty.SelectionLoupe.begin(
             at: point,
             in: self,
             fromSelectionWidgetView: widget
@@ -2972,11 +2972,11 @@ extension Ghostty.TerminalView {
     }
 
     /// Check if a point (in TerminalView coordinates) hits a handle. Returns which one.
-    func hitSelectionHandle(at point: CGPoint) -> Ghostty.SelectionHandlePosition? {
+    func hitSelectionHandle(at point: CGPoint) -> Swiftty.SelectionHandlePosition? {
         guard selectionHandlesVisible, let window = self.window else { return nil }
         let windowPoint = convert(point, to: window)
         let hitInset: CGFloat = -30 // expand 30pt in each direction for easier handle targeting
-        var candidates: [(position: Ghostty.SelectionHandlePosition, distanceSquared: CGFloat)] = []
+        var candidates: [(position: Swiftty.SelectionHandlePosition, distanceSquared: CGFloat)] = []
 
         if let h = selectionStartHandle, !h.isHidden,
            h.frame.insetBy(dx: hitInset, dy: hitInset).contains(windowPoint) {
@@ -3007,10 +3007,10 @@ extension Ghostty.TerminalView {
     @objc func handleHandleDragPan(_ gesture: UIPanGestureRecognizer) {
         guard let surface = surface else { return }
         let location = gesture.location(in: self)
-        let mods = Ghostty.Input.Mods.none.cMods
+        let mods = Swiftty.Input.Mods.none.cMods
 
-        // All of the drag's core calls go through ghosttyAPIQueue in FIFO order.
-        // ghostty_surface_mouse_button can block on the termio mailbox, so it has
+        // All of the drag's core calls go through swifttyAPIQueue in FIFO order.
+        // swiftty_surface_mouse_button can block behind a busy surface, so it has
         // to run off the main thread; if begin/mouse_pos ran inline on main while
         // the release ran async, a prior drag's release could land *after* the
         // next handle's begin and leave the core's click state stale (the second
@@ -3019,7 +3019,7 @@ extension Ghostty.TerminalView {
 
         switch gesture.state {
         case .began:
-            let directHandle = (gesture.view as? Ghostty.SelectionHandleView)?.position
+            let directHandle = (gesture.view as? Swiftty.SelectionHandleView)?.position
             guard let which = directHandle ?? hitSelectionHandle(at: location) else { return }
             activeHandleDrag = which
             lastDragCell = approxDragCell(at: location)
@@ -3036,9 +3036,9 @@ extension Ghostty.TerminalView {
             // scale), matching every other mouse_pos call site.
             let pixelPoint = viewToPixelCoordinates(location)
             let draggingStart = which == .start
-            Self.ghosttyAPIQueue.async { [weak self] in
-                _ = ghostty_surface_selection_handle_drag_begin(surface, draggingStart)
-                ghostty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, mods)
+            Self.swifttyAPIQueue.async { [weak self] in
+                _ = swiftty_surface_selection_handle_drag_begin(surface, draggingStart)
+                swiftty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, mods)
                 DispatchQueue.main.async { [weak self] in
                     guard let self, self.activeHandleDrag == which else { return }
                     self.updateSelectionHandlePositions()
@@ -3072,8 +3072,8 @@ extension Ghostty.TerminalView {
             // start auto-scrolling when the finger reaches the top/bottom of the
             // viewport and extend the selection into scrollback.
             let pixelPoint = viewToPixelCoordinates(location)
-            Self.ghosttyAPIQueue.async { [weak self] in
-                ghostty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, mods)
+            Self.swifttyAPIQueue.async { [weak self] in
+                swiftty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, mods)
                 DispatchQueue.main.async { [weak self] in
                     guard let self, self.activeHandleDrag == which else { return }
                     self.noteSelectionScrollIndicatorActivity()
@@ -3091,10 +3091,10 @@ extension Ghostty.TerminalView {
             // the final position), which stops any active auto-scroll.
             let endLocation = location
             let pixelPoint = viewToPixelCoordinates(location)
-            Self.ghosttyAPIQueue.async { [weak self] in
-                ghostty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, mods)
-                ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mods)
-                let hasSelection = ghostty_surface_has_selection(surface)
+            Self.swifttyAPIQueue.async { [weak self] in
+                swiftty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, mods)
+                swiftty_surface_mouse_button(surface, SWIFTTY_MOUSE_RELEASE, SWIFTTY_MOUSE_LEFT, mods)
+                let hasSelection = swiftty_surface_has_selection(surface)
                 DispatchQueue.main.async { [weak self] in
                     guard let self else { return }
                     if hasSelection {
@@ -3123,7 +3123,7 @@ extension Ghostty.TerminalView {
 
     private func removeSelectionHandleViews(in view: UIView) {
         for subview in view.subviews {
-            if subview is Ghostty.SelectionHandleView {
+            if subview is Swiftty.SelectionHandleView {
                 subview.removeFromSuperview()
             } else {
                 removeSelectionHandleViews(in: subview)
@@ -3142,13 +3142,13 @@ extension Ghostty.TerminalView {
 
         removeSelectionHandleViewsFromWindow()
 
-        let startHandle = Ghostty.SelectionHandleView(position: .start)
+        let startHandle = Swiftty.SelectionHandleView(position: .start)
         startHandle.stemHeight = stemHeight
         startHandle.addGestureRecognizer(makeHandleDragGesture())
         window.addSubview(startHandle)
         selectionStartHandle = startHandle
 
-        let endHandle = Ghostty.SelectionHandleView(position: .end)
+        let endHandle = Swiftty.SelectionHandleView(position: .end)
         endHandle.stemHeight = stemHeight
         endHandle.addGestureRecognizer(makeHandleDragGesture())
         window.addSubview(endHandle)
@@ -3327,7 +3327,7 @@ extension Ghostty.TerminalView {
 
         guard let metrics = selectionHandleMetrics() else {
             hideSelectionHandles(animated: false)
-            if let surface, ghostty_surface_has_selection(surface) {
+            if let surface, swiftty_surface_has_selection(surface) {
                 return
             }
             selectionWasTouchInitiated = false
@@ -3336,7 +3336,7 @@ extension Ghostty.TerminalView {
 
         guard metrics.startVisible || metrics.endVisible else {
             hideSelectionHandles(animated: false)
-            if let surface, ghostty_surface_has_selection(surface) {
+            if let surface, swiftty_surface_has_selection(surface) {
                 return
             }
             selectionWasTouchInitiated = false
@@ -3365,7 +3365,7 @@ extension Data {
 
 // MARK: - Right-Click Handling for Mouse Capture Mode
 
-extension Ghostty.TerminalView {
+extension Swiftty.TerminalView {
     /// Display link for polling mouse state during right-click-drag
     private static var rightClickDisplayLink: CADisplayLink?
     /// Initial click position in view coordinates
@@ -3373,7 +3373,7 @@ extension Ghostty.TerminalView {
     /// Initial CGEvent screen position (for calculating delta)
     private static var rightClickStartScreenPosition: CGPoint = .zero
     /// The terminal view currently tracking right-click
-    private static weak var rightClickTrackingView: Ghostty.TerminalView?
+    private static weak var rightClickTrackingView: Swiftty.TerminalView?
 
     /// Start monitoring mouse for right-click drag and release
     /// Called when UIContextMenuInteraction intercepts a right-click in mouse capture mode
@@ -3427,7 +3427,7 @@ extension Ghostty.TerminalView {
             // Send position update
             let mods = currentMouseMods()
             let pixelPoint = viewToPixelCoordinates(currentPosition)
-            ghostty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, mods)
+            swiftty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, mods)
         }
         isButtonPressed = CGEventSource.buttonState(.combinedSessionState, button: .right)
 
@@ -3436,8 +3436,8 @@ extension Ghostty.TerminalView {
             if let surface = surface {
                 let mods = currentMouseMods()
                 let pixelPoint = viewToPixelCoordinates(currentPosition)
-                ghostty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, mods)
-                sendMouseButton(GHOSTTY_MOUSE_RELEASE, button: GHOSTTY_MOUSE_RIGHT)
+                swiftty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, mods)
+                sendMouseButton(SWIFTTY_MOUSE_RELEASE, button: SWIFTTY_MOUSE_RIGHT)
             }
             mousePressed = false
             stopRightClickMonitoring()
@@ -3555,13 +3555,13 @@ struct InputModeOverlayView: View {
 // MARK: - Apple Pencil Interactions
 
 #if !targetEnvironment(macCatalyst) && !os(visionOS)
-extension Ghostty.TerminalView {
+extension Swiftty.TerminalView {
     /// How recently the pencil must have touched this view for a barrel tap to
     /// act when hover isn't available (Pencil 2 on non-hover-capable iPads).
     private static let pencilBarrelTapRecency: TimeInterval = 5
 }
 
-extension Ghostty.TerminalView: UIPencilInteractionDelegate {
+extension Swiftty.TerminalView: UIPencilInteractionDelegate {
     public func pencilInteraction(
         _ interaction: UIPencilInteraction,
         didReceiveTap tap: UIPencilInteraction.Tap
@@ -3588,13 +3588,13 @@ extension Ghostty.TerminalView: UIPencilInteractionDelegate {
             point = lastPoint
         }
 
-        if let surface = surface, ghostty_surface_mouse_captured(surface) {
+        if let surface = surface, swiftty_surface_mouse_captured(surface) {
             // Instantaneous right press/release; handleMouseDown's right-click
             // path would arm the drag-monitoring machinery instead.
             let pixelPoint = viewToPixelCoordinates(point)
-            ghostty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, Ghostty.Input.Mods.none.cMods)
-            sendMouseButton(GHOSTTY_MOUSE_PRESS, button: GHOSTTY_MOUSE_RIGHT)
-            sendMouseButton(GHOSTTY_MOUSE_RELEASE, button: GHOSTTY_MOUSE_RIGHT)
+            swiftty_surface_mouse_pos(surface, pixelPoint.x, pixelPoint.y, Swiftty.Input.Mods.none.cMods)
+            sendMouseButton(SWIFTTY_MOUSE_PRESS, button: SWIFTTY_MOUSE_RIGHT)
+            sendMouseButton(SWIFTTY_MOUSE_RELEASE, button: SWIFTTY_MOUSE_RIGHT)
         } else {
             NotificationCenter.default.post(name: .focusSplit, object: self)
             presentTransientEditMenu(at: point, fullContextMenu: true)
@@ -3602,7 +3602,7 @@ extension Ghostty.TerminalView: UIPencilInteractionDelegate {
     }
 }
 
-extension Ghostty.TerminalView: UIScribbleInteractionDelegate {
+extension Swiftty.TerminalView: UIScribbleInteractionDelegate {
     public func scribbleInteraction(
         _ interaction: UIScribbleInteraction,
         shouldBeginAt location: CGPoint

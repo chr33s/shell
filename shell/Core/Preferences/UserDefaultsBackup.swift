@@ -42,7 +42,7 @@ nonisolated enum UserDefaultsBackup {
 
     private static var backupURL: URL {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let dir = docs.appendingPathComponent(".ghostty", isDirectory: true)
+        let dir = docs.appendingPathComponent(".swiftty", isDirectory: true)
         return dir.appendingPathComponent("defaults_backup.json")
     }
 

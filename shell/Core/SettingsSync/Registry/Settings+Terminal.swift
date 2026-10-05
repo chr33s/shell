@@ -24,7 +24,7 @@ nonisolated extension Settings {
             "localShellCommand", default: "", group: .terminal, policy: .localByDefault,
             configKey: "local-shell-command",
             title: String(localized: "Local Shell", comment: "Setting title"))
-        /// Lines of scrollback Ghostty keeps per surface.
+        /// Lines of scrollback Swiftty keeps per surface.
         static let scrollbackLimit = SettingKey(
             "scrollbackLimit", default: 10_000, group: .scrollback, configKey: "scrollback-limit",
             title: String(localized: "Scrollback Lines", comment: "Setting title"))

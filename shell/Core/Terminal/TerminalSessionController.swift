@@ -5,14 +5,14 @@ import os
 /// `TerminalSessionHost` (the `TerminalView`).
 ///
 /// This is the first step in peeling the session domain off the oversized
-/// `Ghostty.TerminalView`. It mirrors the established `ReconnectionManager`
+/// `Swiftty.TerminalView`. It mirrors the established `ReconnectionManager`
 /// pattern: an owned `@MainActor` type that the view holds, talking back to the
 /// view through a small delegate protocol rather than sharing the view's ~198
 /// stored properties.
 ///
 /// This controller owns `session`/`pty`, common callback wiring, startup for
 /// normal connection configs, response-pipe monitoring, reconnection, and
-/// teardown. The view still owns the Ghostty surface, terminal output plumbing,
+/// teardown. The view still owns the Swiftty surface, terminal output plumbing,
 /// and UI state, and exposes those pieces through `TerminalSessionControllerHost`.
 @MainActor
 final class TerminalSessionController {
@@ -90,7 +90,7 @@ final class TerminalSessionController {
                 // teardown callback landed on the main actor).
                 guard let current = self.session,
                       ObjectIdentifier(current as AnyObject) == configuredSessionID else {
-                    Ghostty.logger.info("Ignoring session end from stale session")
+                    Swiftty.logger.info("Ignoring session end from stale session")
                     return
                 }
                 self.host?.sessionDidEnd()
@@ -99,7 +99,7 @@ final class TerminalSessionController {
 
         // `onReady` is invoked on the main actor by the session, so no hop.
         session.onReady = { [weak self] in
-            Ghostty.logger.info("Session ready")
+            Swiftty.logger.info("Session ready")
             self?.host?.sessionDidBecomeReady()
         }
 
@@ -146,7 +146,7 @@ final class TerminalSessionController {
     func startSession() -> Bool {
         guard let host else { return true }
         guard host.terminalSurfaceAvailable, host.terminalSurfaceGridSize != nil else {
-            Ghostty.logger.error("Cannot setup PTY: surface is nil")
+            Swiftty.logger.error("Cannot setup PTY: surface is nil")
             return true
         }
 
@@ -175,13 +175,13 @@ final class TerminalSessionController {
             #if targetEnvironment(macCatalyst)
             if LocalShellBackend.current == .nativePTY {
                 // The native shell is a real zsh; only the interpreter can host an embedded session.
-                Ghostty.logger.warning("Shell-launched SSH not supported by the native PTY, falling back to local shell")
+                Swiftty.logger.warning("Shell-launched SSH not supported by the native PTY, falling back to local shell")
                 startCatalystLocalSession(workingDirectory: host.terminalConnectionConfig.workingDirectory)
                 return true
             }
             #endif
             startShellLaunchedSession(shellWorkingDirectory: shellCwd) { localSession, _ in
-                Ghostty.logger.info("Local shell started, launching embedded SSH to \(sshConfig.displayName)")
+                Swiftty.logger.info("Local shell started, launching embedded SSH to \(sshConfig.displayName)")
                 await localSession.startEmbeddedSSHSession(config: sshConfig)
             }
             return true
@@ -191,10 +191,10 @@ final class TerminalSessionController {
     func startRestoredSession() -> Result<Void, Error> {
         guard let host else { return .failure(RestoredSessionError.surfaceNotReady) }
         let configName = host.terminalConnectionConfig.displayName
-        Ghostty.logger.info("Starting restored session for \(configName)")
+        Swiftty.logger.info("Starting restored session for \(configName)")
 
         guard host.terminalSurfaceAvailable else {
-            Ghostty.logger.error("Cannot start restored session: surface not ready")
+            Swiftty.logger.error("Cannot start restored session: surface not ready")
             return .failure(RestoredSessionError.surfaceNotReady)
         }
 
@@ -221,7 +221,7 @@ final class TerminalSessionController {
                 ) {
                     sshConfig.authMethod = .savedPassword
                 } else {
-                    Ghostty.logger.info("SSH requires password - showing overlay")
+                    Swiftty.logger.info("SSH requires password - showing overlay")
                     host.terminalRestorationState = .needsPassword(sshConfig)
                     return false
                 }
@@ -239,7 +239,7 @@ final class TerminalSessionController {
                     updatedJump.authMethod = .savedPassword
                     sshConfig.jumpHost = updatedJump
                 } else {
-                    Ghostty.logger.info("SSH jump host requires password - showing overlay")
+                    Swiftty.logger.info("SSH jump host requires password - showing overlay")
                     host.terminalRestorationState = .needsPassword(sshConfig)
                     return false
                 }
@@ -258,14 +258,14 @@ final class TerminalSessionController {
             break
         }
 
-        Ghostty.logger.info("Auto-reconnecting restored terminal: \(host.terminalConnectionConfig.displayName)")
+        Swiftty.logger.info("Auto-reconnecting restored terminal: \(host.terminalConnectionConfig.displayName)")
         host.terminalRestorationState = .connectingFromRestore
         host.terminalNotifyRestorationStateChanged()
         return true
     }
 
     private func resolveSavedPasswordAndRetry(for sshConfig: SSHConfig) {
-        Ghostty.logger.info("Resolving saved password for \(sshConfig.displayName)")
+        Swiftty.logger.info("Resolving saved password for \(sshConfig.displayName)")
 
         Task { @MainActor [weak self] in
             guard let self, let host = self.host else { return }
@@ -310,7 +310,7 @@ final class TerminalSessionController {
         #endif
         guard let host else { return }
         guard let surfaceSize = host.terminalSurfaceGridSize else {
-            Ghostty.logger.error("Surface not ready, cannot start local shell")
+            Swiftty.logger.error("Surface not ready, cannot start local shell")
             return
         }
 
@@ -318,7 +318,7 @@ final class TerminalSessionController {
         pty.windowSize = TerminalPTY.TerminalSize(rows: surfaceSize.rows, cols: surfaceSize.cols)
         self.pty = pty
 
-        Ghostty.logger.info("Setting up local shell session with ios_system (external I/O), size: \(surfaceSize.cols)x\(surfaceSize.rows)")
+        Swiftty.logger.info("Setting up local shell session with ios_system (external I/O), size: \(surfaceSize.cols)x\(surfaceSize.rows)")
         let localSession = makeLocalShellSession(
             pty: pty,
             workingDirectory: workingDirectory,
@@ -335,7 +335,7 @@ final class TerminalSessionController {
     ) {
         guard let host else { return }
         guard let surfaceSize = host.terminalSurfaceGridSize else {
-            Ghostty.logger.error("Surface not ready, cannot start shell-launched session")
+            Swiftty.logger.error("Surface not ready, cannot start shell-launched session")
             return
         }
 
@@ -357,7 +357,7 @@ final class TerminalSessionController {
 
             guard let self, let localSession, let host = self.host else { return }
             guard host.terminalSurfaceAvailable else {
-                Ghostty.logger.error("Surface not ready, cannot start session")
+                Swiftty.logger.error("Surface not ready, cannot start session")
                 return
             }
 
@@ -370,7 +370,7 @@ final class TerminalSessionController {
 
                 self.responsePipeline.start(for: localSession)
             } catch {
-                Ghostty.logger.error("Failed to start shell-launched session: \(error)")
+                Swiftty.logger.error("Failed to start shell-launched session: \(error)")
                 host.terminalSetError(error)
             }
         }
@@ -417,12 +417,12 @@ final class TerminalSessionController {
     private func startCatalystLocalSession(workingDirectory: String?) {
         guard let host else { return }
         guard let surfaceSize = host.terminalSurfaceGridSize else {
-            Ghostty.logger.error("Surface not ready, cannot start Catalyst shell")
+            Swiftty.logger.error("Surface not ready, cannot start Catalyst shell")
             return
         }
 
         let shell = LocalShellSettings.command
-        Ghostty.logger.info("Creating Catalyst shell session: \(surfaceSize.cols)x\(surfaceSize.rows), cwd=\(workingDirectory ?? "nil"), shell=\(shell ?? "login")")
+        Swiftty.logger.info("Creating Catalyst shell session: \(surfaceSize.cols)x\(surfaceSize.rows), cwd=\(workingDirectory ?? "nil"), shell=\(shell ?? "login")")
 
         CatalystLocalShellSession.create(
             rows: surfaceSize.rows,
@@ -435,7 +435,7 @@ final class TerminalSessionController {
 
             switch result {
             case .success(let session):
-                Ghostty.logger.info("Catalyst session created successfully")
+                Swiftty.logger.info("Catalyst session created successfully")
                 self.session = session
                 self.pty = session.pty
                 host.terminalNotifySessionDidChange()
@@ -445,12 +445,12 @@ final class TerminalSessionController {
                 Task {
                     do {
                         try await session.start()
-                        Ghostty.logger.info("Catalyst session started")
+                        Swiftty.logger.info("Catalyst session started")
                         await MainActor.run {
                             self.host?.terminalUpdatePTYSize()
                         }
                     } catch {
-                        Ghostty.logger.error("Failed to start Catalyst session: \(error)")
+                        Swiftty.logger.error("Failed to start Catalyst session: \(error)")
                         Task { @MainActor in
                             self.host?.terminalSetError(error)
                         }
@@ -458,7 +458,7 @@ final class TerminalSessionController {
                 }
 
             case .failure(let error):
-                Ghostty.logger.error("Failed to create Catalyst session: \(error)")
+                Swiftty.logger.error("Failed to create Catalyst session: \(error)")
                 Task { @MainActor in
                     self.host?.terminalSetError(error)
                 }
@@ -511,12 +511,12 @@ final class TerminalSessionController {
                             if let sshTerminalSession {
                                 for raw in sshTerminalSession.consumeAuthBanners() {
                                     let rendered = SSHBanner.renderAuthBanner(raw)
-                                    if !rendered.isEmpty { host.terminalWriteToGhostty(rendered) }
+                                    if !rendered.isEmpty { host.terminalWriteToSwiftty(rendered) }
                                 }
                             }
                             if let sshTerminalSession,
                                let banner = SSHBanner.postConnectionWarning(for: sshTerminalSession) {
-                                host.terminalWriteToGhostty(banner)
+                                host.terminalWriteToSwiftty(banner)
                             }
                         case .failed:
                             host.terminalProgressFinish(.cleanupOnly)
@@ -613,7 +613,7 @@ final class TerminalSessionController {
     }
 
     private func performReconnection() async throws {
-        Ghostty.logger.info("Performing reconnection attempt")
+        Swiftty.logger.info("Performing reconnection attempt")
 
         guard let host else { return }
         host.terminalResetUserTypingForReconnect()
@@ -667,7 +667,7 @@ final class TerminalSessionController {
 
         responsePipeline.start(for: newSession)
 
-        Ghostty.logger.info("Reconnection ready")
+        Swiftty.logger.info("Reconnection ready")
     }
 
     /// Arm a one-shot terminal-readiness gate for `session`.
@@ -833,7 +833,7 @@ final class TerminalSessionController {
             if let sshSession = session as? SSHTerminalSession {
                 for raw in sshSession.consumeAuthBanners() {
                     let rendered = SSHBanner.renderAuthBanner(raw)
-                    if !rendered.isEmpty { host.terminalWriteToGhostty(rendered) }
+                    if !rendered.isEmpty { host.terminalWriteToSwiftty(rendered) }
                 }
             }
         case .failed, .disconnected, .initial:
@@ -843,7 +843,7 @@ final class TerminalSessionController {
             let rgb = themeColors.colorFor(style: .connecting)
             let color = "\u{1B}[38;2;\(rgb.0);\(rgb.1);\(rgb.2)m"
             let reset = "\u{1B}[0m"
-            host.terminalWriteToGhostty(color + "  \(state.statusDescription)" + reset + "\r\n")
+            host.terminalWriteToSwiftty(color + "  \(state.statusDescription)" + reset + "\r\n")
         }
     }
 
@@ -862,26 +862,26 @@ final class TerminalSessionController {
 
             guard let self, let session, let host = self.host else { return }
             guard host.terminalSurfaceAvailable else {
-                Ghostty.logger.error("Surface not ready, cannot start session")
+                Swiftty.logger.error("Surface not ready, cannot start session")
                 return
             }
 
             do {
                 try await session.start()
-                Ghostty.logger.info("Session started successfully")
+                Swiftty.logger.info("Session started successfully")
 
                 self.responsePipeline.start(for: session)
             } catch is CancellationError {
-                Ghostty.logger.info("Session start cancelled (tab closing)")
+                Swiftty.logger.info("Session start cancelled (tab closing)")
             } catch {
-                Ghostty.logger.error("Failed to start session: \(error)")
+                Swiftty.logger.error("Failed to start session: \(error)")
                 host.terminalSetError(error)
 
                 if let sshError = error as? SSHError, sshError.isAuthenticationRelated,
                    let config = connectionConfig.sshConfig {
                     host.terminalRequestAuthentication(config)
                 } else {
-                    host.terminalWriteToGhostty("\r\n❌ Connection failed: \(error.localizedDescription)\r\n")
+                    host.terminalWriteToSwiftty("\r\n❌ Connection failed: \(error.localizedDescription)\r\n")
                 }
             }
         }
@@ -893,7 +893,7 @@ final class TerminalSessionController {
     /// For a local session with an active embedded SSH session the `reason`
     /// drives whether the embedded connection is torn down: `.sceneTeardown`
     /// keeps it resumable, everything else stops it outright.
-    func teardown(reason: Ghostty.TerminalView.CleanupReason) {
+    func teardown(reason: Swiftty.TerminalView.CleanupReason) {
         responsePipeline.cancel()
 
         if let localSession = session as? LocalShellSession,

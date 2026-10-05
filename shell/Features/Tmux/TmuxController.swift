@@ -2,25 +2,25 @@
 //  TmuxController.swift
 //  shell
 //
-//  Swift consumer of Ghostty's native tmux control mode reconcile action
-//  (GHOSTTY_ACTION_TMUX_RECONCILE). The Zig core (terminal.tmux.Viewer) does
+//  Swift consumer of Swiftty's native tmux control mode reconcile action
+//  (SWIFTTY_ACTION_TMUX_RECONCILE). SwifttyKit's TmuxViewer does
 //  all protocol parsing, owns the authoritative per-pane terminals, parses
 //  layouts, and emits an ordered batch of topology ops. This file decodes
-//  that op batch into Swift values and (Phase 2+) applies it to native tabs
+//  that op batch into Swift values and applies it to native tabs
 //  and splits, creating per-pane TerminalViews bound to the viewer's pane
-//  terminals via ghostty_surface_new_tmux_pane.
+//  terminals via swiftty_surface_new_tmux_pane.
 //
 //  IMPORTANT: the op batch carries raw viewer_terminal/viewer_pane pointers into
-//  the Zig viewer. Their lifetime is held by the payload's per-pane refcount
-//  (Zig id=viewer-snapshot-refcount): the viewer will not free a pane while a
+//  SwifttyKit's viewer. Their lifetime is held by the payload's per-pane refcount
+// : the viewer will not free a pane while a
 //  payload references it. So the payload must be freed with
-//  ghostty_tmux_reconcile_free only AFTER applyTmuxReconcile has consumed the
-//  pointers (see TmuxReconcileDelivery / the GHOSTTY_ACTION_TMUX_RECONCILE
+//  swiftty_tmux_reconcile_free only AFTER applyTmuxReconcile has consumed the
+//  pointers (see TmuxReconcileDelivery / the SWIFTTY_ACTION_TMUX_RECONCILE
 //  handler), which releases those holds.
 //
 
 import Foundation
-import GhosttyKit
+import SwifttyKit
 import os
 import Synchronization
 
@@ -49,7 +49,7 @@ private extension ConnectionConfig {
     }
 }
 
-/// A single tmux reconcile operation, decoded from the C op batch.
+/// A single tmux reconcile operation, decoded from the op batch.
 ///
 /// `nonisolated`: produced by `TmuxReconcileDecoder.decode` on the off-main
 /// action callback thread, so it must not inherit the default `@MainActor`
@@ -62,7 +62,7 @@ nonisolated enum TmuxReconcileOp: Equatable {
     case ensureWindow(windowId: Int, width: Int, height: Int, index: Int)
     /// Ensure a pane leaf surface exists. `viewerTerminal`/`viewerPane` are
     /// opaque pointers into the viewer; pass them to
-    /// ghostty_surface_new_tmux_pane to create the bound child surface.
+    /// swiftty_surface_new_tmux_pane to create the bound child surface.
     case ensurePane(windowId: Int, paneId: Int, viewerTerminal: UnsafeMutableRawPointer?, viewerPane: UnsafeMutableRawPointer?)
     /// Update a window's split tree to match this layout. `zoomedPaneId` is the
     /// pane shown fullscreen when the window is zoomed, nil when not zoomed.
@@ -98,59 +98,59 @@ nonisolated enum TmuxReconcileOp: Equatable {
 /// SYNCHRONOUSLY inside the action callback (`App.action`), which the core
 /// invokes on its off-main tick thread — NOT the main actor (the result is then
 /// hopped to `@MainActor` via `TmuxReconcileDelivery`). It only calls the
-/// `ghostty_tmux_*` C accessors and builds value types, touching no actor state,
+/// `swiftty_tmux_*` C accessors and builds value types, touching no actor state,
 /// so opting out of the project's default `@MainActor` isolation is both correct
 /// and necessary (an implicit-`@MainActor` decode would be a fiction unenforced
-/// across the C bridge). Does NOT free the payload (the caller owns it).
+/// across the API boundary). Does NOT free the payload (the caller owns it).
 nonisolated enum TmuxReconcileDecoder {
     static func decode(_ payload: UnsafeMutableRawPointer) -> [TmuxReconcileOp] {
-        let count = ghostty_tmux_reconcile_op_count(payload)
+        let count = swiftty_tmux_reconcile_op_count(payload)
         var ops: [TmuxReconcileOp] = []
         ops.reserveCapacity(Int(count))
 
         var i: UInt = 0
         while i < count {
             defer { i += 1 }
-            var cop = ghostty_tmux_op_s()
-            guard ghostty_tmux_reconcile_op(payload, i, &cop) else { continue }
+            var cop = swiftty_tmux_op_s()
+            guard swiftty_tmux_reconcile_op(payload, i, &cop) else { continue }
 
             switch cop.tag {
-            case GHOSTTY_TMUX_OP_SYNC_BEGIN:
+            case SWIFTTY_TMUX_OP_SYNC_BEGIN:
                 ops.append(.syncBegin)
-            case GHOSTTY_TMUX_OP_SYNC_END:
+            case SWIFTTY_TMUX_OP_SYNC_END:
                 ops.append(.syncEnd)
-            case GHOSTTY_TMUX_OP_ENSURE_WINDOW:
+            case SWIFTTY_TMUX_OP_ENSURE_WINDOW:
                 ops.append(.ensureWindow(
                     windowId: Int(cop.window_id),
                     width: Int(cop.width),
                     height: Int(cop.height),
                     index: Int(cop.window_index)))
-            case GHOSTTY_TMUX_OP_ENSURE_PANE:
+            case SWIFTTY_TMUX_OP_ENSURE_PANE:
                 ops.append(.ensurePane(
                     windowId: Int(cop.window_id),
                     paneId: Int(cop.pane_id),
                     viewerTerminal: cop.viewer_terminal,
                     viewerPane: cop.viewer_pane))
-            case GHOSTTY_TMUX_OP_SET_LAYOUT:
+            case SWIFTTY_TMUX_OP_SET_LAYOUT:
                 if let layout = cop.layout {
                     ops.append(.setLayout(
                         windowId: Int(cop.window_id),
                         layout: decodeLayout(layout),
                         zoomedPaneId: cop.has_zoomed_pane_id ? Int(cop.zoomed_pane_id) : nil))
                 }
-            case GHOSTTY_TMUX_OP_SET_FOCUS:
+            case SWIFTTY_TMUX_OP_SET_FOCUS:
                 ops.append(.setFocus(
                     windowId: Int(cop.window_id),
                     paneId: Int(cop.pane_id)))
-            case GHOSTTY_TMUX_OP_PRUNE_ABSENT:
+            case SWIFTTY_TMUX_OP_PRUNE_ABSENT:
                 ops.append(.pruneAbsent(
                     windowIds: decodeIds(cop.window_ids, cop.window_ids_len),
                     paneIds: decodeIds(cop.pane_ids, cop.pane_ids_len)))
-            case GHOSTTY_TMUX_OP_SET_TAB_TITLE:
+            case SWIFTTY_TMUX_OP_SET_TAB_TITLE:
                 ops.append(.setTabTitle(
                     windowId: Int(cop.window_id),
                     title: decodeString(cop.title, cop.title_len)))
-            case GHOSTTY_TMUX_OP_SET_WINDOW_TITLE:
+            case SWIFTTY_TMUX_OP_SET_WINDOW_TITLE:
                 ops.append(.setWindowTitle(
                     title: decodeString(cop.title, cop.title_len)))
             default:
@@ -161,21 +161,21 @@ nonisolated enum TmuxReconcileDecoder {
     }
 
     private static func decodeLayout(_ layout: UnsafeRawPointer) -> TmuxLayoutNode {
-        var info = ghostty_tmux_layout_info_s()
-        ghostty_tmux_layout_info(layout, &info)
+        var info = swiftty_tmux_layout_info_s()
+        swiftty_tmux_layout_info(layout, &info)
         let w = Int(info.width), h = Int(info.height), x = Int(info.x), y = Int(info.y)
 
         switch info.kind {
-        case GHOSTTY_TMUX_LAYOUT_PANE:
+        case SWIFTTY_TMUX_LAYOUT_PANE:
             return .pane(paneId: Int(info.pane_id), width: w, height: h, x: x, y: y)
-        case GHOSTTY_TMUX_LAYOUT_HORIZONTAL, GHOSTTY_TMUX_LAYOUT_VERTICAL:
+        case SWIFTTY_TMUX_LAYOUT_HORIZONTAL, SWIFTTY_TMUX_LAYOUT_VERTICAL:
             let direction: TmuxLayoutNode.Direction =
-                info.kind == GHOSTTY_TMUX_LAYOUT_HORIZONTAL ? .horizontal : .vertical
+                info.kind == SWIFTTY_TMUX_LAYOUT_HORIZONTAL ? .horizontal : .vertical
             var children: [TmuxLayoutNode] = []
             children.reserveCapacity(Int(info.child_count))
             var c: UInt = 0
             while c < info.child_count {
-                if let child = ghostty_tmux_layout_child(layout, c) {
+                if let child = swiftty_tmux_layout_child(layout, c) {
                     children.append(decodeLayout(child))
                 }
                 c += 1
@@ -204,7 +204,7 @@ import UIKit
 
 /// Applies a decoded tmux reconcile op batch to native tabs and splits for a
 /// single control-mode connection (one viewer-owner surface). Owned by the
-/// viewer-owner `Ghostty.TerminalView`. All mutation happens on the main actor;
+/// viewer-owner `Swiftty.TerminalView`. All mutation happens on the main actor;
 /// `apply(_:)` must be called synchronously from the reconcile action callback
 /// because the op batch carries live viewer pointers.
 @MainActor
@@ -235,11 +235,11 @@ final class TmuxController {
         }
         return model
     }
-    private let app: ghostty_app_t
-    private weak var ghosttyApp: Ghostty.App?
+    private let app: swiftty_app_t
+    private weak var swifttyApp: Swiftty.App?
     /// The viewer-owner surface (the one running `tmux -CC`). Passed as the
-    /// parent to ghostty_surface_new_tmux_pane for every child pane.
-    private let ownerSurface: ghostty_surface_t
+    /// parent to swiftty_surface_new_tmux_pane for every child pane.
+    private let ownerSurface: swiftty_surface_t
     private var baseWindowId: String
     /// UUID of the gateway terminal that owns this controller. Stamped onto each
     /// window tab and persisted, so restored placeholders can be matched back to
@@ -250,7 +250,7 @@ final class TmuxController {
     /// terminal UUID: a delayed deinit from an old controller could otherwise
     /// unregister its replacement.
     private let contentEventInterestID = UUID()
-    /// Balanced against the Ghostty.App content-event owner registration.
+    /// Balanced against the Swiftty.App content-event owner registration.
     private var holdsContentEventInterest = true
 
     /// tmux window id -> the tab modeling it.
@@ -258,7 +258,7 @@ final class TmuxController {
     /// tmux window id -> shell app window id hosting that projected tab.
     private var windowHostIds: [Int: String] = [:]
     /// tmux pane id -> the pane view rendering it.
-    private var paneViews: [Int: Ghostty.TerminalView] = [:]
+    private var paneViews: [Int: Swiftty.TerminalView] = [:]
     /// Throttles pane-title queries triggered by terminal output. tmux only
     /// publishes the active pane's #T through the existing window-title
     /// subscription, so split siblings need an explicit all-pane query.
@@ -304,7 +304,7 @@ final class TmuxController {
     // MARK: - Session dashboard state (see TmuxController+Sessions.swift)
 
     /// The session this gateway's control client is attached to, from
-    /// GHOSTTY_ACTION_TMUX_SESSION_CHANGED (startup / switch / rename). Drives
+    /// SWIFTTY_ACTION_TMUX_SESSION_CHANGED (startup / switch / rename). Drives
     /// the dashboard's "current" marker and the per-connection reconnect name.
     /// Set ONLY by updateCurrentSession (TmuxController+Sessions.swift; an
     /// extension can't reach a private(set) setter cross-file).
@@ -320,7 +320,7 @@ final class TmuxController {
     private(set) var gatewaySourceDisplayName = String(localized: "Gateway")
     private(set) var gatewaySourceSystemImage = "terminal"
     /// Correlation tags for in-flight `sendCommandWithReply` requests
-    /// (ghostty_surface_tmux_command_with_reply). Tag 0 is never used.
+    /// (swiftty_surface_tmux_command_with_reply). Tag 0 is never used.
     var nextReplyTag: UInt32 = 1
     var pendingReplies: [UInt32: CheckedContinuation<TmuxCommandReply, any Error>] = [:]
     var replyTimeouts: [UInt32: Task<Void, Never>] = [:]
@@ -347,7 +347,7 @@ final class TmuxController {
 
     /// The gateway surface, exposed for the session-ops extension
     /// (TmuxController+Sessions.swift) to issue query commands on.
-    var gatewaySurfaceForCommands: ghostty_surface_t { ownerSurface }
+    var gatewaySurfaceForCommands: swiftty_surface_t { ownerSurface }
     /// The owning gateway terminal UUID, exposed for the session-ops
     /// extension's NotificationCenter posts (dashboard scoping).
     var ownerTerminalUUIDForNotifications: UUID { ownerTerminalUUID }
@@ -400,7 +400,7 @@ final class TmuxController {
     // MARK: - Recovery watchdog (always-on)
 
     /// Always-on watchdog that polls the core viewer snapshot and drives a live
-    /// re-resync (`ghostty_surface_tmux_recover`) when the command/response
+    /// re-resync (`swiftty_surface_tmux_recover`) when the command/response
     /// pipeline wedges — a command stuck in-flight behind a growing queue with no
     /// inbound blocks. This is the backstop for desyncs the core can't self-heal
     /// in-band (a "clean" mid-stream data loss that shifts the block stream
@@ -453,7 +453,7 @@ final class TmuxController {
     /// `recoveryResyncMaxReprobes`. ONE budget shared by the single re-probe site
     /// (id=tmux-resync-live-reprobe) — the dead-shell tier no longer re-probes on
     /// its own, so a live-link stall can no longer exhaust the budget that keeps
-    /// the dead-shell echo matcher armed (`control.zig` nulls `probe_echo` on any
+    /// the dead-shell echo matcher armed (the viewer drops the probe echo on any
     /// completed block, so re-probing is the only thing that re-arms it).
     private var recoveryResyncReprobes = 0
     /// When the last resync probe was re-sent, for `recoveryResyncProbeSpacing`
@@ -478,7 +478,7 @@ final class TmuxController {
     private var recoveryLastProtocolEvents: UInt64?
     /// Set when the owning gateway TerminalView's surface is being torn down
     /// (cleanup/teardownSurface). `ownerSurface` is a raw pointer captured at
-    /// init; after this it is dangling, so every ghostty_surface_* ABI call on
+    /// init; after this it is dangling, so every swiftty_surface_* ABI call on
     /// it must stop. `private(set)` so cross-file extensions
     /// (TmuxController+Sessions / +HiddenWindows) and the dashboard view can
     /// read it in their own surface-deref guards. ROOTSHELL-TMUX
@@ -520,21 +520,21 @@ final class TmuxController {
 
     init(
         tabsModel: TabsModel,
-        app: ghostty_app_t,
-        ghosttyApp: Ghostty.App,
-        ownerSurface: ghostty_surface_t,
+        app: swiftty_app_t,
+        swifttyApp: Swiftty.App,
+        ownerSurface: swiftty_surface_t,
         windowId: String,
         ownerTerminalUUID: UUID
     ) {
         self.weakTabsModel = tabsModel
         self.app = app
-        self.ghosttyApp = ghosttyApp
+        self.swifttyApp = swifttyApp
         self.ownerSurface = ownerSurface
         self.baseWindowId = windowId
         self.ownerTerminalUUID = ownerTerminalUUID
 
         Self.controllersByOwnerSurface[Int(bitPattern: ownerSurface)] = WeakController(self)
-        ghosttyApp.setTmuxSurfaceContentEventsEnabled(
+        swifttyApp.setTmuxSurfaceContentEventsEnabled(
             true,
             interestID: contentEventInterestID)
 
@@ -610,7 +610,7 @@ final class TmuxController {
         // covers that final path without assuming which actor ran deinit.
         let interestID = contentEventInterestID
         Task { @MainActor in
-            Ghostty.App.shared?.setTmuxSurfaceContentEventsEnabled(
+            Swiftty.App.shared?.setTmuxSurfaceContentEventsEnabled(
                 false,
                 interestID: interestID)
         }
@@ -618,7 +618,7 @@ final class TmuxController {
         // self-terminate after this; nothing else to do off the main actor here.
     }
 
-    static func controller(forOwnerSurface surface: ghostty_surface_t) -> TmuxController? {
+    static func controller(forOwnerSurface surface: swiftty_surface_t) -> TmuxController? {
         let key = Int(bitPattern: surface)
         guard let weak = controllersByOwnerSurface[key] else { return nil }
         if let controller = weak.controller { return controller }
@@ -694,7 +694,7 @@ final class TmuxController {
     }
 
     func apply(_ ops: [TmuxReconcileOp]) {
-        // The reconcile owner is retained across an async hop (the GhosttyApp
+        // The reconcile owner is retained across an async hop (the SwifttyApp
         // action callback Task), so this can run just after the scene released
         // the TabsModel. That ref is weak; applying topology into a released
         // model is pointless and would trip the `tabsModel` precondition. Bail
@@ -721,10 +721,10 @@ final class TmuxController {
         }
 
         // Topology cap backstop: the core viewer enforces the same caps
-        // (viewer.zig MAX_WINDOWS / MAX_TOTAL_PANES + the layout parser's
+        // (TmuxViewer's 128-window / 512-pane caps + the layout parser's
         // node cap), so a batch this size never arrives from a healthy
         // build. If one does (core regression, hostile server reaching a
-        // path the Zig caps miss), refuse it wholesale BEFORE allocating a
+        // path those caps miss), refuse it wholesale BEFORE allocating a
         // TabModel / Metal-backed TerminalView per entry on the main actor
         // — an unbounded batch is a one-shot OOM + watchdog kill. Rejecting
         // the whole batch (rather than truncating) keeps window/pane/layout
@@ -850,7 +850,7 @@ final class TmuxController {
             guard let self else { return }
             defer { self.paneIdentityRefreshTask = nil }
             guard !Task.isCancelled,
-                  !Ghostty.isAppBackgroundedAtomic,
+                  !Swiftty.isAppBackgroundedAtomic,
                   !self.didEnd, !self.isDetaching, !self.ownerSurfaceFreed else { return }
 
             guard let identities = try? await self.paneDisplayIdentities() else { return }
@@ -889,8 +889,8 @@ final class TmuxController {
     }
 
     /// Maximum windows in one reconcile batch and maximum panes total /
-    /// per window. Mirrors the Zig viewer's caps (viewer.zig MAX_WINDOWS=128,
-    /// MAX_TOTAL_PANES=512), which enforce first; this is defense in depth.
+    /// per window. Mirrors TmuxViewer's caps (128 windows,
+    /// 512 panes), which enforce first; this is defense in depth.
     /// ROOTSHELL-TMUX (id=viewer-topology-caps)
     static let maxTopologyWindows = 128
     static let maxTopologyPanes = 512
@@ -1126,7 +1126,7 @@ final class TmuxController {
                     // (id=tmux-focus-stale-flag)
                     existing.isLogicallyFocused = false
                     existing.shouldBecomeFirstResponderWhenReady = false
-                    existing.clearStaleGhosttyFocus()
+                    existing.clearStaleSwifttyFocus()
 
                     let hostModel = modelContainingTab(id: previousTab.id) ?? tabsModel
                     let sourceIsSelected = hostModel.selectedTabID == previousTab.id
@@ -1159,14 +1159,14 @@ final class TmuxController {
             }
             return true
         }
-        guard let ghosttyApp else {
+        guard let swifttyApp else {
             return false
         }
         let hostModel = hostTabsModel(forWindowId: windowId)
         let hostWindowId = hostWindowId(forWindowId: windowId)
-        let view = Ghostty.TerminalView(
+        let view = Swiftty.TerminalView(
             app,
-            ghosttyApp: ghosttyApp,
+            swifttyApp: swifttyApp,
             connectionConfig: .local(),
             windowId: hostWindowId)
         // Initialize the keyboard-ownership gate at birth. focusPane arms
@@ -1214,7 +1214,7 @@ final class TmuxController {
                     return try await self.sendCommandWithReply(command)
                 }
             } catch {
-                Ghostty.logger.warning("tmux equalize failed: \(String(describing: error))")
+                Swiftty.logger.warning("tmux equalize failed: \(String(describing: error))")
             }
         }
     }
@@ -1347,7 +1347,7 @@ final class TmuxController {
     }
 
     /// All pane views referenced by a layout subtree (in order).
-    private func panes(in node: TmuxLayoutNode) -> [Ghostty.TerminalView] {
+    private func panes(in node: TmuxLayoutNode) -> [Swiftty.TerminalView] {
         switch node {
         case let .pane(paneId, _, _, _, _):
             return paneViews[paneId].map { [$0] } ?? []
@@ -1360,7 +1360,7 @@ final class TmuxController {
     /// other panes), request first-responder, and set the tab's focused
     /// terminal. This routes keyboard input to this pane's surface, whose
     /// tmux backend emits `send-keys` for this pane id.
-    private func focusPane(_ view: Ghostty.TerminalView, in tab: TabModel) {
+    private func focusPane(_ view: Swiftty.TerminalView, in tab: TabModel) {
         // Background layouts also initialize their remembered focused pane.
         // Do not clear the selected restored tab's focus while filling them.
         let hostModel = modelContainingTab(id: tab.id) ?? tabsModel
@@ -1384,7 +1384,7 @@ final class TmuxController {
             // And clear any stray "focused" cursor a half-completed focus
             // attempt left behind, so only the target pane renders an active
             // cursor. ROOTSHELL-TMUX (id=tmux-focus-cursor-sweep)
-            other.clearStaleGhosttyFocus()
+            other.clearStaleSwifttyFocus()
         }
         view.isLogicallyFocused = true
         view.shouldBecomeFirstResponderWhenReady = true
@@ -1425,7 +1425,7 @@ final class TmuxController {
     /// pane. Superseded by the next focusPane; every tick re-validates so a
     /// user tap on another pane (isLogicallyFocused -> false) or a tab switch
     /// aborts it. ROOTSHELL-TMUX (id=tmux-focus-watchdog)
-    private func armFocusWatchdog(for view: Ghostty.TerminalView, tab: TabModel) {
+    private func armFocusWatchdog(for view: Swiftty.TerminalView, tab: TabModel) {
         focusWatchdog?.cancel()
         let paneId = view.tmuxPaneBinding?.paneId ?? -1
         let tabID = tab.id
@@ -1458,7 +1458,7 @@ final class TmuxController {
     /// Record tmux's remote pane focus for a tab that is not becoming visible.
     /// This keeps title/health observation and later manual tab selection
     /// correct without letting a hidden pane steal first responder.
-    private func recordRemoteFocusPane(_ view: Ghostty.TerminalView, in tab: TabModel) {
+    private func recordRemoteFocusPane(_ view: Swiftty.TerminalView, in tab: TabModel) {
         view.isLogicallyFocused = false
         view.shouldBecomeFirstResponderWhenReady = false
         tab.focusedTerminal = view
@@ -1571,7 +1571,7 @@ final class TmuxController {
         return .split(.init(direction: dir, ratio: min(max(ratio, 0.05), 0.95), left: leftNode, right: rightNode))
     }
 
-    private func firstPaneView(_ node: TmuxLayoutNode) -> Ghostty.TerminalView? {
+    private func firstPaneView(_ node: TmuxLayoutNode) -> Swiftty.TerminalView? {
         switch node {
         case let .pane(paneId, _, _, _, _):
             return paneViews[paneId]
@@ -1598,7 +1598,7 @@ final class TmuxController {
     /// tab stays VISIBLE and navigable: control mode does not hide it. The new
     /// per-window tabs appear alongside it and the reconcile's focus op moves
     /// selection to the active tmux window. Idempotent.
-    func markGatewayTab(ownerView: Ghostty.TerminalView) {
+    func markGatewayTab(ownerView: Swiftty.TerminalView) {
         // See id=tmux-apply-tabsmodel-guard: tolerate a released TabsModel.
         guard weakTabsModel != nil else { return }
         guard let gatewayTab = tabsModel.tabs.first(where: { tab in
@@ -1796,7 +1796,7 @@ final class TmuxController {
             if let view = paneViews[paneId] {
                 recordRemoteFocusPane(view, in: tab)
             }
-            Ghostty.logger.info("tmux reconcile: keeping local tab selection; ignored remote focus for window \(windowId)")
+            Swiftty.logger.info("tmux reconcile: keeping local tab selection; ignored remote focus for window \(windowId)")
             return
         }
 
@@ -2079,7 +2079,6 @@ final class TmuxController {
             if let terminal = target.asTerminal, terminal.isTmuxPane {
                 terminal.requestTmuxSelectPane()
             }
-            ghosttyApp?.appTick()
         }
     }
 
@@ -2103,7 +2102,7 @@ final class TmuxController {
 
     /// The gateway view bound to THIS controller, resolved through its tab's
     /// split tree (same ownership rule as `ownGatewayTab`).
-    private func ownGatewayView() -> Ghostty.TerminalView? {
+    private func ownGatewayView() -> Swiftty.TerminalView? {
         guard weakTabsModel != nil else { return nil }
         return ownGatewayTab()?.splitTree.terminalLeaves.first { $0.tmuxController === self }
     }
@@ -2125,7 +2124,7 @@ final class TmuxController {
 
     /// Best-effort `detach-client` written DIRECTLY to the gateway session's
     /// transport. ONLY for the wedged force-exit path: the viewer command
-    /// queue is stuck there (so the FIFO-safe `ghostty_surface_tmux_detach`
+    /// queue is stuck there (so the FIFO-safe `swiftty_surface_tmux_detach`
     /// could never flush) and the pipeline is already desynced, so the usual
     /// raw-write interleaving hazard is moot. If the link is alive (or later
     /// recovers half-stalled) this detaches the remote `tmux -CC` client;
@@ -2148,7 +2147,7 @@ final class TmuxController {
     /// window must share one font size; a change applies to all panes of ONE
     /// window and panes created later must match. We track the absolute size
     /// (not a delta from the base) on purpose: the core PRESERVES a manually
-    /// adjusted font size across config reloads (Surface.zig updateConfig), so
+    /// adjusted font size across config reloads (SwifttyKit surface config updates), so
     /// after a global Settings/family/theme change the existing panes keep this
     /// absolute size while the base moves. Reconciling a new pane against the
     /// *current* base (`absolute - currentBase`) therefore lands it exactly on
@@ -2160,7 +2159,7 @@ final class TmuxController {
     /// triggers each pane's `handleCellSizeChange`, which re-pushes that
     /// window's per-window tmux size — other windows are untouched.
     func changeFontSize(windowId: Int, delta: Int) {
-        guard delta != 0, let ghosttyApp else { return }
+        guard delta != 0, let swifttyApp else { return }
         let base = windowFontSize[windowId] ?? FontManager.shared.currentFontSize
         let next = min(max(base + Double(delta), 1), 255)
         let effectiveDelta = Int((next - base).rounded())
@@ -2170,7 +2169,7 @@ final class TmuxController {
         for view in paneViews.values
         where view.tmuxPaneBinding?.windowId == windowId {
             if let surface = view.surface {
-                ghosttyApp.changeFontSize(surface: surface, delta: effectiveDelta)
+                swifttyApp.changeFontSize(surface: surface, delta: effectiveDelta)
             }
         }
     }
@@ -2181,7 +2180,7 @@ final class TmuxController {
     /// own creation-time size, which can differ per pane and would desync the
     /// window. A window already following the global font is a no-op.
     func resetFontSize(windowId: Int) {
-        guard let ghosttyApp, let current = windowFontSize[windowId] else { return }
+        guard let swifttyApp, let current = windowFontSize[windowId] else { return }
         windowFontSize[windowId] = nil
         windowTabs[windowId]?.tmuxFontSizeOverride = nil
         let delta = Int((FontManager.shared.currentFontSize - current).rounded())
@@ -2189,7 +2188,7 @@ final class TmuxController {
         for view in paneViews.values
         where view.tmuxPaneBinding?.windowId == windowId {
             if let surface = view.surface {
-                ghosttyApp.changeFontSize(surface: surface, delta: delta)
+                swifttyApp.changeFontSize(surface: surface, delta: delta)
             }
         }
     }
@@ -2205,7 +2204,7 @@ final class TmuxController {
     /// command emission during the teardown window.
     func requestGracefulDetach(source: String) {
         // ownerSurfaceFreed: the gateway surface is gone, so the queued
-        // ghostty_surface_tmux_detach below would be a use-after-free.
+        // swiftty_surface_tmux_detach below would be a use-after-free.
         // ROOTSHELL-TMUX (id=tmux-gateway-surface-freed)
         guard !didEnd, !isDetaching, !ownerSurfaceFreed else { return }
         isDetaching = true
@@ -2215,16 +2214,16 @@ final class TmuxController {
         }
         // Re-validate at EXECUTION time, not enqueue time. The entry guard above
         // only proves the surface was live when the detach was requested; the
-        // detach is dispatched across two async hops (ghosttyAPIQueue → main) and
+        // detach is dispatched across two async hops (swifttyAPIQueue → main) and
         // gatewaySurfaceWillBeFreed() can run in that gap, after which ownerSurface
         // is dangling. Re-check ownerSurfaceFreed on the main actor immediately
         // before the ABI call (cleanup sets the flag on main, ordered ahead of any
         // later main block). ROOTSHELL-TMUX (id=tmux-gateway-surface-freed)
-        Ghostty.TerminalView.ghosttyAPIQueue.async { [weak self] in
+        Swiftty.TerminalView.swifttyAPIQueue.async { [weak self] in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     guard let self, !self.ownerSurfaceFreed else { return }
-                    ghostty_surface_tmux_detach(self.ownerSurface)
+                    swiftty_surface_tmux_detach(self.ownerSurface)
                 }
             }
         }
@@ -2548,7 +2547,7 @@ final class TmuxController {
     /// Panes of one window in visual (split-tree leaf) order, with display
     /// titles. Falls back to paneViews-dict order if the tab/tree is missing
     /// (mid-reconcile). For swap-pane pickers.
-    /// Use the resolved pane identity, not the raw surface's "ghostty" default.
+    /// Use the resolved pane identity, not the raw surface's "swiftty" default.
     func paneSummaries(inWindow windowId: Int) -> [(paneId: Int, title: String)] {
         if let tab = windowTabs[windowId] {
             var out: [(paneId: Int, title: String)] = []
@@ -2725,7 +2724,7 @@ final class TmuxController {
         if let last = lastPushedGlobalSize, last == (cols, rows) { return }
         lastPushedGlobalSize = (cols, rows)
         lastCommandAt = Date()
-        ghostty_surface_tmux_set_client_size(ownerSurface, cols, rows)
+        swiftty_surface_tmux_set_client_size(ownerSurface, cols, rows)
     }
 
     /// Send a window's per-window tmux size (`refresh-client -C @win:WxH`) on the
@@ -2760,7 +2759,7 @@ final class TmuxController {
         lastCommandAt = Date()
         data.withUnsafeBytes { raw in
             guard let base = raw.baseAddress else { return }
-            ghostty_surface_tmux_command(
+            swiftty_surface_tmux_command(
                 ownerSurface,
                 base.assumingMemoryBound(to: CChar.self),
                 UInt(data.count))
@@ -2816,7 +2815,7 @@ final class TmuxController {
     private static let recoveryResyncStuckMs: UInt64 = 15000
     /// A resync ends ONLY when a command BLOCK carrying the probe marker arrives:
     /// `nextResync` leaves `.resync` exclusively in its `.block_end/.block_err`
-    /// arm (viewer.zig) — every other notification is dropped. So block silence,
+    /// arm (TmuxViewer) — every other notification is dropped. So block silence,
     /// NOT general protocol traffic, is the staleness signal for a stuck resync.
     /// `%output` from a chatty pane keeps `total_notifications`/`total_output_events`
     /// climbing while the resync makes zero progress, which is exactly the shape
@@ -2827,9 +2826,9 @@ final class TmuxController {
     private static let recoveryResyncBlockQuietMs: UInt64 = 3000
     /// Minimum spacing between resync probe re-sends — pacing only, so a slow
     /// round trip isn't mistaken for a lost probe. It does NOT need to bound
-    /// in-flight messages: `ghostty_surface_tmux_reprobe` only ever re-sends the
+    /// in-flight messages: `swiftty_surface_tmux_reprobe` only ever re-sends the
     /// probe, so one draining after the viewer is gone is a no-op. (Using
-    /// `ghostty_surface_tmux_resume` here WOULD need that bound — its no-viewer
+    /// `swiftty_surface_tmux_resume` here WOULD need that bound — its no-viewer
     /// branch synthesizes `ESC P 1000 p` and resurrects control mode over the
     /// revealed shell.) ROOTSHELL-TMUX (id=tmux-resync-live-reprobe)
     private static let recoveryResyncProbeSpacing: TimeInterval = 3.5
@@ -2882,7 +2881,7 @@ final class TmuxController {
         // first foreground tick instead (its wall-clock ages grew during the
         // suspend). ROOTSHELL-TMUX (id=tmux-bg-escalation-guard)
         recoveryLastForegroundBackgroundEpoch = LifecycleEpoch.shared.background
-        recoveryArmGraceOnNextForeground = Ghostty.isTransportFrozenByBackground
+        recoveryArmGraceOnNextForeground = Swiftty.isTransportFrozenByBackground
         // A watchdog restarted on the SAME controller must not inherit a probe
         // budget/stamp from a previous resync. ROOTSHELL-TMUX (id=tmux-resync-live-reprobe)
         recoveryResyncReprobes = 0
@@ -2930,13 +2929,13 @@ final class TmuxController {
     private func releaseContentEventInterest() {
         guard holdsContentEventInterest else { return }
         holdsContentEventInterest = false
-        ghosttyApp?.setTmuxSurfaceContentEventsEnabled(
+        swifttyApp?.setTmuxSurfaceContentEventsEnabled(
             false,
             interestID: contentEventInterestID)
     }
 
     /// Recovery gave up: forcibly exit control mode through the CORE rather than
-    /// the Swift-only `forceQuit()`. `ghostty_surface_tmux_force_exit` frees the
+    /// the Swift-only `forceQuit()`. `swiftty_surface_tmux_force_exit` frees the
     /// viewer, unhooks the DCS parser, returns the VT parser to ground, AND emits
     /// the empty-topology snapshot — so the prune runs through the normal reconcile
     /// path (`applyTmuxReconcile`), which also drops `tmuxController` and stops this
@@ -2951,7 +2950,7 @@ final class TmuxController {
         // link doesn't keep streaming raw control-mode output into the shell
         // the force-exit is about to reveal. ROOTSHELL-TMUX (id=tmux-best-effort-detach)
         sendBestEffortDetach()
-        ghostty_surface_tmux_force_exit(ownerSurface)
+        swiftty_surface_tmux_force_exit(ownerSurface)
     }
 
     /// One watchdog tick: pull the core viewer snapshot and, if the command
@@ -2980,10 +2979,10 @@ final class TmuxController {
         // emitHeartbeat, whose timer only runs while debug logging is enabled.
         // Cheap + idempotent (no-op when nothing is deferred / not a gateway).
         // ROOTSHELL-TMUX (id=tmux-flush-deferred-always-on)
-        ghostty_surface_tmux_flush_deferred(ownerSurface)
+        swiftty_surface_tmux_flush_deferred(ownerSurface)
 
-        var snap = ghostty_tmux_debug_snapshot_s()
-        guard ghostty_surface_tmux_debug_snapshot(ownerSurface, &snap) else {
+        var snap = swiftty_tmux_debug_snapshot_s()
+        guard swiftty_surface_tmux_debug_snapshot(ownerSurface, &snap) else {
             recoveryWedgeHits = 0
             // No viewer to sample (gone or being re-created): drop the resync
             // probe budget/stamp so a later resync starts clean instead of
@@ -3015,7 +3014,7 @@ final class TmuxController {
         // Read-thread stall detector: the gateway's byte-processing thread
         // entered processOutput and hasn't finished for >5s — it is BLOCKED at
         // the named site (1 awaiting-gateway-lock, 2 parsing, 3 pane-lock,
-        // 4/5 mailbox sends). This is the smoking-gun line for "transport
+        // 4/5 queued sends). This is the smoking-gun line for "transport
         // delivered bytes but the parser never saw them"; log it prominently
         // each tick while it persists. ROOTSHELL-TMUX (id=tmux-debug-read-progress)
         if snap.read_thread_site != 0,
@@ -3035,7 +3034,7 @@ final class TmuxController {
         // read-thread-stall log) but zero the debounce counters every tick and
         // NEVER escalate. ROOTSHELL-TMUX (id=tmux-bg-escalation-guard,
         // id=tmux-blackout-escalation)
-        if Ghostty.isTransportFrozenByBackground {
+        if Swiftty.isTransportFrozenByBackground {
             recoveryBlackoutTicks = 0
             recoveryWedgeHits = 0
             recoveryResyncReprobes = 0
@@ -3115,13 +3114,13 @@ final class TmuxController {
             recoveryResyncReprobes += 1
             recoveryResyncLastProbeAt = Date()
             // Resync-ONLY entry point: re-sends the probe when a viewer is live and
-            // resyncing, and is otherwise a strict no-op. `ghostty_surface_tmux_resume`
+            // resyncing, and is otherwise a strict no-op. `swiftty_surface_tmux_resume`
             // must NOT be used here — its no-viewer branch synthesizes control-mode
             // entry, so a message drained after the gateway went away would
             // resurrect it over the revealed shell. Because this one cannot, we do
             // not need to bound in-flight messages at all.
             // ROOTSHELL-TMUX (id=tmux-resync-live-reprobe)
-            ghostty_surface_tmux_reprobe(ownerSurface)
+            swiftty_surface_tmux_reprobe(ownerSurface)
         }
 
         // Escalation: a recovery resync that never completes WHILE the transport
@@ -3313,13 +3312,13 @@ final class TmuxController {
         recoveryAttempts += 1
         recoveryWedgeHits = 0
         recoveryCooldownUntil = Date().addingTimeInterval(8)
-        ghostty_surface_tmux_recover(ownerSurface)
+        swiftty_surface_tmux_recover(ownerSurface)
     }
 
     /// A lossy server-side OUTPUT discard was detected on this -CC gateway's tssh
     /// transport: tsshd dropped buffered output while the link was down (discard
     /// mode, no back pressure), so the control stream lost bytes mid-block. Drive
-    /// a full surface reset + recapture (`ghostty_surface_tmux_reset`) so every
+    /// a full surface reset + recapture (`swiftty_surface_tmux_reset`) so every
     /// pane rebuilds to a consistent state — no duplicated scrollback, no tab
     /// flicker. Logged to BOTH the tmux and resume debug logs (counts/ids only) so
     /// EITHER debug toggle captures the event.
@@ -3336,7 +3335,7 @@ final class TmuxController {
         // A controller can project tmux windows into multiple app windows, each
         // with its own selected tab. Prefer the one whose pane actually owns
         // focus in the key UIWindow. If there is exactly one local selection it
-        // is unambiguous; otherwise let Ghostty fall back to tmux's server-active
+        // is unambiguous; otherwise let Swiftty fall back to tmux's server-active
         // window rather than choosing an arbitrary Dictionary entry.
         let focusedWindowIds = selectedWindowIds.filter { windowId in
             guard let focusedPane = windowTabs[windowId]?.focusedPane else { return false }
@@ -3351,16 +3350,16 @@ final class TmuxController {
         TerminalBellSuppressor.suppress(
             ownerTerminalUUID, for: TerminalBellSuppressor.forcedRedraw)
         if let preferredWindowId, preferredWindowId >= 0 {
-            ghostty_surface_tmux_reset_prioritized(ownerSurface, UInt(preferredWindowId))
+            swiftty_surface_tmux_reset_prioritized(ownerSurface, UInt(preferredWindowId))
         } else {
-            ghostty_surface_tmux_reset(ownerSurface)
+            swiftty_surface_tmux_reset(ownerSurface)
         }
     }
 
 }
 
 /// Maps a window's stable id to its `TabsModel`, so the tmux reconcile action
-/// (delivered via a C callback that only knows the viewer-owner surface) can
+/// (delivered via an action callback that only knows the viewer-owner surface) can
 /// reach the correct window's tabs. `MainView` registers on appear and
 /// unregisters on disappear. Main-actor isolated; the reference is weak so it
 /// never keeps a window alive.
@@ -3408,7 +3407,7 @@ enum TmuxWindowRegistry {
         return live
     }
 
-    static func gatewayView(ownerTerminalUUID owner: UUID) -> Ghostty.TerminalView? {
+    static func gatewayView(ownerTerminalUUID owner: UUID) -> Swiftty.TerminalView? {
         for (_, model) in liveModels() {
             for tab in model.tabs {
                 if let view = tab.splitTree.terminalLeaves.first(where: { $0.uuid == owner }) {
@@ -3478,7 +3477,7 @@ enum TmuxWindowRegistry {
     }
 }
 
-extension Ghostty.TerminalView {
+extension Swiftty.TerminalView {
     /// Apply a decoded tmux reconcile batch. Called on the viewer-owner view
     /// (the surface running `tmux -CC`). Lazily creates the per-connection
     /// `TmuxController` the first time, wiring it to this window's tabs.
@@ -3507,17 +3506,17 @@ extension Ghostty.TerminalView {
             createdController = false
         } else {
             guard let tabsModel = TmuxWindowRegistry.tabsModel(for: windowId),
-                  let ghosttyApp = self.ghosttyApp,
-                  let app = ghosttyApp.app,
+                  let swifttyApp = self.swifttyApp,
+                  let app = swifttyApp.app,
                   let ownerSurface = self.surface
             else {
-                Ghostty.logger.warning("tmux reconcile: missing deps for controller (window=\(self.windowId))")
+                Swiftty.logger.warning("tmux reconcile: missing deps for controller (window=\(self.windowId))")
                 return
             }
             controller = TmuxController(
                 tabsModel: tabsModel,
                 app: app,
-                ghosttyApp: ghosttyApp,
+                swifttyApp: swifttyApp,
                 ownerSurface: ownerSurface,
                 windowId: windowId,
                 ownerTerminalUUID: uuid)
@@ -3686,7 +3685,7 @@ extension Ghostty.TerminalView {
     }
 
     /// Finish a restored gateway's output gate only after saved ANSI restoration
-    /// has drained and the Ghostty IO thread has entered tmux control mode.
+    /// has drained and the Swiftty IO thread has entered tmux control mode.
     @MainActor
     func releaseRestoredTmuxOutputGateWhenViewerIsArmed() {
         guard restoredWasTmuxGateway else {
@@ -3701,7 +3700,7 @@ extension Ghostty.TerminalView {
         // Restored tmux gateways deliberately skip replaying their hidden
         // gateway scrollback/mode trailer: projected panes are authoritatively
         // rebuilt from tmux, and a pipe-drained byte is not necessarily parsed
-        // before this mailbox message. Arm immediately, wait for the IO thread's
+        // before this request. Arm immediately, wait for the IO thread's
         // active flag, then release tssh bytes into the control parser.
         tmuxResumeGateReleaseTask?.cancel()
         tmuxResumeGateReleaseTask = Task { @MainActor [weak self] in
@@ -3709,7 +3708,7 @@ extension Ghostty.TerminalView {
 
             self.maybeResumeTmuxControlMode()
             // The foreground watchdog normally resolves this within ~12s. Use
-            // a much larger independent bound here so a wedged mailbox cannot
+            // a much larger independent bound here so a wedged viewer cannot
             // leave a 5ms polling task alive forever. Poll slowly while the
             // transport is frozen in the background to avoid needless wakeups.
             let maxArmPolls = 12_000
@@ -3729,7 +3728,7 @@ extension Ghostty.TerminalView {
                     self.tmuxResumeGateReleaseTask = nil
                     return
                 }
-                if ghostty_surface_tmux_active(surface) {
+                if swiftty_surface_tmux_active(surface) {
                     self.outputPipeline.finishScrollbackRestoreGate()
                     TerminalBellSuppressor.suppress(self.uuid, untilDrained: self.outputPipeline)
                     self.didQueueScrollbackRestoreReplay()
@@ -3740,8 +3739,8 @@ extension Ghostty.TerminalView {
                 armPolls += 1
                 if armPolls >= maxArmPolls {
                     let shortID = self.uuid.uuidString.prefix(8)
-                    Ghostty.logger.warning("tmux viewer arming poll timed out; reverting gateway \(shortID) to a plain shell")
-                    ghostty_surface_tmux_resume_abort(surface)
+                    Swiftty.logger.warning("tmux viewer arming poll timed out; reverting gateway \(shortID) to a plain shell")
+                    swiftty_surface_tmux_resume_abort(surface)
                     self.tmuxResumeWatchdog?.cancel()
                     self.tmuxResumeWatchdog = nil
                     self.removeAwaitingTmuxPlaceholders()
@@ -3751,7 +3750,7 @@ extension Ghostty.TerminalView {
                     return
                 }
                 try? await Task.sleep(
-                    for: Ghostty.isTransportFrozenByBackground
+                    for: Swiftty.isTransportFrozenByBackground
                         ? .milliseconds(100)
                         : .milliseconds(5)
                 )
@@ -3764,7 +3763,7 @@ extension Ghostty.TerminalView {
     /// protocol, but this fresh surface never saw the `ESC P 1000 p` preamble, so
     /// without this the stream renders as garbage and no reconcile fires.
     ///
-    /// `ghostty_surface_tmux_resume` synthesizes control-mode entry and writes a
+    /// `swiftty_surface_tmux_resume` synthesizes control-mode entry and writes a
     /// resync probe; tmux's answer drives the topology rebuild. The first probe
     /// can be LOST (written before the tssh transport finished attaching), and an
     /// idle tmux session (a shell prompt) only ever answers OUR probe — so we
@@ -3779,8 +3778,8 @@ extension Ghostty.TerminalView {
         guard restoredWasTmuxGateway, !tmuxResumeRequested, let surface else { return }
         tmuxResumeRequested = true
         if tmuxResumeCancelRequested {
-            ghostty_surface_tmux_resume(surface)
-            ghostty_surface_tmux_resume_abort(surface)
+            swiftty_surface_tmux_resume(surface)
+            swiftty_surface_tmux_resume_abort(surface)
             tmuxResumeWatchdog?.cancel()
             tmuxResumeWatchdog = nil
             tmuxResumeCancelRequested = false
@@ -3791,9 +3790,9 @@ extension Ghostty.TerminalView {
         let preferredWindow = TmuxWindowRegistry.selectedAwaitingWindow(
             ownerTerminalUUID: uuid)
         if let preferredWindow, preferredWindow >= 0 {
-            ghostty_surface_tmux_resume_prioritized(surface, UInt(preferredWindow))
+            swiftty_surface_tmux_resume_prioritized(surface, UInt(preferredWindow))
         } else {
-            ghostty_surface_tmux_resume(surface)
+            swiftty_surface_tmux_resume(surface)
         }
 
         // Probe-retry watchdog: re-send the probe every 1.5s until a reconcile
@@ -3818,14 +3817,14 @@ extension Ghostty.TerminalView {
                 guard let surface = self.surface else { return }
                 // Frozen link while backgrounded: don't burn an attempt or
                 // re-probe (the reply can't arrive until we foreground).
-                if Ghostty.isTransportFrozenByBackground { continue }
+                if Swiftty.isTransportFrozenByBackground { continue }
                 attempt += 1
-                ghostty_surface_tmux_resume(surface)  // re-send probe
+                swiftty_surface_tmux_resume(surface)  // re-send probe
             }
             guard let self, !Task.isCancelled, self.tmuxController == nil, let surface = self.surface else { return }
             let shortID = self.uuid.uuidString.prefix(8)
-            Ghostty.logger.warning("tmux resume timed out; reverting gateway \(shortID) to a plain shell")
-            ghostty_surface_tmux_resume_abort(surface)
+            Swiftty.logger.warning("tmux resume timed out; reverting gateway \(shortID) to a plain shell")
+            swiftty_surface_tmux_resume_abort(surface)
             self.removeAwaitingTmuxPlaceholders()
             self.restoredWasTmuxGateway = false
             self.tmuxResumeRequested = false
@@ -3865,7 +3864,7 @@ extension Ghostty.TerminalView {
     func cancelTmuxRestoreRecovery() {
         tmuxResumeCancelRequested = true
         if tmuxResumeRequested, let surface {
-            ghostty_surface_tmux_resume_abort(surface)
+            swiftty_surface_tmux_resume_abort(surface)
             tmuxResumeCancelRequested = false
             removeAwaitingTmuxPlaceholders()
         } else {
@@ -3879,7 +3878,7 @@ extension Ghostty.TerminalView {
     }
 
     /// Gracefully leave tmux control mode for this gateway. Routes through the
-    /// core (`ghostty_surface_tmux_detach`), which queues a `detach-client` in the
+    /// core (`swiftty_surface_tmux_detach`), which queues a `detach-client` in the
     /// viewer's command channel (FIFO-safe), NOT a raw write to the session: a raw
     /// `detach-client` injected into the PTY interleaves with the viewer's own
     /// control-protocol commands and the `tmux -CC` client never cleanly exits (it
@@ -3893,7 +3892,7 @@ extension Ghostty.TerminalView {
             return
         }
         guard let surface else { return }
-        ghostty_surface_tmux_detach(surface)
+        swiftty_surface_tmux_detach(surface)
     }
 
     /// ESC escape hatch: true when the CORE reports this surface is a live tmux
@@ -3906,7 +3905,7 @@ extension Ghostty.TerminalView {
     @MainActor
     var isTmuxGatewaySurfaceActive: Bool {
         guard let surface else { return false }
-        return ghostty_surface_tmux_active(surface)
+        return swiftty_surface_tmux_active(surface)
     }
 
     /// Request that tmux split this pane. Called on a tmux PANE view. Rather than
@@ -4164,23 +4163,23 @@ extension Ghostty.TerminalView {
     /// uniform.
     @MainActor
     func changeLocalFontSize(delta: Int) {
-        guard delta != 0, let surface, let ghosttyApp else { return }
+        guard delta != 0, let surface, let swifttyApp else { return }
         let base = fontSizeOverride ?? FontManager.shared.currentFontSize
         let next = min(max(base + Double(delta), 1), 255)
         let effectiveDelta = Int((next - base).rounded())
         guard effectiveDelta != 0 else { return }
         fontSizeOverride = next
-        ghosttyApp.changeFontSize(surface: surface, delta: effectiveDelta)
+        swifttyApp.changeFontSize(surface: surface, delta: effectiveDelta)
     }
 
-    /// Reset this surface to follow the global font again. The Ghostty action
+    /// Reset this surface to follow the global font again. The Swiftty action
     /// performs the renderer-side reset; clearing `fontSizeOverride` makes the
     /// persisted state inherit future global font changes.
     @MainActor
     func resetLocalFontSize() {
-        guard let surface, let ghosttyApp else { return }
+        guard let surface, let swifttyApp else { return }
         fontSizeOverride = nil
-        ghosttyApp.resetFontSize(surface: surface)
+        swifttyApp.resetFontSize(surface: surface)
     }
 
     /// Re-apply a restored absolute font override after the surface exists.
@@ -4190,8 +4189,8 @@ extension Ghostty.TerminalView {
     func applyRestoredFontSizeOverrideIfNeeded() {
         guard let target = fontSizeOverride else { return }
         let delta = Int((target - FontManager.shared.currentFontSize).rounded())
-        guard delta != 0, let surface, let ghosttyApp else { return }
-        ghosttyApp.changeFontSize(surface: surface, delta: delta)
+        guard delta != 0, let surface, let swifttyApp else { return }
+        swifttyApp.changeFontSize(surface: surface, delta: delta)
     }
 
     /// Apply a font-size change in a tmux-control-mode-aware way. If this view is
@@ -4226,13 +4225,13 @@ extension Ghostty.TerminalView {
     /// Queue a raw, newline-terminated tmux command through the gateway viewer's
     /// command channel (FIFO-safe). The core copies the bytes.
     @MainActor
-    private func sendTmuxCommand(_ cmd: String, to surface: ghostty_surface_t) {
+    private func sendTmuxCommand(_ cmd: String, to surface: swiftty_surface_t) {
         let data = Data(cmd.utf8)
         guard !data.isEmpty else { return }
         // Only ever touch the surface ABI when a LIVE, ACTIVE tmux gateway is
         // registered for it. A nil lookup means the gateway was torn down and
         // `surface` (a raw pointer captured in the pane binding) is dangling —
-        // calling the C ABI then locks a freed mutex (SIGBUS). The previous
+        // calling SwifttyKit then touches a freed surface. The previous
         // inverted check (`if let controller, !controller.isActive`) fell
         // THROUGH to the C call on a nil lookup, which is exactly the
         // use-after-free. ROOTSHELL-TMUX (id=tmux-send-stale-surface)
@@ -4255,14 +4254,14 @@ extension Ghostty.TerminalView {
         let expectedGatewayUUID = tmuxPaneBinding?.parentUUID ?? uuid
         guard let controller = TmuxController.controller(forOwnerSurface: surface),
               controller.isActive,
-              let gateway = ghosttyApp?.surfaceView(for: surface),
+              let gateway = swifttyApp?.surfaceView(for: surface),
               gateway.uuid == expectedGatewayUUID else { return }
         // Log the VERB only (split-window / kill-pane / new-window / resize-pane)
         // plus the byte count — never the full command text (it carries pane ids
         // but future commands could carry titles/keys).
         data.withUnsafeBytes { raw in
             guard let base = raw.baseAddress else { return }
-            ghostty_surface_tmux_command(
+            swiftty_surface_tmux_command(
                 surface,
                 base.assumingMemoryBound(to: CChar.self),
                 UInt(data.count))
@@ -4280,7 +4279,7 @@ extension Ghostty.TerminalView {
     /// selected gateway tab makes ESC-to-detach work whenever the user is looking
     /// at the gateway, regardless of which terminal view holds focus.
     @MainActor
-    func selectedTmuxGatewayView() -> Ghostty.TerminalView? {
+    func selectedTmuxGatewayView() -> Swiftty.TerminalView? {
         guard let tabsModel = TmuxWindowRegistry.tabsModel(for: windowId),
               let selectedID = tabsModel.selectedTabID,
               let tab = tabsModel.tabs.first(where: { $0.id == selectedID }),
@@ -4298,17 +4297,17 @@ extension Ghostty.TerminalView {
 /// `owner` is a STRONG reference to the gateway `TerminalView`, taken on the
 /// action-callback thread (while the surface, hence its userdata owner, is still
 /// alive) and held across the async hop so closing the tab/surface before the
-/// apply runs cannot free it out from under us. The Zig payload refcounts only
+/// apply runs cannot free it out from under us. The payload retains only
 /// keep the viewer PANES alive; this keeps the Swift owner alive.
 ///
 /// `payload` is the opaque `*TmuxReconcilePayload` the ops were decoded from. It
 /// is carried (NOT freed at decode time) and freed with
-/// `ghostty_tmux_reconcile_free` only AFTER `applyTmuxReconcile` runs: the
-/// payload holds viewer-pane refcounts (Zig id=viewer-snapshot-refcount) that
+/// `swiftty_tmux_reconcile_free` only AFTER `applyTmuxReconcile` runs: the
+/// payload holds viewer-pane refcounts that
 /// keep the raw `viewerTerminal`/`viewerPane` pointers in `ops` alive until the
 /// main-actor apply has consumed them.
 nonisolated struct TmuxReconcileDelivery: @unchecked Sendable {
-    let owner: Ghostty.TerminalView
+    let owner: Swiftty.TerminalView
     let ops: [TmuxReconcileOp]
     let payload: UnsafeMutableRawPointer
     /// Viewer generation (control-mode stream) that produced the batch.
@@ -4316,7 +4315,7 @@ nonisolated struct TmuxReconcileDelivery: @unchecked Sendable {
 }
 
 /// Serializes tmux reconcile application in ARRIVAL order across the off-main
-/// hop. Each `GHOSTTY_ACTION_TMUX_RECONCILE` is decoded in emit order on the
+/// hop. Each `SWIFTTY_ACTION_TMUX_RECONCILE` is decoded in emit order on the
 /// (serial) action-callback thread, but a bare `Task { @MainActor in ... }` per
 /// batch has no cross-task ordering guarantee — so a stale full-topology snapshot
 /// (each ends in pruneAbsent) could land AFTER a newer one and resurrect a closed

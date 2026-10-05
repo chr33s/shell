@@ -55,14 +55,16 @@ nonisolated struct TmuxPaneDisplayIdentity: Equatable, Sendable {
 }
 
 /// Parses `list-panes -a -F
-/// "#{pane_id}\t#{pane_title}\t#{pane_current_command}"` replies.
+/// "#{pane_id} #{pane_current_command} #{pane_title}"` replies: space
+/// separated (tmux mangles tabs for non-UTF-8 clients), title last because
+/// it may contain spaces.
 nonisolated enum TmuxPaneDisplayIdentityParser {
     static func parse(_ body: String) -> [Int: TmuxPaneDisplayIdentity] {
         var result: [Int: TmuxPaneDisplayIdentity] = [:]
 
         for line in body.split(whereSeparator: \.isNewline) {
             let fields = line.split(
-                separator: "\t",
+                separator: " ",
                 maxSplits: 2,
                 omittingEmptySubsequences: false)
             guard fields.count == 3,
@@ -71,8 +73,8 @@ nonisolated enum TmuxPaneDisplayIdentityParser {
             else { continue }
 
             result[paneID] = TmuxPaneDisplayIdentity(
-                title: String(fields[1]).trimmingCharacters(in: .whitespacesAndNewlines),
-                currentCommand: String(fields[2]).trimmingCharacters(in: .whitespacesAndNewlines))
+                title: String(fields[2]).trimmingCharacters(in: .whitespacesAndNewlines),
+                currentCommand: String(fields[1]).trimmingCharacters(in: .whitespacesAndNewlines))
         }
 
         return result

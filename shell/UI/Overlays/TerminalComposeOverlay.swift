@@ -254,7 +254,7 @@ private struct ComposeTextView: UIViewRepresentable {
         // under lock is a FrontBoard 0x2BAD45EC kill. The overlay is dismissed
         // with the app inactive anyway, so there is nothing to restore.
         DispatchQueue.main.async {
-            guard !Ghostty.isSecureDrawProhibitedAtomic else { return }
+            guard !Swiftty.isSecureDrawProhibitedAtomic else { return }
             textView.becomeFirstResponder()
         }
 
@@ -276,7 +276,7 @@ private struct ComposeTextView: UIViewRepresentable {
             applyAutocorrectSettings(textView)
             // Reload input views to apply the change immediately. Never while the
             // secure-draw latch is armed — the placement move draws under lock.
-            if !Ghostty.isSecureDrawProhibitedAtomic {
+            if !Swiftty.isSecureDrawProhibitedAtomic {
                 textView.reloadInputViews()
             }
         }

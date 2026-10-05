@@ -8,7 +8,7 @@ import UIKit
 // docs/specs/shell.md §2.2 removes the writing assistant (autocorrect / QuickType rewriting),
 // so spelling and autocorrection traits stay off and nothing here grants UIKit
 // authority to rewrite committed text. Only the document bookkeeping remains.
-extension Ghostty.TerminalView {
+extension Swiftty.TerminalView {
     func setupInputDocument() {
         spellCheckingType = .no
         autocorrectionType = .no

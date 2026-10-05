@@ -182,18 +182,18 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         }
         nc.addObserver(forName: UIApplication.didBecomeActiveNotification,
                        object: nil, queue: .main) { _ in
-            Ghostty.isSecureDrawProhibitedAtomic = false
+            Swiftty.isSecureDrawProhibitedAtomic = false
             let appState = String(describing: UIApplication.shared.applicationState)
             ForegroundActivationGate.shared.markDidBecomeActive(appState: appState)
             ForegroundTransitionWatchdog.shared.disarm(reason: "didBecomeActive", appState: appState)
         }
         nc.addObserver(forName: UIApplication.willResignActiveNotification,
                        object: nil, queue: .main) { _ in
-            Ghostty.isSecureDrawProhibitedAtomic = true
+            Swiftty.isSecureDrawProhibitedAtomic = true
         }
         nc.addObserver(forName: UIApplication.didEnterBackgroundNotification,
                        object: nil, queue: .main) { _ in
-            Ghostty.isSecureDrawProhibitedAtomic = true
+            Swiftty.isSecureDrawProhibitedAtomic = true
             let appState = String(describing: UIApplication.shared.applicationState)
             ForegroundActivationGate.shared.markDidEnterBackground(appState: appState)
             ForegroundTransitionWatchdog.shared.disarm(reason: "didEnterBackground", appState: appState)
@@ -202,7 +202,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
                        object: nil, queue: .main) { _ in
             // A lock that reaches us here rather than via willResignActive must
             // still close the secure-draw gate.
-            Ghostty.isSecureDrawProhibitedAtomic = true
+            Swiftty.isSecureDrawProhibitedAtomic = true
         }
     }
 
@@ -341,7 +341,7 @@ nonisolated final class ForegroundActivationGate: Sendable {
         guard attempt < Self.maxRetryAttempts else {
             if timeoutPolicy == .fireIfNotBackgrounded,
                UIApplication.shared.applicationState != .background,
-               !Ghostty.isAppBackgroundedAtomic {
+               !Swiftty.isAppBackgroundedAtomic {
                 block()
             }
             return

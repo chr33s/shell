@@ -63,8 +63,18 @@ enum MPTCPBootstrap {
         port: Int,
         timeout: TimeAmount = .seconds(30)
     ) async throws -> Channel {
+        // Servers send their version banner as soon as TCP connects, before
+        // the caller installs the SSH handlers on this channel. Bytes read in
+        // that window reach the end of the pipeline and are dropped, leaving
+        // the handshake waiting forever for a banner it already received.
+        // Reads therefore stay off until the SSH handler's first write (its
+        // own banner) shows it is installed.
         var bootstrap = NIOTSConnectionBootstrap(group: tsEventLoopGroup)
             .connectTimeout(timeout)
+            .channelOption(ChannelOptions.autoRead, value: false)
+            .channelInitializer { channel in
+                channel.pipeline.addHandler(SSHReadGate())
+            }
         let mode = "niots"
         if shouldForceIPv4 && !isIPv6Literal(host) {
             bootstrap = bootstrap.configureNWParameters { parameters in
@@ -79,5 +89,23 @@ enum MPTCPBootstrap {
         let remote = channel.remoteAddress?.description ?? "?"
         logger.info("\(mode) connected local=\(local) remote=\(remote)")
         return channel
+    }
+}
+
+/// Holds inbound reads until the first outbound write, then enables
+/// autoRead and removes itself (see `connectPlainChannel`).
+final class SSHReadGate: ChannelOutboundHandler, RemovableChannelHandler {
+    typealias OutboundIn = NIOAny
+    typealias OutboundOut = NIOAny
+
+    private var opened = false
+
+    func write(context: ChannelHandlerContext, data: NIOAny, promise: EventLoopPromise<Void>?) {
+        context.write(data, promise: promise)
+        guard !opened else { return }
+        opened = true
+        _ = context.channel.setOption(ChannelOptions.autoRead, value: true)
+        context.read()
+        context.pipeline.syncOperations.removeHandler(context: context, promise: nil)
     }
 }

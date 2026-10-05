@@ -14,7 +14,7 @@
 
 import SwiftUI
 import Combine
-import GhosttyKit
+import SwifttyKit
 import os
 
 // MARK: - MainView Nested Types

@@ -3,7 +3,7 @@
 //  shell
 //
 //  File drag-and-drop support for terminal view.
-//  Matches macOS Ghostty behavior: files/URLs are shell-escaped, plain text is inserted as-is.
+//  Matches macOS Swiftty behavior: files/URLs are shell-escaped, plain text is inserted as-is.
 //
 
 import UIKit
@@ -12,9 +12,9 @@ import os
 
 // MARK: - UIDropInteractionDelegate
 
-extension Ghostty.TerminalView: UIDropInteractionDelegate {
+extension Swiftty.TerminalView: UIDropInteractionDelegate {
 
-    /// Accepted drop types matching macOS Ghostty behavior:
+    /// Accepted drop types matching macOS Swiftty behavior:
     /// - File URLs: Paths are shell-escaped and inserted
     /// - URLs: Escaped as-is (useful for curl, wget, etc.)
     /// - Plain text: Inserted without escaping (for commands)
@@ -83,7 +83,7 @@ extension Ghostty.TerminalView: UIDropInteractionDelegate {
         let typeSummary = itemProviders
             .map { $0.registeredTypeIdentifiers.joined(separator: "|") }
             .joined(separator: " ; ")
-        Ghostty.logger.info("performDrop offered types: \(typeSummary)")
+        Swiftty.logger.info("performDrop offered types: \(typeSummary)")
 
         if session.hasItemsConforming(toTypeIdentifiers: [TabTransferCoordinator.dragUTType.identifier]),
            TabTransferCoordinator.shared.receiveActiveDrag(
@@ -175,7 +175,7 @@ extension Ghostty.TerminalView: UIDropInteractionDelegate {
                     defer { group.leave() }
                     guard error == nil, let url = url else { return }
 
-                    let escapedPath = Ghostty.Shell.escape(url.path)
+                    let escapedPath = Swiftty.Shell.escape(url.path)
                     lock.lock()
                     paths.append(escapedPath)
                     lock.unlock()
@@ -199,7 +199,7 @@ extension Ghostty.TerminalView: UIDropInteractionDelegate {
                     }
 
                     if let url = url {
-                        let escapedPath = Ghostty.Shell.escape(url.path)
+                        let escapedPath = Swiftty.Shell.escape(url.path)
                         lock.lock()
                         paths.append(escapedPath)
                         lock.unlock()
@@ -248,7 +248,7 @@ extension Ghostty.TerminalView: UIDropInteractionDelegate {
                 }
 
                 if let url = url {
-                    let escapedPath = Ghostty.Shell.escape(url.path)
+                    let escapedPath = Swiftty.Shell.escape(url.path)
                     lock.lock()
                     paths.append(escapedPath)
                     lock.unlock()
@@ -275,7 +275,7 @@ extension Ghostty.TerminalView: UIDropInteractionDelegate {
 
         provider.loadItem(forTypeIdentifier: UTType.url.identifier, options: nil) { [weak self] item, error in
             guard error == nil else {
-                Ghostty.logger.warning("Failed to load URL: \(error!.localizedDescription)")
+                Swiftty.logger.warning("Failed to load URL: \(error!.localizedDescription)")
                 return
             }
 
@@ -291,7 +291,7 @@ extension Ghostty.TerminalView: UIDropInteractionDelegate {
             }
 
             if let urlString = urlString {
-                let escaped = Ghostty.Shell.escape(urlString)
+                let escaped = Swiftty.Shell.escape(urlString)
                 DispatchQueue.main.async {
                     self?.insertDroppedContent(escaped)
                 }
@@ -305,7 +305,7 @@ extension Ghostty.TerminalView: UIDropInteractionDelegate {
 
         provider.loadItem(forTypeIdentifier: UTType.plainText.identifier, options: nil) { [weak self] item, error in
             guard error == nil else {
-                Ghostty.logger.warning("Failed to load text: \(error!.localizedDescription)")
+                Swiftty.logger.warning("Failed to load text: \(error!.localizedDescription)")
                 return
             }
 
@@ -336,7 +336,7 @@ extension Ghostty.TerminalView: UIDropInteractionDelegate {
     /// temp directory guarantees the inserted path is readable by the shell's
     /// child processes (e.g. Claude Code), and `insertDroppedContent` delivers it
     /// as a bracketed paste so the running program detects it as an image. This
-    /// mirrors native macOS Ghostty, where a dragged screenshot inserts a path.
+    /// mirrors native macOS Swiftty, where a dragged screenshot inserts a path.
     private func loadImagesForLocalInsertion(from providers: [NSItemProvider]) {
         let group = DispatchGroup()
         var paths: [String] = []
@@ -355,7 +355,7 @@ extension Ghostty.TerminalView: UIDropInteractionDelegate {
                       let image = image as? UIImage,
                       let data = image.pngData() else {
                     if let error = error {
-                        Ghostty.logger.warning("Failed to load dropped image: \(error.localizedDescription)")
+                        Swiftty.logger.warning("Failed to load dropped image: \(error.localizedDescription)")
                     }
                     return
                 }
@@ -366,12 +366,12 @@ extension Ghostty.TerminalView: UIDropInteractionDelegate {
                 let fileURL = tmpDir.appendingPathComponent("dropped-image-\(stamp)-\(unique).png")
                 do {
                     try data.write(to: fileURL, options: .atomic)
-                    let escapedPath = Ghostty.Shell.escape(fileURL.path)
+                    let escapedPath = Swiftty.Shell.escape(fileURL.path)
                     lock.lock()
                     paths.append(escapedPath)
                     lock.unlock()
                 } catch {
-                    Ghostty.logger.warning("Failed to write dropped image to temp file: \(error.localizedDescription)")
+                    Swiftty.logger.warning("Failed to write dropped image to temp file: \(error.localizedDescription)")
                 }
             }
         }
@@ -388,9 +388,9 @@ extension Ghostty.TerminalView: UIDropInteractionDelegate {
     /// Insert dropped content into the terminal
     private func insertDroppedContent(_ content: String) {
         guard insertPastedText(content, recordHistory: false) else {
-            Ghostty.logger.warning("Dropped content but surface is nil or content is empty")
+            Swiftty.logger.warning("Dropped content but surface is nil or content is empty")
             return
         }
-        Ghostty.logger.info("Dropped content inserted via surface text: \(content.prefix(50))...")
+        Swiftty.logger.info("Dropped content inserted via surface text: \(content.prefix(50))...")
     }
 }

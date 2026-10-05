@@ -15,7 +15,7 @@ import os.log
 ///
 /// Directory structure:
 /// ```
-/// Documents/.ghostty/sync/{storeName}/
+/// Documents/.swiftty/sync/{storeName}/
 ///   {uuid1}.json
 ///   {uuid2}.json
 ///   ...
@@ -78,7 +78,7 @@ struct SyncableFileStore<T: SyncableRecord> {
 
         let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         self.directoryURL = documentsURL
-            .appendingPathComponent(".ghostty", isDirectory: true)
+            .appendingPathComponent(".swiftty", isDirectory: true)
             .appendingPathComponent("sync", isDirectory: true)
             .appendingPathComponent(storeName, isDirectory: true)
 
@@ -294,7 +294,7 @@ struct SyncableFileStore<T: SyncableRecord> {
         let fileURLs: [URL]
         do {
             // Do not use `.skipsHiddenFiles`. The store lives under
-            // `Documents/.ghostty/...`, and on macOS files in a dot-directory
+            // `Documents/.swiftty/...`, and on macOS files in a dot-directory
             // are UF_HIDDEN — skipping them makes every profile (and other
             // sync records) disappear from the UI while remaining on disk.
             // Atomic temp files use a `.*.tmp` name and are already excluded

@@ -9,7 +9,7 @@ import SwiftUI
 
 /// Overlay view for terminals pending reconnection
 struct ReconnectionOverlayView: View {
-    let state: Ghostty.TerminalView.RestorationState
+    let state: Swiftty.TerminalView.RestorationState
     let connectionConfig: ConnectionConfig
     let onReconnect: () -> Void
     let onEnterPassword: (String) -> Void

@@ -6,10 +6,10 @@
 //
 
 import UIKit
-import GhosttyKit
+import SwifttyKit
 import ObjectiveC
 
-extension Ghostty.TerminalView {
+extension Swiftty.TerminalView {
     private enum CaptureAutoScrollDirection: Int {
         case none = 0
         case up = 1
@@ -98,7 +98,7 @@ extension Ghostty.TerminalView {
     func updateCaptureAutoScroll(at point: CGPoint) {
         guard captureAutoScrollMouseStateAllowsDrag(),
               let surface,
-              ghostty_surface_mouse_captured(surface),
+              swiftty_surface_mouse_captured(surface),
               let geometry = captureAutoScrollGeometry()
         else {
             stopCaptureAutoScroll()
@@ -167,7 +167,7 @@ extension Ghostty.TerminalView {
               captureAutoScrollMouseStateAllowsDrag(),
               window != nil,
               let surface,
-              ghostty_surface_mouse_captured(surface),
+              swiftty_surface_mouse_captured(surface),
               let geometry = captureAutoScrollGeometry()
         else {
             stopCaptureAutoScroll()
@@ -195,16 +195,16 @@ extension Ghostty.TerminalView {
         let pinnedPoint = viewToPixelCoordinates(captureAutoScrollPinnedPosition)
         let edgePoint = viewToPixelCoordinates(captureAutoScrollEdgeDragPosition)
         let mouseMods = currentMouseMods()
-        let scrollMods = Ghostty.Input.ScrollMods(precision: true, momentum: .none).cMods
+        let scrollMods = Swiftty.Input.ScrollMods(precision: true, momentum: .none).cMods
 
         // Keep wheel targeting and drag endpoint independent. The wheel lands on
         // the status-safe pinned row; the final mouse move leaves tmux's drag
         // endpoint on the true edge row so the first/last visible line can be
         // selected while auto-scroll is active.
-        Self.ghosttyAPIQueue.async {
-            ghostty_surface_mouse_pos(surface, pinnedPoint.x, pinnedPoint.y, mouseMods)
-            ghostty_surface_mouse_scroll(surface, 0, Double(deltaY), scrollMods)
-            ghostty_surface_mouse_pos(surface, edgePoint.x, edgePoint.y, mouseMods)
+        Self.swifttyAPIQueue.async {
+            swiftty_surface_mouse_pos(surface, pinnedPoint.x, pinnedPoint.y, mouseMods)
+            swiftty_surface_mouse_scroll(surface, 0, Double(deltaY), scrollMods)
+            swiftty_surface_mouse_pos(surface, edgePoint.x, edgePoint.y, mouseMods)
         }
 
         lastMousePosition = captureAutoScrollEdgeDragPosition

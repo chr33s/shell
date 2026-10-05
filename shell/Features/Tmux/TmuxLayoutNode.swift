@@ -1,5 +1,5 @@
 /// A node in a tmux window's layout tree, decoded from the opaque
-/// `ghostty_tmux_layout_*` accessors. Geometry is in terminal cells.
+/// `swiftty_tmux_layout_*` accessors. Geometry is in terminal cells.
 ///
 /// `nonisolated`: built by `TmuxReconcileDecoder.decode` on the off-main action
 /// callback thread (see that type), so it must NOT pick up the project's default

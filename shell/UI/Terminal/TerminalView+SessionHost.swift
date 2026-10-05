@@ -12,9 +12,9 @@
 
 import UIKit
 import os
-import GhosttyKit
+import SwifttyKit
 
-extension Ghostty.TerminalView: TerminalSessionControllerHost {
+extension Swiftty.TerminalView: TerminalSessionControllerHost {
     func terminalSessionWillChange() {
         invalidateInputDocument(resetDocument: true)
     }
@@ -38,7 +38,7 @@ extension Ghostty.TerminalView: TerminalSessionControllerHost {
         // Save the session-provided title even while backgrounded so the
         // next foreground render picks up the latest value.
         self.sessionProvidedTitle = title
-        guard !Ghostty.isAppBackgroundedAtomic else { return }
+        guard !Swiftty.isAppBackgroundedAtomic else { return }
         // Only update display title if user hasn't set a custom title
         if self.userOverrideTitle == nil {
             self.title = title
@@ -48,7 +48,7 @@ extension Ghostty.TerminalView: TerminalSessionControllerHost {
     func sessionDidChangeWorkingDirectory(_ pwd: String) {
         // Always cache so foreground replay has the latest value.
         self.sessionProvidedPwd = pwd
-        guard !Ghostty.isAppBackgroundedAtomic else { return }
+        guard !Swiftty.isAppBackgroundedAtomic else { return }
         self.pwd = pwd
         // Keep connectionConfig in sync so CWD persists through serialization
         if case .local = self.connectionConfig {
@@ -68,11 +68,11 @@ extension Ghostty.TerminalView: TerminalSessionControllerHost {
             switch state {
             case .waitingToReconnect, .reconnecting, .disconnected:
                 // Don't close - reconnection is in progress or about to start
-                Ghostty.logger.info("Session ended but reconnection in progress, not closing")
+                Swiftty.logger.info("Session ended but reconnection in progress, not closing")
                 return
             case .manualReconnectRequired, .failed:
                 // Don't close - keep tab open for manual retry
-                Ghostty.logger.info("Session ended with manual reconnect required, keeping tab open")
+                Swiftty.logger.info("Session ended with manual reconnect required, keeping tab open")
                 return
             case .idle, .connected:
                 // Proceed to close
@@ -102,11 +102,11 @@ extension Ghostty.TerminalView: TerminalSessionControllerHost {
         self.sizeDidChange(self.bounds.size)
 
         // Refresh tab bar after a restoration-state change.
-        NotificationCenter.default.post(name: .ghosttySessionDidChange, object: self)
+        NotificationCenter.default.post(name: .swifttySessionDidChange, object: self)
     }
 }
 
-extension Ghostty.TerminalView {
+extension Swiftty.TerminalView {
     var terminalResponseFd: Int32 { responseFd }
     var terminalResponseReadQueue: DispatchQueue { readQueue }
     var terminalResponseHasTmuxController: Bool { tmuxController != nil }
@@ -154,7 +154,7 @@ extension Ghostty.TerminalView {
     }
 
     func terminalNotifySessionDidChange() {
-        NotificationCenter.default.post(name: .ghosttySessionDidChange, object: self)
+        NotificationCenter.default.post(name: .swifttySessionDidChange, object: self)
     }
 
     func terminalNotifyConnectionConfigChanged() {
@@ -197,7 +197,7 @@ extension Ghostty.TerminalView {
         case .reviewDraft:
             if !showComposeOverlay {
                 showComposeOverlay = true
-                NotificationCenter.default.post(name: .ghosttyComposeStateChanged, object: self)
+                NotificationCenter.default.post(name: .swifttyComposeStateChanged, object: self)
             }
 
         case .retryNow, .stopRecovery, .dismiss:
@@ -222,7 +222,7 @@ extension Ghostty.TerminalView {
         if let callback = onHostKeyValidationRequired {
             return await callback(request, self)
         }
-        Ghostty.logger.warning("No host key validation callback set, rejecting connection")
+        Swiftty.logger.warning("No host key validation callback set, rejecting connection")
         return .reject
     }
 
@@ -230,7 +230,7 @@ extension Ghostty.TerminalView {
         if let callback = onKeyboardInteractiveChallengeRequired {
             return await callback(challenge, self)
         }
-        Ghostty.logger.warning("No keyboard-interactive callback set, cancelling challenge")
+        Swiftty.logger.warning("No keyboard-interactive callback set, cancelling challenge")
         return nil
     }
 
@@ -250,8 +250,8 @@ extension Ghostty.TerminalView {
         restoreScrollbackAfterAnimation()
     }
 
-    func terminalWriteToGhostty(_ string: String) {
-        writeToGhostty(string: string)
+    func terminalWriteToSwiftty(_ string: String) {
+        writeToSwiftty(string: string)
     }
 
     func terminalUpdatePTYSize() {

@@ -21,9 +21,9 @@
 
 import Foundation
 import os
-import GhosttyKit
+import SwifttyKit
 
-extension Ghostty {
+extension Swiftty {
 
     /// Observes a terminal multiplexer's scroll-mode position indicator and
     /// emits scrollbar samples while the user is actively scrolling under
@@ -143,7 +143,7 @@ extension Ghostty {
 
         // MARK: Dependencies
 
-        private let surfaceProvider: () -> ghostty_surface_t?
+        private let surfaceProvider: () -> swiftty_surface_t?
         private let gridSizeProvider: () -> (rows: UInt16, cols: UInt16)?
         private let altScreenActive: () -> Bool
         private let mouseCaptured: () -> Bool
@@ -168,7 +168,7 @@ extension Ghostty {
         // MARK: Init / Teardown
 
         init(
-            surfaceProvider: @escaping () -> ghostty_surface_t?,
+            surfaceProvider: @escaping () -> swiftty_surface_t?,
             gridSizeProvider: @escaping () -> (rows: UInt16, cols: UInt16)?,
             altScreenActive: @escaping () -> Bool,
             mouseCaptured: @escaping () -> Bool,
@@ -378,7 +378,7 @@ extension Ghostty {
             let rowsToScan = min(Self.maxRowsToScan, Int(grid.rows))
             guard rowsToScan > 0 else { return nil }
 
-            guard let text = Ghostty.Surface.readTopRows(
+            guard let text = Swiftty.Surface.readTopRows(
                 rowsToScan,
                 cols: cols,
                 surface: surface

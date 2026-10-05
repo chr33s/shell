@@ -12,7 +12,7 @@
 import Foundation
 import UIKit
 
-extension Ghostty.TerminalView {
+extension Swiftty.TerminalView {
     /// Resolve the binding for the given direction and execute it.
     /// App-action presets post a notification (preserving the legacy tab-switch
     /// behavior); multiplexer presets write their key sequence to the terminal

@@ -15,7 +15,7 @@
 //
 
 import Foundation
-import GhosttyKit
+import SwifttyKit
 
 extension TmuxController {
     func isWindowHidden(_ windowId: Int) -> Bool {
@@ -118,7 +118,7 @@ extension TmuxController {
         let data = Data(cmd.utf8)
         data.withUnsafeBytes { raw in
             guard let base = raw.baseAddress else { return }
-            ghostty_surface_tmux_command(
+            swiftty_surface_tmux_command(
                 gatewaySurfaceForCommands,
                 base.assumingMemoryBound(to: CChar.self),
                 UInt(data.count))

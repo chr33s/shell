@@ -135,7 +135,7 @@ struct FileCommands: Commands {
         CommandGroup(replacing: .newItem) {
             Button("New Local Shell") {
                 UIApplication.shared.sendMenuAction(
-                    #selector(Ghostty.TerminalView.menuCreateLocalShell(_:)),
+                    #selector(Swiftty.TerminalView.menuCreateLocalShell(_:)),
                     from: nil
                 )
             }
@@ -143,7 +143,7 @@ struct FileCommands: Commands {
 
             Button("New Tab") {
                 UIApplication.shared.sendMenuAction(
-                    #selector(Ghostty.TerminalView.menuNewTab(_:)),
+                    #selector(Swiftty.TerminalView.menuNewTab(_:)),
                     from: nil
                 )
             }
@@ -151,7 +151,7 @@ struct FileCommands: Commands {
 
             Button("New Window") {
                 UIApplication.shared.sendMenuAction(
-                    #selector(Ghostty.TerminalView.menuNewWindow(_:)),
+                    #selector(Swiftty.TerminalView.menuNewWindow(_:)),
                     from: nil
                 )
             }
@@ -159,7 +159,7 @@ struct FileCommands: Commands {
 
             Button("Duplicate SSH Tab") {
                 UIApplication.shared.sendMenuAction(
-                    #selector(Ghostty.TerminalView.menuDuplicateTabWithSSH(_:)),
+                    #selector(Swiftty.TerminalView.menuDuplicateTabWithSSH(_:)),
                     from: nil
                 )
             }
@@ -229,7 +229,7 @@ struct DynamicShortcut: ViewModifier {
 
 /// Invalidation signal for menu-bar checkmarks whose truth `@Observable`
 /// cannot see: which window is key (`WindowFocusRegistry` is a plain registry)
-/// and the two flags that live on `Ghostty.TerminalView`, a UIView. Everything
+/// and the two flags that live on `Swiftty.TerminalView`, a UIView. Everything
 /// else the toggles read (`SettingBox`, `TabsModel`, `TabModel`,
 /// `TransparencyManager`) is already `@Observable` and needs no wiring here.
 ///
@@ -259,7 +259,7 @@ final class MenuFocusState {
     /// of key/main notifications from becoming a stream of menu rebuilds.
     @ObservationIgnored private weak var lastResolvedTabs: TabsModel?
     /// The pane whose `isMouseCaptured` is currently observed.
-    @ObservationIgnored private weak var trackedTerminal: Ghostty.TerminalView?
+    @ObservationIgnored private weak var trackedTerminal: Swiftty.TerminalView?
     @ObservationIgnored private var mouseCaptureTask: Task<Void, Never>?
 
     private init() {
@@ -287,7 +287,7 @@ final class MenuFocusState {
 
         // Compose posts this from every one of its write sites, so it stands in
         // for the `showComposeOverlay` didSet.
-        observers.observeOnMainActor(.ghosttyComposeStateChanged) { [weak self] _ in
+        observers.observeOnMainActor(.swifttyComposeStateChanged) { [weak self] _ in
             self?.notePaneStateChanged()
         }
 
@@ -333,11 +333,11 @@ final class MenuFocusState {
     }
 
     /// The `TabsModel` a menu command will actually land in. Mirrors
-    /// `UIApplication.ghostty_activeWindowSceneSessionID()` (which stamps the
+    /// `UIApplication.swiftty_activeWindowSceneSessionID()` (which stamps the
     /// command) and `MainView.shouldHandleNotification` (which accepts it), so
     /// the checkmark can never disagree with where the command goes.
     static func activeTabs() -> TabsModel? {
-        if let sceneID = UIApplication.shared.ghostty_activeWindowSceneSessionID(),
+        if let sceneID = UIApplication.shared.swiftty_activeWindowSceneSessionID(),
            let windowId = TerminalWindowRegistry.windowId(forSceneSessionId: sceneID),
            let model = TerminalWindowRegistry.tabsModel(for: windowId) {
             return model
@@ -405,7 +405,7 @@ final class MenuFocusState {
 
     /// Points the `isMouseCaptured` observation at the currently focused pane.
     ///
-    /// `isMouseCaptured` is ghostty's own truth. `updateMouseCaptureState()`
+    /// `isMouseCaptured` is swiftty's own truth. `updateMouseCaptureState()`
     /// flips it when the program enables mouse reporting, and the setter also
     /// notifies the menu. This subscription covers writes that happen after
     /// focus is already settled. Re-arming is identity-guarded, so the
@@ -486,7 +486,7 @@ struct MenuToggleItem: View {
         return MenuFocusState.activeTabs()
     }
 
-    private var terminal: Ghostty.TerminalView? {
+    private var terminal: Swiftty.TerminalView? {
         _ = focus.paneRevision
         return tabs?.selectedTab?.focusedTerminal
     }
@@ -555,19 +555,19 @@ struct MenuToggleItem: View {
     private func dispatch() {
         switch kind {
         case .topTabBar:
-            send(#selector(Ghostty.TerminalView.menuToggleTabBar(_:)))
+            send(#selector(Swiftty.TerminalView.menuToggleTabBar(_:)))
         case .groupMode:
-            send(#selector(Ghostty.TerminalView.menuToggleGroupMode(_:)))
+            send(#selector(Swiftty.TerminalView.menuToggleGroupMode(_:)))
         case .transparency:
-            send(#selector(Ghostty.TerminalView.menuToggleTransparency(_:)))
+            send(#selector(Swiftty.TerminalView.menuToggleTransparency(_:)))
         case .fullScreen:
-            send(#selector(Ghostty.TerminalView.menuToggleFullScreen(_:)))
+            send(#selector(Swiftty.TerminalView.menuToggleFullScreen(_:)))
         case .splitZoom:
-            send(#selector(Ghostty.TerminalView.menuToggleSplitZoom(_:)))
+            send(#selector(Swiftty.TerminalView.menuToggleSplitZoom(_:)))
         case .compose:
-            send(#selector(Ghostty.TerminalView.menuToggleCompose(_:)))
+            send(#selector(Swiftty.TerminalView.menuToggleCompose(_:)))
         case .mouseCapture:
-            send(#selector(Ghostty.TerminalView.menuToggleMouseCapture(_:)))
+            send(#selector(Swiftty.TerminalView.menuToggleMouseCapture(_:)))
         }
     }
 
@@ -587,7 +587,7 @@ struct EditCommands: Commands {
         CommandGroup(after: .pasteboard) {
             Button("Clear Screen") {
                 UIApplication.shared.sendMenuAction(
-                    #selector(Ghostty.TerminalView.menuClearScreen(_:)),
+                    #selector(Swiftty.TerminalView.menuClearScreen(_:)),
                     from: nil
                 )
             }
@@ -597,7 +597,7 @@ struct EditCommands: Commands {
 
             Button("Find") {
                 UIApplication.shared.sendMenuAction(
-                    #selector(Ghostty.TerminalView.findInTerminal(_:)),
+                    #selector(Swiftty.TerminalView.findInTerminal(_:)),
                     from: nil
                 )
             }
@@ -617,7 +617,7 @@ struct AppViewCommands: Commands {
             // Font size section
             Button("Increase Font Size") {
                 UIApplication.shared.sendMenuAction(
-                    #selector(Ghostty.TerminalView.increaseFontSize(_:)),
+                    #selector(Swiftty.TerminalView.increaseFontSize(_:)),
                     from: nil
                 )
             }
@@ -625,7 +625,7 @@ struct AppViewCommands: Commands {
 
             Button("Decrease Font Size") {
                 UIApplication.shared.sendMenuAction(
-                    #selector(Ghostty.TerminalView.decreaseFontSize(_:)),
+                    #selector(Swiftty.TerminalView.decreaseFontSize(_:)),
                     from: nil
                 )
             }
@@ -633,7 +633,7 @@ struct AppViewCommands: Commands {
 
             Button("Reset Font Size") {
                 UIApplication.shared.sendMenuAction(
-                    #selector(Ghostty.TerminalView.resetFontSizeToDefault(_:)),
+                    #selector(Swiftty.TerminalView.resetFontSizeToDefault(_:)),
                     from: nil
                 )
             }
@@ -648,7 +648,7 @@ struct AppViewCommands: Commands {
 
             Button("Switch Keyboard Language") {
                 UIApplication.shared.sendMenuAction(
-                    #selector(Ghostty.TerminalView.menuCycleInputSource(_:)),
+                    #selector(Swiftty.TerminalView.menuCycleInputSource(_:)),
                     from: nil
                 )
             }
@@ -676,7 +676,7 @@ struct TerminalCommands: Commands {
             // Split creation
             Button("Split Right") {
                 UIApplication.shared.sendMenuAction(
-                    #selector(Ghostty.TerminalView.menuSplitRight(_:)),
+                    #selector(Swiftty.TerminalView.menuSplitRight(_:)),
                     from: nil
                 )
             }
@@ -684,7 +684,7 @@ struct TerminalCommands: Commands {
 
             Button("Split Down") {
                 UIApplication.shared.sendMenuAction(
-                    #selector(Ghostty.TerminalView.menuSplitDown(_:)),
+                    #selector(Swiftty.TerminalView.menuSplitDown(_:)),
                     from: nil
                 )
             }
@@ -696,7 +696,7 @@ struct TerminalCommands: Commands {
             Menu("Focus Split") {
                 Button("Left") {
                     UIApplication.shared.sendMenuAction(
-                        #selector(Ghostty.TerminalView.menuNavigateSplitLeft(_:)),
+                        #selector(Swiftty.TerminalView.menuNavigateSplitLeft(_:)),
                         from: nil
                     )
                 }
@@ -704,7 +704,7 @@ struct TerminalCommands: Commands {
 
                 Button("Right") {
                     UIApplication.shared.sendMenuAction(
-                        #selector(Ghostty.TerminalView.menuNavigateSplitRight(_:)),
+                        #selector(Swiftty.TerminalView.menuNavigateSplitRight(_:)),
                         from: nil
                     )
                 }
@@ -712,7 +712,7 @@ struct TerminalCommands: Commands {
 
                 Button("Up") {
                     UIApplication.shared.sendMenuAction(
-                        #selector(Ghostty.TerminalView.menuNavigateSplitUp(_:)),
+                        #selector(Swiftty.TerminalView.menuNavigateSplitUp(_:)),
                         from: nil
                     )
                 }
@@ -720,7 +720,7 @@ struct TerminalCommands: Commands {
 
                 Button("Down") {
                     UIApplication.shared.sendMenuAction(
-                        #selector(Ghostty.TerminalView.menuNavigateSplitDown(_:)),
+                        #selector(Swiftty.TerminalView.menuNavigateSplitDown(_:)),
                         from: nil
                     )
                 }
@@ -734,7 +734,7 @@ struct TerminalCommands: Commands {
 
             Button("Equalize Splits") {
                 UIApplication.shared.sendMenuAction(
-                    #selector(Ghostty.TerminalView.menuEqualizeSplits(_:)),
+                    #selector(Swiftty.TerminalView.menuEqualizeSplits(_:)),
                     from: nil
                 )
             }
@@ -745,7 +745,7 @@ struct TerminalCommands: Commands {
             // Scroll commands
             Button("Scroll Page Up") {
                 UIApplication.shared.sendMenuAction(
-                    #selector(Ghostty.TerminalView.menuScrollPageUp(_:)),
+                    #selector(Swiftty.TerminalView.menuScrollPageUp(_:)),
                     from: nil
                 )
             }
@@ -753,7 +753,7 @@ struct TerminalCommands: Commands {
 
             Button("Scroll Page Down") {
                 UIApplication.shared.sendMenuAction(
-                    #selector(Ghostty.TerminalView.menuScrollPageDown(_:)),
+                    #selector(Swiftty.TerminalView.menuScrollPageDown(_:)),
                     from: nil
                 )
             }
@@ -761,7 +761,7 @@ struct TerminalCommands: Commands {
 
             Button("Scroll to Top") {
                 UIApplication.shared.sendMenuAction(
-                    #selector(Ghostty.TerminalView.menuScrollToTop(_:)),
+                    #selector(Swiftty.TerminalView.menuScrollToTop(_:)),
                     from: nil
                 )
             }
@@ -769,7 +769,7 @@ struct TerminalCommands: Commands {
 
             Button("Scroll to Bottom") {
                 UIApplication.shared.sendMenuAction(
-                    #selector(Ghostty.TerminalView.menuScrollToBottom(_:)),
+                    #selector(Swiftty.TerminalView.menuScrollToBottom(_:)),
                     from: nil
                 )
             }
@@ -792,7 +792,7 @@ struct TerminalCommands: Commands {
             // keybind first and falls back to sending Escape.
             Button("Send Escape") {
                 UIApplication.shared.sendMenuAction(
-                    #selector(Ghostty.TerminalView.menuSystemCancel(_:)),
+                    #selector(Swiftty.TerminalView.menuSystemCancel(_:)),
                     from: nil
                 )
             }
@@ -811,7 +811,7 @@ struct ShellCommands: Commands {
         CommandMenu("Shell") {
             Button("Browse Hosts") {
                 UIApplication.shared.sendMenuAction(
-                    #selector(Ghostty.TerminalView.menuBrowseHosts(_:)),
+                    #selector(Swiftty.TerminalView.menuBrowseHosts(_:)),
                     from: nil
                 )
             }
@@ -819,7 +819,7 @@ struct ShellCommands: Commands {
 
             Button("Browse Profiles") {
                 UIApplication.shared.sendMenuAction(
-                    #selector(Ghostty.TerminalView.menuBrowseProfiles(_:)),
+                    #selector(Swiftty.TerminalView.menuBrowseProfiles(_:)),
                     from: nil
                 )
             }
@@ -874,7 +874,7 @@ struct WindowCommands: Commands {
 
             Button("tmux Sessions") {
                 UIApplication.shared.sendMenuAction(
-                    #selector(Ghostty.TerminalView.menuShowTmuxSessions(_:)),
+                    #selector(Swiftty.TerminalView.menuShowTmuxSessions(_:)),
                     from: nil
                 )
             }
@@ -882,7 +882,7 @@ struct WindowCommands: Commands {
 
             Button("Detach Other Clients") {
                 UIApplication.shared.sendMenuAction(
-                    #selector(Ghostty.TerminalView.menuDetachOtherClients(_:)),
+                    #selector(Swiftty.TerminalView.menuDetachOtherClients(_:)),
                     from: nil
                 )
             }
@@ -893,7 +893,7 @@ struct WindowCommands: Commands {
             // Tab selection (1-9) - individual buttons for sendAction compatibility
             Button("Tab 1") {
                 UIApplication.shared.sendMenuAction(
-                    #selector(Ghostty.TerminalView.menuSelectTab1(_:)),
+                    #selector(Swiftty.TerminalView.menuSelectTab1(_:)),
                     from: nil
                 )
             }
@@ -901,7 +901,7 @@ struct WindowCommands: Commands {
 
             Button("Tab 2") {
                 UIApplication.shared.sendMenuAction(
-                    #selector(Ghostty.TerminalView.menuSelectTab2(_:)),
+                    #selector(Swiftty.TerminalView.menuSelectTab2(_:)),
                     from: nil
                 )
             }
@@ -909,7 +909,7 @@ struct WindowCommands: Commands {
 
             Button("Tab 3") {
                 UIApplication.shared.sendMenuAction(
-                    #selector(Ghostty.TerminalView.menuSelectTab3(_:)),
+                    #selector(Swiftty.TerminalView.menuSelectTab3(_:)),
                     from: nil
                 )
             }
@@ -917,7 +917,7 @@ struct WindowCommands: Commands {
 
             Button("Tab 4") {
                 UIApplication.shared.sendMenuAction(
-                    #selector(Ghostty.TerminalView.menuSelectTab4(_:)),
+                    #selector(Swiftty.TerminalView.menuSelectTab4(_:)),
                     from: nil
                 )
             }
@@ -925,7 +925,7 @@ struct WindowCommands: Commands {
 
             Button("Tab 5") {
                 UIApplication.shared.sendMenuAction(
-                    #selector(Ghostty.TerminalView.menuSelectTab5(_:)),
+                    #selector(Swiftty.TerminalView.menuSelectTab5(_:)),
                     from: nil
                 )
             }
@@ -933,7 +933,7 @@ struct WindowCommands: Commands {
 
             Button("Tab 6") {
                 UIApplication.shared.sendMenuAction(
-                    #selector(Ghostty.TerminalView.menuSelectTab6(_:)),
+                    #selector(Swiftty.TerminalView.menuSelectTab6(_:)),
                     from: nil
                 )
             }
@@ -941,7 +941,7 @@ struct WindowCommands: Commands {
 
             Button("Tab 7") {
                 UIApplication.shared.sendMenuAction(
-                    #selector(Ghostty.TerminalView.menuSelectTab7(_:)),
+                    #selector(Swiftty.TerminalView.menuSelectTab7(_:)),
                     from: nil
                 )
             }
@@ -949,7 +949,7 @@ struct WindowCommands: Commands {
 
             Button("Tab 8") {
                 UIApplication.shared.sendMenuAction(
-                    #selector(Ghostty.TerminalView.menuSelectTab8(_:)),
+                    #selector(Swiftty.TerminalView.menuSelectTab8(_:)),
                     from: nil
                 )
             }
@@ -957,7 +957,7 @@ struct WindowCommands: Commands {
 
             Button("Tab 9") {
                 UIApplication.shared.sendMenuAction(
-                    #selector(Ghostty.TerminalView.menuSelectTab9(_:)),
+                    #selector(Swiftty.TerminalView.menuSelectTab9(_:)),
                     from: nil
                 )
             }

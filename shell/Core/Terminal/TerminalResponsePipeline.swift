@@ -12,9 +12,9 @@ protocol TerminalResponsePipelineHost: AnyObject {
     func terminalResponseShouldFilterSizeReports(for session: TerminalSession) -> Bool
 }
 
-/// Owns Ghostty response-pipe monitoring for a terminal session.
+/// Owns Swiftty response-pipe monitoring for a terminal session.
 ///
-/// The response pipe carries terminal replies and paste data from Ghostty back
+/// The response pipe carries terminal replies and paste data from Swiftty back
 /// to the active session. Keeping this source outside `TerminalView` makes the
 /// byte path cancellable and testable as session lifecycle state, not view
 /// state.
@@ -91,13 +91,13 @@ final class TerminalResponsePipeline {
         guard let host else { return }
         let responseFd = host.terminalResponseFd
         guard responseFd >= 0 else {
-            Ghostty.logger.warning("Cannot start response monitoring: responseFd=\(responseFd)")
+            Swiftty.logger.warning("Cannot start response monitoring: responseFd=\(responseFd)")
             return
         }
 
         cancel()
 
-        Ghostty.logger.info("Starting terminal response monitoring on responseFd=\(responseFd)")
+        Swiftty.logger.info("Starting terminal response monitoring on responseFd=\(responseFd)")
 
         let source = DispatchSource.makeReadSource(
             fileDescriptor: responseFd,
@@ -157,7 +157,7 @@ final class TerminalResponsePipeline {
                 }
 
                 if bytesRead == 0 {
-                    Ghostty.logger.info("Response pipe EOF, stopping response monitoring")
+                    Swiftty.logger.info("Response pipe EOF, stopping response monitoring")
                     continuation.yield(.end(pendingPaste: coalescer.flushPending()))
                     continuation.finish()
                     return
@@ -172,7 +172,7 @@ final class TerminalResponsePipeline {
                 }
 
                 let error = String(cString: strerror(err))
-                Ghostty.logger.error("Error reading from response pipe: \(error) (errno=\(err))")
+                Swiftty.logger.error("Error reading from response pipe: \(error) (errno=\(err))")
                 continuation.yield(.end(pendingPaste: coalescer.flushPending()))
                 continuation.finish()
                 return
@@ -180,7 +180,7 @@ final class TerminalResponsePipeline {
         }
 
         source.setCancelHandler { @Sendable in
-            Ghostty.logger.info("Terminal response monitoring stopped")
+            Swiftty.logger.info("Terminal response monitoring stopped")
         }
 
         source.resume()

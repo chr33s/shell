@@ -23,7 +23,7 @@ final class FontManager {
     static let shared = FontManager()
 
     /// Per-font cell box adjustments (percentage deltas).
-    /// Maps to Ghostty `adjust-cell-width` / `adjust-cell-height` config keys.
+    /// Maps to Swiftty `adjust-cell-width` / `adjust-cell-height` config keys.
     struct CellAdjustments: Codable, Equatable {
         var widthPercent: Int = 0
         var heightPercent: Int = 0
@@ -33,7 +33,7 @@ final class FontManager {
         static let zero = CellAdjustments()
     }
 
-    /// Sentinel key for cell adjustments stored against the Ghostty default font (nil family).
+    /// Sentinel key for cell adjustments stored against the Swiftty default font (nil family).
     static let defaultFontKey = "__default__"
 
     // A user-imported custom font family with one or more style variants
@@ -59,7 +59,7 @@ final class FontManager {
         }
     }
 
-    /// Currently selected font family (nil = Ghostty default)
+    /// Currently selected font family (nil = Swiftty default)
     var currentFontFamily: String? {
         didSet {
             guard ProtectedDataGuard.isAvailable else { return }
@@ -81,7 +81,7 @@ final class FontManager {
     private(set) var enabledFontFeatures: [String: Set<String>] = [:]
 
     /// Per-font cell box adjustments. Key is font family configName, or
-    /// `defaultFontKey` for the Ghostty default font (nil family).
+    /// `defaultFontKey` for the Swiftty default font (nil family).
     private(set) var cellAdjustments: [String: CellAdjustments] = [:]
 
     // MARK: - Publishers
@@ -103,7 +103,7 @@ final class FontManager {
         let savedSize = store.get(Settings.Font.size)
         self.currentFontSize = savedSize > 0 ? savedSize : Settings.Font.size.defaultValue
 
-        // Load saved font family (nil = use Ghostty default)
+        // Load saved font family (nil = use Swiftty default)
         self.currentFontFamily = store.get(Settings.Font.family)
 
         self.ligaturesEnabled = store.get(Settings.Font.ligatures)
@@ -111,7 +111,7 @@ final class FontManager {
         self.enabledFontFeatures = Self.decodeFontFeatures(store.get(Settings.Font.featurePrefs))
         self.cellAdjustments = Self.decodeCellAdjustments(store.get(Settings.Font.cellAdjustmentPrefs))
 
-        // Register the bundled fonts so Ghostty can resolve them. Device-wide
+        // Register the bundled fonts so Swiftty can resolve them. Device-wide
         // font catalog discovery (every family + glyph-advance probes) is not
         // run at launch: nothing in the app consumes a font catalog, and the
         // scan was measurable main-thread time before first paint.
@@ -204,11 +204,11 @@ final class FontManager {
             Bundle.main.resourceURL?.appendingPathComponent("fonts"),
             Bundle.main.resourceURL?
                 .appendingPathComponent("Resources")
-                .appendingPathComponent("ghostty")
+                .appendingPathComponent("swiftty")
                 .appendingPathComponent("fonts"),
             Bundle.main.bundleURL
                 .appendingPathComponent("Resources")
-                .appendingPathComponent("ghostty")
+                .appendingPathComponent("swiftty")
                 .appendingPathComponent("fonts")
         ]
 
@@ -260,15 +260,15 @@ final class FontManager {
 
     // MARK: - Config Application
 
-    /// Apply the current font size to a Ghostty configuration
-    func applyFontSize(to config: Ghostty.Config) -> Bool {
+    /// Apply the current font size to a Swiftty configuration
+    func applyFontSize(to config: Swiftty.Config) -> Bool {
         return config.setFontSize(Int(currentFontSize))
     }
 
-    /// Apply the current font family to a Ghostty configuration
-    func applyFontFamily(to config: Ghostty.Config) -> Bool {
+    /// Apply the current font family to a Swiftty configuration
+    func applyFontFamily(to config: Swiftty.Config) -> Bool {
         guard let family = currentFontFamily else {
-            // nil = use Ghostty default, nothing to apply
+            // nil = use Swiftty default, nothing to apply
             return true
         }
         return config.setFontFamily(family)
@@ -402,7 +402,7 @@ final class FontManager {
         return UIFont(descriptor: descriptor, size: font.pointSize)
     }
 
-    /// Generate Ghostty config lines for the current font's enabled features
+    /// Generate Swiftty config lines for the current font's enabled features
     func fontFeatureConfigLines() -> [String] {
         let tags = enabledFeatureTags(for: currentFontFamily)
         return tags.sorted().map { "font-feature = \($0)" }
@@ -446,7 +446,7 @@ final class FontManager {
         setCellAdjustments(adj, for: fontFamily)
     }
 
-    /// Generate Ghostty config lines for the current font's cell adjustments.
+    /// Generate Swiftty config lines for the current font's cell adjustments.
     /// Zero-valued axes are omitted so the config stays minimal.
     func cellAdjustmentConfigLines() -> [String] {
         let adj = cellAdjustments(for: currentFontFamily)

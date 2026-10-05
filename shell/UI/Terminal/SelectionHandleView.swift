@@ -11,7 +11,7 @@
 
 import UIKit
 
-extension Ghostty {
+extension Swiftty {
 
     enum SelectionHandlePosition {
         case start

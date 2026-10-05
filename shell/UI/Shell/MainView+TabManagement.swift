@@ -7,7 +7,7 @@
 //
 
 import SwiftUI
-import GhosttyKit
+import SwifttyKit
 import os
 
 // MARK: - Tab Management
@@ -21,7 +21,7 @@ extension MainView {
     /// support bundle is missing. The interpreter backend needs no bundle.
     func createInitialTab() {
         guard LocalShellBackend.current == .interpreter || MacLocalShellManager.isAvailable else {
-            Ghostty.logger.info("No macOS support bundle, showing connection sheet on launch")
+            Swiftty.logger.info("No macOS support bundle, showing connection sheet on launch")
             addNewTab()
             return
         }
@@ -47,11 +47,11 @@ extension MainView {
     /// own guard/log ordering (split creators guard app before the
     /// focused-terminal resolution side effect; reconnectPane guards silently).
     private func makeConnectedTerminalView(
-        app: ghostty_app_t,
+        app: swiftty_app_t,
         config: ConnectionConfig,
         sourceProfileID: UUID? = nil
-    ) -> Ghostty.TerminalView {
-        let terminalView = Ghostty.TerminalView(app, ghosttyApp: ghosttyApp, connectionConfig: config, windowId: windowId)
+    ) -> Swiftty.TerminalView {
+        let terminalView = Swiftty.TerminalView(app, swifttyApp: swifttyApp, connectionConfig: config, windowId: windowId)
         terminalView.sourceProfileID = sourceProfileID
         terminalView.setWindowActive(isWindowFocused)
         wireWindowScopedCallbacks(on: terminalView)
@@ -73,8 +73,8 @@ extension MainView {
         suppressesTabBarAnimation: Bool = false,
         pendingFileToOpen: String? = nil
     ) {
-        guard let app = ghosttyApp.app else {
-            Ghostty.logger.error("Cannot create tab: Ghostty app not initialized")
+        guard let app = swifttyApp.app else {
+            Swiftty.logger.error("Cannot create tab: Swiftty app not initialized")
             return
         }
 
@@ -167,8 +167,8 @@ extension MainView {
             fallbackToTab()
             return
         }
-        guard let app = ghosttyApp.app else {
-            Ghostty.logger.error("Cannot create split: Ghostty app not initialized")
+        guard let app = swifttyApp.app else {
+            Swiftty.logger.error("Cannot create split: Swiftty app not initialized")
             return
         }
 
@@ -221,10 +221,10 @@ extension MainView {
                 direction: direction
             )
 
-            // Set focus immediately - Ghostty focus is independent of UIKit focus
+            // Set focus immediately - Swiftty focus is independent of UIKit focus
             setFocusedPane(pane, inTab: tabIndex)
         } catch {
-            Ghostty.logger.error("Failed to create \(logLabel) split: \(error)")
+            Swiftty.logger.error("Failed to create \(logLabel) split: \(error)")
         }
     }
 
@@ -472,7 +472,7 @@ extension MainView {
     @discardableResult
     func performTmuxClose(_ action: TmuxTabCloseAction,
                           tab: TerminalTab,
-                          pane: Ghostty.TerminalView,
+                          pane: Swiftty.TerminalView,
                           controller: TmuxController,
                           windowId: Int) -> Bool {
         switch action {
@@ -687,7 +687,7 @@ extension MainView {
     /// Arm the connection sheet to reconnect `terminal` with new credentials.
     /// The target is captured by tab UUID and pane identity, never by index,
     /// because the sheet can stay open across tab reorders and closes.
-    func handleAuthenticationRequired(for terminal: Ghostty.TerminalView, config: SSHConfig) {
+    func handleAuthenticationRequired(for terminal: Swiftty.TerminalView, config: SSHConfig) {
         guard let tab = terminals.first(where: { $0.splitTree.contains(terminal) }) else { return }
         presentConnectionSheet(with: ConnectionSheetPrefill(
             config: config,
@@ -702,7 +702,7 @@ extension MainView {
     /// no longer resolves in this window.
     @discardableResult
     func reconnectPane(_ target: ReconnectTarget, with config: SSHConfig) -> Bool {
-        guard let app = ghosttyApp.app, var resolved = target.resolve(in: terminals) else { return false }
+        guard let app = swifttyApp.app, var resolved = target.resolve(in: terminals) else { return false }
 
         // tmux -CC gateway: tear down the window tabs it projected before the
         // gateway's own cleanup, exactly as closeSplit does — cleanup frees the

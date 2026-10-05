@@ -141,7 +141,7 @@ final class CatalystWindowToolbar: NSObject, NSToolbarDelegate {
     }
 
     private func post(_ name: Notification.Name, userInfo extra: [String: Any] = [:]) {
-        var userInfo: [AnyHashable: Any] = [GhosttyCommandRouting.windowSceneSessionIDKey: sceneSessionID]
+        var userInfo: [AnyHashable: Any] = [SwifttyCommandRouting.windowSceneSessionIDKey: sceneSessionID]
         for (key, value) in extra {
             userInfo[key] = value
         }

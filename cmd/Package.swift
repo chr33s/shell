@@ -46,7 +46,7 @@ let package = Package(
             ]
         ),
         // Claude Code and Codex adapters. They depend on no provider SDK,
-        // Ghostty, terminal, SSH, or tmux-parsing code (docs/specs/agent-relay.md 2).
+        // Swiftty, terminal, SSH, or tmux-parsing code (docs/specs/agent-relay.md 2).
         .target(
             name: "ShellControlAgentAdapter",
             dependencies: [

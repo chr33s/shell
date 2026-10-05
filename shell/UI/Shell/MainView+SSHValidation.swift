@@ -7,7 +7,7 @@
 //
 
 import SwiftUI
-import GhosttyKit
+import SwifttyKit
 import os
 
 // MARK: - SSH Host Key Validation
@@ -16,7 +16,7 @@ extension MainView {
     /// Bind prompts and approval callbacks to this `MainView` instance.
     /// Live tabs can move across windows, so these closures must be rebound
     /// after transfer instead of keeping the source window captured forever.
-    func wireWindowScopedCallbacks(on terminalView: Ghostty.TerminalView) {
+    func wireWindowScopedCallbacks(on terminalView: Swiftty.TerminalView) {
         let trackedTerminal = terminalView
         terminalView.onAuthenticationRequired = { @MainActor @Sendable [weak trackedTerminal] config in
             if let trackedTerminal {
@@ -41,7 +41,7 @@ extension MainView {
     @MainActor
     func handleHostKeyValidation(
         request: HostKeyValidationRequest,
-        terminalView: Ghostty.TerminalView
+        terminalView: Swiftty.TerminalView
     ) async -> HostKeyValidationResult {
         await alerts.handleHostKeyValidation(request: request, terminalView: terminalView)
     }
@@ -55,7 +55,7 @@ extension MainView {
     /// needs. Called at every SSH terminal-creation site, so a change to the
     /// callback shape only has to update one place — and it guarantees
     /// keyboard-interactive is wired wherever host-key validation is.
-    func wireKeyboardInteractiveCallback(on terminalView: Ghostty.TerminalView) {
+    func wireKeyboardInteractiveCallback(on terminalView: Swiftty.TerminalView) {
         terminalView.onKeyboardInteractiveChallengeRequired = { @MainActor @Sendable challenge, validatedTerminal in
             await self.handleKeyboardInteractiveChallenge(challenge, terminalView: validatedTerminal)
         }
@@ -86,7 +86,7 @@ extension MainView {
     @MainActor
     func handleKeyboardInteractiveChallenge(
         _ challenge: KeyboardInteractiveChallenge,
-        terminalView: Ghostty.TerminalView
+        terminalView: Swiftty.TerminalView
     ) async -> [String]? {
         await withCheckedContinuation { continuation in
             let label = challenge.sessionName.isEmpty
@@ -118,7 +118,7 @@ extension MainView {
     /// Cancel any pending challenge from a session that is tearing down, so the
     /// awaiting auth delegate doesn't park until the SSH login timeout.
     @MainActor
-    func withdrawKeyboardInteractive(for terminalView: Ghostty.TerminalView) {
+    func withdrawKeyboardInteractive(for terminalView: Swiftty.TerminalView) {
         let target = ObjectIdentifier(terminalView)
         var remaining: [PendingKeyboardInteractiveChallenge] = []
         for entry in keyboardInteractiveQueue {

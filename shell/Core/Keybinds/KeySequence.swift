@@ -41,17 +41,17 @@ struct KeySequence: Codable, Hashable, Sendable {
         self.triggers = [KeyTrigger(key: key, modifiers: modifiers)]
     }
 
-    /// Parse from ghostty config format: "cmd+t" or "ctrl+a>n"
-    init?(ghosttyFormat: String) {
+    /// Parse from swiftty config format: "cmd+t" or "ctrl+a>n"
+    init?(swifttyFormat: String) {
         // Split by > for sequences
-        let sequenceParts = ghosttyFormat.components(separatedBy: ">")
+        let sequenceParts = swifttyFormat.components(separatedBy: ">")
         var parsedTriggers: [KeyTrigger] = []
 
         for part in sequenceParts {
             let trimmed = part.trimmingCharacters(in: .whitespaces)
             guard !trimmed.isEmpty else { continue }
 
-            guard let trigger = KeyTrigger(ghosttyFormat: trimmed) else {
+            guard let trigger = KeyTrigger(swifttyFormat: trimmed) else {
                 return nil
             }
             parsedTriggers.append(trigger)
@@ -63,9 +63,9 @@ struct KeySequence: Codable, Hashable, Sendable {
 
     // MARK: - Conversion
 
-    /// Convert to ghostty config format
-    var ghosttyFormat: String {
-        triggers.map { $0.ghosttyFormat }.joined(separator: ">")
+    /// Convert to swiftty config format
+    var swifttyFormat: String {
+        triggers.map { $0.swifttyFormat }.joined(separator: ">")
     }
 
     /// Mac-style symbol format: "⌘T" or "⌃A → N"

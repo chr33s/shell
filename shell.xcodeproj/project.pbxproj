@@ -15,7 +15,7 @@
 		AB00000000000000000025 /* shell-integration in CopyFiles */ = {isa = PBXBuildFile; fileRef = AB00000000000000000018 /* shell-integration */; };
 		AB00000000000000000026 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AB00000000000000000019 /* Metal.framework */; };
 		AB00000000000000000027 /* libc++.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = AB0000000000000000001A /* libc++.tbd */; };
-		AB00000000000000000028 /* GhosttyKit in Frameworks */ = {isa = PBXBuildFile; productRef = AB00000000000000000053 /* GhosttyKit */; };
+		AB00000000000000000028 /* SwifttyKit in Frameworks */ = {isa = PBXBuildFile; productRef = AB00000000000000000053 /* SwifttyKit */; };
 		AB00000000000000000029 /* Citadel in Frameworks */ = {isa = PBXBuildFile; productRef = AB00000000000000000054 /* Citadel */; };
 		AB0000000000000000002A /* ios_system in Frameworks */ = {isa = PBXBuildFile; productRef = AB00000000000000000055 /* ios_system */; };
 		AC00000000000000000001 /* Shared/MacBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC00000000000000000011 /* Shared/MacBridge.swift */; };
@@ -216,7 +216,7 @@
 			files = (
 				DDA76B4D306CCADC00E537D6 /* vim in Frameworks */,
 				DDA76B53306CCAFB00E537D6 /* libarchive_ios in Frameworks */,
-				AB00000000000000000028 /* GhosttyKit in Frameworks */,
+				AB00000000000000000028 /* SwifttyKit in Frameworks */,
 				AB00000000000000000029 /* Citadel in Frameworks */,
 				DDA76B51306CCAF000E537D6 /* curl_ios in Frameworks */,
 				DDA76B55306CCB0500E537D6 /* ripgrep_ios in Frameworks */,
@@ -366,7 +366,7 @@
 			);
 			name = shell;
 			packageProductDependencies = (
-				AB00000000000000000053 /* GhosttyKit */,
+				AB00000000000000000053 /* SwifttyKit */,
 				AB00000000000000000054 /* Citadel */,
 				AB00000000000000000055 /* ios_system */,
 				AE00000000000000000054 /* ShellControlProtocol */,
@@ -520,7 +520,7 @@
 			mainGroup = AB00000000000000000006;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				AB00000000000000000050 /* XCLocalSwiftPackageReference "Packages/GhosttyKit" */,
+				AB00000000000000000050 /* XCLocalSwiftPackageReference "Packages/SwifttyKit" */,
 				AB00000000000000000051 /* XCLocalSwiftPackageReference "vendor/Citadel-rootshell" */,
 				AB00000000000000000052 /* XCLocalSwiftPackageReference "vendor/ios_system-rootshell" */,
 				AE00000000000000000050 /* XCLocalSwiftPackageReference "Packages/ShellControlCore" */,
@@ -1116,9 +1116,9 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		AB00000000000000000050 /* XCLocalSwiftPackageReference "Packages/GhosttyKit" */ = {
+		AB00000000000000000050 /* XCLocalSwiftPackageReference "Packages/SwifttyKit" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/GhosttyKit;
+			relativePath = Packages/SwifttyKit;
 		};
 		AB00000000000000000051 /* XCLocalSwiftPackageReference "vendor/Citadel-rootshell" */ = {
 			isa = XCLocalSwiftPackageReference;
@@ -1159,10 +1159,10 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		AB00000000000000000053 /* GhosttyKit */ = {
+		AB00000000000000000053 /* SwifttyKit */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = AB00000000000000000050 /* XCLocalSwiftPackageReference "Packages/GhosttyKit" */;
-			productName = GhosttyKit;
+			package = AB00000000000000000050 /* XCLocalSwiftPackageReference "Packages/SwifttyKit" */;
+			productName = SwifttyKit;
 		};
 		AB00000000000000000054 /* Citadel */ = {
 			isa = XCSwiftPackageProductDependency;

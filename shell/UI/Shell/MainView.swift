@@ -31,7 +31,7 @@
 
 import SwiftUI
 import Combine
-import GhosttyKit
+import SwifttyKit
 import os
 import UniformTypeIdentifiers
 
@@ -43,7 +43,7 @@ struct MainView: View {
 
     // MARK: - Properties
 
-    @Environment(Ghostty.App.self) var ghosttyApp
+    @Environment(Swiftty.App.self) var swifttyApp
     @Environment(\.openWindow) var openWindow
     @Environment(\.dismissWindow) var dismissWindow
     @SceneStorage("windowId") var sceneWindowId: String = UUID().uuidString
@@ -388,21 +388,21 @@ struct MainView: View {
                     }
 
                     // Terminal view
-                    if ghosttyApp.readiness == .ready, !terminals.isEmpty {
+                    if swifttyApp.readiness == .ready, !terminals.isEmpty {
                         terminalAndSidebarContent(geometry: geometry)
-                    } else if ghosttyApp.readiness == .ready, terminals.isEmpty, !windowClosingAfterTabTransfer {
+                    } else if swifttyApp.readiness == .ready, terminals.isEmpty, !windowClosingAfterTabTransfer {
                         // Empty state - shown when all tabs are closed
                         EmptyStateResponder(
                             onNewTab: addNewTab,
                             onNewLocalShell: createLocalShellTab
                         )
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else if ghosttyApp.readiness == .ready, terminals.isEmpty {
+                    } else if swifttyApp.readiness == .ready, terminals.isEmpty {
                         Color.clear
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else if ghosttyApp.readiness == .loading {
+                    } else if swifttyApp.readiness == .loading {
                         loadingView
-                    } else if ghosttyApp.readiness == .error {
+                    } else if swifttyApp.readiness == .error {
                         errorView
                     }
                 }
@@ -513,5 +513,5 @@ struct MainView: View {
 
 #Preview {
     MainView()
-        .environment(Ghostty.App())
+        .environment(Swiftty.App())
 }

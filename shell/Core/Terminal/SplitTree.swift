@@ -1,7 +1,7 @@
 import UIKit
 
 /// SplitTree represents a tree of views that can be divided.
-/// This is adapted from the macOS Ghostty implementation for iOS.
+/// This is adapted from the macOS Swiftty implementation for iOS.
 struct SplitTree<ViewType: UIView & Identifiable> {
     /// The root of the tree. This can be nil to indicate the tree is empty.
     let root: Node?

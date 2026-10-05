@@ -7,7 +7,7 @@
 //
 
 import SwiftUI
-import GhosttyKit
+import SwifttyKit
 import os
 
 #if targetEnvironment(macCatalyst)
@@ -169,7 +169,7 @@ extension MainView {
         // selection would keep every tab at opacity 0).
         tabsModel.repairSelectionIfNeeded()
 
-        // Restored pane views default to visible before their Ghostty surfaces
+        // Restored pane views default to visible before their Swiftty surfaces
         // exist. Seed the final tab visibility now so hidden tabs create their
         // renderers occluded and immediately release their per-surface GPU
         // resources. The selection observer is not guaranteed to run when the
@@ -190,7 +190,7 @@ extension MainView {
         if terminals.indices.contains(selectedTabIndex),
            let focusedPane = terminals[selectedTabIndex].focusedPane {
             focusedPane.isLogicallyFocused = true
-            Ghostty.logger.info("Set isLogicallyFocused=true on restored terminal \(focusedPane.uuid.uuidString.prefix(8))")
+            Swiftty.logger.info("Set isLogicallyFocused=true on restored terminal \(focusedPane.uuid.uuidString.prefix(8))")
         }
 
         // NOTE: Don't call TerminalRestorationReconnector.initiateReconnection() here -
@@ -198,7 +198,7 @@ extension MainView {
         // happens in TerminalView.setupPTYAndShell() when the surface is ready.
         // Password-required sessions show the overlay.
 
-        Ghostty.logger.info("Restored \(terminals.count) tabs with \(terminals.flatMap { $0.splitTree }.count) terminals")
+        Swiftty.logger.info("Restored \(terminals.count) tabs with \(terminals.flatMap { $0.splitTree }.count) terminals")
 
         // Tell WindowStateManager that this launch now has live populated
         // state, so a subsequent `unregisterWindow` / BG-gather that sees an
@@ -258,19 +258,19 @@ extension MainView {
             // flashes in the strip while the gateway resumes; adoption
             // re-derives the flag from the live set. (id=tmux-hidden-windows)
             tab.isHiddenTmuxWindow = savedTab.isHiddenTmuxWindow ?? false
-            Ghostty.logger.info("Restored tmux window placeholder @\(tmuxWindowId)")
+            Swiftty.logger.info("Restored tmux window placeholder @\(tmuxWindowId)")
             return tab
         }
 
         guard let rootNode = savedTab.splitTree.root else {
-            Ghostty.logger.warning("Skipping empty tab during restoration")
+            Swiftty.logger.warning("Skipping empty tab during restoration")
             return nil
         }
 
         // Build the split tree with pending-connection panes
         var allPanes: [SplitPaneView] = []
         guard let liveRoot = buildNode(from: rootNode, paneViews: &allPanes) else {
-            Ghostty.logger.warning("Failed to build split tree for tab \(savedTab.id)")
+            Swiftty.logger.warning("Failed to build split tree for tab \(savedTab.id)")
             return nil
         }
 
@@ -291,7 +291,7 @@ extension MainView {
 
         // Use the restoration initializer so the saved title survives:
         // the initializer calls startObserving(preserveExistingTitle: true)
-        // which dropFirst()'s the focused view's pre-connect "ghostty"
+        // which dropFirst()'s the focused view's pre-connect "swiftty"
         // emission.
         let tab = TerminalTab(
             restoringTitle: savedTab.title,
@@ -334,13 +334,13 @@ extension MainView {
 
             // Create terminal view in "pending reconnection" state
 
-            guard let appPtr = ghosttyApp.app else {
-                Ghostty.logger.error("Cannot create restored terminal: Ghostty app not initialized")
+            guard let appPtr = swifttyApp.app else {
+                Swiftty.logger.error("Cannot create restored terminal: Swiftty app not initialized")
                 return nil
             }
-            let terminalView = Ghostty.TerminalView(
+            let terminalView = Swiftty.TerminalView(
                 appPtr,
-                ghosttyApp: ghosttyApp,
+                swifttyApp: swifttyApp,
                 uuid: leafData.terminalId,
                 connectionConfig: connectionConfig,
                 windowId: windowId
@@ -353,7 +353,7 @@ extension MainView {
             // resume path can re-enter control mode (maybeResumeTmuxControlMode).
             terminalView.restoredWasTmuxGateway = leafData.wasTmuxGateway ?? false
             terminalView.tmuxResumeCancelRequested = leafData.tmuxResumeCancelRequested ?? false
-            terminalView.restorationState = Ghostty.TerminalView.RestorationState.pendingReconnection
+            terminalView.restorationState = Swiftty.TerminalView.RestorationState.pendingReconnection
             self.wireKeyboardInteractiveCallback(on: terminalView)
             if connectionConfig.requiresSSHCallbacks {
                 let restoredTerminal = terminalView
@@ -400,7 +400,7 @@ extension MainView {
             let windowIds = WindowStateManager.shared.claimWindowIdsNeedingScenes()
             guard !windowIds.isEmpty else { return }
 
-            Ghostty.logger.info("Requesting \(windowIds.count) additional window(s) for state restoration")
+            Swiftty.logger.info("Requesting \(windowIds.count) additional window(s) for state restoration")
             for windowId in windowIds {
                 UIApplication.shared.requestSceneSessionActivation(
                     nil,
@@ -412,7 +412,7 @@ extension MainView {
                                 Self.schedulePendingRegularWindowRestoration(after: .seconds(1))
                             }
                         }
-                        Ghostty.logger.error("Failed to create restoration window: \(error.localizedDescription)")
+                        Swiftty.logger.error("Failed to create restoration window: \(error.localizedDescription)")
                     }
                 )
             }
@@ -524,7 +524,7 @@ extension MainView {
             // Primary window renders fine and is already pre-sized at connect;
             // restore size only if it differs (no nudge, no flash).
             guard !target.equalTo(current) else { return }
-            Ghostty.logger.info("Restored window geometry: \(Int(target.width))x\(Int(target.height))")
+            Swiftty.logger.info("Restored window geometry: \(Int(target.width))x\(Int(target.height))")
             requestWindowGeometry(scene, target)
             return
         }
@@ -544,7 +544,7 @@ extension MainView {
             x: target.origin.x, y: target.origin.y,
             width: target.width, height: primedHeight
         )
-        Ghostty.logger.info("Restored window geometry: \(Int(target.width))x\(Int(target.height))")
+        Swiftty.logger.info("Restored window geometry: \(Int(target.width))x\(Int(target.height))")
         requestWindowGeometry(scene, primed)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
             requestWindowGeometry(scene, target)
@@ -554,7 +554,7 @@ extension MainView {
     private static func requestWindowGeometry(_ scene: UIWindowScene, _ frame: CGRect) {
         let prefs = UIWindowScene.GeometryPreferences.Mac(systemFrame: frame)
         scene.requestGeometryUpdate(prefs) { error in
-            Ghostty.logger.warning("Window geometry update failed: \(error.localizedDescription)")
+            Swiftty.logger.warning("Window geometry update failed: \(error.localizedDescription)")
         }
     }
     #endif

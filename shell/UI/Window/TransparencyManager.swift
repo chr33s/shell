@@ -11,34 +11,15 @@ import Combine
 final class TransparencyManager {
     static let shared = TransparencyManager()
 
-    /// Selects the window blur implementation for the Standard style.
-    /// `false` = private CGS API (supports a custom radius)
-    /// `true`  = NSVisualEffectView (no custom radius)
-    ///
-    /// The Catalyst build ships with the App Sandbox entitlement, and the
-    /// sandbox refuses the private window-server blur call, so the CGS path
-    /// silently did nothing: a 92%-opaque dark window with no blur read as
-    /// plain opaque. The visual-effect view is the sandbox-safe path.
-    static let useSandboxBlur = true
-
     /// How the window background behind the terminal is blurred.
     enum BlurStyle: String, CaseIterable, Identifiable {
-        /// CGS radius blur (Standalone) or NSVisualEffectView (App Store).
+        /// NSVisualEffectView.
         case standard
         /// macOS 26 Liquid Glass (NSGlassEffectView).
         case glassRegular
         case glassClear
 
         var id: String { rawValue }
-
-        /// Value emitted for ghostty's `background-blur`; nil means numeric radius.
-        var ghosttyConfigValue: String? {
-            switch self {
-            case .standard: return nil
-            case .glassRegular: return "macos-glass-regular"
-            case .glassClear: return "macos-glass-clear"
-            }
-        }
 
         var title: String {
             switch self {
@@ -50,7 +31,7 @@ final class TransparencyManager {
     }
 
     private static let ownedKeys: Set<String> = [
-        Settings.Transparency.backgroundOpacity.name, Settings.Transparency.backgroundBlurRadius.name,
+        Settings.Transparency.backgroundOpacity.name,
         Settings.Transparency.blurEnabled.name, Settings.Transparency.blurStyle.name,
         Settings.Transparency.pinnedSidebarTransparency.name
     ]
@@ -58,7 +39,6 @@ final class TransparencyManager {
     // is the macOS 26 look out of the box: 0.92 over a dark theme is visually
     // indistinguishable from opaque.
     private static let defaultBackgroundOpacity: Double = 0.8
-    private static let defaultBackgroundBlurRadius: Double = 30.0
     private static let defaultBlurEnabled: Bool = true
     private static let defaultBlurStyle: BlurStyle = .glassRegular
     private static let defaultPinnedSidebarTransparencyEnabled: Bool = false
@@ -68,16 +48,6 @@ final class TransparencyManager {
         didSet {
             guard backgroundOpacity != oldValue else { return }
             saveBackgroundOpacity()
-            transparencyDidChange.send()
-        }
-    }
-
-    /// Current background blur radius (0 = no blur, higher = more blur)
-    /// Only used in non-sandbox mode (private CGS API)
-    var backgroundBlurRadius: Double {
-        didSet {
-            guard backgroundBlurRadius != oldValue else { return }
-            saveBackgroundBlurRadius()
             transparencyDidChange.send()
         }
     }
@@ -126,7 +96,6 @@ final class TransparencyManager {
 
     private init() {
         self.backgroundOpacity = Self.storedBackgroundOpacity()
-        self.backgroundBlurRadius = SettingsStore.shared.get(Settings.Transparency.backgroundBlurRadius)
         self.blurEnabled = SettingsStore.shared.get(Settings.Transparency.blurEnabled)
         self.blurStyle = SettingsStore.shared.get(Settings.Transparency.blurStyle)
         self.pinnedSidebarTransparencyEnabled = SettingsStore.shared.get(Settings.Transparency.pinnedSidebarTransparency)
@@ -148,9 +117,6 @@ final class TransparencyManager {
         if keys.contains(Settings.Transparency.backgroundOpacity.name) {
             backgroundOpacity = Self.storedBackgroundOpacity()
         }
-        if keys.contains(Settings.Transparency.backgroundBlurRadius.name) {
-            backgroundBlurRadius = SettingsStore.shared.get(Settings.Transparency.backgroundBlurRadius)
-        }
         if keys.contains(Settings.Transparency.blurEnabled.name) {
             blurEnabled = SettingsStore.shared.get(Settings.Transparency.blurEnabled)
         }
@@ -167,11 +133,6 @@ final class TransparencyManager {
         SettingsStore.shared.set(Settings.Transparency.backgroundOpacity, backgroundOpacity)
     }
 
-    private func saveBackgroundBlurRadius() {
-        guard !isReloading else { return }
-        SettingsStore.shared.set(Settings.Transparency.backgroundBlurRadius, backgroundBlurRadius)
-    }
-
     private func saveBlurEnabled() {
         guard !isReloading else { return }
         SettingsStore.shared.set(Settings.Transparency.blurEnabled, blurEnabled)
@@ -180,7 +141,6 @@ final class TransparencyManager {
     /// Reset to default transparency settings
     func resetToDefaults() {
         backgroundOpacity = Self.defaultBackgroundOpacity
-        backgroundBlurRadius = Self.defaultBackgroundBlurRadius
         blurEnabled = Self.defaultBlurEnabled
         blurStyle = Self.defaultBlurStyle
         pinnedSidebarTransparencyEnabled = Self.defaultPinnedSidebarTransparencyEnabled

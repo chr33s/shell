@@ -7,7 +7,7 @@
 //
 
 import SwiftUI
-import GhosttyKit
+import SwifttyKit
 import os
 import UIKit
 
@@ -36,7 +36,7 @@ extension MainView {
 
     /// Terminal-typed convenience wrapper over `setFocusedPane`; kept so the
     /// many terminal call sites stay unchanged.
-    func setFocusedTerminal(_ terminal: Ghostty.TerminalView?, inTab tabIndex: Int) {
+    func setFocusedTerminal(_ terminal: Swiftty.TerminalView?, inTab tabIndex: Int) {
         setFocusedPane(terminal, inTab: tabIndex)
     }
 
@@ -108,11 +108,6 @@ extension MainView {
         // This ensures the tab title always reflects the focused split
         setupTitleObservation(at: tabIndex)
 
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 10_000_000) // 10ms delay
-            ghosttyApp.appTick()
-        }
-
         // Verify focus succeeded after async dispatch completes
         if let pane {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak pane] in
@@ -120,7 +115,7 @@ extension MainView {
                       pane.window != nil,
                       pane.isLogicallyFocused,
                       !pane.isFirstResponder else { return }
-                Ghostty.logger.warning("Focus verification failed, retrying")
+                Swiftty.logger.warning("Focus verification failed, retrying")
                 _ = pane.becomeFirstResponder()
             }
         }
@@ -679,7 +674,7 @@ extension MainView {
                       selectedTabIndex >= 0,
                       selectedTabIndex < terminals.count else { return }
                 for terminal in terminals[selectedTabIndex].splitTree.terminalLeaves {
-                    terminal.scheduleSelectionHandleSync(afterGhosttyAppTick: true)
+                    terminal.scheduleSelectionHandleSync()
                 }
             }
         }
@@ -729,7 +724,5 @@ extension MainView {
                 oldFocus.isLogicallyFocused = false
             }
         }
-
-        ghosttyApp.appTick()
     }
 }

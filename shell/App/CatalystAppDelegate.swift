@@ -17,24 +17,24 @@ private let logger = Logger(subsystem: "dev.chr33s.shell", category: "CatalystAp
 @MainActor
 private final class CatalystContinuityPasteboardBridge {
     static let shared = CatalystContinuityPasteboardBridge()
-    private weak var target: Ghostty.TerminalView?
+    private weak var target: Swiftty.TerminalView?
     private var menuIsActive = false
     private var serviceMayBePending = false
 
-    func arm(for target: Ghostty.TerminalView) {
+    func arm(for target: Swiftty.TerminalView) {
         self.target = target
         menuIsActive = true
         serviceMayBePending = false
     }
 
-    func noteResigned(_ target: Ghostty.TerminalView) {
+    func noteResigned(_ target: Swiftty.TerminalView) {
         guard self.target === target, menuIsActive else { return }
         // Choosing Insert from iPhone/iPad resigns the UIKit terminal while
         // AppKit keeps the context interaction alive awaiting the result.
         serviceMayBePending = true
     }
 
-    func menuDidEnd(for target: Ghostty.TerminalView) {
+    func menuDidEnd(for target: Swiftty.TerminalView) {
         guard self.target === target else { return }
         menuIsActive = false
         // A normal cancellation leaves the terminal as first responder and
@@ -45,7 +45,7 @@ private final class CatalystContinuityPasteboardBridge {
         }
     }
 
-    func disarm(for target: Ghostty.TerminalView) {
+    func disarm(for target: Swiftty.TerminalView) {
         guard self.target === target else { return }
         self.target = nil
         menuIsActive = false
@@ -72,10 +72,10 @@ private final class CatalystContinuityPasteboardBridge {
 /// retained for a selected Continuity action.
 @MainActor
 private final class CatalystContinuityPasteboardReceiver: NSObject {
-    private weak var target: Ghostty.TerminalView?
+    private weak var target: Swiftty.TerminalView?
     private var hasDelivered = false
 
-    init(target: Ghostty.TerminalView) {
+    init(target: Swiftty.TerminalView) {
         self.target = target
         super.init()
     }
@@ -188,17 +188,17 @@ final class CatalystAppDelegate: AppDelegate {
     }
 
     @MainActor
-    static func armContinuityPasteboardReceiver(for terminal: Ghostty.TerminalView) {
+    static func armContinuityPasteboardReceiver(for terminal: Swiftty.TerminalView) {
         CatalystContinuityPasteboardBridge.shared.arm(for: terminal)
     }
 
     @MainActor
-    static func noteContinuityPasteboardTargetResigned(_ terminal: Ghostty.TerminalView) {
+    static func noteContinuityPasteboardTargetResigned(_ terminal: Swiftty.TerminalView) {
         CatalystContinuityPasteboardBridge.shared.noteResigned(terminal)
     }
 
     @MainActor
-    static func continuityPasteboardMenuDidEnd(for terminal: Ghostty.TerminalView) {
+    static func continuityPasteboardMenuDidEnd(for terminal: Swiftty.TerminalView) {
         CatalystContinuityPasteboardBridge.shared.menuDidEnd(for: terminal)
     }
 
@@ -378,7 +378,7 @@ final class CatalystAppDelegate: AppDelegate {
         logger.info("[urlopen] route source=\(source, privacy: .public) kind=ssh")
         var userInfo: [AnyHashable: Any] = [SSHURLPayload.key: SSHURLPayload(components: components)]
         if let target = scene ?? CatalystSceneDelegate.preferredRegularScene() {
-            userInfo[GhosttyCommandRouting.windowSceneSessionIDKey] = target.session.persistentIdentifier
+            userInfo[SwifttyCommandRouting.windowSceneSessionIDKey] = target.session.persistentIdentifier
         }
         NotificationCenter.default.post(name: .sshURLReceived, object: nil, userInfo: userInfo)
         return true
@@ -551,7 +551,7 @@ final class CatalystSceneDelegate: UIResponder, UIWindowSceneDelegate {
         // re-validate its claimed NSWindow now that the window is on screen,
         // and re-assert blur (per-NSWindow state, idempotent on both paths).
         NotificationCenter.default.post(name: .catalystSceneDidActivate, object: windowScene)
-        Ghostty.App.shared?.applyWindowBlur()
+        Swiftty.App.shared?.applyWindowBlur()
     }
 
     func sceneWillResignActive(_ scene: UIScene) {

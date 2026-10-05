@@ -203,7 +203,7 @@ final class SpinnerAnimator {
         // Erase operations
         static let clearToEndOfScreen = "\u{1B}[J"      // ED 0 - clear from cursor to end of screen
 
-        // Synchronized output (Ghostty/modern terminals) - batch updates atomically
+        // Synchronized output (Swiftty/modern terminals) - batch updates atomically
         static let syncOutputStart = "\u{1B}[?2026h"    // Begin synchronized update
         static let syncOutputEnd = "\u{1B}[?2026l"      // End synchronized update (renders)
 

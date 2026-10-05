@@ -8,7 +8,7 @@
 //
 
 import UIKit
-import GhosttyKit
+import SwifttyKit
 import os
 
 // MARK: - ModifierState
@@ -165,7 +165,7 @@ final class KeyboardModifierButton: KeyboardButton {
         case .oneShot: "oneShot"
         case .locked: "locked"
         }
-        Ghostty.logger.debug("Modifier '\(self.key)' → \(stateName), modifier rawValue: \(modifierValue)")
+        Swiftty.logger.debug("Modifier '\(self.key)' → \(stateName), modifier rawValue: \(modifierValue)")
         onStateChange?(modifierState)
     }
 

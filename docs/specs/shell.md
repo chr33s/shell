@@ -14,14 +14,14 @@ Shell's entire product surface is:
 3. Native tmux control mode
 4. iCloud sync
 
-Shell keeps Rootshell's Ghostty-shaped architecture: the app talks to its terminal surfaces and the tmux control-mode bridge only through the libghostty embedder API (names and types from `ghostty.h`). That API is a Swift module, `Packages/GhosttyKit`, built on [swiftty](https://github.com/chr33s/swiftty)'s `SwifttyCore` (vendored at `vendor/swiftty`); no Zig-built libghostty is linked.
+The app talks to its terminal surfaces and the tmux control-mode bridge only through the SwifttyKit embedder API, a Swift module (`Packages/SwifttyKit`) built on [swiftty](https://github.com/chr33s/swiftty)'s `SwifttyCore` (vendored at `vendor/swiftty`).
 
 ```text
 +-----------------------------------------+
 |                  Shell                  |
 +-----------------------------------------+
 |   Local PTY --+                         |
-|               +-- GhosttyKit surface    |
+|               +-- SwifttyKit surface    |
 |   SSH PTY ----+                         |
 |   tmux -CC ---+                         |
 +-----------------------------------------+
@@ -41,9 +41,9 @@ Shell keeps Rootshell's Ghostty-shaped architecture: the app talks to its termin
 
 ### 2.1 Required
 
-Metal rendering and ANSI/VT support supplied by swiftty through GhosttyKit; local shell session; keyboard, mouse/trackpad input; copy/paste; text selection; scrollback; search; resize; basic tabs; basic splits; session restoration; one default font; one default theme (`Blackboard Dark`); font-size setting; TERM setting.
+Metal rendering and ANSI/VT support supplied by swiftty through SwifttyKit; local shell session; keyboard, mouse/trackpad input; copy/paste; text selection; scrollback; search; resize; basic tabs; basic splits; session restoration; one default font; one default theme (`Blackboard Dark`); font-size setting; TERM setting.
 
-The terminal surface/controller architecture stays under `Core/Ghostty` and `UI/Terminal`, and the terminal runtime under `Packages/GhosttyKit`. No other emulator.
+The terminal surface/controller architecture stays under `Core/Swiftty` and `UI/Terminal`, and the terminal runtime under `Packages/SwifttyKit`. No other emulator.
 
 ### 2.2 Removed
 
@@ -137,7 +137,7 @@ tmux means native control mode (`tmux -CC`), not merely running `tmux` in a term
 
 ### 5.1 Mapping
 
-tmux session → attached terminal session; window → tab; pane → split; active-window change → selected tab; pane resize → native split resize; window title → tab title. The GhosttyKit runtime's tmux viewer owns protocol parsing and pane terminal state; the app consumes reconcile actions.
+tmux session → attached terminal session; window → tab; pane → split; active-window change → selected tab; pane resize → native split resize; window title → tab title. The SwifttyKit runtime's tmux viewer owns protocol parsing and pane terminal state; the app consumes reconcile actions.
 
 ### 5.2 Actions
 
@@ -254,7 +254,7 @@ TARGETED_DEVICE_FAMILY = 1,2,7
 
 `ShellMacSupport` is a second target (`SDKROOT = macosx`, `MACOSX_DEPLOYMENT_TARGET = 27.0`, product `ShellMacSupport.bundle`), embedded by a build phase filtered to `maccatalyst` and loaded on first use via `Bundle.principalClass` (`shell/UI/Window/MacSupport.swift`). iOS and visionOS do not depend on it.
 
-`Shared/MacBridge.swift` is the only ABI: the `MacBridge` protocol plus `@objc` handle protocols `MacShellProcess` and `MacMenuEntry`. Every call runs on the main thread; AppKit objects stay opaque `NSObject`s. It provides window furniture, appearance (glass backdrop, blur, app appearance), menus (Dock, Services, native context-menu entries), terminal events (scroll, hover, menu), the local PTY (`createShell`), and Text Input Services. New AppKit access MUST be a bridge method, never a KVC/reflection site; the remaining three `NSClassFromString` sites are in `CatalystAppDelegate`, and the bundle's only undeclared surface is Ghostty's private `_cornerRadius`.
+`Shared/MacBridge.swift` is the only ABI: the `MacBridge` protocol plus `@objc` handle protocols `MacShellProcess` and `MacMenuEntry`. Every call runs on the main thread; AppKit objects stay opaque `NSObject`s. It provides window furniture, appearance (glass backdrop, blur, app appearance), menus (Dock, Services, native context-menu entries), terminal events (scroll, hover, menu), the local PTY (`createShell`), and Text Input Services. New AppKit access MUST be a bridge method, never a KVC/reflection site; the remaining three `NSClassFromString` sites are in `CatalystAppDelegate`, and the bundle's only undeclared surface is Swiftty's private `_cornerRadius`.
 
 - Per-window restoration is keyed by scene session id through `CatalystSceneDelegate.stateRestorationActivity(for:)`, never `NSWindow.restorationClass`.
 - The Dock menu adds `applicationDockMenu(_:)` to UIKit's delegate class with `class_addMethod`, which declines if UIKit implements it; nothing is swizzled.
@@ -272,7 +272,7 @@ Every touch affordance MUST be fenced with `!targetEnvironment(macCatalyst)`. Se
 
 ### 9.4 Native macOS is out of scope
 
-The UIKit-based UI layer would be a multi-month rewrite (the GhosttyKit runtime and swiftty themselves also build for macOS, which their headless tests use). A second application target MUST NOT be added. Accepted Catalyst limitations: the sandboxed build's local shell is the interpreter, not the account's zsh (section 9.6); `UIKeyCommand` key handling (dead keys, some Option-composed and non-Latin input slightly off versus `NSTextInputClient`), `UITextInput` candidate handling approximated, UIKit-derived VoiceOver.
+The UIKit-based UI layer would be a multi-month rewrite (the SwifttyKit runtime and swiftty themselves also build for macOS, which their headless tests use). A second application target MUST NOT be added. Accepted Catalyst limitations: the sandboxed build's local shell is the interpreter, not the account's zsh (section 9.6); `UIKeyCommand` key handling (dead keys, some Option-composed and non-Latin input slightly off versus `NSTextInputClient`), `UITextInput` candidate handling approximated, UIKit-derived VoiceOver.
 
 ### 9.5 Unverified on Catalyst
 
@@ -289,8 +289,8 @@ The Mac Catalyst build is sandboxed like every other platform (`ShellCatalyst.en
 
 Rules that follow:
 
-- The interpreter sources and `ios_system` compile and link on every platform; no `!targetEnvironment(macCatalyst)` fence may return to `Features/LocalShell`, `Core/Shell`, the bridging header, or `GhosttyApp`'s `initializeEnvironment()` call. The only Catalyst-only files are `CatalystLocalShellSession` and `MacLocalShellManager`.
-- Whoever owns the process environment before `ghostty_init` is the backend: `initializeEnvironment()` for the interpreter, `Ghostty.setupCatalystEnvironment()` for the native PTY, never both.
+- The interpreter sources and `ios_system` compile and link on every platform; no `!targetEnvironment(macCatalyst)` fence may return to `Features/LocalShell`, `Core/Shell`, the bridging header, or `SwifttyApp`'s `initializeEnvironment()` call. The only Catalyst-only files are `CatalystLocalShellSession` and `MacLocalShellManager`.
+- Whoever owns the process environment before SwifttyKit starts is the backend: `initializeEnvironment()` for the interpreter, `Swiftty.setupCatalystEnvironment()` for the native PTY, never both.
 - The interpreter's PATH excludes host directories on Catalyst (as on the simulator): ios_system cannot execute host binaries, and PATH scripts would shadow its builtins.
 - The interpreter's home is the app's Documents directory (the container's under the sandbox). The user's own folders reach it only through `files.user-selected.read-write` grants: Settings ▸ Terminal ▸ Folders (`LocalShellFoldersSection`, Catalyst + interpreter only) stores security-scoped bookmarks (`LocalShellFolders`), re-opens them at launch, and passes them to `ios_setAllowedPaths` so ios_system's `cd` admits them. Nothing else grants access.
 - `Base.xcconfig` MUST NOT exclude `commandDictionary.plist` / `extraCommandsDictionary.plist` on the macOS SDK; the interpreter has no commands without them.
@@ -314,20 +314,20 @@ No public entitlement widens this: `com.apple.security.device.serial` excludes `
 
 ### 10.1 Source tree
 
-App sources are under `shell/`: `App/`; `Core/` (`CloudKit`, `Connection`, `Foundation`, `Ghostty`, `Keybinds`, `Persistence`, `Preferences`, `SettingsSync`, plus `Animation`, `Prompt`, `Security`, `Shell`, `Sync`, `System`, `Terminal`, `Theme`); `Features/` (`LocalShell`, `Profiles`, `SSH`, `Tmux`); `UI/` (`Terminal`, `Tabs`, `Settings`, `Window`); `Entitlements/`; `Resources/`. `Features/SSH/` contains exactly `Config`, `HostTrust`, `Keys`, `Session`, `Settings`, `Views`; `Keys` MUST retain software keys, Secure Enclave, user certificates, Keychain persistence, fingerprinting, and authentication resolution.
+App sources are under `shell/`: `App/`; `Core/` (`CloudKit`, `Connection`, `Foundation`, `Swiftty`, `Keybinds`, `Persistence`, `Preferences`, `SettingsSync`, plus `Animation`, `Prompt`, `Security`, `Shell`, `Sync`, `System`, `Terminal`, `Theme`); `Features/` (`LocalShell`, `Profiles`, `SSH`, `Tmux`); `UI/` (`Terminal`, `Tabs`, `Settings`, `Window`); `Entitlements/`; `Resources/`. `Features/SSH/` contains exactly `Config`, `HostTrust`, `Keys`, `Session`, `Settings`, `Views`; `Keys` MUST retain software keys, Secure Enclave, user certificates, Keychain persistence, fingerprinting, and authentication resolution.
 
 Deleted (extraction complete): AI agent and agent attention/inbox/usage, automation, cloud providers and consoles, Kubernetes, VNC/screen sharing, Mosh, TSSH/Roam, VPN, NetBird, Tailscale integration, port forwarding, GPG, Git client, file browser, Croc, Helix, WASM tools, effects/shaders, Live Activities, push notification service, App Intents/Siri, HSS, YubiKey, FIDO2, transfer tools, `SSH/Agent`, `SSH/OpenPubkey`, `SSH/Discovery`, and their targets (push, widget, VPN tunnel, CoreWLAN plugin).
 
-Targets: `shell`, `ShellMacSupport`, `ShellTests`, plus the Control companion targets (`ShellControlHost`, `ShellWatch`, `ShellWatchTests`). Linked packages: GhosttyKit (`Packages/GhosttyKit`, on `vendor/swiftty`), Citadel, ios_system (binary targets `ios_system`, `awk`, `files`, `shell`, `text`), the ios_system command packages `libarchive_ios-rootshell` (`tar`), `vim-rootshell` (`vim`/`vi`, with `vendor/vim-rootshell/VimRuntime.bundle` as an app resource), `curl_ios-rootshell` (`curl`, verifying against the bundled `Resources/cacert.pem`), `jq-rootshell` (`jq`), and `ripgrep-rootshell` (`rg`), plus `Packages/ShellControlCore` and `cmd` for Control. Every command in `commandDictionary.plist` MUST name a linked framework; no git framework is linked (the Git client stays deleted, section 10.1).
+Targets: `shell`, `ShellMacSupport`, `ShellTests`, plus the Control companion targets (`ShellControlHost`, `ShellWatch`, `ShellWatchTests`). Linked packages: SwifttyKit (`Packages/SwifttyKit`, on `vendor/swiftty`), Citadel, ios_system (binary targets `ios_system`, `awk`, `files`, `shell`, `text`), the ios_system command packages `libarchive_ios-rootshell` (`tar`), `vim-rootshell` (`vim`/`vi`, with `vendor/vim-rootshell/VimRuntime.bundle` as an app resource), `curl_ios-rootshell` (`curl`, verifying against the bundled `Resources/cacert.pem`), `jq-rootshell` (`jq`), and `ripgrep-rootshell` (`rg`), plus `Packages/ShellControlCore` and `cmd` for Control. Every command in `commandDictionary.plist` MUST name a linked framework; no git framework is linked (the Git client stays deleted, section 10.1).
 
 ### 10.2 Dependency rule
 
 ```text
 App/UI
-  +-- Terminal  -- GhosttyKit (Ghostty API in Swift, on swiftty)
+  +-- Terminal  -- SwifttyKit (terminal API in Swift, on swiftty)
   +-- SSH       -- transport library (Citadel), Terminal
   |               Identity Store -- Keychain, Secure Enclave, OpenSSH certificates
-  +-- tmux      -- GhosttyKit tmux viewer, SSH raw transport
+  +-- tmux      -- SwifttyKit tmux viewer, SSH raw transport
   +-- Sync      -- CloudKit, Keychain
 ```
 
@@ -335,7 +335,7 @@ Invariant: no surviving core module may import AI, VNC, VPN, Mosh, TSSH, CloudPr
 
 ## 11. Settings
 
-Settings is four sections — Terminal, SSH, tmux, Sync — plus the optional Control companion as the one allowed extra (`SettingsSection`). No other settings pages. Settings are edited only here: the Ghostty-style text-configuration overlay (`ConfigOverlay`) is removed. Keybinds are the one exception, keeping an external file at `~/.ghostty/imported_keybinds.conf`, imported from Terminal ▸ Keyboard Shortcuts and re-read by the built-in `reloadconfig` command.
+Settings is four sections — Terminal, SSH, tmux, Sync — plus the optional Control companion as the one allowed extra (`SettingsSection`). No other settings pages. Settings are edited only here: the Swiftty-style text-configuration overlay (`ConfigOverlay`) is removed. Keybinds are the one exception, keeping an external file at `~/.swiftty/imported_keybinds.conf`, imported from Terminal ▸ Keyboard Shortcuts and re-read by the built-in `reloadconfig` command.
 
 ### 11.1 Terminal
 

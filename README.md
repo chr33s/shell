@@ -11,7 +11,7 @@
 Shell is a minimal fork of [rootshell](https://github.com/kitknox/rootshell), reduced to
 four capabilities:
 
-1. **Local terminal**: [swiftty](https://github.com/chr33s/swiftty) rendering behind the libghostty API, tabs, splits, scrollback, search, and session restore.
+1. **Local terminal**: [swiftty](https://github.com/chr33s/swiftty) rendering behind the SwifttyKit API, tabs, splits, scrollback, search, and session restore.
 2. **SSH**: password, key, and keyboard-interactive auth, known hosts, profiles, jump host,
    Secure Enclave keys, and OpenSSH user certificates.
 3. **Native tmux control mode**: `tmux -CC`, with windows as tabs and panes as splits.
@@ -53,7 +53,7 @@ Xcode 27 or "Latest Release".
 shell/                       the app: App, Core, Features (LocalShell, SSH, Tmux, Profiles, Control), UI
 Shared/, ShellMacSupport/    MacBridge and the Catalyst-only AppKit bundle
 ShellWatch/                  the watchOS app (config: Configuration/Watch.xcconfig)
-Packages/GhosttyKit/         the libghostty embedder API as a Swift module on swiftty
+Packages/SwifttyKit/         the SwifttyKit embedder API as a Swift module on swiftty
 Packages/ShellControlCore/   portable control protocol, security, gateway, and client code
 services/shell-control/      Mac-local broker
 services/push-relay/         optional stateless push relay

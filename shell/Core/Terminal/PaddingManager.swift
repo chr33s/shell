@@ -11,7 +11,7 @@ import UIKit
 import os
 
 /// Manages padding calculations for terminal content.
-/// Provides platform-tuned window padding for the Ghostty config.
+/// Provides platform-tuned window padding for the Swiftty config.
 @MainActor
 @Observable
 final class PaddingManager {
@@ -80,9 +80,9 @@ final class PaddingManager {
 #endif
     }
 
-    // MARK: - Ghostty Config
+    // MARK: - Swiftty Config
 
-    /// Calculate Ghostty config padding values.
+    /// Calculate Swiftty config padding values.
     /// Returns the platform defaults chosen to keep text clear of rounded corners.
     ///
     /// Keep balance disabled so the grid stays pinned to the explicit top-left

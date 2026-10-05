@@ -17,7 +17,7 @@ import os
 @MainActor
 public final class CatalystLocalShellSession: TerminalSession {
 
-    private static let logFrequentLayout = ProcessInfo.processInfo.environment["GHOSTTY_LOG_FREQUENT_LAYOUT"] == "1"
+    private static let logFrequentLayout = ProcessInfo.processInfo.environment["SWIFTTY_LOG_FREQUENT_LAYOUT"] == "1"
     private static let resizeThrottleNs: UInt64 = 50_000_000  // 50ms
 
     private let sessionID: UUID
@@ -43,7 +43,7 @@ public final class CatalystLocalShellSession: TerminalSession {
     public var onDisconnect: ((ReconnectionManager.DisconnectReason) -> Void)?
     public var supportsAutoReconnect: Bool { false }
 
-    // Read queue for PTY polling (matches macOS Ghostty pattern)
+    // Read queue for PTY polling (matches macOS Swiftty pattern)
     private let readQueue = DispatchQueue(label: "dev.chr33s.shell.catalyst.read", qos: .userInitiated)
     private var readSource: DispatchSourceRead?
 
@@ -94,7 +94,7 @@ public final class CatalystLocalShellSession: TerminalSession {
     /// Starts monitoring PTY output using callback pattern (matches SSHSession)
     func startMonitoring() {
         guard readSource == nil else { return }
-        Ghostty.logger.info("Starting PTY monitoring with polling pattern for session \(self.sessionID)")
+        Swiftty.logger.info("Starting PTY monitoring with polling pattern for session \(self.sessionID)")
 
         // Set PTY master FD to non-blocking mode (critical for polling)
         let flags = fcntl(masterFD, F_GETFL, 0)
@@ -119,7 +119,7 @@ public final class CatalystLocalShellSession: TerminalSession {
         }
 
         // Create a dispatch source to monitor PTY for readability
-        // This mimics poll() in macOS Ghostty's threadMainPosix
+        // This mimics poll() in macOS Swiftty's threadMainPosix
         let source = DispatchSource.makeReadSource(fileDescriptor: masterFD, queue: readQueue)
 
         // Handlers run on readQueue; @Sendable keeps them from inheriting this
@@ -146,7 +146,7 @@ public final class CatalystLocalShellSession: TerminalSession {
         // guaranteed finished, so this is the only safe place to close. It still hops to
         // writeQueue so the close stays serialized after any pending writes.
         source.setCancelHandler { @Sendable in
-            Ghostty.logger.info("PTY read source canceled for session \(sessionID.uuidString)")
+            Swiftty.logger.info("PTY read source canceled for session \(sessionID.uuidString)")
             writeQueue.async { close(masterFD) }
         }
 
@@ -154,11 +154,11 @@ public final class CatalystLocalShellSession: TerminalSession {
         self.readSource = source
 
         // Session is now ready for input
-        Ghostty.logger.info("Catalyst session monitoring started, firing onReady callback")
+        Swiftty.logger.info("Catalyst session monitoring started, firing onReady callback")
         onReady?()
     }
 
-    /// Reads from PTY in a hot loop until EAGAIN (matches macOS Ghostty pattern)
+    /// Reads from PTY in a hot loop until EAGAIN (matches macOS Swiftty pattern)
     /// Returns raw bytes for direct terminal rendering.
     private nonisolated static func readFromPTY(masterFD: Int32) -> (Data, Bool) {
         guard masterFD >= 0 else { return (Data(), false) }
@@ -190,7 +190,7 @@ public final class CatalystLocalShellSession: TerminalSession {
                     continue
                 } else {
                     // Fatal error
-                    Ghostty.logger.error("PTY read error: \(String(cString: strerror(err)))")
+                    Swiftty.logger.error("PTY read error: \(String(cString: strerror(err)))")
                     didExit = true
                     break
                 }
@@ -205,7 +205,7 @@ public final class CatalystLocalShellSession: TerminalSession {
     public func start() async throws {
         // Session is already started in create()
         // This is called by the framework to begin processing
-        Ghostty.logger.info("Session \(self.sessionID) start() called")
+        Swiftty.logger.info("Session \(self.sessionID) start() called")
     }
 
     public func stop() {
@@ -216,7 +216,7 @@ public final class CatalystLocalShellSession: TerminalSession {
         // Dispatch writes to background queue to prevent main thread blocking
         // during large pastes that may require retries when PTY buffer fills.
         guard isRunning, masterFD >= 0 else {
-            Ghostty.logger.warning("Cannot write - session not running or no FD")
+            Swiftty.logger.warning("Cannot write - session not running or no FD")
             return
         }
 
@@ -260,22 +260,22 @@ public final class CatalystLocalShellSession: TerminalSession {
                             usleep(1000)  // 1ms sleep to let PTY drain
                             continue
                         } else {
-                            Ghostty.logger.error("PTY write failed after \(maxRetries) retries (buffer full)")
+                            Swiftty.logger.error("PTY write failed after \(maxRetries) retries (buffer full)")
                             break
                         }
                     } else {
-                        Ghostty.logger.error("Failed to write to PTY: \(String(cString: strerror(err)))")
+                        Swiftty.logger.error("Failed to write to PTY: \(String(cString: strerror(err)))")
                         break
                     }
                 } else {
                     // bytesWritten == 0 shouldn't happen for PTY, but handle it
-                    Ghostty.logger.warning("PTY write returned 0")
+                    Swiftty.logger.warning("PTY write returned 0")
                     break
                 }
             }
 
             if totalWritten < data.count {
-                Ghostty.logger.error("Partial PTY write: \(totalWritten)/\(data.count) bytes")
+                Swiftty.logger.error("Partial PTY write: \(totalWritten)/\(data.count) bytes")
             }
         }
     }
@@ -324,7 +324,7 @@ public final class CatalystLocalShellSession: TerminalSession {
                             let sessionID = self.sessionID
                             let rows = pending.rows
                             let cols = pending.cols
-                            Ghostty.logger.debug("Resizing session \(sessionID) to \(rows)x\(cols)")
+                            Swiftty.logger.debug("Resizing session \(sessionID) to \(rows)x\(cols)")
                         }
                         do {
                             var size = self.pty.windowSize
@@ -348,7 +348,7 @@ public final class CatalystLocalShellSession: TerminalSession {
     private func terminate(signal: Int32 = SIGTERM) {
         guard isRunning else { return }
 
-        Ghostty.logger.info("Terminating session \(self.sessionID) with signal \(signal)")
+        Swiftty.logger.info("Terminating session \(self.sessionID) with signal \(signal)")
 
         process.terminate(signal: signal)
 
@@ -359,7 +359,7 @@ public final class CatalystLocalShellSession: TerminalSession {
         guard isRunning else { return }
         isRunning = false
 
-        Ghostty.logger.info("Session \(self.sessionID) exited, querying status")
+        Swiftty.logger.info("Session \(self.sessionID) exited, querying status")
 
         onSessionEnd?()
         cleanup()

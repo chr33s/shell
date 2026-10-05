@@ -1,0 +1,493 @@
+//
+//  SwifttyConfig.swift
+//  shell
+//
+//  Wrapper around swiftty_config_t for iOS
+//
+
+import Foundation
+import SwiftUI
+import Combine
+import os
+import SwifttyKit
+
+extension Swiftty {
+    /// Wrapper around swiftty_config_t
+    @Observable
+    final class Config {
+        // The underlying C pointer to the Swiftty config structure
+        private(set) var config: swiftty_config_t? {
+            didSet {
+                guard let previous = oldValue else { return }
+                // The old pointer may still be queued for delivery to the core
+                // app and its surfaces. Free it behind those calls, not ahead
+                // of them.
+                nonisolated(unsafe) let old = previous
+                Swiftty.TerminalView.swifttyAPIQueue.async { swiftty_config_free(old) }
+            }
+        }
+
+        /// True if the configuration is loaded
+        var loaded: Bool { config != nil }
+
+        /// Return the errors found while loading the configuration
+        var errors: [String] {
+            guard let cfg = self.config else { return [] }
+
+            var diags: [String] = []
+            let diagsCount = swiftty_config_diagnostics_count(cfg)
+            for i in 0..<diagsCount {
+                let diag = swiftty_config_get_diagnostic(cfg, UInt32(i))
+                let message = String(cString: diag.message)
+                diags.append(message)
+            }
+
+            return diags
+        }
+
+        init() {
+            if let cfg = Self.loadConfig() {
+                self.config = cfg
+            }
+        }
+
+        init(clone config: swiftty_config_t) {
+            self.config = swiftty_config_clone(config)
+        }
+
+        isolated deinit {
+            // Runs on the main actor even when the last reference is
+            // dropped elsewhere, so `config`'s free happens there too.
+            self.config = nil
+        }
+
+        /// Initializes a new configuration and loads all the values
+        static private func loadConfig() -> swiftty_config_t? {
+            guard let cfg = swiftty_config_new() else {
+                logger.critical("swiftty_config_new failed")
+                return nil
+            }
+
+            // On iOS, we don't load from files by default
+            // Configuration will be managed via UserDefaults/ConfigStore
+            // For now, just use defaults
+            swiftty_config_finalize(cfg)
+
+            // Log any configuration errors
+            let diagsCount = swiftty_config_diagnostics_count(cfg)
+            if diagsCount > 0 {
+                logger.warning("config error: \(diagsCount) configuration errors")
+                for i in 0..<diagsCount {
+                    let diag = swiftty_config_get_diagnostic(cfg, UInt32(i))
+                    let message = String(cString: diag.message)
+                    logger.warning("config error: \(message)")
+                }
+            }
+
+            return cfg
+        }
+
+        // MARK: - Theme Management
+
+        /// Set the theme by creating a config file and reloading
+        /// - Parameter themeName: The name of the theme (e.g., "Blackboard Dark")
+        /// - Returns: true if the theme was set successfully, false otherwise
+        func setTheme(_ themeName: String) -> Bool {
+            logger.info("Setting theme to: \(themeName)")
+
+            // Write config file with theme setting
+            guard writeConfigFile(themeName: themeName) else {
+                logger.error("Failed to write config file for theme: \(themeName)")
+                return false
+            }
+
+            // Create a new config and load it
+            guard let newConfig = Self.loadConfigWithTheme() else {
+                logger.error("Failed to load config with theme: \(themeName)")
+                return false
+            }
+
+            // Replace our config with the new one
+            self.config = newConfig
+
+            logger.info("Theme set successfully: \(themeName)")
+            return true
+        }
+
+        /// Set the font size by creating a config file and reloading
+        /// - Parameter size: The font size in points (e.g., 13)
+        /// - Returns: true if the font size was set successfully, false otherwise
+        func setFontSize(_ size: Int) -> Bool {
+            logger.info("Setting font size to: \(size)")
+
+            // Write config file with font size setting
+            guard writeConfigFile(fontSize: size) else {
+                logger.error("Failed to write config file for font size: \(size)")
+                return false
+            }
+
+            // Create a new config and load it
+            guard let newConfig = Self.loadConfigWithTheme() else {
+                logger.error("Failed to load config with font size: \(size)")
+                return false
+            }
+
+            // Replace our config with the new one
+            self.config = newConfig
+
+            logger.info("Font size set successfully: \(size)")
+            return true
+        }
+
+        /// Set the font family by creating a config file and reloading
+        /// - Parameter family: The font family name (e.g., "FiraCode Nerd Font Mono")
+        /// - Returns: true if the font family was set successfully, false otherwise
+        func setFontFamily(_ family: String) -> Bool {
+            logger.info("Setting font family to: \(family)")
+
+            // Write config file with font family setting
+            guard writeConfigFile(fontFamily: family) else {
+                logger.error("Failed to write config file for font family: \(family)")
+                return false
+            }
+
+            // Create a new config and load it
+            guard let newConfig = Self.loadConfigWithTheme() else {
+                logger.error("Failed to load config with font family: \(family)")
+                return false
+            }
+
+            // Replace our config with the new one
+            self.config = newConfig
+
+            logger.info("Font family set successfully: \(family)")
+            return true
+        }
+
+        /// Get the config directory path (~/.config/swiftty on iOS)
+        private static var configDirectory: URL? {
+            // On iOS, use Application Support directory
+            guard let appSupport = FileManager.default.urls(
+                for: .applicationSupportDirectory,
+                in: .userDomainMask
+            ).first else {
+                return nil
+            }
+
+            let swifttyDir = appSupport.appendingPathComponent("swiftty")
+
+            // Create directory if it doesn't exist
+            try? FileManager.default.createDirectory(
+                at: swifttyDir,
+                withIntermediateDirectories: true
+            )
+
+            return swifttyDir
+        }
+
+        /// Terminal background opacity: transparency is Mac Catalyst only, so
+        /// iPad/iOS stay opaque to match the surrounding themed background.
+        /// Window blur is applied by the host (`applyWindowBlur`), not here.
+        private static func effectiveBackgroundOpacity() -> Double {
+#if targetEnvironment(macCatalyst)
+            TransparencyManager.shared.backgroundOpacity
+#else
+            1.0
+#endif
+        }
+
+        /// Write a config file with the specified theme, font size, and/or font family
+        private func writeConfigFile(themeName: String? = nil, fontSize: Int? = nil, fontFamily: String? = nil) -> Bool {
+            guard let configDir = Self.configDirectory else {
+                logger.error("Failed to get config directory")
+                return false
+            }
+
+            let configFile = configDir.appendingPathComponent("config")
+
+            // Build config content with available settings
+            var configLines: [String] = []
+
+            if let theme = themeName {
+                configLines.append("theme = \(theme)")
+            } else {
+                // Preserve current theme from saved preferences
+                let currentTheme = ThemeManager.shared.currentTheme
+                configLines.append("theme = \(currentTheme)")
+            }
+
+            if let size = fontSize {
+                configLines.append("font-size = \(size)")
+            } else {
+                // Preserve current font size from saved preferences
+                let currentSize = Int(FontManager.shared.currentFontSize)
+                configLines.append("font-size = \(currentSize)")
+            }
+
+            // Font family - only write if explicitly set (nil = use Swiftty default)
+            if let family = fontFamily {
+                configLines.append("font-family = \(family)")
+            } else if let currentFamily = FontManager.shared.currentFontFamily {
+                // Preserve current font family from saved preferences
+                configLines.append("font-family = \(currentFamily)")
+            }
+            // If no font family is set, don't write font-family to use Swiftty's default
+
+            // Mac Catalyst: Spawn shell directly instead of via /usr/bin/login
+            // /usr/bin/login has issues with PTY setup in Catalyst (no job control)
+            #if targetEnvironment(macCatalyst)
+            // Honours the Local Shell setting; falls back to $SHELL -l when unset.
+            let shellCommand = LocalShellSettings.swifttyConfigCommand
+            configLines.append("command = \(shellCommand)")
+
+            // Set initial working directory to home
+            let homeDir = NSHomeDirectory()
+            configLines.append("working-directory = \(homeDir)")
+
+            logger.info("Catalyst config: command=\"\(shellCommand)\", working-directory=\"\(homeDir)\"")
+            #endif
+
+            // Always include clipboard paste safety setting
+            configLines.append("clipboard-paste-bracketed-safe-newline = true")
+
+            // Enable OSC 52 clipboard access for terminal applications (e.g., neovim, tmux)
+            // This allows programs to read/write the system clipboard via escape sequences
+            configLines.append("clipboard-read = allow")
+            configLines.append("clipboard-write = allow")
+
+            // Auto-copy selected text to clipboard (default on, matches macOS Swiftty)
+            let copyOnSelect = SettingsStore.shared.value(Settings.Selection.copyOnSelect)
+            configLines.append("copy-on-select = \(copyOnSelect)")
+
+            // Lines of history per surface. `scrollback-limit-lines`, not the
+            // compatibility alias `scrollback-limit`, which swiftty renamed to
+            // `scrollback-limit-bytes`. Applies to surfaces created after this
+            // config is pushed; open surfaces keep their current history.
+            let scrollbackLimit = SettingsStore.shared.value(Settings.Terminal.scrollbackLimit)
+            configLines.append("scrollback-limit-lines = \(scrollbackLimit)")
+
+            // Option key as Alt setting (matches Swiftty's macos-option-as-alt)
+            let optionAsAlt = SettingsStore.shared.value(Settings.Keyboard.optionKeyAsAlt)
+            if optionAsAlt == .on {
+                configLines.append("macos-option-as-alt = true")
+            } else if optionAsAlt == .left {
+                configLines.append("macos-option-as-alt = left")
+            } else if optionAsAlt == .right {
+                configLines.append("macos-option-as-alt = right")
+            } else {
+                configLines.append("macos-option-as-alt = false")
+            }
+
+            // Font ligatures (contextual alternates and standard ligatures)
+            let fontManager = FontManager.shared
+            if fontManager.ligaturesEnabled {
+                configLines.append("font-feature = calt")
+                configLines.append("font-feature = liga")
+            } else {
+                // Disable ligatures (Swiftty documentation: "-calt, -liga, -dlig")
+                configLines.append("font-feature = -calt")
+                configLines.append("font-feature = -liga")
+                configLines.append("font-feature = -dlig")
+            }
+
+            // Per-font stylistic set / feature toggles from FontManager
+            let featureLines = fontManager.fontFeatureConfigLines()
+            configLines.append(contentsOf: featureLines)
+
+            // Per-font cell box adjustments (adjust-cell-width / -height)
+            configLines.append(contentsOf: fontManager.cellAdjustmentConfigLines())
+
+            configLines.append("font-thicken = true")
+            configLines.append(contentsOf: SelectionManager.shared.generateSelectionConfigLines())
+            configLines.append(contentsOf: CursorManager.shared.generateCursorConfigLines())
+
+            // Transparency is only supported on Mac Catalyst. Keep iPad/iOS opaque
+            // so the Swiftty surface matches the surrounding themed SwiftUI background.
+            configLines.append("background-opacity = \(Self.effectiveBackgroundOpacity())")
+
+            // Window padding for text inset from edges (background still renders to edges).
+            // Padding balance stays off so the terminal grid remains pinned during
+            // live window resize; any sub-cell remainder stays on the trailing edges.
+            let windowPadding = PaddingManager.shared.configPadding()
+            configLines.append("window-padding-x = \(windowPadding.x)")
+            configLines.append("window-padding-y = \(windowPadding.y)")
+            configLines.append("window-padding-balance = \(windowPadding.balance)")
+
+            // Keybinds from KeybindManager (terminal actions only)
+            let keybindLines = KeybindManager.shared.terminalKeybindConfigLines()
+            configLines.append(contentsOf: keybindLines)
+
+            let configContent = configLines.joined(separator: "\n") + "\n"
+
+            do {
+                try configContent.write(to: configFile, atomically: true, encoding: .utf8)
+                logger.info("Wrote config file: \(configFile.path)")
+                return true
+            } catch {
+                logger.error("Failed to write config file: \(error)")
+                return false
+            }
+        }
+
+        /// Load a new config with theme from the config file
+        private static func loadConfigWithTheme() -> swiftty_config_t? {
+            guard let cfg = swiftty_config_new() else {
+                logger.critical("swiftty_config_new failed")
+                return nil
+            }
+
+            // Load from default files (will read our config file)
+            swiftty_config_load_default_files(cfg)
+
+            // Finalize the config
+            swiftty_config_finalize(cfg)
+
+            // Log any configuration errors
+            let diagsCount = swiftty_config_diagnostics_count(cfg)
+            if diagsCount > 0 {
+                logger.warning("config error: \(diagsCount) configuration errors")
+                for i in 0..<diagsCount {
+                    let diag = swiftty_config_get_diagnostic(cfg, UInt32(i))
+                    let message = String(cString: diag.message)
+                    logger.warning("config error: \(message)")
+                }
+            }
+
+            return cfg
+        }
+
+        // MARK: - Per-Surface Theme Configuration
+
+        /// Create a config with a specific theme for per-surface overrides
+        /// This writes a temporary config file, loads it, and returns the config.
+        /// The caller is responsible for applying this config to a specific surface.
+        /// - Parameter themeName: The theme name to use
+        /// - Returns: A swiftty_config_t configured with the specified theme, or nil on failure
+        static func createConfigForTheme(_ themeName: String) -> swiftty_config_t? {
+            logger.info("Creating per-surface config for theme: \(themeName)")
+
+            // Write config file with the override theme
+            guard writeConfigFileForTheme(themeName: themeName) else {
+                logger.error("Failed to write config file for per-surface theme: \(themeName)")
+                return nil
+            }
+
+            // Load the config
+            guard let cfg = loadConfigWithTheme() else {
+                logger.error("Failed to load config for per-surface theme: \(themeName)")
+                return nil
+            }
+
+            logger.info("Created per-surface config for theme: \(themeName)")
+            return cfg
+        }
+
+        /// Write a config file with the specified theme (static version for per-surface configs)
+        /// Uses current font settings from FontManager
+        private static func writeConfigFileForTheme(themeName: String) -> Bool {
+            guard let configDir = configDirectory else {
+                logger.error("Failed to get config directory")
+                return false
+            }
+
+            let configFile = configDir.appendingPathComponent("config")
+
+            // Build config content
+            var configLines: [String] = []
+
+            // Use the specified theme
+            configLines.append("theme = \(themeName)")
+
+            // Preserve current font size from saved preferences
+            let currentSize = Int(FontManager.shared.currentFontSize)
+            configLines.append("font-size = \(currentSize)")
+
+            // Font family - preserve current if set
+            if let currentFamily = FontManager.shared.currentFontFamily {
+                configLines.append("font-family = \(currentFamily)")
+            }
+
+            // Mac Catalyst: Spawn shell directly instead of via /usr/bin/login
+            #if targetEnvironment(macCatalyst)
+            configLines.append("command = \(LocalShellSettings.swifttyConfigCommand)")
+            let homeDir = NSHomeDirectory()
+            configLines.append("working-directory = \(homeDir)")
+            #endif
+
+            // Standard settings
+            configLines.append("clipboard-paste-bracketed-safe-newline = true")
+
+            // Enable OSC 52 clipboard access for terminal applications (e.g., neovim, tmux)
+            configLines.append("clipboard-read = allow")
+            configLines.append("clipboard-write = allow")
+
+            // Auto-copy selected text to clipboard (default on, matches macOS Swiftty)
+            let copyOnSelect = SettingsStore.shared.value(Settings.Selection.copyOnSelect)
+            configLines.append("copy-on-select = \(copyOnSelect)")
+
+            // Lines of history per surface. `scrollback-limit-lines`, not the
+            // compatibility alias `scrollback-limit`, which swiftty renamed to
+            // `scrollback-limit-bytes`. Applies to surfaces created after this
+            // config is pushed; open surfaces keep their current history.
+            let scrollbackLimit = SettingsStore.shared.value(Settings.Terminal.scrollbackLimit)
+            configLines.append("scrollback-limit-lines = \(scrollbackLimit)")
+
+            // Option key as Alt setting (matches Swiftty's macos-option-as-alt)
+            let optionAsAlt = SettingsStore.shared.value(Settings.Keyboard.optionKeyAsAlt)
+            if optionAsAlt == .on {
+                configLines.append("macos-option-as-alt = true")
+            } else if optionAsAlt == .left {
+                configLines.append("macos-option-as-alt = left")
+            } else if optionAsAlt == .right {
+                configLines.append("macos-option-as-alt = right")
+            } else {
+                configLines.append("macos-option-as-alt = false")
+            }
+
+            // Font ligatures
+            let fontManager = FontManager.shared
+            if fontManager.ligaturesEnabled {
+                configLines.append("font-feature = calt")
+                configLines.append("font-feature = liga")
+            } else {
+                configLines.append("font-feature = -calt")
+                configLines.append("font-feature = -liga")
+                configLines.append("font-feature = -dlig")
+            }
+
+            // Per-font stylistic set / feature toggles from FontManager
+            let featureLines = fontManager.fontFeatureConfigLines()
+            configLines.append(contentsOf: featureLines)
+
+            // Per-font cell box adjustments (adjust-cell-width / -height)
+            configLines.append(contentsOf: fontManager.cellAdjustmentConfigLines())
+
+            configLines.append("font-thicken = true")
+            configLines.append(contentsOf: SelectionManager.shared.generateSelectionConfigLines())
+            configLines.append(contentsOf: CursorManager.shared.generateCursorConfigLines())
+
+            configLines.append("background-opacity = \(Self.effectiveBackgroundOpacity())")
+
+            // Window padding for text inset from edges (background still renders to edges).
+            // Keep this in sync with app config generation above.
+            let windowPadding = PaddingManager.shared.configPadding()
+            configLines.append("window-padding-x = \(windowPadding.x)")
+            configLines.append("window-padding-y = \(windowPadding.y)")
+            configLines.append("window-padding-balance = \(windowPadding.balance)")
+
+            // Keybinds
+            let keybindLines = KeybindManager.shared.terminalKeybindConfigLines()
+            configLines.append(contentsOf: keybindLines)
+
+            let configContent = configLines.joined(separator: "\n") + "\n"
+
+            do {
+                try configContent.write(to: configFile, atomically: true, encoding: .utf8)
+                return true
+            } catch {
+                logger.error("Failed to write config file for per-surface theme: \(error)")
+                return false
+            }
+        }
+    }
+}

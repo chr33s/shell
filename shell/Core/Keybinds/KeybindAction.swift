@@ -48,7 +48,7 @@ enum KeybindCategory: String, CaseIterable, Identifiable {
 enum KeybindAction: String, CaseIterable, Codable, Identifiable, Hashable {
     var id: String { rawValue }
 
-    // MARK: - Terminal Actions (handled by libghostty)
+    // MARK: - Terminal Actions (handled by SwifttyKit)
 
     /// Copy selected text to clipboard
     case copy_to_clipboard = "copy_to_clipboard"
@@ -185,7 +185,7 @@ enum KeybindAction: String, CaseIterable, Codable, Identifiable, Hashable {
     case ctrl_y = "ctrl_y"
     case ctrl_z = "ctrl_z"
 
-    // Send data actions (desktop Ghostty compatible)
+    // Send data actions (desktop Swiftty compatible)
     /// Send arbitrary text/bytes to terminal (uses escape sequence encoding)
     case send_text = "text"
     /// Send ESC sequence to terminal (prepends ESC byte)
@@ -199,7 +199,7 @@ enum KeybindAction: String, CaseIterable, Codable, Identifiable, Hashable {
 
     // MARK: - Properties
 
-    /// Whether this action is handled by libghostty (terminal) vs Swift (app)
+    /// Whether this action is handled by SwifttyKit (terminal) vs Swift (app)
     var isTerminalAction: Bool {
         switch self {
         case .copy_to_clipboard, .paste_from_clipboard,
@@ -448,8 +448,8 @@ enum KeybindAction: String, CaseIterable, Codable, Identifiable, Hashable {
         }
     }
 
-    /// Ghostty binding action string for terminal actions
-    var ghosttyActionString: String? {
+    /// Swiftty binding action string for terminal actions
+    var swifttyActionString: String? {
         switch self {
         case .copy_to_clipboard: return "copy_to_clipboard"
         case .paste_from_clipboard: return "paste_from_clipboard"

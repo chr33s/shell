@@ -50,7 +50,7 @@ final class WindowFocusRegistry {
     /// `MenuFocusState` always re-resolves against the final answer.
     ///
     /// Guarded because the notification re-enters here: `noteWindowFocusChanged()`
-    /// re-resolves through `UIApplication.ghostty_activeWindowSceneSessionID()`,
+    /// re-resolves through `UIApplication.swiftty_activeWindowSceneSessionID()`,
     /// which prunes an entry whose scene is gone by calling `remove` right back.
     /// That nesting is finite — each level drops one entry — but the outermost
     /// call re-resolves after those prunes land, so the inner ones would only

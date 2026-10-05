@@ -8,12 +8,12 @@
 //
 
 import UIKit
-import GhosttyKit
+import SwifttyKit
 
-extension Ghostty.TerminalView: ConnectionProgressHost {
+extension Swiftty.TerminalView: ConnectionProgressHost {
 
     func writeProgressOutput(_ string: String) {
-        writeToGhostty(string: string)
+        writeToSwiftty(string: string)
     }
 
     var progressTerminalWidth: Int {

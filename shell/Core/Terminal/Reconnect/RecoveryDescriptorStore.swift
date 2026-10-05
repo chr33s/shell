@@ -6,7 +6,7 @@
 //  (docs/specs/mobile-connectivity.md §12, §14, CON-10).
 //
 //  What is stored is *intent*, not a connection: no tasks, no channels, no
-//  key material, no Ghostty pointers, and no terminal contents. A cold launch
+//  key material, no Swiftty pointers, and no terminal contents. A cold launch
 //  restores a descriptor and an offer to reconnect — never a transport, and
 //  never an assumption of readiness.
 //

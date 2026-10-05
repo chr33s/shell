@@ -9,7 +9,7 @@
 
 import SwiftUI
 import Combine
-import GhosttyKit
+import SwifttyKit
 import os
 import UniformTypeIdentifiers
 

@@ -90,7 +90,7 @@ final class SelectionManager {
 
     // MARK: - Config Generation
 
-    /// Generates the Ghostty config lines for the current selection mode
+    /// Generates the Swiftty config lines for the current selection mode
     func generateSelectionConfigLines() -> [String] {
         switch selectionMode {
         case .shell:

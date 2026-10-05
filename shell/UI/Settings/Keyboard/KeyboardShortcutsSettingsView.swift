@@ -35,7 +35,7 @@ struct KeyboardShortcutsSettingsView: View {
             } header: {
                 Text("Config File")
             } footer: {
-                Text("Optionally load keybinds from an external ghostty config file. The imported file lives at \(keybindManager.externalConfigShellPath), can be edited in place, and your in-app customizations still take priority.")
+                Text("Optionally load keybinds from an external swiftty config file. The imported file lives at \(keybindManager.externalConfigShellPath), can be edited in place, and your in-app customizations still take priority.")
             }
 
             // Category picker
@@ -210,7 +210,7 @@ struct KeyboardShortcutsSettingsView: View {
             } label: {
                 HStack {
                     Image(systemName: "doc.badge.plus")
-                    Text("Select Ghostty Config File...")
+                    Text("Select Swiftty Config File...")
                 }
             }
             .themedRow()
@@ -239,7 +239,7 @@ struct KeyboardShortcutsSettingsView: View {
         case .success(let url):
             // Import failures used to be logged inside KeybindManager and
             // swallowed here, so an unreadable security-scoped URL, a non-UTF-8
-            // file, or a failed copy into ~/.ghostty dismissed the picker with
+            // file, or a failed copy into ~/.swiftty dismissed the picker with
             // no alert and no imported config -- indistinguishable from a broken
             // button. Surface them through the "Config File Error" alert that is
             // already bound to configFileErrorMessage.

@@ -16,8 +16,8 @@ struct KeybindModifiers: OptionSet, Codable, Hashable, Sendable {
 
     static let shift = KeybindModifiers(rawValue: 1 << 0)
     static let control = KeybindModifiers(rawValue: 1 << 1)
-    static let option = KeybindModifiers(rawValue: 1 << 2)  // alt on ghostty
-    static let command = KeybindModifiers(rawValue: 1 << 3)  // super on ghostty
+    static let option = KeybindModifiers(rawValue: 1 << 2)  // alt on swiftty
+    static let command = KeybindModifiers(rawValue: 1 << 3)  // super on swiftty
 
     /// Convert to UIKeyModifierFlags
     var uiModifierFlags: UIKeyModifierFlags {
@@ -43,10 +43,10 @@ struct KeybindModifiers: OptionSet, Codable, Hashable, Sendable {
         self.rawValue = rawValue
     }
 
-    /// Parse from ghostty config format: "cmd+shift" or "ctrl+alt"
-    init?(ghosttyFormat: String) {
+    /// Parse from swiftty config format: "cmd+shift" or "ctrl+alt"
+    init?(swifttyFormat: String) {
         var raw: UInt8 = 0
-        let parts = ghosttyFormat.lowercased().components(separatedBy: "+")
+        let parts = swifttyFormat.lowercased().components(separatedBy: "+")
         for part in parts {
             switch part {
             case "shift":
@@ -65,8 +65,8 @@ struct KeybindModifiers: OptionSet, Codable, Hashable, Sendable {
         self.rawValue = raw
     }
 
-    /// Convert to ghostty config format (sorted for consistency)
-    var ghosttyFormat: String {
+    /// Convert to swiftty config format (sorted for consistency)
+    var swifttyFormat: String {
         var parts: [String] = []
         if contains(.control) { parts.append("ctrl") }
         if contains(.option) { parts.append("alt") }
@@ -98,7 +98,7 @@ struct KeybindModifiers: OptionSet, Codable, Hashable, Sendable {
 
 // MARK: - Key Code
 
-/// Key codes matching ghostty's W3C-based key codes
+/// Key codes matching swiftty's W3C-based key codes
 enum KeyCode: String, Codable, CaseIterable, Hashable, Sendable {
     // Letters
     case a, b, c, d, e, f, g, h, i, j, k, l, m
@@ -321,7 +321,7 @@ enum KeyCode: String, Codable, CaseIterable, Hashable, Sendable {
             // handles virtual Command from mod-tap and combined modifiers.
             let layout = CatalystKeyboardLayout.shared
             if layout.isAvailable,
-               let nativeKeyCode = Ghostty.Input.nativeKeyCode(for: uiKey.keyCode),
+               let nativeKeyCode = Swiftty.Input.nativeKeyCode(for: uiKey.keyCode),
                let translated = layout.translateKey(
                    cgKeyCode: UInt16(nativeKeyCode), shift: false, command: true
                ), let translatedKey = Self.printableKey(for: translated) {
@@ -541,9 +541,9 @@ enum KeyCode: String, Codable, CaseIterable, Hashable, Sendable {
         }
     }
 
-    /// Parse from ghostty config format
-    init?(ghosttyFormat: String) {
-        let lower = ghosttyFormat.lowercased()
+    /// Parse from swiftty config format
+    init?(swifttyFormat: String) {
+        let lower = swifttyFormat.lowercased()
 
         // Check explicit key names first
         switch lower {
@@ -565,7 +565,7 @@ enum KeyCode: String, Codable, CaseIterable, Hashable, Sendable {
         case "page_up", "pageup": self = .pageUp
         case "page_down", "pagedown": self = .pageDown
 
-        // Symbol key names (Ghostty canonical + legacy 1.1.x aliases)
+        // Symbol key names (Swiftty canonical + legacy 1.1.x aliases)
         case "semicolon": self = .semicolon
         case "quote", "apostrophe": self = .quote
         case "comma": self = .comma
@@ -574,10 +574,10 @@ enum KeyCode: String, Codable, CaseIterable, Hashable, Sendable {
         case "minus": self = .minus
         case "equal": self = .equal
         case "plus": self = .plus
-        // ">" MUST be readable by name: `KeySequence.init?(ghosttyFormat:)`
+        // ">" MUST be readable by name: `KeySequence.init?(swifttyFormat:)`
         // splits on ">" before `KeyTrigger` ever sees the part, so a literal
         // "cmd+>" is shredded into "cmd+" + "" and parses to nil. This alias is
-        // the read side of `KeyCode.ghosttyFormat`'s `greater_than`; without it
+        // the read side of `KeyCode.swifttyFormat`'s `greater_than`; without it
         // every exported ">" binding is silently dropped on re-import.
         case "greater_than": self = .greaterThan
         case "bracket_left", "left_bracket": self = .leftBracket
@@ -613,8 +613,8 @@ enum KeyCode: String, Codable, CaseIterable, Hashable, Sendable {
         }
     }
 
-    /// Convert to ghostty config format
-    var ghosttyFormat: String {
+    /// Convert to swiftty config format
+    var swifttyFormat: String {
         switch self {
         case .tab: return "tab"
         case .escape: return "escape"
@@ -643,8 +643,8 @@ enum KeyCode: String, Codable, CaseIterable, Hashable, Sendable {
         case .f11: return "f11"
         case .f12: return "f12"
 
-        // Symbol keys: emit canonical Ghostty names so libghostty's parser
-        // (Binding.zig) maps them to physical key codes instead of falling back
+        // Symbol keys: emit canonical Swiftty names so SwifttyKit's keybind parser
+        // maps them to physical key codes instead of falling back
         // to single-character Unicode bindings.
         case .period: return "period"
         case .comma: return "comma"
@@ -657,7 +657,7 @@ enum KeyCode: String, Codable, CaseIterable, Hashable, Sendable {
         case .backslash: return "backslash"
         case .quote: return "quote"
         case .grave: return "backquote"
-        // "+" MUST be emitted by name. `KeyTrigger.ghosttyFormat` joins the
+        // "+" MUST be emitted by name. `KeyTrigger.swifttyFormat` joins the
         // modifiers and the key with "+", so a bare "+" serialized as "cmd++",
         // which neither our own parser nor any "+"-splitting parser can read
         // back — and since the exported config starts with `keybind = clear`,
@@ -767,9 +767,9 @@ struct KeyTrigger: Codable, Hashable, CustomStringConvertible, Sendable {
         return symbol
     }
 
-    /// Parse from ghostty config format: "cmd+shift+d" or "ctrl+a"
-    init?(ghosttyFormat: String) {
-        let lowered = ghosttyFormat.lowercased()
+    /// Parse from swiftty config format: "cmd+shift+d" or "ctrl+a"
+    init?(swifttyFormat: String) {
+        let lowered = swifttyFormat.lowercased()
 
         // "+" as the KEY ("cmd++", or a lone "+"): splitting on "+" first
         // yields empty components that never parse, so peel the key off before
@@ -777,7 +777,7 @@ struct KeyTrigger: Codable, Hashable, CustomStringConvertible, Sendable {
         // truncated "cmd+" still fails instead of being mis-read as cmd+plus.
         if lowered == "+" || lowered.hasSuffix("++") {
             self.key = .plus
-            self.modifiers = KeybindModifiers(ghosttyFormat: String(lowered.dropLast())) ?? []
+            self.modifiers = KeybindModifiers(swifttyFormat: String(lowered.dropLast())) ?? []
             return
         }
 
@@ -789,7 +789,7 @@ struct KeyTrigger: Codable, Hashable, CustomStringConvertible, Sendable {
         var modParts: [String] = []
 
         for part in parts {
-            if KeyCode(ghosttyFormat: part) != nil && keyPart == nil {
+            if KeyCode(swifttyFormat: part) != nil && keyPart == nil {
                 // Could be key or modifier
                 if ["shift", "ctrl", "control", "alt", "opt", "option", "cmd", "command", "super"].contains(part) {
                     modParts.append(part)
@@ -808,20 +808,20 @@ struct KeyTrigger: Codable, Hashable, CustomStringConvertible, Sendable {
             keyPart = parts.last
         }
 
-        guard let kp = keyPart, let key = KeyCode(ghosttyFormat: kp) else {
+        guard let kp = keyPart, let key = KeyCode(swifttyFormat: kp) else {
             return nil
         }
 
         self.key = key
-        self.modifiers = KeybindModifiers(ghosttyFormat: modParts.joined(separator: "+")) ?? []
+        self.modifiers = KeybindModifiers(swifttyFormat: modParts.joined(separator: "+")) ?? []
     }
 
-    /// Convert to ghostty config format
-    var ghosttyFormat: String {
+    /// Convert to swiftty config format
+    var swifttyFormat: String {
         if modifiers.isEmpty {
-            return key.ghosttyFormat
+            return key.swifttyFormat
         }
-        return "\(modifiers.ghosttyFormat)+\(key.ghosttyFormat)"
+        return "\(modifiers.swifttyFormat)+\(key.swifttyFormat)"
     }
 
     /// Convert to UIKeyModifierFlags

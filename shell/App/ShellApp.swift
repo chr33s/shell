@@ -13,7 +13,7 @@ import UIKit
 
 @main
 struct ShellApp: App {
-    @State private var ghosttyApp = Ghostty.App()
+    @State private var swifttyApp = Swiftty.App()
     @State private var appearanceManager = AppearanceManager.shared
 
     #if targetEnvironment(macCatalyst)
@@ -36,7 +36,7 @@ struct ShellApp: App {
         guard ProtectedDataGuard.isAvailable else { return }
 
         // Initialize FontManager early to register bundled fonts
-        // before Ghostty surfaces try to use them
+        // before Swiftty surfaces try to use them
         _ = FontManager.shared
 
         // Initialize SessionTracker early so it exists before any MainView
@@ -47,7 +47,7 @@ struct ShellApp: App {
     var body: some Scene {
         WindowGroup(id: "main-terminal") {
             MainView()
-                .environment(ghosttyApp)
+                .environment(swifttyApp)
                 .preferredColorScheme(appearanceManager.colorScheme)
                 .statusBarStyleForTerminalTheme()
                 .modifier(ControlReviewPresentationModifier())
@@ -90,8 +90,8 @@ struct ShellApp: App {
                     var userInfo: [AnyHashable: Any] = [
                         SSHURLPayload.key: SSHURLPayload(components: components)
                     ]
-                    if let sceneID = UIApplication.shared.ghostty_activeWindowSceneSessionID() {
-                        userInfo[GhosttyCommandRouting.windowSceneSessionIDKey] = sceneID
+                    if let sceneID = UIApplication.shared.swiftty_activeWindowSceneSessionID() {
+                        userInfo[SwifttyCommandRouting.windowSceneSessionIDKey] = sceneID
                     }
                     NotificationCenter.default.post(
                         name: .sshURLReceived,

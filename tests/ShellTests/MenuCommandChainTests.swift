@@ -29,7 +29,7 @@
 //  requires deleting its row here as a separate, visible act — which is the
 //  speed bump the four defects this session all slipped past.
 //
-//  Determinism: `ghostty_postNotification` posts synchronously on the calling
+//  Determinism: `swiftty_postNotification` posts synchronously on the calling
 //  thread, so every assertion is made after `perform` returns. No waiting, no
 //  expectations, no timeouts. Observers are removed in `defer`.
 //
@@ -244,7 +244,7 @@ final class MenuCommandChainTests {
     /// could describe a different window than the one that acts.
     @Test
     func testFallbackCommandsAreStampedWithTheActiveWindowScene() throws {
-        let sceneID = try #require(UIApplication.shared.ghostty_activeWindowSceneSessionID(), "Test host has no foreground window scene; the stamping path cannot be exercised.")
+        let sceneID = try #require(UIApplication.shared.swiftty_activeWindowSceneSessionID(), "Test host has no foreground window scene; the stamping path cannot be exercised.")
 
         let received = notifications(
             named: "dev.chr33s.shell.newTab",
@@ -286,11 +286,11 @@ final class MenuCommandChainTests {
         ]
 
         let missing = responderSelectors.filter {
-            !Ghostty.TerminalView.instancesRespond(to: NSSelectorFromString($0))
+            !Swiftty.TerminalView.instancesRespond(to: NSSelectorFromString($0))
         }
 
         #expect(missing == [], """
-            Ghostty.TerminalView no longer implements these menu selectors, so the \
+            Swiftty.TerminalView no longer implements these menu selectors, so the \
             command silently falls through to the app-level fallback (or nowhere) \
             whenever a pane is focused. See shell/UI/Terminal/TerminalView+Keyboard.swift.
             """)
@@ -308,7 +308,7 @@ final class MenuCommandChainTests {
         ] {
             let sel = NSSelectorFromString(selector)
             #expect(UIApplication.shared.responds(to: sel), "\(selector) was removed from the app-level fallback.")
-            #expect(Ghostty.TerminalView.instancesRespond(to: sel), "\(selector) was removed from the focused-terminal responder.")
+            #expect(Swiftty.TerminalView.instancesRespond(to: sel), "\(selector) was removed from the focused-terminal responder.")
             #expect(notifications(named: name, whileSending: sel).count == 1, "\(selector) no longer posts \(name).")
         }
     }

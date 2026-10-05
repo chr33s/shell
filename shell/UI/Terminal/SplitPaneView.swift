@@ -8,7 +8,7 @@
 import UIKit
 
 /// Base class for any view that can occupy a leaf of a tab's split tree.
-/// Concrete panes: `Ghostty.TerminalView` (terminal); future non-terminal
+/// Concrete panes: `Swiftty.TerminalView` (terminal); future non-terminal
 /// panes sit beside terminals in the same tree.
 ///
 /// This is a base class rather than a protocol because `SplitTree` requires
@@ -115,7 +115,7 @@ class SplitPaneView: UIView, Identifiable {
 extension SplitPaneView {
     /// The pane as a terminal, or nil for non-terminal panes. The single
     /// idiom for terminal-only scans (tmux, roam protocol, session counting).
-    var asTerminal: Ghostty.TerminalView? { self as? Ghostty.TerminalView }
+    var asTerminal: Swiftty.TerminalView? { self as? Swiftty.TerminalView }
 
     /// The split host this pane is attached to (terminals sit one level deeper,
     /// inside their `TerminalScrollView` wrapper). nil while detached.
@@ -131,7 +131,7 @@ extension SplitPaneView {
 
 extension SplitTree where ViewType == SplitPaneView {
     /// All terminal leaves in layout order, skipping non-terminal panes.
-    var terminalLeaves: [Ghostty.TerminalView] {
+    var terminalLeaves: [Swiftty.TerminalView] {
         compactMap { $0.asTerminal }
     }
 }

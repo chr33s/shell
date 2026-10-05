@@ -21,7 +21,7 @@ import os
 enum TerminalRestorationReconnector {
 
     /// Initiate reconnection for a restored terminal
-    static func initiateReconnection(_ terminalView: Ghostty.TerminalView) {
+    static func initiateReconnection(_ terminalView: Swiftty.TerminalView) {
         let config = terminalView.connectionConfig
 
         // Check if password is needed for SSH.
@@ -72,23 +72,23 @@ enum TerminalRestorationReconnector {
     }
 
     /// Perform the actual reconnection
-    static func performReconnection(_ terminalView: Ghostty.TerminalView) {
-        terminalView.restorationState = Ghostty.TerminalView.RestorationState.connectingFromRestore
+    static func performReconnection(_ terminalView: Swiftty.TerminalView) {
+        terminalView.restorationState = Swiftty.TerminalView.RestorationState.connectingFromRestore
 
         // Start the restored session
         terminalView.startRestoredSession { result in
             switch result {
             case .success:
-                terminalView.restorationState = Ghostty.TerminalView.RestorationState.none
+                terminalView.restorationState = Swiftty.TerminalView.RestorationState.none
             case .failure(let error):
-                Ghostty.logger.error("Reconnection failed: \(error.localizedDescription)")
-                terminalView.restorationState = Ghostty.TerminalView.RestorationState.failed(error.localizedDescription)
+                Swiftty.logger.error("Reconnection failed: \(error.localizedDescription)")
+                terminalView.restorationState = Swiftty.TerminalView.RestorationState.failed(error.localizedDescription)
             }
         }
     }
 
     /// Handle password entry for a restored SSH session
-    static func handlePasswordEntry(for terminalView: Ghostty.TerminalView, password: String) {
+    static func handlePasswordEntry(for terminalView: Swiftty.TerminalView, password: String) {
         let config = terminalView.connectionConfig
         // Unwrap through `sshConfig` instead of `guard case .ssh`: the password
         // overlay is reachable for restored `.shellLaunchedSSH` terminals too
@@ -141,7 +141,7 @@ enum TerminalRestorationReconnector {
     }
 
     /// Retry reconnection for a failed terminal
-    static func retryReconnection(for terminalView: Ghostty.TerminalView) {
+    static func retryReconnection(for terminalView: Swiftty.TerminalView) {
         initiateReconnection(terminalView)
     }
 

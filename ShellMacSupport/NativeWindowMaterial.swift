@@ -55,7 +55,7 @@ final class NativeWindowMaterial {
             child.isReleasedWhenClosed = false
             child.backgroundColor = .clear
             // Follow the parent window's appearance. Forcing light glass made a
-            // dark theme at 50% read as a milky grey sheet, where Ghostty at the
+            // dark theme at 50% read as a milky grey sheet, where Swiftty at the
             // same opacity stays dark; dark-appearance glass keeps the tint the
             // theme sets while still refracting the desktop.
             child.appearance = window.appearance
@@ -77,7 +77,7 @@ final class NativeWindowMaterial {
             // Native full screen moves the pair into its own Space and does not
             // keep a `.below` child beneath its parent: the glass landed on top
             // and blurred the terminal itself. Hide it for the duration, the
-            // way Ghostty drops background effects in full screen.
+            // way Swiftty drops background effects in full screen.
             backdrop.observers.append(center.addObserver(
                 forName: NSWindow.didEnterFullScreenNotification, object: window, queue: .main
             ) { [weak self] notification in
@@ -138,7 +138,7 @@ final class NativeWindowMaterial {
         guard let backdrop = backdrops[ObjectIdentifier(window)] else { return }
         backdrop.window.setFrame(window.frame, display: true)
         // Rounded corners are the parent's; full screen has none. Same private
-        // `_cornerRadius` read ghostty uses for its own glass shape.
+        // `_cornerRadius` read swiftty uses for its own glass shape.
         var radius: CGFloat = 0
         if !window.styleMask.contains(.fullScreen),
            window.responds(to: NSSelectorFromString("_cornerRadius")),

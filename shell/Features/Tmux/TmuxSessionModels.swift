@@ -11,10 +11,10 @@
 
 import Foundation
 
-// MARK: - Reply plumbing (ghostty_surface_tmux_command_with_reply)
+// MARK: - Reply plumbing (swiftty_surface_tmux_command_with_reply)
 
 /// A response to an app-issued tmux query, delivered via
-/// GHOSTTY_ACTION_TMUX_COMMAND_RESPONSE and correlated by tag.
+/// SWIFTTY_ACTION_TMUX_COMMAND_RESPONSE and correlated by tag.
 nonisolated struct TmuxCommandReply: Sendable {
     let tag: UInt32
     let body: String
@@ -85,8 +85,8 @@ nonisolated enum TmuxControlModeParser {
     /// equal the Character "\n" — so `split(separator: "\n")` never splits a
     /// CRLF body and the whole reply parses as one line (every session merged
     /// into one row). `Character.isNewline` is true for "\n", "\r", and the
-    /// CRLF cluster, so this handles all endings. The Zig-side parsers trim
-    /// "\r" per line for the same reason (viewer.zig receivedListWindows).
+    /// CRLF cluster, so this handles all endings. The viewer trims
+    /// "\r" per line for the same reason.
     private static func lines(_ body: String) -> [Substring] {
         body.split(whereSeparator: \.isNewline)
     }

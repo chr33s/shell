@@ -5,7 +5,7 @@
 //  The logical session model that survives transport replacement
 //  (docs/specs/mobile-connectivity.md §4).
 //
-//  Nothing here holds a Task, a channel, key material, or a Ghostty pointer:
+//  Nothing here holds a Task, a channel, key material, or a Swiftty pointer:
 //  the context outlives every one of those, and a descriptor built from it is
 //  written to device-local storage. Credentials are referenced, then resolved
 //  through the existing identity layer at connection time.
@@ -202,7 +202,7 @@ struct TerminalGridSize: Equatable, Sendable, Codable {
 
 /// The logical connection, owned above the SSH session object.
 ///
-/// The SSH session, its channels, and its Ghostty surface are all replaceable
+/// The SSH session, its channels, and its Swiftty surface are all replaceable
 /// below this. The `logicalSessionID` is what the user thinks of as "my
 /// session", and it never changes across a recovery.
 struct RecoveryContext: Equatable, Sendable {

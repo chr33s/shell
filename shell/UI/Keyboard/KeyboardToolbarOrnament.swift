@@ -18,7 +18,7 @@ extension Notification.Name {
 // MARK: - Ornament View
 
 struct KeyboardToolbarOrnament: View {
-    let focusedTerminal: Ghostty.TerminalView?
+    let focusedTerminal: Swiftty.TerminalView?
     @Binding var isVisible: Bool
     @State private var toolbarHeight: CGFloat = KeyboardSizes.iPad.toolbar.height
 
@@ -40,7 +40,7 @@ struct KeyboardToolbarOrnament: View {
 // MARK: - UIViewRepresentable
 
 struct KeyboardToolbarRepresentable: UIViewRepresentable {
-    let focusedTerminal: Ghostty.TerminalView?
+    let focusedTerminal: Swiftty.TerminalView?
     let onDismiss: () -> Void
     let onHeightChanged: (CGFloat) -> Void
 
@@ -93,7 +93,7 @@ struct KeyboardToolbarRepresentable: UIViewRepresentable {
                 terminal.becomeFirstResponder()
             }
             terminal.showComposeOverlay.toggle()
-            NotificationCenter.default.post(name: .ghosttyComposeStateChanged, object: terminal)
+            NotificationCenter.default.post(name: .swifttyComposeStateChanged, object: terminal)
         }
 
         toolbar.onToggleMouseCaptureRequested = { [weak coordinator] in
@@ -134,7 +134,7 @@ struct KeyboardToolbarRepresentable: UIViewRepresentable {
     // MARK: - Coordinator
 
     final class Coordinator: KeyboardButtonDelegate {
-        weak var focusedTerminal: Ghostty.TerminalView?
+        weak var focusedTerminal: Swiftty.TerminalView?
         weak var toolbar: KeyboardToolbarView?
         var onHeightChanged: ((CGFloat) -> Void)?
         private var layoutChangeObserver: NSObjectProtocol?

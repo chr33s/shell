@@ -7,7 +7,7 @@
 //
 
 import SwiftUI
-import GhosttyKit
+import SwifttyKit
 import os
 import UIKit
 
@@ -116,11 +116,11 @@ extension MainView {
         // re-registering so a second call doesn't double up handlers.
         observerBag.removeAll()
 
-        observerBag.observeOnMainActor(GhosttyCommandRouting.paneCommandNotification) { [self] notification in
+        observerBag.observeOnMainActor(SwifttyCommandRouting.paneCommandNotification) { [self] notification in
             guard self.shouldHandleNotification(notification),
-                  let command = notification.userInfo?[GhosttyCommandRouting.paneCommandKey] as? GhosttyCommandRouting.PaneCommand,
+                  let command = notification.userInfo?[SwifttyCommandRouting.paneCommandKey] as? SwifttyCommandRouting.PaneCommand,
                   self.terminals.indices.contains(self.selectedTabIndex),
-                  let terminal = self.terminals[self.selectedTabIndex].focusedPane as? Ghostty.TerminalView
+                  let terminal = self.terminals[self.selectedTabIndex].focusedPane as? Swiftty.TerminalView
             else { return }
 
             switch command {
@@ -172,10 +172,10 @@ extension MainView {
         }
 
         observerBag.observeOnMainActor(.closeSplit) { [self] notification in
-            Ghostty.logger.info("closeSplit notification received by window \(self.windowId)")
+            Swiftty.logger.info("closeSplit notification received by window \(self.windowId)")
             // Handle both UIKeyCommand (with terminal) and SwiftUI Commands (nil object)
             guard self.shouldHandleNotification(notification) else {
-                Ghostty.logger.info("closeSplit: notification doesn't belong to this window")
+                Swiftty.logger.info("closeSplit: notification doesn't belong to this window")
                 return
             }
 
@@ -220,7 +220,7 @@ extension MainView {
             // Handle both UIKeyCommand (with terminal) and SwiftUI Commands (nil object)
             guard self.shouldHandleNotification(notification) else { return }
 
-            Ghostty.logger.info("newWindow: opening new window from window \(self.windowId)")
+            Swiftty.logger.info("newWindow: opening new window from window \(self.windowId)")
             #if targetEnvironment(macCatalyst)
             // Use requestSceneSessionActivation to ensure our scene delegate is used
             // This allows us to set the initial window size properly
@@ -229,7 +229,7 @@ extension MainView {
                 userActivity: nil,
                 options: nil,
                 errorHandler: { error in
-                    Ghostty.logger.error("Failed to create new window: \(error.localizedDescription)")
+                    Swiftty.logger.error("Failed to create new window: \(error.localizedDescription)")
                 }
             )
             #else
@@ -316,7 +316,7 @@ extension MainView {
                   let focusedTerminal = terminals[selectedTabIndex].focusedTerminal,
                   focusedTerminal.surface != nil
             else { return }
-            Ghostty.logger.info("Increasing font size for focused terminal")
+            Swiftty.logger.info("Increasing font size for focused terminal")
             if focusedTerminal.applyTmuxWindowFontSize(delta: 1) { return }
             focusedTerminal.changeLocalFontSize(delta: 1)
             Task { @MainActor in
@@ -331,7 +331,7 @@ extension MainView {
                   let focusedTerminal = terminals[selectedTabIndex].focusedTerminal,
                   focusedTerminal.surface != nil
             else { return }
-            Ghostty.logger.info("Decreasing font size for focused terminal")
+            Swiftty.logger.info("Decreasing font size for focused terminal")
             if focusedTerminal.applyTmuxWindowFontSize(delta: -1) { return }
             focusedTerminal.changeLocalFontSize(delta: -1)
             Task { @MainActor in
@@ -346,7 +346,7 @@ extension MainView {
                   let focusedTerminal = terminals[selectedTabIndex].focusedTerminal,
                   focusedTerminal.surface != nil
             else { return }
-            Ghostty.logger.info("Resetting font size for focused terminal")
+            Swiftty.logger.info("Resetting font size for focused terminal")
             if focusedTerminal.resetTmuxWindowFontSize() { return }
             focusedTerminal.resetLocalFontSize()
             Task { @MainActor in
@@ -395,7 +395,7 @@ extension MainView {
             // Catalyst addresses the open to one window; without this every open
             // window would connect to the same host. An untargeted post (iOS,
             // single window) is still handled here.
-            if let target = notification.userInfo?[GhosttyCommandRouting.windowSceneSessionIDKey] as? String,
+            if let target = notification.userInfo?[SwifttyCommandRouting.windowSceneSessionIDKey] as? String,
                target != self.windowSceneSessionID { return }
             if self.showSettings { self.showSettings = false }
             self.handleSSHURL(payload.components)
@@ -436,20 +436,20 @@ extension MainView {
             self.connectToProfile(profile, splitOption: .newTab)
         }
 
-        observerBag.observeOnMainActor(.ghosttySearchStateChanged) { [self] notification in
+        observerBag.observeOnMainActor(.swifttySearchStateChanged) { [self] notification in
             // Handle both UIKeyCommand (with terminal) and SwiftUI Commands (nil object)
             guard self.shouldHandleNotification(notification) else { return }
             // Increment version to force SwiftUI re-render
             self.searchStateVersion += 1
         }
 
-        observerBag.observeOnMainActor(.ghosttyComposeStateChanged) { [self] notification in
+        observerBag.observeOnMainActor(.swifttyComposeStateChanged) { [self] notification in
             guard self.shouldHandleNotification(notification) else { return }
             self.composeStateVersion += 1
         }
 
         observerBag.observeOnMainActor(.bellTriggered) { [self] notification in
-            guard let terminalView = notification.object as? Ghostty.TerminalView else { return }
+            guard let terminalView = notification.object as? Swiftty.TerminalView else { return }
 
             // Find which tab contains this terminal and trigger wiggle
             for tab in self.terminals {
@@ -487,7 +487,7 @@ extension MainView {
         // This triggers a session count recount so LocationDiaryManager sees the new session
         observerBag.observeOnMainActor(.terminalConnectionConfigChanged) { [self] notification in
             guard self.shouldHandleNotification(notification) else { return }
-            if let terminalView = notification.object as? Ghostty.TerminalView,
+            if let terminalView = notification.object as? Swiftty.TerminalView,
                let tabID = self.tabID(for: terminalView) {
                 self.tabsModel.markGroupingInputsChanged(for: tabID)
             }
@@ -580,7 +580,7 @@ extension MainView {
     func shouldHandleNotification(_ notification: Notification) -> Bool {
         guard let pane = notification.object as? SplitPaneView else {
             // No terminal view in notification - check for scene ID targeting
-            if let targetSceneID = notification.userInfo?[GhosttyCommandRouting.windowSceneSessionIDKey] as? String,
+            if let targetSceneID = notification.userInfo?[SwifttyCommandRouting.windowSceneSessionIDKey] as? String,
                let windowSceneSessionID,
                targetSceneID == windowSceneSessionID {
                 return true
@@ -610,7 +610,7 @@ extension MainView {
     //
     // Title and connection-health observation moved into `TabModel.startObserving()`
     // (see `Views/TabsModel.swift`). Each tab subscribes to its own focused
-    // `Ghostty.TerminalView`'s `title` and `connectionHealth` and writes the
+    // `Swiftty.TerminalView`'s `title` and `connectionHealth` and writes the
     // resolved values into its own `@Observable` properties — invalidation is
     // scoped per-tab instead of triggering a full `MainView` body recompute.
     //

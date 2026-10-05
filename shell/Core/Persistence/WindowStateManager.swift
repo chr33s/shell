@@ -35,11 +35,11 @@ final class WindowStateManager {
     /// Maximum age of state before discarding (7 days)
     private let maxStateAgeDays: Double = 7
 
-    /// State file URL (Documents/.ghostty/window_state.json)
+    /// State file URL (Documents/.swiftty/window_state.json)
     private var stateFileURL: URL {
         let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let ghosttyDir = documentsURL.appendingPathComponent(".ghostty", isDirectory: true)
-        return ghosttyDir.appendingPathComponent(stateFileName)
+        let swifttyDir = documentsURL.appendingPathComponent(".swiftty", isDirectory: true)
+        return swifttyDir.appendingPathComponent(stateFileName)
     }
 
     // MARK: - State
@@ -710,8 +710,8 @@ extension WindowStateManager {
             }
 
             let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            let ghosttyDir = documentsURL.appendingPathComponent(".ghostty", isDirectory: true)
-            let fileURL = ghosttyDir.appendingPathComponent("window_state.json")
+            let swifttyDir = documentsURL.appendingPathComponent(".swiftty", isDirectory: true)
+            let fileURL = swifttyDir.appendingPathComponent("window_state.json")
 
             do {
                 let encoder = JSONEncoder()
@@ -719,7 +719,7 @@ extension WindowStateManager {
                 encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
                 let data = try encoder.encode(state)
 
-                try FileManager.default.createDirectory(at: ghosttyDir, withIntermediateDirectories: true)
+                try FileManager.default.createDirectory(at: swifttyDir, withIntermediateDirectories: true)
                 try data.write(to: fileURL, options: .atomic)
 
                 // Advance only after successful write so a failure leaves room for fallback.

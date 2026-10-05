@@ -8,7 +8,7 @@
 
 import SwiftUI
 import Combine
-import GhosttyKit
+import SwifttyKit
 import os
 import UniformTypeIdentifiers
 
@@ -112,7 +112,7 @@ extension MainView {
             if let savedState = WindowStateManager.shared.pendingState(forWindowId: windowId) {
                 // Mark restoration in-progress for crash detection
                 RestorationHealthTracker.shared.markRestorationStarted()
-                Ghostty.logger.info("Restoring window state: \(savedState.tabs.count) tabs")
+                Swiftty.logger.info("Restoring window state: \(savedState.tabs.count) tabs")
                 restoreWindowState(savedState)
             } else {
                 // iPad: directly open local iOS shell
@@ -171,7 +171,7 @@ extension MainView {
         // Clean up all terminals for this window
         let cleanupWindowId = windowId
         let terminalCount = terminals.count
-        Ghostty.logger.info("MainView for window \(cleanupWindowId) cleaning up \(terminalCount) terminals, reason: \(reason)")
+        Swiftty.logger.info("MainView for window \(cleanupWindowId) cleaning up \(terminalCount) terminals, reason: \(reason)")
 
         // Terminal surfaces have a scene-specific synchronous cleanup path.
         // Non-terminal panes may own nested view controllers (VNC does); do
@@ -212,7 +212,7 @@ extension MainView {
     func handleTerminalCountChange(oldCount: Int, newCount: Int) {
         // Top-level observer for terminal count changes
         // This ensures session tracking is always updated (for location diary and quit confirmation)
-        Ghostty.logger.info("Terminal count changed: \(oldCount) -> \(newCount)")
+        Swiftty.logger.info("Terminal count changed: \(oldCount) -> \(newCount)")
         notifySessionCountChanged()
 
         if newCount == 0 {
@@ -234,7 +234,7 @@ extension MainView {
     }
 
     func handleSelectedTabChange(oldValue: UUID?, newValue: UUID?) {
-        Ghostty.logger.info("onChange(selectedTabID): \(oldValue?.uuidString ?? "nil") -> \(newValue?.uuidString ?? "nil")")
+        Swiftty.logger.info("onChange(selectedTabID): \(oldValue?.uuidString ?? "nil") -> \(newValue?.uuidString ?? "nil")")
 
         // Clear any stale drag state when tabs are selected
         if draggingTab != nil {
@@ -289,7 +289,7 @@ extension MainView {
         // synchronously, meaning UIKit already auto-resigned the old terminal.
         var newFocusAcquired = false
         if let focus = paneToFocus {
-            Ghostty.logger.info("Focusing terminal at tab \(newValue.uuidString)")
+            Swiftty.logger.info("Focusing terminal at tab \(newValue.uuidString)")
             focus.isLogicallyFocused = true
             focus.asTerminal?.shouldBecomeFirstResponderWhenReady = true
             // Initialize the gate before focusing, in case this tab's terminal
@@ -317,11 +317,6 @@ extension MainView {
             if let terminal = focus.asTerminal, terminal.isTmuxPane {
                 terminal.requestTmuxSelectPane()
             }
-
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 10_000_000) // 10ms delay
-                ghosttyApp.appTick()
-            }
         }
 
         // Unfocus old — only skip resignFirstResponder when the new terminal
@@ -342,7 +337,7 @@ extension MainView {
         // Tab-switch occlusion + focus backstop. The imperative setOcclusion(true)
         // + focusDidChange(true) above can be dropped (setOcclusion silently no-ops
         // when the destination surface is briefly nil and never retries) or refused
-        // (becomeFirstResponder mid scene/keyboard event). Post the GhosttyKit merge
+        // (becomeFirstResponder mid scene/keyboard event). Post the SwifttyKit merge
         // a surface stranded at flags.visible == false hard-stops its render thread
         // (a permanent freeze), and a refused first responder leaves the tab
         // unusable — with NO foreground cycle to trigger the foreground-only
@@ -362,7 +357,7 @@ extension MainView {
     }
 
     func handleShowConnectionSheetChange(oldValue: Bool, newValue: Bool) {
-        Ghostty.logger.info("onChange(showConnectionSidebar): \(oldValue) -> \(newValue)")
+        Swiftty.logger.info("onChange(showConnectionSidebar): \(oldValue) -> \(newValue)")
         #if targetEnvironment(macCatalyst)
         if newValue {
             CatalystCursorCoordinator.shared.resetAll()
@@ -373,20 +368,20 @@ extension MainView {
             resignFirstResponderForSheetPresentation()
         }
         // When connection sheet dismisses, clear pending browse selection and grant UIKit focus
-        // Ghostty focus was already set when the tab was created
+        // Swiftty focus was already set when the tab was created
         if oldValue == true && newValue == false {
             // Safety net: if no terminals exist and the tab bar is hidden,
             // re-show the sheet immediately. Without this, the user lands on an
             // empty state with no way to connect (no tab bar + button to tap).
             if terminals.isEmpty && tabBarHidden {
-                Ghostty.logger.info("Sheet dismissed with no terminals (tab bar hidden) - re-showing")
+                Swiftty.logger.info("Sheet dismissed with no terminals (tab bar hidden) - re-showing")
                 showConnectionSidebar = true
                 return
             }
 
             guard terminals.indices.contains(selectedTabIndex) else { return }
             guard let terminal = terminals[selectedTabIndex].focusedTerminal else {
-                Ghostty.logger.warning("Sheet dismissed but no focusedTerminal!")
+                Swiftty.logger.warning("Sheet dismissed but no focusedTerminal!")
                 return
             }
 

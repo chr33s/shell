@@ -38,7 +38,7 @@ final class CloudKitOfflineQueue {
     init() {
         let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         self.queueURL = documentsURL
-            .appendingPathComponent(".ghostty", isDirectory: true)
+            .appendingPathComponent(".swiftty", isDirectory: true)
             .appendingPathComponent("sync", isDirectory: true)
             .appendingPathComponent("pending_changes.json")
 

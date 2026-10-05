@@ -33,7 +33,7 @@ final class KeybindManager {
     /// Original filename of the imported config (for UI display)
     private(set) var externalConfigOriginalFileName: String?
 
-    /// Path to the canonical editable config file in ~/.ghostty/
+    /// Path to the canonical editable config file in ~/.swiftty/
     var externalConfigPath: URL? {
         didSet {
             saveExternalConfigPath()
@@ -48,7 +48,7 @@ final class KeybindManager {
                 }
             }
             reloadBindings()
-            applyExternalConfigToGhosttyIfAvailable()
+            applyExternalConfigToSwifttyIfAvailable()
         }
     }
 
@@ -57,11 +57,11 @@ final class KeybindManager {
 
     // MARK: - Private Storage
 
-    private let externalConfigPathKey = "externalGhosttyConfigPath"
-    private let externalConfigFileNameKey = "externalGhosttyConfigPath_originalFilename"
+    private let externalConfigPathKey = "externalSwifttyConfigPath"
+    private let externalConfigFileNameKey = "externalSwifttyConfigPath_originalFilename"
     private var defaultBindings: [Keybind] = []
-    // Ghostty config writes consult KeybindManager.shared while building config lines.
-    // Avoid triggering live Ghostty reloads until singleton initialization is complete,
+    // Swiftty config writes consult KeybindManager.shared while building config lines.
+    // Avoid triggering live Swiftty reloads until singleton initialization is complete,
     // otherwise externalConfigPath.didSet can recurse back into shared creation.
     private var hasFinishedInitialization = false
     /// When true, external config contained "keybind = clear" — defaults are suppressed
@@ -119,7 +119,7 @@ final class KeybindManager {
             Keybind(key: .d, modifiers: .command, action: .split_right),
             Keybind(key: .d, modifiers: [.command, .shift], action: .split_down),
 
-            // Split Navigation (Cmd+Alt+Arrow - upstream Ghostty default)
+            // Split Navigation (Cmd+Alt+Arrow)
             Keybind(key: .left, modifiers: [.command, .option], action: .navigate_split_left),
             Keybind(key: .right, modifiers: [.command, .option], action: .navigate_split_right),
             Keybind(key: .up, modifiers: [.command, .option], action: .navigate_split_up),
@@ -243,7 +243,7 @@ final class KeybindManager {
 
     /// Set a user override for an action
     func setOverride(sequence: KeySequence, action: KeybindAction) {
-        Self.logger.info("Setting override: \(sequence.ghosttyFormat) -> \(action.rawValue)")
+        Self.logger.info("Setting override: \(sequence.swifttyFormat) -> \(action.rawValue)")
 
         // Snapshot who we are about to displace, before userOverrides change.
         let victims = action == .unbind
@@ -373,13 +373,13 @@ final class KeybindManager {
     private var importedKeybindsURL: URL {
         let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         return documentsURL
-            .appendingPathComponent(".ghostty", isDirectory: true)
+            .appendingPathComponent(".swiftty", isDirectory: true)
             .appendingPathComponent("imported_keybinds.conf")
     }
 
     /// Shell-visible path for the imported config file.
     var externalConfigShellPath: String {
-        "~/.ghostty/imported_keybinds.conf"
+        "~/.swiftty/imported_keybinds.conf"
     }
 
     var externalConfigSymlinkDestination: String? {
@@ -400,8 +400,8 @@ final class KeybindManager {
     }
 
     func saveExternalConfigContents(_ content: String) throws {
-        let ghosttyDir = importedKeybindsURL.deletingLastPathComponent()
-        try FileManager.default.createDirectory(at: ghosttyDir, withIntermediateDirectories: true)
+        let swifttyDir = importedKeybindsURL.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: swifttyDir, withIntermediateDirectories: true)
 
         // Write in place so an existing symlink at the canonical path keeps pointing
         // to its target instead of being replaced by a regular file.
@@ -414,8 +414,8 @@ final class KeybindManager {
         }
     }
 
-    /// Import an external ghostty config file by copying it to the app's Documents directory.
-    /// After import, the app always edits and reloads the canonical ~/.ghostty copy.
+    /// Import an external swiftty config file by copying it to the app's Documents directory.
+    /// After import, the app always edits and reloads the canonical ~/.swiftty copy.
     /// Why this throws: every failure here used to be logged and swallowed, so
     /// picking an unreadable, non-UTF-8 or uncopyable file dismissed the picker
     /// with no alert and no imported config — indistinguishable from a dead
@@ -463,7 +463,7 @@ final class KeybindManager {
         }
     }
 
-    /// Import an external ghostty config from raw text plus a display filename.
+    /// Import an external swiftty config from raw text plus a display filename.
     /// Used by the migration importer, which resolves `config-file = …` includes
     /// itself and hands the flattened keybind text in here so include-sourced
     /// keybinds don't get silently dropped.
@@ -482,13 +482,13 @@ final class KeybindManager {
         externalConfigPath = importedKeybindsURL
     }
 
-    /// Load keybinds from external ghostty config file
+    /// Load keybinds from external swiftty config file
     private func loadExternalConfig(at path: URL) {
         Self.logger.info("Loading external config from: \(path.path)")
 
         do {
             let content = try String(contentsOf: path, encoding: .utf8)
-            externalConfigBindings = parseGhosttyConfig(content)
+            externalConfigBindings = parseSwifttyConfig(content)
             Self.logger.info("Loaded \(self.externalConfigBindings.count) keybinds from external config")
         } catch {
             Self.logger.error("Failed to load external config: \(error.localizedDescription)")
@@ -497,8 +497,8 @@ final class KeybindManager {
         }
     }
 
-    /// Parse ghostty config format keybinds
-    private func parseGhosttyConfig(_ content: String) -> [Keybind] {
+    /// Parse swiftty config format keybinds
+    private func parseSwifttyConfig(_ content: String) -> [Keybind] {
         var bindings: [Keybind] = []
         externalConfigClearsDefaults = false
 
@@ -527,7 +527,7 @@ final class KeybindManager {
                 continue
             }
 
-            if let keybind = Keybind(ghosttyLine: trimmed, source: .externalConfig) {
+            if let keybind = Keybind(swifttyLine: trimmed, source: .externalConfig) {
                 bindings.append(keybind)
             }
         }
@@ -540,21 +540,21 @@ final class KeybindManager {
         guard let path = externalConfigPath else { return }
         loadExternalConfig(at: path)
         reloadBindings()
-        applyExternalConfigToGhosttyIfAvailable()
+        applyExternalConfigToSwifttyIfAvailable()
     }
 
-    private func applyExternalConfigToGhosttyIfAvailable() {
+    private func applyExternalConfigToSwifttyIfAvailable() {
         guard hasFinishedInitialization else { return }
-        Ghostty.App.shared?.applyKeybindConfig()
+        Swiftty.App.shared?.applyKeybindConfig()
     }
 
     // MARK: - Config File Sync
 
-    /// Get terminal keybind config lines for inclusion in ghostty config file
-    /// Returns lines in ghostty format: "keybind = cmd+c=copy_to_clipboard"
+    /// Get terminal keybind config lines for inclusion in swiftty config file
+    /// Returns lines in swiftty format: "keybind = cmd+c=copy_to_clipboard"
     func terminalKeybindConfigLines() -> [String] {
         // Check if any terminal-relevant changes exist (external config or user overrides).
-        // When there are none, return empty so libghostty uses its own built-in defaults.
+        // When there are none, return empty so SwifttyKit uses its own built-in defaults.
         let hasTerminalOverrides = userOverrides.contains { override in
             override.action.isTerminalAction
             || (override.action == .unbind && {
@@ -569,7 +569,7 @@ final class KeybindManager {
             return []
         }
 
-        // Clear libghostty's defaults, then emit the fully-resolved terminal bindings
+        // Clear SwifttyKit's defaults, then emit the fully-resolved terminal bindings
         // from activeBindings. This mirrors the exact precedence order that
         // reloadBindings() computed (defaults → external config → user overrides).
         var lines: [String] = ["keybind = clear"]
@@ -578,18 +578,18 @@ final class KeybindManager {
             guard binding.action.isTerminalAction && !binding.action.isControlCharacter else {
                 continue
             }
-            lines.append(binding.ghosttyFormat)
+            lines.append(binding.swifttyFormat)
         }
 
         return lines
     }
 
-    /// Write terminal action keybinds to ghostty config file
-    func syncToGhosttyConfig() {
+    /// Write terminal action keybinds to swiftty config file
+    func syncToSwifttyConfig() {
         guard let configDir = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
-        ).first?.appendingPathComponent("ghostty") else {
+        ).first?.appendingPathComponent("swiftty") else {
             Self.logger.error("Failed to get config directory")
             return
         }
@@ -614,7 +614,7 @@ final class KeybindManager {
         do {
             try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
             try content.write(to: keybindsFile, atomically: true, encoding: .utf8)
-            Self.logger.info("Synced keybinds to ghostty config")
+            Self.logger.info("Synced keybinds to swiftty config")
         } catch {
             Self.logger.error("Failed to sync keybinds: \(error.localizedDescription)")
         }
@@ -669,7 +669,7 @@ final class KeybindManager {
             return binding1.action.displayName < binding2.action.displayName
         }
 
-        syncToGhosttyConfig()
+        syncToSwifttyConfig()
         keybindsDidChange.send()
 
         Self.logger.info("Reloaded \(self.activeBindings.count) active bindings")
@@ -807,8 +807,8 @@ final class KeybindManager {
 
             let content = try String(contentsOf: url, encoding: .utf8)
 
-            let ghosttyDir = importedKeybindsURL.deletingLastPathComponent()
-            try FileManager.default.createDirectory(at: ghosttyDir, withIntermediateDirectories: true)
+            let swifttyDir = importedKeybindsURL.deletingLastPathComponent()
+            try FileManager.default.createDirectory(at: swifttyDir, withIntermediateDirectories: true)
             try content.write(to: importedKeybindsURL, atomically: true, encoding: .utf8)
 
             if externalConfigOriginalFileName == nil {

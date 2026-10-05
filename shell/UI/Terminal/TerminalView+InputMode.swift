@@ -12,7 +12,7 @@
 import UIKit
 import os
 
-extension Ghostty.TerminalView {
+extension Swiftty.TerminalView {
 
     override var textInputMode: UITextInputMode? {
         // Emoji search is owned by UIKit even when the terminal remains the
@@ -112,7 +112,7 @@ extension Ghostty.TerminalView {
         // view that was already first responder and the input source never
         // changed. Bail out loudly instead of pretending the switch happened.
         guard parking.becomeFirstResponder() else {
-            Ghostty.logger.warning(
+            Swiftty.logger.warning(
                 "input-source swap: parking field could not take first responder; textInputMode override not refreshed"
             )
             return

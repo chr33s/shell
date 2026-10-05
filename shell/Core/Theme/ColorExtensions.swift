@@ -260,12 +260,12 @@ extension Color {
         return Color(hue: Double(h), saturation: Double(newSaturation), brightness: Double(newBrightness), opacity: Double(a))
     }
 
-    // MARK: - Ghostty Keyword Color Resolution
+    // MARK: - Swiftty Keyword Color Resolution
 
-    /// Resolve Ghostty keyword color values (e.g. `cell-foreground`) to concrete hex strings.
+    /// Resolve Swiftty keyword color values (e.g. `cell-foreground`) to concrete hex strings.
     /// Returns the input unchanged if it's already a hex color.
     ///
-    /// Note: In Ghostty's runtime, `cell-foreground`/`cell-background` refer to the current cell's
+    /// Note: In Swiftty's runtime, `cell-foreground`/`cell-background` refer to the current cell's
     /// colors which can vary per-cell. Outside the terminal surface (swatches, accent derivation,
     /// sheet tints) we approximate with the theme's global foreground/background — the best
     /// available stand-in for UI preview purposes.

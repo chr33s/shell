@@ -7,7 +7,7 @@
 //
 
 import UIKit
-import GhosttyKit
+import SwifttyKit
 import os
 
 // MARK: - UIGestureRecognizer Extension
@@ -1094,7 +1094,7 @@ final class KeyboardToolbarView: UIView {
         }
 
         let rawValue = activeModifiers.rawValue
-        Ghostty.logger.debug("KeyboardToolbar: Updated modifiers to rawValue: \(rawValue)")
+        Swiftty.logger.debug("KeyboardToolbar: Updated modifiers to rawValue: \(rawValue)")
         onModifiersChanged?(activeModifiers)
     }
 
@@ -1112,7 +1112,7 @@ final class KeyboardToolbarView: UIView {
         }
         if didChange {
             let rawValue = activeModifiers.rawValue
-            Ghostty.logger.debug("KeyboardToolbar: Cleared one-shot modifiers, remaining rawValue: \(rawValue)")
+            Swiftty.logger.debug("KeyboardToolbar: Cleared one-shot modifiers, remaining rawValue: \(rawValue)")
             onModifiersChanged?(activeModifiers)
         }
     }
@@ -1124,7 +1124,7 @@ final class KeyboardToolbarView: UIView {
         for button in modifierButtons {
             button.reset()
         }
-        Ghostty.logger.debug("KeyboardToolbar: Cleared all modifiers")
+        Swiftty.logger.debug("KeyboardToolbar: Cleared all modifiers")
         onModifiersChanged?(activeModifiers)
     }
 
@@ -1315,7 +1315,7 @@ extension KeyboardToolbarView: KeyboardButtonDelegate {
         let combinedModifiers = combinedModifiersIncludingSystemShift(modifiers)
 
         // Debug logging
-        Ghostty.logger.debug("KeyboardToolbar: key=\(key), activeModifiers=\(self.activeModifiers.rawValue), combined=\(combinedModifiers.rawValue)")
+        Swiftty.logger.debug("KeyboardToolbar: key=\(key), activeModifiers=\(self.activeModifiers.rawValue), combined=\(combinedModifiers.rawValue)")
 
         // Forward to delegate
         self.delegate?.keyPressed(key, modifiers: combinedModifiers)

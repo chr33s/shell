@@ -8,7 +8,7 @@
 
 import SwiftUI
 import Combine
-import GhosttyKit
+import SwifttyKit
 import os
 import UniformTypeIdentifiers
 
@@ -22,7 +22,7 @@ extension MainView {
 
     @ViewBuilder
     func applyLifecycleHandlers<V: View>(_ view: V) -> some View {
-        // Note: embedded mosh/trzsz/ghostty session-change notifications used to
+        // Note: embedded mosh/trzsz/swiftty session-change notifications used to
         // bump `tabBarVersion` here to force the tab bar to re-render. Combined
         // with `.id(tabBarVersion)` (since removed) that tore down and rebuilt
         // the entire tab subtree on every session-change. Phase 3 introduces
@@ -47,12 +47,12 @@ extension MainView {
                 // A folder (or a file's folder) is a shell tab, not a document.
                 // The scene delegate may deliver the same open; deposits dedupe.
                 // Whatever the router declines falls through to the file path.
-                Ghostty.logger.info("[urlopen] onOpenURL window=\(windowId, privacy: .public)")
+                Swiftty.logger.info("[urlopen] onOpenURL window=\(windowId, privacy: .public)")
                 if CatalystAppDelegate.routeAutomationURL(url, source: "mainView.onOpenURL") {
                     return
                 }
                 #endif
-                Ghostty.logger.info("[urlopen] ignoring file URL in window=\(windowId, privacy: .public)")
+                Swiftty.logger.info("[urlopen] ignoring file URL in window=\(windowId, privacy: .public)")
             }
 
         applyChangeHandlers(base)
@@ -72,7 +72,7 @@ extension MainView {
             // replaces the racing per-view +50/250/300/350/450/600ms retries
             // that used to fight the sidebar's search field.
             .onChange(of: isAnySheetPresented) { oldValue, newValue in
-                Ghostty.logger.info("onChange(isAnySheetPresented) \(oldValue) -> \(newValue)")
+                Swiftty.logger.info("onChange(isAnySheetPresented) \(oldValue) -> \(newValue)")
                 setOverlayOwnsKeyboardForAllTerminals(newValue)
             }
             .onChange(of: terminals.count) { oldCount, newCount in

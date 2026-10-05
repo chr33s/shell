@@ -7,11 +7,11 @@
 //
 
 import UIKit
-import GhosttyKit
+import SwifttyKit
 
 // MARK: - Session Setup
 
-extension Ghostty.TerminalView {
+extension Swiftty.TerminalView {
 
     func setupPTYAndShell() {
         // Every connection kind this fork supports is started by
@@ -29,7 +29,7 @@ extension Ghostty.TerminalView {
 
 // MARK: - Deferred Scrollback Restore
 
-extension Ghostty.TerminalView {
+extension Swiftty.TerminalView {
 
     /// Restores deferred scrollback after connection animation completes.
     /// Called from `.running` state handlers. Idempotent — safe to call multiple times.
@@ -63,7 +63,7 @@ extension Ghostty.TerminalView {
     }
 
     /// Ensures the restore replay's final cursor positioning is rendered after
-    /// the saved bytes and any gated live output have reached Ghostty.
+    /// the saved bytes and any gated live output have reached Swiftty.
     func didQueueScrollbackRestoreReplay() {
         outputPipeline.notifyWhenOutputDrained { [weak self] in
             Task { @MainActor [weak self] in
@@ -77,13 +77,12 @@ extension Ghostty.TerminalView {
     }
 
     private func flushPostScrollbackRestoreRender() {
-        guard !Ghostty.isAppBackgroundedAtomic,
-              !Ghostty.isSecureDrawProhibitedAtomic else { return }
-        ghosttyApp?.appTick()
+        guard !Swiftty.isAppBackgroundedAtomic,
+              !Swiftty.isSecureDrawProhibitedAtomic else { return }
         if let surface {
-            ghostty_surface_draw(surface)
+            swiftty_surface_draw(surface)
         }
-        // Sync the cached `@Published isMouseCaptured` mirror against ghostty's
+        // Sync the cached `@Published isMouseCaptured` mirror against swiftty's
         // C state once the scrollback replay (including any DECSET 1000h for
         // mouse mode it carries) has been parsed.
         updateMouseCaptureState()
@@ -92,7 +91,7 @@ extension Ghostty.TerminalView {
 
 // MARK: - Session Error Handling
 
-extension Ghostty.TerminalView {
+extension Swiftty.TerminalView {
 
     /// Handles session errors with consistent spinner cleanup and error display.
     /// - Parameters:
@@ -110,7 +109,7 @@ extension Ghostty.TerminalView {
         // Stop any running spinner animation and grab its cleanup sequence
         // (for multi-line spinner support), then clear the spinner first.
         let spinnerCleanup = connectionProgress.takeCleanupSequence()
-        writeToGhostty(string: spinnerCleanup)
+        writeToSwiftty(string: spinnerCleanup)
 
         showFinalError(error, prefix: prefix)
     }
@@ -129,7 +128,7 @@ extension Ghostty.TerminalView {
         let dimColor = "\u{1B}[2m"  // ANSI dim
         let reset = "\u{1B}[0m"
 
-        writeToGhostty(string:
+        writeToSwiftty(string:
             "\r\n" +
             dimColor + centeredError + reset + "\r\n\r\n" +
             TerminalSequence.progressClear
@@ -145,7 +144,7 @@ extension Ghostty.TerminalView {
 
 // MARK: - Session Monitoring
 
-extension Ghostty.TerminalView {
+extension Swiftty.TerminalView {
 
     func manualReconnect() {
         sessionController.manualReconnect()
@@ -161,12 +160,12 @@ extension Ghostty.TerminalView {
         sessionController.performRecoveryAction(action)
     }
 
-    /// Monitors Ghostty's response pipe for terminal responses (e.g., cursor position queries)
+    /// Monitors Swiftty's response pipe for terminal responses (e.g., cursor position queries)
     /// and forwards them back to the session for bidirectional terminal communication.
     /// Works with both SSH and Catalyst local shell sessions.
     ///
     /// Uses event-driven DispatchSource instead of polling for better performance.
-    /// This helps drain the termio mailbox faster during heavy I/O from apps like zellij,
+    /// This keeps responses flowing during heavy I/O from apps like zellij,
     /// reducing the chance of queue saturation that can cause main thread deadlocks.
     func startTerminalResponseMonitoring(for session: TerminalSession) {
         sessionController.startTerminalResponseMonitoring(for: session)

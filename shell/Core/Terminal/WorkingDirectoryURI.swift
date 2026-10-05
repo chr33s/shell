@@ -9,8 +9,8 @@ import Foundation
 
 /// Turns an OSC 7 working-directory value into a plain filesystem path.
 ///
-/// OSC 7 carries `file://<host><percent-encoded-path>`. Ghostty hands the
-/// sequence's payload through `GHOSTTY_ACTION_PWD` as it arrived, so a directory
+/// OSC 7 carries `file://<host><percent-encoded-path>`. Swiftty hands the
+/// sequence's payload through `SWIFTTY_ACTION_PWD` as it arrived, so a directory
 /// with a space in it would otherwise remain percent-encoded.
 ///
 /// A value that is not a `file://` URI is returned untouched. That case is not

@@ -10,7 +10,7 @@
 //  correct values and `replace(_:withText:)` can compute proper diffs.
 //
 
-import GhosttyKit
+import SwifttyKit
 import UIKit
 
 // MARK: - Text Position / Range helpers
@@ -48,7 +48,7 @@ final class TerminalTextRange: UITextRange {
 
 // MARK: - UITextInput
 
-extension Ghostty.TerminalView {
+extension Swiftty.TerminalView {
 
     var isLikelyThirdPartyKeyboard: Bool {
         guard let inputMode = textInputMode else { return false }
@@ -103,7 +103,7 @@ extension Ghostty.TerminalView {
             payload.append(emittedData)
         }
 
-        NotificationCenter.default.post(name: .ghosttyDidReceiveInput, object: self)
+        NotificationCenter.default.post(name: .swifttyDidReceiveInput, object: self)
         if !payload.isEmpty {
             sendUserInput(payload, documentMutation: .legacyDocument(bufferPrefix + incomingToken + delimiter))
         }
@@ -137,19 +137,19 @@ extension Ghostty.TerminalView {
 
     // MARK: Preedit (inline composition display)
 
-    /// Sends current composition text to GhosttyKit for inline preedit rendering.
+    /// Sends current composition text to SwifttyKit for inline preedit rendering.
     /// Pass nil or empty string to clear the preedit display.
     func syncIMEPreedit(_ text: String?) {
         guard let surface = self.surface else { return }
         if let text, !text.isEmpty {
             let normalized = text.precomposedStringWithCanonicalMapping
             normalized.withCString { ptr in
-                ghostty_surface_preedit(surface, ptr, UInt(normalized.utf8.count))
+                swiftty_surface_preedit(surface, ptr, UInt(normalized.utf8.count))
             }
         } else {
-            ghostty_surface_preedit(surface, nil, 0)
+            swiftty_surface_preedit(surface, nil, 0)
         }
-        ghostty_surface_refresh(surface)
+        swiftty_surface_refresh(surface)
     }
 
     // MARK: Marked text (composition / dictation)
@@ -174,7 +174,7 @@ extension Ghostty.TerminalView {
 
     func unmarkText() {
         #if targetEnvironment(macCatalyst)
-        // Match macOS Ghostty: marked text is preedit only. Committed text
+        // Match macOS Swiftty: marked text is preedit only. Committed text
         // must arrive through insertText; unmarkText just clears preedit.
         if markedTextString != nil {
             markedTextString = nil
@@ -491,12 +491,12 @@ extension Ghostty.TerminalView {
 
     /// View-local geometry of the IME preedit / caret cell.
     ///
-    /// `ghostty_surface_ime_point` reports, in logical points (already divided
+    /// `swiftty_surface_ime_point` reports, in logical points (already divided
     /// by content scale), the *midpoint x* and *bottom y* of the caret cell plus
     /// the cell height. The preedit `width`, however, comes back in device
-    /// pixels (Ghostty intentionally skips the content-scale divide there), so we
+    /// pixels (Swiftty intentionally skips the content-scale divide there), so we
     /// downscale it here. We undo the half-cell x offset to recover the cell's
-    /// left edge. Because the Ghostty surface is sized to the view bounds, these
+    /// left edge. Because the Swiftty surface is sized to the view bounds, these
     /// values are already in this view's coordinate space — UIKit converts them
     /// to screen space when positioning the IME candidate bar.
     private struct IMECellGeometry {
@@ -518,7 +518,7 @@ extension Ghostty.TerminalView {
         var y: Double = 0
         var w: Double = 0
         var h: Double = 0
-        ghostty_surface_ime_point(surface, &x, &y, &w, &h)
+        swiftty_surface_ime_point(surface, &x, &y, &w, &h)
 
         let scale = contentScaleFactor > 0 ? contentScaleFactor : 1
         let cellHeight = max(CGFloat(h), cellSize.height)
@@ -718,7 +718,7 @@ extension Ghostty.TerminalView {
     // iOS calls these when the on-screen keyboard's spacebar enters
     // long-press trackpad mode. Drag offsets arrive in our coordinate space;
     // we bucket them into whole-cell steps and emit arrow keys for each cell
-    // crossed. Going through `sendKeyViaGhostty` (instead of writing escape
+    // crossed. Going through `sendKeyViaSwiftty` (instead of writing escape
     // sequences) means DECCKM application-mode is respected, so vi/less/fzf
     // and DECCKM-aware TUIs all see the right encoding.
 
@@ -744,7 +744,7 @@ extension Ghostty.TerminalView {
         if stepCol != 0 {
             let key: UIKeyboardHIDUsage = stepCol > 0 ? .keyboardRightArrow : .keyboardLeftArrow
             for _ in 0..<abs(stepCol) {
-                sendKeyViaGhostty(keyCode: key, action: .press, mods: .none)
+                sendKeyViaSwiftty(keyCode: key, action: .press, mods: .none)
             }
             floatingCursorCumulativeCol = targetCol
         }
@@ -752,7 +752,7 @@ extension Ghostty.TerminalView {
         if stepRow != 0 {
             let key: UIKeyboardHIDUsage = stepRow > 0 ? .keyboardDownArrow : .keyboardUpArrow
             for _ in 0..<abs(stepRow) {
-                sendKeyViaGhostty(keyCode: key, action: .press, mods: .none)
+                sendKeyViaSwiftty(keyCode: key, action: .press, mods: .none)
             }
             floatingCursorCumulativeRow = targetRow
         }

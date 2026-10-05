@@ -4,7 +4,7 @@
 //
 //  Typed vocabulary for connection recovery (docs/specs/mobile-connectivity.md §4-§7).
 //
-//  Everything here is a value type with no UIKit, Ghostty, or network
+//  Everything here is a value type with no UIKit, Swiftty, or network
 //  dependency, so `RecoveryCoordinator` policy can be exercised in a unit
 //  test with an injected clock. Nothing in this file may import Citadel or
 //  SwiftUI.

@@ -6,7 +6,7 @@
 //
 
 import SwiftUI
-import GhosttyKit
+import SwifttyKit
 
 // MARK: - Body Content Views
 
@@ -83,7 +83,7 @@ extension MainView {
     var loadingView: some View {
         VStack {
             ProgressView()
-            Text("Loading Ghostty...")
+            Text("Loading Swiftty...")
                 .foregroundColor(.secondary)
                 .padding(.top)
         }
@@ -97,7 +97,7 @@ extension MainView {
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 48))
                 .foregroundColor(.appDanger)
-            Text("Failed to initialize Ghostty")
+            Text("Failed to initialize Swiftty")
                 .foregroundColor(.secondary)
                 .padding(.top)
         }

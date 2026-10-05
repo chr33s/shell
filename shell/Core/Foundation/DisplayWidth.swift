@@ -1,19 +1,19 @@
 import Foundation
-import GhosttyKit
+import SwifttyKit
 
 /// Terminal display-cell width helpers.
 ///
 /// Terminals lay text out in fixed cells, not Swift `Character`s. East-Asian-wide
 /// glyphs (CJK), most emoji, and emoji-presentation sequences occupy 2 cells;
-/// combining marks occupy 0. We consult ghostty's own SIMD width table so widths
-/// match exactly what ghostty draws.
+/// combining marks occupy 0. We consult swiftty's own SIMD width table so widths
+/// match exactly what swiftty draws.
 ///
 /// This compiles on every platform — including Mac Catalyst — because
-/// `ghostty_simd_codepoint_width` is a plain C symbol from GhosttyKit.
+/// `swiftty_simd_codepoint_width` is a plain C symbol from SwifttyKit.
 nonisolated enum DisplayWidth {
     /// Display-cell width of a single Unicode scalar (-1 null, 0 zero-width, 1+ cells).
     private static func scalarWidth(_ scalar: UInt32) -> Int {
-        return Int(ghostty_simd_codepoint_width(scalar))
+        return Int(swiftty_simd_codepoint_width(scalar))
     }
 
     /// Display-cell width of a single grapheme cluster (1 normal, 2 wide).

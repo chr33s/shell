@@ -307,7 +307,7 @@ __bp_install() {
 
     # Adjust our HISTCONTROL Variable if needed.
     #
-    # GHOSTTY: Don't modify HISTCONTROL. This hack is only needed to improve the
+    # SWIFTTY: Don't modify HISTCONTROL. This hack is only needed to improve the
     # accuracy of the command argument passed to the preexec functions, and we
     # don't use that argument in our bash shell integration script (and nor does
     # the __bp_original_debug_trap function above, which is the only other active

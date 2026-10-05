@@ -199,7 +199,7 @@ extension LocalShellSession {
         // Set environment variables
         ios_setenv("TERM", TerminalTypeSettings.local, 1)
 
-        // Point ncurses-linked tools at the bundled terminfo so xterm-ghostty
+        // Point ncurses-linked tools at the bundled terminfo so xterm-swiftty
         // resolves. Lookups of other names still fall through to the system
         // database, so this is safe regardless of the configured TERM.
         if let terminfoPath = TerminalTypeSettings.terminfoPath {
@@ -219,7 +219,7 @@ extension LocalShellSession {
 
         // Set terminal identification for apps that check capabilities
         // Apps like Claude Code use TERM_PROGRAM to detect notification support
-        ios_setenv("TERM_PROGRAM", "ghostty", 1)
+        ios_setenv("TERM_PROGRAM", "swiftty", 1)
         ios_setenv("TERM_PROGRAM_VERSION", TerminalIdentity.shortVersion, 1)
         ios_setenv("COLORTERM", "truecolor", 1)
 

@@ -9,11 +9,11 @@
 import UIKit
 import GameController
 import os
-import GhosttyKit
+import SwifttyKit
 
 // MARK: - Key Repeat Manager
 
-extension Ghostty {
+extension Swiftty {
 
     /// Manages keyboard key repeat behavior with initial delay and repeat interval.
     /// Encapsulates timer state that was previously spread across multiple instance variables.
@@ -93,7 +93,7 @@ extension Ghostty {
 
 // MARK: - Mod-Tap Interceptor
 
-extension Ghostty {
+extension Swiftty {
 
     /// Tracks a source press without replaying the other key: the caller keeps
     /// ownership of dispatch and can still forward unhandled presses to UIKit.
@@ -200,7 +200,7 @@ extension Ghostty {
 
 // MARK: - Key Commands
 
-extension Ghostty.TerminalView {
+extension Swiftty.TerminalView {
 
     // Helper to create UIKeyCommand with visionOS compatibility
     func makeKeyCommand(
@@ -248,7 +248,7 @@ extension Ghostty.TerminalView {
 
 // MARK: - Hardware Keyboard Input (pressesBegan/pressesEnded)
 
-extension Ghostty.TerminalView {
+extension Swiftty.TerminalView {
 
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         lastHardwareTextInputTime = ProcessInfo.processInfo.systemUptime
@@ -371,7 +371,7 @@ extension Ghostty.TerminalView {
             : key.characters
 
         // Track hardware modifier state for mouse events (Cmd+click link detection)
-        heldHardwareModifiers = ghosttyInputMods(from: effectiveModifiers, virtualModifier: virtualModifier)
+        heldHardwareModifiers = swifttyInputMods(from: effectiveModifiers, virtualModifier: virtualModifier)
 
         let hasOption = effectiveModifiers.contains(.alternate)
         lazy var logicalKey = KeyCode(uiKey: key, modifiers: effectiveModifiers)
@@ -523,15 +523,15 @@ extension Ghostty.TerminalView {
         if key.keyCode == .keyboardReturnOrEnter,
            !effectiveModifiers.isEmpty,
            !effectiveModifiers.contains(.command),
-           sendEnterKeyViaGhostty(modifiers: effectiveModifiers) {
-            NotificationCenter.default.post(name: .ghosttyDidReceiveInput, object: self)
+           sendEnterKeyViaSwiftty(modifiers: effectiveModifiers) {
+            NotificationCenter.default.post(name: .swifttyDidReceiveInput, object: self)
             notifyInputDelegateOfExternalChange {
                 mutateInputDocument(.reset)
             }
             specialKeyPressModifiers[key.keyCode] = effectiveModifiers
             let repeatModifiers = effectiveModifiers
             keyRepeatManager.start(for: key) { [weak self] in
-                self?.sendKeyViaGhostty(
+                self?.sendKeyViaSwiftty(
                     keyCode: .keyboardReturnOrEnter,
                     action: .repeat,
                     modifiers: repeatModifiers
@@ -540,7 +540,7 @@ extension Ghostty.TerminalView {
             return (true, true)
         }
 
-        // Handle CMD+Alt+arrow keys for split navigation (upstream Ghostty default)
+        // Handle CMD+Alt+arrow keys for split navigation
         // UIKeyCommand doesn't work for arrow keys with Command modifier on iOS
         if effectiveModifiers.contains(.command) && effectiveModifiers.contains(.alternate) &&
             (key.keyCode == .keyboardUpArrow || key.keyCode == .keyboardDownArrow ||
@@ -582,7 +582,7 @@ extension Ghostty.TerminalView {
         }
         #endif
 
-        // Handle plain CMD+arrow keys (upstream Ghostty default)
+        // Handle plain CMD+arrow keys
         // CMD+Left/Right: beginning/end of line (Ctrl-A / Ctrl-E)
         // CMD+Up/Down: scroll page up/down
         if effectiveModifiers.contains(.command) && !effectiveModifiers.contains(.alternate) &&
@@ -597,7 +597,7 @@ extension Ghostty.TerminalView {
                 let triggerKey: KeyCode = key.keyCode == .keyboardUpArrow ? .up : .down
                 let trigger = KeyTrigger(key: triggerKey, modifiers: .command)
                 if let keybind = KeybindManager.shared.keybind(for: trigger),
-                   let actionStr = keybind.action.ghosttyActionString {
+                   let actionStr = keybind.action.swifttyActionString {
                     performActionAsync(actionStr)
                     keyRepeatManager.start(for: key) { [weak self] in
                         self?.performActionAsync(actionStr)
@@ -610,7 +610,7 @@ extension Ghostty.TerminalView {
             return (true, true)
         }
 
-        // Plain OPT+Left/Right: word jump (ESC+b / ESC+f) — matches macOS Ghostty default.
+        // Plain OPT+Left/Right: word jump (ESC+b / ESC+f) — matches macOS Swiftty default.
         // Gated on shouldOptionActAsAlt so users who want Option-as-literal-char get that.
         if effectiveModifiers.contains(.alternate)
             && !effectiveModifiers.contains(.command)
@@ -636,7 +636,7 @@ extension Ghostty.TerminalView {
             if effectiveModifiers.contains(.command) && !effectiveModifiers.contains(.alternate) {
                 // CMD+Delete: kill to beginning of line (Ctrl+U = 0x15)
                 let data = Data([0x15])
-                NotificationCenter.default.post(name: .ghosttyDidReceiveInput, object: self)
+                NotificationCenter.default.post(name: .swifttyDidReceiveInput, object: self)
                 sendUserInput(data)
                 startKeyRepeat(for: key, sequence: "\u{15}")
                 return (true, true)
@@ -644,7 +644,7 @@ extension Ghostty.TerminalView {
             if effectiveModifiers.contains(.alternate) && !effectiveModifiers.contains(.command) {
                 // OPT+Delete: delete word backward (ESC+DEL = 0x1B 0x7F)
                 let data = Data([0x1b, 0x7f])
-                NotificationCenter.default.post(name: .ghosttyDidReceiveInput, object: self)
+                NotificationCenter.default.post(name: .swifttyDidReceiveInput, object: self)
                 sendUserInput(data)
                 startKeyRepeat(for: key, sequence: "\u{1b}\u{7f}")
                 return (true, true)
@@ -652,7 +652,7 @@ extension Ghostty.TerminalView {
         }
 
         // Ctrl+key fast path: send raw control bytes for legacy terminal mode.
-        // When Shift or Alt is also held, skip this path and let the Ghostty
+        // When Shift or Alt is also held, skip this path and let the Swiftty
         // encoder handle it (for correct CSI u / Kitty protocol encoding).
         if effectiveModifiers.contains(.control) && !effectiveModifiers.contains(.command)
             && !effectiveModifiers.contains(.alternate) && !effectiveModifiers.contains(.shift) {
@@ -722,38 +722,38 @@ extension Ghostty.TerminalView {
             return (true, true)
         }
 
-        // Route keys through Ghostty's encoder when a modifier shortcut is active
+        // Route keys through Swiftty's encoder when a modifier shortcut is active
         // (Ctrl/Alt/Cmd). For Alt, prefer physical-key-derived text when the
         // iPad right Option key behaves like AltGr so the composed OS character
         // doesn't leak into terminal encoding. For regular typing and Shift-only,
         // fall through to the text handling path below.
         // Also always route non-printable special keys (F-keys, arrows, nav keys)
-        // through Ghostty regardless of modifiers.
+        // through Swiftty regardless of modifiers.
         do {
-            var ghosttyMods = effectiveModifiers
-            if ghosttyMods.contains(.alternate) && !shouldOptionActAsAlt(virtualModifier: virtualModifier) {
-                ghosttyMods.remove(.alternate)
+            var swifttyMods = effectiveModifiers
+            if swifttyMods.contains(.alternate) && !shouldOptionActAsAlt(virtualModifier: virtualModifier) {
+                swifttyMods.remove(.alternate)
             }
-            // Special keys (F-keys, arrows, nav): always route through Ghostty encoder.
-            // Printable keys: only route through Ghostty when Alt is active (ESC encoding).
+            // Special keys (F-keys, arrows, nav): always route through Swiftty encoder.
+            // Printable keys: only route through Swiftty when Alt is active (ESC encoding).
             // Plain Ctrl+key is handled by the fast path above.
-            // Ctrl+Shift routes here for correct Ghostty encoding.
+            // Ctrl+Shift routes here for correct Swiftty encoding.
             let isSpecialKey = Self.specialKeycodes.contains(key.keyCode)
-            let hasAlt = ghosttyMods.contains(.alternate)
-            let hasCtrlShift = ghosttyMods.contains(.control) && ghosttyMods.contains(.shift)
+            let hasAlt = swifttyMods.contains(.alternate)
+            let hasCtrlShift = swifttyMods.contains(.control) && swifttyMods.contains(.shift)
             let rightOptionActsAsAlt = hasAlt && (heldOptionSide == .right || heldOptionSide == .both)
 
             if isSpecialKey || hasAlt || hasCtrlShift {
-                let mods = ghosttyInputMods(from: ghosttyMods, virtualModifier: virtualModifier)
+                let mods = swifttyInputMods(from: swifttyMods, virtualModifier: virtualModifier)
 
                 // For printable keys, provide the SHIFTED character as text.
                 // For special keys (arrows, F-keys), text=nil is correct.
                 var keyText: String?
-                var consumed = Ghostty.Input.Mods.none
+                var consumed = Swiftty.Input.Mods.none
                 if !isSpecialKey {
                     let shifted = effectiveModifiers.contains(.shift)
                     if rightOptionActsAsAlt {
-                        keyText = printableTextForGhostty(hidUsage: key.keyCode, modifiers: effectiveModifiers)
+                        keyText = printableTextForSwiftty(hidUsage: key.keyCode, modifiers: effectiveModifiers)
                         if shifted {
                             consumed.insert(.shift)
                         }
@@ -763,7 +763,7 @@ extension Ghostty.TerminalView {
                         // text as for modifier flags, including a repurposed
                         // Caps Lock key whose OS toggle is still latched.
                         #if targetEnvironment(macCatalyst)
-                        keyText = printableTextForGhostty(hidUsage: key.keyCode, modifiers: effectiveModifiers)
+                        keyText = printableTextForSwiftty(hidUsage: key.keyCode, modifiers: effectiveModifiers)
                         #else
                         let charsIM = key.charactersIgnoringModifiers
                         let isAscii = !charsIM.isEmpty && charsIM.unicodeScalars.allSatisfy({ $0.value >= 0x20 && $0.value < 0x7F })
@@ -787,22 +787,22 @@ extension Ghostty.TerminalView {
                 }
 
                 // unshifted_codepoint: the character with NO modifiers applied.
-                // Matches macOS Ghostty's characters(byApplyingModifiers: []).
+                // Matches macOS Swiftty's characters(byApplyingModifiers: []).
                 let unshiftedCP = rightOptionActsAsAlt
                     ? unshiftedCodepoint(for: key.keyCode)
                     : unshiftedCodepoint(for: key.keyCode, key: key)
 
-                if sendKeyViaGhostty(
+                if sendKeyViaSwiftty(
                     keyCode: key.keyCode, action: .press, mods: mods,
                     consumedMods: consumed, text: keyText,
                     unshiftedCodepoint: unshiftedCP
                 ) {
-                    specialKeyPressModifiers[key.keyCode] = ghosttyMods
-                    NotificationCenter.default.post(name: .ghosttyDidReceiveInput, object: self)
+                    specialKeyPressModifiers[key.keyCode] = swifttyMods
+                    NotificationCenter.default.post(name: .swifttyDidReceiveInput, object: self)
                     if hasOption || consumedOption { didHandleOptionKey = true }
                     let keyCode = key.keyCode
                     keyRepeatManager.start(for: key) { [weak self] in
-                        self?.sendKeyViaGhostty(
+                        self?.sendKeyViaSwiftty(
                             keyCode: keyCode, action: .repeat, mods: mods,
                             consumedMods: consumed, text: keyText,
                             unshiftedCodepoint: unshiftedCP
@@ -818,7 +818,7 @@ extension Ghostty.TerminalView {
         if let sequence = handleSpecialKey(key, characters: effectiveCharacters, modifiers: effectiveModifiers) {
             // Apply OPTION modifier (Meta key - prefix with ESC).
             // Keys reaching this path are single-byte sequences (Tab, Backspace, control chars)
-            // since CSI/SS3 keys (arrows, Home, End, etc.) are handled by sendKeyViaGhostty.
+            // since CSI/SS3 keys (arrows, Home, End, etc.) are handled by sendKeyViaSwiftty.
             var finalSequence = sequence
             if hasOption && shouldOptionActAsAlt(virtualModifier: virtualModifier) {
                 finalSequence = "\u{1B}" + sequence
@@ -832,7 +832,7 @@ extension Ghostty.TerminalView {
             if sequence == "\u{03}" && !hasOption {
                 if let localSession = session as? LocalShellSession,
                    !localSession.hasActiveEmbeddedSession {
-                    NotificationCenter.default.post(name: .ghosttyDidReceiveInput, object: self)
+                    NotificationCenter.default.post(name: .swifttyDidReceiveInput, object: self)
                     localSession.interrupt()
                     localHandled = true
                 }
@@ -842,7 +842,7 @@ extension Ghostty.TerminalView {
                 if consumedOption { didHandleOptionKey = true }
                 // Send the result to session (SSH or other control sequences)
                 // Notify that input was received (for scroll-to-bottom behavior)
-                NotificationCenter.default.post(name: .ghosttyDidReceiveInput, object: self)
+                NotificationCenter.default.post(name: .swifttyDidReceiveInput, object: self)
 
                 notifyInputDelegateOfExternalChange {
                     sendUserInput(data, documentMutation: sequence == "\u{7F}" ? .backspace : .invalidate)
@@ -856,7 +856,7 @@ extension Ghostty.TerminalView {
                   !effectiveModifiers.contains(.command) {
             // Sentinel characters on an unrecognized key: never text. Swallow
             // so super cannot re-offer it to the text input system.
-            Ghostty.logger.debug("processKeyPress: dropped UIKit sentinel \(sentinel.rawValue)")
+            Swiftty.logger.debug("processKeyPress: dropped UIKit sentinel \(sentinel.rawValue)")
             return (true, true)
         } else if !effectiveCharacters.isEmpty && !effectiveModifiers.contains(.command) {
             // When a CJK input method is active, defer character keys to the text
@@ -874,13 +874,13 @@ extension Ghostty.TerminalView {
             let characters = effectiveCharacters
 
             // Apply OPTION modifier handling
-            // When Option acts as Alt, the Ghostty encoder path above handles it.
+            // When Option acts as Alt, the Swiftty encoder path above handles it.
             // This path only runs when Option produces characters (not Alt mode).
             if hasOption || consumedOption { didHandleOptionKey = true }
 
             if let data = characters.data(using: .utf8) {
                 // Notify that input was received (for scroll-to-bottom behavior)
-                NotificationCenter.default.post(name: .ghosttyDidReceiveInput, object: self)
+                NotificationCenter.default.post(name: .swifttyDidReceiveInput, object: self)
 
                 notifyInputDelegateOfExternalChange {
                     sendUserInput(data, documentMutation: .text(characters))
@@ -923,10 +923,10 @@ extension Ghostty.TerminalView {
             }
             keyRepeatManager.stopIfMatches(key.keyCode)
             keysConsumedByOverlayAction.remove(key.keyCode)
-            // Send release event for special keys routed through Ghostty,
+            // Send release event for special keys routed through Swiftty,
             // using the same modifiers that were sent with the press event.
             if let pressMods = specialKeyPressModifiers.removeValue(forKey: key.keyCode) {
-                sendKeyViaGhostty(keyCode: key.keyCode, action: .release, modifiers: pressMods)
+                sendKeyViaSwiftty(keyCode: key.keyCode, action: .release, modifiers: pressMods)
             }
             // Track OPTION key release
             if key.keyCode == .keyboardLeftControl {
@@ -943,11 +943,11 @@ extension Ghostty.TerminalView {
         syncHeldModifierSides(from: event)
 
         // Recalculate held hardware modifiers from remaining pressed keys
-        var hwMods = Ghostty.Input.Mods.none
+        var hwMods = Swiftty.Input.Mods.none
         if let allPresses = event?.allPresses {
             for p in allPresses where p.phase == .began || p.phase == .changed || p.phase == .stationary {
                 guard let k = p.key else { continue }
-                hwMods.formUnion(ghosttyInputMods(from: normalizedHardwareModifierFlags(k.modifierFlags)))
+                hwMods.formUnion(swifttyInputMods(from: normalizedHardwareModifierFlags(k.modifierFlags)))
             }
         }
         heldHardwareModifiers = hwMods
@@ -964,12 +964,12 @@ extension Ghostty.TerminalView {
 
 // MARK: - Key Repeat
 
-extension Ghostty.TerminalView {
+extension Swiftty.TerminalView {
 
     /// Reset all per-view keyboard interaction state. UIKit/GameController can
     /// miss release events when the app/window deactivates or cancels a key
     /// sequence, so we clear our local state and optionally synthesize key
-    /// releases to Ghostty for any special keys it still considers pressed.
+    /// releases to Swiftty for any special keys it still considers pressed.
     func resetKeyboardInteractionState(sendSyntheticKeyReleases: Bool) {
         didHandleOptionKey = false
         keyRepeatManager.stop()
@@ -985,7 +985,7 @@ extension Ghostty.TerminalView {
 
         if sendSyntheticKeyReleases {
             for (keyCode, modifiers) in specialKeyPressModifiers {
-                sendKeyViaGhostty(keyCode: keyCode, action: .release, modifiers: modifiers)
+                sendKeyViaSwiftty(keyCode: keyCode, action: .release, modifiers: modifiers)
             }
         }
         specialKeyPressModifiers.removeAll()
@@ -1014,11 +1014,11 @@ extension Ghostty.TerminalView {
 
 // MARK: - Key Constants
 
-extension Ghostty.TerminalView {
+extension Swiftty.TerminalView {
 
     /// Keycodes for non-printable special keys that should always route through
-    /// Ghostty's encoder (regardless of modifier state). Printable keys only
-    /// route through Ghostty when Alt is active.
+    /// Swiftty's encoder (regardless of modifier state). Printable keys only
+    /// route through Swiftty when Alt is active.
     static let specialKeycodes: Set<UIKeyboardHIDUsage> = [
         .keyboardReturnOrEnter, .keyboardEscape, .keyboardTab,
         .keyboardDeleteOrBackspace, .keyboardDeleteForward,
@@ -1033,7 +1033,7 @@ extension Ghostty.TerminalView {
     ]
 
     /// Reverse map from UIKeyCommand input character to HID usage.
-    /// Used in handleControlKey to route Ctrl+Shift through Ghostty encoder.
+    /// Used in handleControlKey to route Ctrl+Shift through Swiftty encoder.
     static let charToHIDUsage: [Character: UIKeyboardHIDUsage] = [
         "a": .keyboardA, "b": .keyboardB, "c": .keyboardC, "d": .keyboardD,
         "e": .keyboardE, "f": .keyboardF, "g": .keyboardG, "h": .keyboardH,
@@ -1067,7 +1067,7 @@ extension Ghostty.TerminalView {
 
 // MARK: - Key Helpers
 
-extension Ghostty.TerminalView {
+extension Swiftty.TerminalView {
 
     #if !targetEnvironment(macCatalyst)
     private var isPhysicalControlDownForSystemShortcutArbitration: Bool {
@@ -1182,15 +1182,15 @@ extension Ghostty.TerminalView {
         heldControlSide = leftControl ? (rightControl ? .both : .left) : (rightControl ? .right : .none)
     }
 
-    /// Convert UIKit modifier flags to Ghostty modifier bits, preserving right-side
+    /// Convert UIKit modifier flags to Swiftty modifier bits, preserving right-side
     /// modifier information when we can infer it.
-    func ghosttyInputMods(
+    func swifttyInputMods(
         from modifiers: UIKeyModifierFlags,
         virtualModifier: ModTapModifier? = nil
-    ) -> Ghostty.Input.Mods {
+    ) -> Swiftty.Input.Mods {
         let normalized = normalizedHardwareModifierFlags(modifiers, virtualModifier: virtualModifier)
 
-        var mods = Ghostty.Input.Mods.none
+        var mods = Swiftty.Input.Mods.none
         if normalized.contains(.command) { mods.insert(.cmd) }
         if normalized.contains(.control) {
             mods.insert(.ctrl)
@@ -1230,7 +1230,7 @@ extension Ghostty.TerminalView {
     }
 
     /// Caps Lock used as a mod-tap source still toggles at the OS level. All
-    /// text, Ghostty events and held mouse flags must use the intended state.
+    /// text, Swiftty events and held mouse flags must use the intended state.
     func effectiveCapsLockModifiers(_ modifiers: UIKeyModifierFlags) -> UIKeyModifierFlags {
         let desiredCapsLock = ModTapManager.shared.activeRulesByKey[.keyboardCapsLock].map {
             $0.tapAction == .none ? userWantsCapsLock : false
@@ -1396,16 +1396,16 @@ extension Ghostty.TerminalView {
         return HardwareKeyboardText.text(for: key, modifiers: modifiers, layoutText: layoutText)
     }
 
-    /// Derive the printable text Ghostty should use for a physical key.
+    /// Derive the printable text Swiftty should use for a physical key.
     /// On Catalyst, prefer the active keyboard layout via UCKeyTranslate.
-    func printableTextForGhostty(hidUsage: UIKeyboardHIDUsage, shift: Bool, command: Bool = false) -> String? {
+    func printableTextForSwiftty(hidUsage: UIKeyboardHIDUsage, shift: Bool, command: Bool = false) -> String? {
         var modifiers: UIKeyModifierFlags = []
         if shift { modifiers.insert(.shift) }
         if command { modifiers.insert(.command) }
-        return printableTextForGhostty(hidUsage: hidUsage, modifiers: modifiers)
+        return printableTextForSwiftty(hidUsage: hidUsage, modifiers: modifiers)
     }
 
-    private func printableTextForGhostty(
+    private func printableTextForSwiftty(
         hidUsage: UIKeyboardHIDUsage,
         modifiers: UIKeyModifierFlags,
         fallbackCharacter: Character? = nil
@@ -1437,7 +1437,7 @@ extension Ghostty.TerminalView {
         modTapInterceptor.noteChordUse()
         let hardware = normalizedHardwareModifierFlags(hardwareModifiers)
         func trigger(for modifiers: UIKeyModifierFlags) -> KeyTrigger? {
-            let text = printableTextForGhostty(
+            let text = printableTextForSwiftty(
                 hidUsage: hidUsage, shift: false, command: modifiers.contains(.command)
             )
             guard let key = text.flatMap({ KeyCode(uiKeyInput: $0.lowercased()) })
@@ -1499,7 +1499,7 @@ extension Ghostty.TerminalView {
 
     @discardableResult
     func sendCatalystModifierPrintableChord(
-        _ chord: ModifierPrintableChord, hidUsage: UIKeyboardHIDUsage, action: Ghostty.Input.Action
+        _ chord: ModifierPrintableChord, hidUsage: UIKeyboardHIDUsage, action: Swiftty.Input.Action
     ) -> Bool {
         if let byte = chord.controlCharacter {
             if action != .release {
@@ -1508,44 +1508,44 @@ extension Ghostty.TerminalView {
             }
             return true
         }
-        let sent = sendCatalystPrintableKeyViaGhostty(hidUsage: hidUsage, action: action, modifiers: chord.modifiers)
+        let sent = sendCatalystPrintableKeyViaSwiftty(hidUsage: hidUsage, action: action, modifiers: chord.modifiers)
         if sent && action != .release { didHandleOptionKey = true }
         return sent
     }
 
-    /// Whether the current printable Catalyst key can be encoded through Ghostty.
+    /// Whether the current printable Catalyst key can be encoded through Swiftty.
     func canEncodeCatalystPrintableKey(_ hidUsage: UIKeyboardHIDUsage) -> Bool {
         guard surface != nil else { return false }
         guard cgKeyCode(for: hidUsage) != nil else { return false }
-        return printableTextForGhostty(hidUsage: hidUsage, shift: false) != nil
-            || printableTextForGhostty(hidUsage: hidUsage, shift: true) != nil
+        return printableTextForSwiftty(hidUsage: hidUsage, shift: false) != nil
+            || printableTextForSwiftty(hidUsage: hidUsage, shift: true) != nil
     }
 
-    /// Route a printable Catalyst key through Ghostty with physical HID usage.
+    /// Route a printable Catalyst key through Swiftty with physical HID usage.
     @discardableResult
-    func sendCatalystPrintableKeyViaGhostty(
+    func sendCatalystPrintableKeyViaSwiftty(
         hidUsage: UIKeyboardHIDUsage,
-        action: Ghostty.Input.Action,
+        action: Swiftty.Input.Action,
         modifiers: UIKeyModifierFlags,
         fallbackCharacter: Character? = nil
     ) -> Bool {
         let modifiers = effectiveCapsLockModifiers(modifiers)
-        var mods = Ghostty.Input.Mods.none
+        var mods = Swiftty.Input.Mods.none
         if modifiers.contains(.control) { mods.insert(.ctrl) }
         if modifiers.contains(.shift) { mods.insert(.shift) }
         if modifiers.contains(.alternate) { mods.insert(.alt) }
         if modifiers.contains(.command) { mods.insert(.cmd) }
         if modifiers.contains(.alphaShift) { mods.insert(.caps) }
 
-        var consumed = Ghostty.Input.Mods.none
+        var consumed = Swiftty.Input.Mods.none
         if modifiers.contains(.shift) { consumed.insert(.shift) }
 
-        let keyText = printableTextForGhostty(
+        let keyText = printableTextForSwiftty(
             hidUsage: hidUsage, modifiers: modifiers, fallbackCharacter: fallbackCharacter
         )
         guard let keyText else { return false }
 
-        return sendKeyViaGhostty(
+        return sendKeyViaSwiftty(
             keyCode: hidUsage,
             action: action,
             mods: mods,
@@ -1559,7 +1559,7 @@ extension Ghostty.TerminalView {
     /// Best-effort layout-correct unshifted codepoint for CSI u / Kitty encoding.
     func unshiftedCodepoint(for hidUsage: UIKeyboardHIDUsage, key: UIKey? = nil) -> UInt32 {
         #if targetEnvironment(macCatalyst)
-        if let translated = printableTextForGhostty(hidUsage: hidUsage, shift: false),
+        if let translated = printableTextForSwiftty(hidUsage: hidUsage, shift: false),
            let scalar = translated.unicodeScalars.first {
             return scalar.value
         }
@@ -1585,7 +1585,7 @@ extension Ghostty.TerminalView {
 
 // MARK: - Key Handlers
 
-extension Ghostty.TerminalView {
+extension Swiftty.TerminalView {
 
     /// Handle Ctrl+A-Z key commands (Mac Catalyst only - iOS uses pressesBegan path)
     #if targetEnvironment(macCatalyst)
@@ -1599,14 +1599,14 @@ extension Ghostty.TerminalView {
             KeyboardTracker.isCapsLockActive, to: command.modifierFlags
         ))
 
-        // When Shift is also held, route through Ghostty's encoder for correct
+        // When Shift is also held, route through Swiftty's encoder for correct
         // CSI u / Kitty protocol encoding (Ctrl+Shift is distinct from Ctrl).
         if modifiers.contains(.shift) {
             let hidUsage = currentCatalystPressedPrintableHIDUsage() ?? Self.charToHIDUsage[char]
             if let hidUsage {
                 let keyModifiers: UIKeyModifierFlags = modifiers.intersection([.control, .shift, .alphaShift])
-                let action: Ghostty.Input.Action = specialKeyPressModifiers[hidUsage] != nil ? .repeat : .press
-                if sendCatalystPrintableKeyViaGhostty(
+                let action: Swiftty.Input.Action = specialKeyPressModifiers[hidUsage] != nil ? .repeat : .press
+                if sendCatalystPrintableKeyViaSwiftty(
                     hidUsage: hidUsage,
                     action: action,
                     modifiers: keyModifiers,
@@ -1640,7 +1640,7 @@ extension Ghostty.TerminalView {
         commitKoreanCompositionIfNeeded(external: true)
         guard let input = command.input else { return }
 
-        // Map UIKeyCommand input to HID usage for Ghostty's key encoder
+        // Map UIKeyCommand input to HID usage for Swiftty's key encoder
         let hidUsage: UIKeyboardHIDUsage
         switch input {
         case UIKeyCommand.inputUpArrow:    hidUsage = .keyboardUpArrow
@@ -1660,7 +1660,7 @@ extension Ghostty.TerminalView {
 
         // UIKeyCommand fires repeatedly for key repeat. Use specialKeyPressModifiers
         // to distinguish first press from repeat.
-        let action: Ghostty.Input.Action
+        let action: Swiftty.Input.Action
         if specialKeyPressModifiers[hidUsage] != nil {
             action = .repeat
         } else {
@@ -1668,7 +1668,7 @@ extension Ghostty.TerminalView {
             specialKeyPressModifiers[hidUsage] = modifiers
         }
 
-        sendKeyViaGhostty(keyCode: hidUsage, action: action, modifiers: modifiers)
+        sendKeyViaSwiftty(keyCode: hidUsage, action: action, modifiers: modifiers)
     }
 
     @objc func handleReturnKey(_ command: UIKeyCommand) {
@@ -1710,14 +1710,14 @@ extension Ghostty.TerminalView {
         // UIKeyCommand fires repeatedly while the key is held. Use
         // specialKeyPressModifiers to distinguish first press from repeat,
         // matching handleArrowKey; pressesEnded sends the release.
-        let action: Ghostty.Input.Action
+        let action: Swiftty.Input.Action
         if specialKeyPressModifiers[.keyboardReturnOrEnter] != nil {
             action = .repeat
         } else {
             action = .press
             specialKeyPressModifiers[.keyboardReturnOrEnter] = command.modifierFlags
         }
-        sendKeyViaGhostty(
+        sendKeyViaSwiftty(
             keyCode: .keyboardReturnOrEnter,
             action: action,
             modifiers: command.modifierFlags
@@ -1798,7 +1798,7 @@ extension Ghostty.TerminalView {
     private func handleSystemCancelChordDelivery() {
         commitKoreanCompositionIfNeeded(external: true)
         if dispatchKeybindTrigger(.commandPeriod) { return }
-        NotificationCenter.default.post(name: .ghosttyDidReceiveInput, object: self)
+        NotificationCenter.default.post(name: .swifttyDidReceiveInput, object: self)
         sendUserInput(Data([0x1B]))
     }
 
@@ -1846,7 +1846,7 @@ extension Ghostty.TerminalView {
     /// This is intentionally a no-op. The UIKeyCommand registration with
     /// `wantsPriorityOverSystemBehavior = true` claims F-keys from macOS
     /// (preventing brightness, Mission Control, etc.). Actual key processing
-    /// happens in the `pressesBegan` → `processKeyPress` → `sendKeyViaGhostty`
+    /// happens in the `pressesBegan` → `processKeyPress` → `sendKeyViaSwiftty`
     /// path. Processing here too would cause double key events on Mac Catalyst.
     @objc func handleFunctionKey(_ command: UIKeyCommand) {
         noteModTapCommand(command)
@@ -1855,13 +1855,13 @@ extension Ghostty.TerminalView {
 
     @objc func increaseFontSize(_ command: UIKeyCommand) {
         noteModTapCommand(command)
-        guard surface != nil, ghosttyApp != nil else { return }
-        Ghostty.logger.info("Increasing font size for this tab")
+        guard surface != nil, swifttyApp != nil else { return }
+        Swiftty.logger.info("Increasing font size for this tab")
         // tmux: change the whole window uniformly; re-sync via handleCellSizeChange.
         if applyTmuxWindowFontSize(delta: 1) { return }
         changeLocalFontSize(delta: 1)
 
-        // Update PTY size after Ghostty recalculates grid
+        // Update PTY size after Swiftty recalculates grid
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 50_000_000) // 50ms delay
             self.updatePTYSize()
@@ -1870,12 +1870,12 @@ extension Ghostty.TerminalView {
 
     @objc func decreaseFontSize(_ command: UIKeyCommand) {
         noteModTapCommand(command)
-        guard surface != nil, ghosttyApp != nil else { return }
-        Ghostty.logger.info("Decreasing font size for this tab")
+        guard surface != nil, swifttyApp != nil else { return }
+        Swiftty.logger.info("Decreasing font size for this tab")
         if applyTmuxWindowFontSize(delta: -1) { return }
         changeLocalFontSize(delta: -1)
 
-        // Update PTY size after Ghostty recalculates grid
+        // Update PTY size after Swiftty recalculates grid
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 50_000_000) // 50ms delay
             self.updatePTYSize()
@@ -1884,12 +1884,12 @@ extension Ghostty.TerminalView {
 
     @objc func resetFontSizeToDefault(_ command: UIKeyCommand) {
         noteModTapCommand(command)
-        guard surface != nil, ghosttyApp != nil else { return }
-        Ghostty.logger.info("Resetting font size to default for this tab")
+        guard surface != nil, swifttyApp != nil else { return }
+        Swiftty.logger.info("Resetting font size to default for this tab")
         if resetTmuxWindowFontSize() { return }
         resetLocalFontSize()
 
-        // Update PTY size after Ghostty recalculates grid
+        // Update PTY size after Swiftty recalculates grid
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 50_000_000) // 50ms delay
             self.updatePTYSize()
@@ -1899,11 +1899,11 @@ extension Ghostty.TerminalView {
 
 // MARK: - Split Management Handlers
 
-extension Ghostty.TerminalView {
+extension Swiftty.TerminalView {
 
     @objc func closeSplit(_ command: UIKeyCommand) {
         noteModTapCommand(command)
-        Ghostty.logger.info("TerminalView.closeSplit called on terminal \(self.uuid.uuidString.prefix(8))")
+        Swiftty.logger.info("TerminalView.closeSplit called on terminal \(self.uuid.uuidString.prefix(8))")
         NotificationCenter.default.post(
             name: .closeSplit,
             object: self,
@@ -1914,7 +1914,7 @@ extension Ghostty.TerminalView {
 
 // MARK: - Tab Management Handlers
 
-extension Ghostty.TerminalView {
+extension Swiftty.TerminalView {
 
     @objc func findInTerminal(_ command: UIKeyCommand) {
         noteModTapCommand(command)
@@ -2105,7 +2105,7 @@ extension Ghostty.TerminalView {
         NotificationCenter.default.post(name: .toggleFullScreen, object: self)
     }
 
-    // Terminal actions - use ghostty_surface_binding_action
+    // Terminal actions - use swiftty_surface_binding_action
     // Note: Copy/Paste/Select All are handled by system Edit menu routing to responder chain
     @objc func menuClearScreen(_ sender: Any?) {
         noteModTapCommand(sender as? UIKeyCommand)
@@ -2138,7 +2138,7 @@ extension Ghostty.TerminalView {
             becomeFirstResponder()
         }
         showComposeOverlay.toggle()
-        NotificationCenter.default.post(name: .ghosttyComposeStateChanged, object: self)
+        NotificationCenter.default.post(name: .swifttyComposeStateChanged, object: self)
     }
 
     @objc func menuToggleMouseCapture(_ sender: Any?) {
@@ -2158,7 +2158,7 @@ extension Ghostty.TerminalView {
 
 // MARK: - Keybind System Integration
 
-extension Ghostty.TerminalView {
+extension Swiftty.TerminalView {
 
     /// UIKit can dispatch an action without a raw key-down. Mark the chord
     /// before the action can move focus or its source can be released.
@@ -2202,7 +2202,7 @@ extension Ghostty.TerminalView {
         // composed character ("“"); insertText would turn that into ESC+[.
         if command.modifierFlags.contains(.alternate) { didHandleOptionKey = true }
         guard let commandTrigger = KeyTrigger(uiKeyCommand: command) else {
-            Ghostty.logger.warning("handleKeybindCommand: Failed to parse trigger from command")
+            Swiftty.logger.warning("handleKeybindCommand: Failed to parse trigger from command")
             return
         }
 
@@ -2220,8 +2220,8 @@ extension Ghostty.TerminalView {
         }
 
         guard dispatchKeybindTrigger(commandTrigger) else {
-            let trigFormat = commandTrigger.ghosttyFormat
-            Ghostty.logger.debug("handleKeybindCommand: No action for trigger \(trigFormat)")
+            let trigFormat = commandTrigger.swifttyFormat
+            Swiftty.logger.debug("handleKeybindCommand: No action for trigger \(trigFormat)")
             return
         }
     }
@@ -2239,7 +2239,7 @@ extension Ghostty.TerminalView {
         )
         if let trackerKeybind {
             let actionName = trackerKeybind.action.rawValue
-            Ghostty.logger.debug("Executing keybind action (via tracker): \(actionName)")
+            Swiftty.logger.debug("Executing keybind action (via tracker): \(actionName)")
             executeKeybindAction(trackerKeybind.action, parameter: trackerKeybind.actionParameter)
             return true
         }
@@ -2254,7 +2254,7 @@ extension Ghostty.TerminalView {
         }
 
         let actionName = keybind.action.rawValue
-        Ghostty.logger.debug("Executing keybind action: \(actionName)")
+        Swiftty.logger.debug("Executing keybind action: \(actionName)")
         executeKeybindAction(keybind.action, parameter: keybind.actionParameter)
         return true
     }
@@ -2274,26 +2274,26 @@ extension Ghostty.TerminalView {
 
     /// Execute a keybind action with optional parameter
     func executeKeybindAction(_ action: KeybindAction, parameter: String? = nil) {
-        // Handle terminal actions (sent to libghostty)
+        // Handle terminal actions (sent to SwifttyKit)
         if action.isTerminalAction {
-            // Send data actions (text:/esc:/csi: from ghostty config).
+            // Send data actions (text:/esc:/csi: from swiftty config).
             if action == .send_text, let param = parameter {
                 let decoded = Keybind.decodeEscapeSequence(param)
-                NotificationCenter.default.post(name: .ghosttyDidReceiveInput, object: self)
+                NotificationCenter.default.post(name: .swifttyDidReceiveInput, object: self)
                 sendUserInput(decoded)
                 return
             }
             if action == .send_esc, let param = parameter {
                 var data = Data([0x1B])
                 data.append(Data(param.utf8))
-                NotificationCenter.default.post(name: .ghosttyDidReceiveInput, object: self)
+                NotificationCenter.default.post(name: .swifttyDidReceiveInput, object: self)
                 sendUserInput(data)
                 return
             }
             if action == .send_csi, let param = parameter {
                 var data = Data([0x1B, 0x5B])
                 data.append(Data(param.utf8))
-                NotificationCenter.default.post(name: .ghosttyDidReceiveInput, object: self)
+                NotificationCenter.default.post(name: .swifttyDidReceiveInput, object: self)
                 sendUserInput(data)
                 return
             }
@@ -2317,7 +2317,7 @@ extension Ghostty.TerminalView {
             }
 
             // Handle copy/paste specially - use responder chain methods which work correctly
-            // (ghostty_surface_binding_action for paste requires pendingClipboardPasteSurface to be set)
+            // (swiftty_surface_binding_action for paste requires pendingClipboardPasteSurface to be set)
             if action == .copy_to_clipboard {
                 copy(nil)
                 return
@@ -2327,8 +2327,8 @@ extension Ghostty.TerminalView {
                 return
             }
 
-            // Other terminal actions via ghostty_surface_binding_action
-            if let actionString = action.ghosttyActionString {
+            // Other terminal actions via swiftty_surface_binding_action
+            if let actionString = action.swifttyActionString {
                 performActionAsync(actionString)
             }
             return
@@ -2378,7 +2378,7 @@ extension Ghostty.TerminalView {
         // Font size actions need special handling
         switch action {
         case .increase_font_size:
-            guard surface != nil, ghosttyApp != nil else { return }
+            guard surface != nil, swifttyApp != nil else { return }
             // Use parameter if provided (e.g., "increase_font_size:2"), default to 1
             let delta = Int(parameter ?? "") ?? 1
             if applyTmuxWindowFontSize(delta: delta) { return }
@@ -2390,7 +2390,7 @@ extension Ghostty.TerminalView {
             return
 
         case .decrease_font_size:
-            guard surface != nil, ghosttyApp != nil else { return }
+            guard surface != nil, swifttyApp != nil else { return }
             // Use parameter if provided (e.g., "decrease_font_size:2"), default to 1
             let delta = Int(parameter ?? "") ?? 1
             if applyTmuxWindowFontSize(delta: -delta) { return }
@@ -2402,7 +2402,7 @@ extension Ghostty.TerminalView {
             return
 
         case .reset_font_size:
-            guard surface != nil, ghosttyApp != nil else { return }
+            guard surface != nil, swifttyApp != nil else { return }
             if resetTmuxWindowFontSize() { return }
             resetLocalFontSize()
             Task { @MainActor in
@@ -2420,7 +2420,7 @@ extension Ghostty.TerminalView {
                 becomeFirstResponder()
             }
             showComposeOverlay.toggle()
-            NotificationCenter.default.post(name: .ghosttyComposeStateChanged, object: self)
+            NotificationCenter.default.post(name: .swifttyComposeStateChanged, object: self)
             return
 
         case .toggle_mouse_capture:

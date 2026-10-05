@@ -2,8 +2,8 @@
 //  shell-Bridging-Header.h
 //  shell
 //
-//  Bridging header for the iOS local-shell backend. The Ghostty C API comes
-//  from the GhosttyKit package (`import GhosttyKit`).
+//  Bridging header for the iOS local-shell backend. The terminal API comes
+//  from the SwifttyKit Swift package (`import SwifttyKit`).
 //
 
 #ifndef shell_Bridging_Header_h

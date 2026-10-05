@@ -27,11 +27,11 @@ final class HistoryManager {
     // MARK: - Initialization
 
     init() {
-        // Store history in .ghostty directory
+        // Store history in .swiftty directory
         let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let ghosttyDir = documentsPath.appendingPathComponent(".ghostty", isDirectory: true)
-        try? FileManager.default.createDirectory(at: ghosttyDir, withIntermediateDirectories: true)
-        historyFilePath = ghosttyDir.appendingPathComponent("shell_history.txt")
+        let swifttyDir = documentsPath.appendingPathComponent(".swiftty", isDirectory: true)
+        try? FileManager.default.createDirectory(at: swifttyDir, withIntermediateDirectories: true)
+        historyFilePath = swifttyDir.appendingPathComponent("shell_history.txt")
 
         loadHistory()
     }

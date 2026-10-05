@@ -261,7 +261,7 @@ final class KeyboardTracker {
             // Check initial hardware keyboard state using GCKeyboard API
             #if !os(visionOS)
             isHardwareKeyboard = GCKeyboard.coalesced != nil
-            Ghostty.logger.debug("KeyboardTracker: Initial GCKeyboard state - isHardware=\(self.isHardwareKeyboard)")
+            Swiftty.logger.debug("KeyboardTracker: Initial GCKeyboard state - isHardware=\(self.isHardwareKeyboard)")
             #endif
         }
         startTracking()
@@ -402,14 +402,14 @@ final class KeyboardTracker {
 
     @MainActor
     @objc private func hardwareKeyboardDidConnect(_ notification: Notification) {
-        Ghostty.logger.debug("KeyboardTracker: GCKeyboard connected")
+        Swiftty.logger.debug("KeyboardTracker: GCKeyboard connected")
         updateHardwareKeyboardState(true)
         setupKeyboardInputHandler()
     }
 
     @MainActor
     @objc private func hardwareKeyboardDidDisconnect(_ notification: Notification) {
-        Ghostty.logger.debug("KeyboardTracker: GCKeyboard disconnected")
+        Swiftty.logger.debug("KeyboardTracker: GCKeyboard disconnected")
         resetHardwareModifierState()
         updateHardwareKeyboardState(false)
     }
@@ -421,7 +421,7 @@ final class KeyboardTracker {
         // or other system events without firing connect/disconnect notifications.
         // Reinstall the handler to ensure Ctrl+key handling continues to work.
         if GCKeyboard.coalesced != nil {
-            Ghostty.logger.debug("KeyboardTracker: App became active, reinstalling keyboard handler")
+            Swiftty.logger.debug("KeyboardTracker: App became active, reinstalling keyboard handler")
             setupKeyboardInputHandler()
         }
     }
@@ -705,7 +705,7 @@ final class KeyboardTracker {
         #if !os(visionOS)
         guard let keyboard = GCKeyboard.coalesced,
               let keyboardInput = keyboard.keyboardInput else {
-            Ghostty.logger.debug("KeyboardTracker: No keyboard input available")
+            Swiftty.logger.debug("KeyboardTracker: No keyboard input available")
             return
         }
 
@@ -741,7 +741,7 @@ final class KeyboardTracker {
                              keyCode == .leftArrow || keyCode == .rightArrow
 
             // On Mac Catalyst, Option+printable keys don't fire pressesBegan.
-            // Handle them here via GCKeyboard so Ghostty's encoder produces
+            // Handle them here via GCKeyboard so Swiftty's encoder produces
             // correct sequences. Only catch printable keys — Tab, Escape, F-keys,
             // Return, and arrows have dedicated UIKeyCommand handlers.
             #if targetEnvironment(macCatalyst)
@@ -894,7 +894,7 @@ final class KeyboardTracker {
     #if targetEnvironment(macCatalyst)
     /// Handle Option-based printable key chords on Mac Catalyst via GCKeyboard.
     /// pressesBegan doesn't fire for Option+printable on Catalyst, so this is
-    /// the only path that can route through Ghostty's encoder for layout-correct encoding.
+    /// the only path that can route through Swiftty's encoder for layout-correct encoding.
     @MainActor
     private func handleModifierPrintableKeyDown(
         _ keyCode: GCKeyCode,
@@ -953,7 +953,7 @@ final class KeyboardTracker {
         })
     }
 
-    /// Send release event for any tracked printable key handled through Ghostty.
+    /// Send release event for any tracked printable key handled through Swiftty.
     @MainActor
     private func handleTrackedPrintableKeyUp(_ keyCode: GCKeyCode) {
         stopTrackedKeyRepeat(matching: keyCode)
@@ -963,7 +963,7 @@ final class KeyboardTracker {
 
         terminalView.inputController.controlCharacterPresses.removeValue(forKey: hidUsage)
         if let pressModifiers = terminalView.specialKeyPressModifiers.removeValue(forKey: hidUsage) {
-            terminalView.sendKeyViaGhostty(
+            terminalView.sendKeyViaSwiftty(
                 keyCode: hidUsage, action: .release, modifiers: pressModifiers
             )
         }
@@ -971,7 +971,7 @@ final class KeyboardTracker {
     #endif
 
     @MainActor
-    private func sendCtrlArrowSequence(_ keyCode: GCKeyCode, to terminalView: Ghostty.TerminalView) {
+    private func sendCtrlArrowSequence(_ keyCode: GCKeyCode, to terminalView: Swiftty.TerminalView) {
         // Map GCKeyCode to direction character
         let directionCode: Character
         switch keyCode {
@@ -1008,7 +1008,7 @@ final class KeyboardTracker {
 
     /// The first-responder terminal in the key window, if any.
     @MainActor
-    private func focusedTerminalView() -> Ghostty.TerminalView? {
+    private func focusedTerminalView() -> Swiftty.TerminalView? {
         guard let keyWindow = UIApplication.shared.connectedScenes
             .compactMap({ $0 as? UIWindowScene })
             .flatMap({ $0.windows })
@@ -1114,8 +1114,8 @@ final class KeyboardTracker {
     }
 
     @MainActor
-    private func findTerminalView(in view: UIView) -> Ghostty.TerminalView? {
-        if let terminalView = view as? Ghostty.TerminalView, terminalView.isFirstResponder {
+    private func findTerminalView(in view: UIView) -> Swiftty.TerminalView? {
+        if let terminalView = view as? Swiftty.TerminalView, terminalView.isFirstResponder {
             return terminalView
         }
         for subview in view.subviews {
@@ -1137,7 +1137,7 @@ final class KeyboardTracker {
         isHardwareKeyboard = newState
 
         if wasHardwareKeyboard != isHardwareKeyboard {
-            Ghostty.logger.debug("KeyboardTracker: Hardware keyboard state changed to \(self.isHardwareKeyboard)")
+            Swiftty.logger.debug("KeyboardTracker: Hardware keyboard state changed to \(self.isHardwareKeyboard)")
             notifyHardwareKeyboardStateChanged(isHardwareKeyboard)
         }
     }
@@ -1156,7 +1156,7 @@ final class KeyboardTracker {
 
         if wasVisible != isSoftwareKeyboardVisible {
             let visible = isSoftwareKeyboardVisible
-            Ghostty.logger.debug("KeyboardTracker: Software keyboard visibility changed to \(visible)")
+            Swiftty.logger.debug("KeyboardTracker: Software keyboard visibility changed to \(visible)")
             for continuation in softwareKeyboardVisibilityContinuations.values {
                 continuation.yield(isSoftwareKeyboardVisible)
             }
@@ -1294,7 +1294,7 @@ final class KeyboardTracker {
         if isPreservingSoftwareKeyboardForAppTransition {
             guard isPreservedLayoutFrameVisible(keyboardFrameEnd, inputViewOnly: appTransitionPreservationCoversInputViewOnly) else {
                 ignoredHiddenKeyboardFrameDuringPreservation = true
-                Ghostty.logger.debug("KeyboardTracker: Ignored transient app-transition keyboard frame")
+                Swiftty.logger.debug("KeyboardTracker: Ignored transient app-transition keyboard frame")
                 return
             }
             ignoredHiddenKeyboardFrameDuringPreservation = false
@@ -1307,7 +1307,7 @@ final class KeyboardTracker {
 
         // On macOS, always use hardware keyboard (no on-screen keyboard available)
         if isMacOSCompatibilityMode {
-            Ghostty.logger.debug("KeyboardTracker: Running on macOS, always using hardware keyboard")
+            Swiftty.logger.debug("KeyboardTracker: Running on macOS, always using hardware keyboard")
             return
         }
 
@@ -1319,7 +1319,7 @@ final class KeyboardTracker {
         isHardwareKeyboard = keyboardFrameEnd.height < 100
 
         if wasHardwareKeyboard != isHardwareKeyboard {
-            Ghostty.logger.debug("KeyboardTracker: visionOS height-based detection - isHardware=\(self.isHardwareKeyboard)")
+            Swiftty.logger.debug("KeyboardTracker: visionOS height-based detection - isHardware=\(self.isHardwareKeyboard)")
             notifyHardwareKeyboardStateChanged(isHardwareKeyboard)
         }
         #else
@@ -1327,7 +1327,7 @@ final class KeyboardTracker {
         // Double-check GCKeyboard state in case notifications were missed
         let gcKeyboardConnected = GCKeyboard.coalesced != nil
         if gcKeyboardConnected != isHardwareKeyboard {
-            Ghostty.logger.debug("KeyboardTracker: GCKeyboard state sync - was \(self.isHardwareKeyboard), now \(gcKeyboardConnected)")
+            Swiftty.logger.debug("KeyboardTracker: GCKeyboard state sync - was \(self.isHardwareKeyboard), now \(gcKeyboardConnected)")
             updateHardwareKeyboardState(gcKeyboardConnected)
             // Reinstall key handler if keyboard reconnected - the old handler was on a different instance
             if gcKeyboardConnected {
@@ -1336,7 +1336,7 @@ final class KeyboardTracker {
         }
         #endif
 
-        Ghostty.logger.debug("KeyboardTracker: Frame updated, height=\(keyboardFrameEnd.height), isHardware=\(self.isHardwareKeyboard)")
+        Swiftty.logger.debug("KeyboardTracker: Frame updated, height=\(keyboardFrameEnd.height), isHardware=\(self.isHardwareKeyboard)")
     }
 
     @MainActor

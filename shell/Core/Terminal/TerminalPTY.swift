@@ -1,7 +1,7 @@
 import Foundation
 
 /// Wraps the PTY master file descriptor used for terminal I/O
-/// The descriptor is created by the platform owner (Ghostty on iOS, the Catalyst shell helper
+/// The descriptor is created by the platform owner (Swiftty on iOS, the Catalyst shell helper
 /// on macOS) and adopted through `useExternalFd(_:)`; this type carries the terminal size and
 /// moves bytes across that descriptor for the command execution layer (ShellSession/SSHSession)
 @MainActor
@@ -68,7 +68,7 @@ public final class TerminalPTY {
         windowSize = size
     }
 
-    /// Reads data from the PTY master (user input from Ghostty)
+    /// Reads data from the PTY master (user input from Swiftty)
     /// - Parameter maxLength: Maximum bytes to read
     /// - Returns: Data read from PTY, or nil if no data available
     func read(maxLength: Int = 4096) -> Data? {
@@ -82,7 +82,7 @@ public final class TerminalPTY {
         return Data(buffer[0..<bytesRead])
     }
 
-    /// Writes data to the PTY master (command output to Ghostty)
+    /// Writes data to the PTY master (command output to Swiftty)
     /// - Parameter data: Data to write
     /// - Returns: Number of bytes written, or -1 on error
     @discardableResult
@@ -113,7 +113,7 @@ public final class TerminalPTY {
         masterFd = -1
     }
 
-    /// Mark this PTY as using an external file descriptor (e.g., from Ghostty)
+    /// Mark this PTY as using an external file descriptor (e.g., from Swiftty)
     /// When using an external FD, this PTY won't close it
     public func useExternalFd(_ fd: Int32) {
         self.masterFd = fd
