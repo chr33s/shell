@@ -26,13 +26,14 @@ final class KeyboardModifierButton: KeyboardButton {
     private let iconView: UIImageView?
     private let systemImageName: String?
     private let lockIndicatorBar: UIView
-    private var lastTapTimestamp: CFAbsoluteTime = 0
-    private let doubleTapThreshold: CFAbsoluteTime = 0.5
 
-    /// Three-state modifier: inactive → oneShot → locked → inactive
+    /// Three-state modifier: inactive → oneShot → locked → inactive. A
+    /// presentation of the shared `SoftwareModifierModel`; the toolbar keeps
+    /// it in sync.
     var modifierState: ModifierState = .inactive {
         didSet {
             updateVisualState()
+            updateAccessibilityActions()
         }
     }
 
@@ -42,8 +43,12 @@ final class KeyboardModifierButton: KeyboardButton {
     /// The modifier this button represents
     let modifier: KeyModifiers?
 
-    /// Callback when modifier state changes
-    var onStateChange: ((ModifierState) -> Void)?
+    /// A tap on this modifier. The shared model owns the one-shot / lock
+    /// transitions so every presentation of a modifier stays in sync.
+    var onTap: (() -> Void)?
+
+    /// Accessibility Lock/Unlock: sets a state directly, no timing involved.
+    var onSetState: ((ModifierState) -> Void)?
 
     // MARK: - Initialization
 
@@ -120,6 +125,20 @@ final class KeyboardModifierButton: KeyboardButton {
         }
 
         updateVisualState()
+        updateAccessibilityActions()
+    }
+
+    private func updateAccessibilityActions() {
+        guard modifier != nil else { return }
+        let lock = UIAccessibilityCustomAction(name: String(localized: "Lock")) { [weak self] _ in
+            self?.onSetState?(.locked)
+            return true
+        }
+        let unlock = UIAccessibilityCustomAction(name: String(localized: "Unlock")) { [weak self] _ in
+            self?.onSetState?(.inactive)
+            return true
+        }
+        accessibilityCustomActions = modifierState == .locked ? [unlock] : [lock]
     }
 
     // MARK: - Touch Handling
@@ -131,42 +150,7 @@ final class KeyboardModifierButton: KeyboardButton {
             return
         }
 
-        let now = CFAbsoluteTimeGetCurrent()
-        let elapsed = now - lastTapTimestamp
-
-        switch modifierState {
-        case .inactive:
-            if elapsed < doubleTapThreshold {
-                // Quick second tap (one-shot was consumed between taps) → lock
-                modifierState = .locked
-            } else {
-                modifierState = .oneShot
-            }
-            lastTapTimestamp = now
-
-        case .oneShot:
-            if elapsed < doubleTapThreshold {
-                // Quick double-tap → lock
-                modifierState = .locked
-            } else {
-                // Slow second tap → toggle off
-                modifierState = .inactive
-            }
-            lastTapTimestamp = now
-
-        case .locked:
-            modifierState = .inactive
-            lastTapTimestamp = 0
-        }
-
-        let modifierValue = modifier?.rawValue ?? 0
-        let stateName = switch modifierState {
-        case .inactive: "inactive"
-        case .oneShot: "oneShot"
-        case .locked: "locked"
-        }
-        Swiftty.logger.debug("Modifier '\(self.key)' → \(stateName), modifier rawValue: \(modifierValue)")
-        onStateChange?(modifierState)
+        onTap?()
     }
 
     // MARK: - Visual State
@@ -256,19 +240,5 @@ final class KeyboardModifierButton: KeyboardButton {
             let config = UIImage.SymbolConfiguration(pointSize: newSizes.button.symbolSize, weight: .medium)
             iconView.preferredSymbolConfiguration = config
         }
-    }
-
-    // MARK: - State Management
-
-    /// Clear one-shot state only (locked state persists)
-    func clearIfOneShot() {
-        if modifierState == .oneShot {
-            modifierState = .inactive
-        }
-    }
-
-    /// Force reset to inactive regardless of state
-    func reset() {
-        modifierState = .inactive
     }
 }

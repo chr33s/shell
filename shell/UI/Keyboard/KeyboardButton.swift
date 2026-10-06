@@ -6,6 +6,7 @@
 //
 
 import UIKit
+import SwifttyKit
 
 // MARK: - Key Action Protocol
 
@@ -60,6 +61,16 @@ struct KeyModifiers: OptionSet, Hashable {
     static let alt     = KeyModifiers(rawValue: 1 << 1)
     static let command = KeyModifiers(rawValue: 1 << 2)
     static let shift   = KeyModifiers(rawValue: 1 << 3)
+
+    /// The terminal encoder's modifier set for these software modifiers.
+    var swifttyMods: Swiftty.Input.Mods {
+        var mods = Swiftty.Input.Mods.none
+        if contains(.control) { mods.insert(.ctrl) }
+        if contains(.shift) { mods.insert(.shift) }
+        if contains(.alt) { mods.insert(.alt) }
+        if contains(.command) { mods.insert(.cmd) }
+        return mods
+    }
 }
 
 enum KeyboardKeyColors {

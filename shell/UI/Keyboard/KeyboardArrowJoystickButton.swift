@@ -66,11 +66,17 @@ final class KeyboardArrowJoystickButton: UIView {
     var onDrawerToggle: (() -> Void)?
 
     var isDrawerActive: Bool = false {
-        didSet { updateAppearance() }
+        didSet {
+            updateAppearance()
+            updateAccessibility()
+        }
     }
 
     private(set) var mode: Mode = .joystick {
-        didSet { updateAppearance() }
+        didSet {
+            updateAppearance()
+            updateAccessibility()
+        }
     }
 
     private var sizes: KeyboardSizes
@@ -152,6 +158,53 @@ final class KeyboardArrowJoystickButton: UIView {
         ])
 
         updateAppearance()
+        updateAccessibility()
+    }
+
+    // MARK: - Accessibility
+
+    /// One element with named directions, so VoiceOver and Switch Control
+    /// never depend on a drag or the timed long press.
+    private func updateAccessibility() {
+        isAccessibilityElement = true
+        accessibilityIdentifier = "keyboardToolbar.arrows"
+        accessibilityLabel = String(localized: "Arrow Keys")
+        accessibilityTraits = .button
+        accessibilityValue = mode == .joystick
+            ? String(localized: "Joystick")
+            : (isDrawerActive ? String(localized: "Drawer open") : String(localized: "Drawer"))
+
+        var actions: [UIAccessibilityCustomAction] = [
+            (String(localized: "Move Up"), ArrowDirection.up),
+            (String(localized: "Move Down"), ArrowDirection.down),
+            (String(localized: "Move Left"), ArrowDirection.left),
+            (String(localized: "Move Right"), ArrowDirection.right)
+        ].map { name, direction in
+            UIAccessibilityCustomAction(name: name) { [weak self] _ in
+                guard let self, self.canDispatchTouchAction else { return false }
+                self.sendKey(direction)
+                return true
+            }
+        }
+        if mode == .drawer {
+            let drawerName = isDrawerActive ? String(localized: "Close Arrow Drawer") : String(localized: "Open Arrow Drawer")
+            actions.append(UIAccessibilityCustomAction(name: drawerName) { [weak self] _ in
+                self?.onDrawerToggle?()
+                return true
+            })
+        }
+        let modeName = mode == .joystick ? String(localized: "Use Drawer Mode") : String(localized: "Use Joystick Mode")
+        actions.append(UIAccessibilityCustomAction(name: modeName) { [weak self] _ in
+            self?.toggleMode()
+            return true
+        })
+        accessibilityCustomActions = actions
+    }
+
+    override func accessibilityActivate() -> Bool {
+        guard mode == .drawer else { return false }
+        onDrawerToggle?()
+        return true
     }
 
     // MARK: - Touch Handling
@@ -276,16 +329,18 @@ final class KeyboardArrowJoystickButton: UIView {
         guard validateTouchInteraction() else { return }
         longPressTimer = nil
         isLongPressDetected = true
-
-        // Toggle mode
-        let newMode: Mode = (mode == .drawer) ? .joystick : .drawer
-        mode = newMode
-        SettingsStore.shared.set(Settings.KeyboardToolbar.arrowJoystickMode, newMode)
+        toggleMode()
 
         // Haptic
         #if !os(visionOS)
         impactGenerator.impactOccurred()
         #endif
+    }
+
+    private func toggleMode() {
+        let newMode: Mode = (mode == .drawer) ? .joystick : .drawer
+        mode = newMode
+        SettingsStore.shared.set(Settings.KeyboardToolbar.arrowJoystickMode, newMode)
 
         // If switching to joystick and drawer is open, close it
         if newMode == .joystick && isDrawerActive {

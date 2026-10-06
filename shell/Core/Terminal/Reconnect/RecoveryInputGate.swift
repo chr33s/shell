@@ -87,6 +87,12 @@ final class RecoveryInputGate {
         isLive = live
     }
 
+    /// Whether the next keystroke would be admitted: live, with budget left.
+    /// Lets producers that repeat (held keys) stop instead of retrying.
+    var isAcceptingInput: Bool {
+        isLive && pendingBytes < policy.pendingInputBudgetBytes
+    }
+
     // MARK: - Admission
 
     func admit(_ byteCount: Int, from source: RecoveryInputSource, generation: UInt64) -> RecoveryInputDecision {

@@ -2207,6 +2207,27 @@ extension Swiftty.TerminalView: UIContextMenuInteractionDelegate {
         let terminalMenu = UIMenu(title: "", options: .displayInline, children: [findAction, settingsAction, resetTerminal])
         menuItems.append(terminalMenu)
 
+        #if !os(visionOS) && !targetEnvironment(macCatalyst)
+        // Keyboard implementation: reachable even with the toolbar collapsed
+        // or customized.
+        let preferredKeyboard = SoftwareKeyboardPreference.current
+        let useSystemKeyboard = UIAction(
+            title: String(localized: "Use System Keyboard"),
+            image: UIImage(systemName: "globe"),
+            state: preferredKeyboard == .system ? .on : .off
+        ) { [weak self] _ in
+            self?.keyboardAccessoryController?.selectSoftwareKeyboard(.system)
+        }
+        let useShellKeyboard = UIAction(
+            title: String(localized: "Use Shell Keyboard"),
+            image: UIImage(systemName: "keyboard"),
+            state: preferredKeyboard == .shell ? .on : .off
+        ) { [weak self] _ in
+            self?.keyboardAccessoryController?.selectSoftwareKeyboard(.shell)
+        }
+        menuItems.append(UIMenu(title: "", options: .displayInline, children: [useSystemKeyboard, useShellKeyboard]))
+        #endif
+
         // Tab bar visibility toggle
         let isTabBarHidden = SettingsStore.shared.value(Settings.Tabs.barHidden)
         let tabBarAction = UIAction(

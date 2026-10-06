@@ -132,6 +132,7 @@ final class SettingsRegistryInventoryTests {
         Setting("showTabScopeMenu", configKey: "show-tab-scope-menu", policy: .synced),
         Setting("showTabShortcutIndicators", configKey: "show-tab-shortcut-indicators", policy: .synced),
         Setting("showToolbarWithHardwareKeyboard", configKey: "show-toolbar-with-hardware-keyboard", policy: .localByDefault),
+        Setting("softwareKeyboardMode", configKey: nil, policy: .deviceOnly),
         Setting("splitFocusBorderColor", configKey: "split-focus-border-color", policy: .synced),
         Setting("splitFocusBorderCustomColor", configKey: "split-focus-border-custom-color", policy: .synced),
         Setting("splitFocusBorderStyle", configKey: "split-focus-border-style", policy: .synced),

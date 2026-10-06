@@ -17,6 +17,9 @@ import SwifttyKit
 extension Swiftty.TerminalView: TerminalSessionControllerHost {
     func terminalSessionWillChange() {
         invalidateInputDocument(resetDocument: true)
+        // A disconnect or replaced session retires the keyboard target: no
+        // latched modifier, held key, or repeat may reach the next connection.
+        keyboardAccessoryController?.retireKeyboardTarget()
     }
 
     var terminalContainingTabID: UUID? { containingTabID }

@@ -67,6 +67,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             LegacyLocalSSHAgentCleanup.run()
             LaunchDefaults.announceProtectedDataAvailable()
             SettingsStore.shared.bootstrap()
+            // Before sync can write anything: classify a fresh install by
+            // its untouched defaults domain.
+            SoftwareKeyboardModeMigration.run()
             SettingsSyncCoordinator.shared.start()
             // Interim until every manager registers its own reload(keys:).
             // Instantiate eagerly so the battery / Low Power Mode / thermal /

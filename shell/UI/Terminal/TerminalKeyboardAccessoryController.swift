@@ -29,10 +29,46 @@ protocol TerminalKeyboardAccessoryHost: AnyObject {
     func keyboardPaste()
     func keyboardToggleCompose()
     func keyboardToggleMouseCapture()
+
+    /// Destination for the Shell keyboard. nil opts the host out of Shell
+    /// mode entirely (it keeps the system keyboard).
+    var keyboardDispatchTarget: TerminalKeyboardDispatchTarget? { get }
+    /// True while system marked text (IME composition) is unresolved.
+    var keyboardHasMarkedText: Bool { get }
+    /// Height that must stay visible above the keyboard (two text rows).
+    var keyboardMinimumTerminalHeight: CGFloat { get }
+    /// Brief, content-free explanation shown over the terminal.
+    func keyboardShowNotice(_ message: String)
 }
 
 extension TerminalKeyboardAccessoryHost {
     var keyboardHideIntentWindow: UIWindow? { nil }
+    var keyboardDispatchTarget: TerminalKeyboardDispatchTarget? { nil }
+    var keyboardHasMarkedText: Bool { false }
+    var keyboardMinimumTerminalHeight: CGFloat { 44 }
+    func keyboardShowNotice(_ message: String) {}
+}
+
+/// Why a terminal that prefers the Shell keyboard is showing Apple's instead.
+/// Transient: the stored preference is never changed by a fallback.
+enum ShellKeyboardUnavailableReason: Equatable {
+    case unsupportedHost
+    case hardwareKeyboard
+    case narrowWidth
+    case insufficientHeight
+    case floatingKeyboard
+
+    /// Explanation shown once per fallback; nil stays silent.
+    var notice: String? {
+        switch self {
+        case .unsupportedHost, .hardwareKeyboard:
+            nil
+        case .narrowWidth, .insufficientHeight:
+            String(localized: "Not enough room for the Shell keyboard. Using the system keyboard.")
+        case .floatingKeyboard:
+            String(localized: "The Shell keyboard can't float. Using the system keyboard.")
+        }
+    }
 }
 
 @MainActor
@@ -112,6 +148,24 @@ final class TerminalKeyboardAccessoryController: NSObject {
         emptyInputViewHeightConstraint = constraint
         return view
     }()
+
+    // MARK: Software keyboard implementation
+
+    /// Page and the shared software modifiers for this terminal.
+    let keyboardState = SoftwareKeyboardState()
+    private var dispatcher: TerminalKeyboardDispatcher?
+    private var shellKeyboardView: ShellKeyboardInputView?
+    /// The implementation on screen as of the last input-view query.
+    private(set) var presentedImplementation: SoftwareKeyboardMode = .system
+    /// Captured by the keyboard visibility control when it hides the keyboard
+    /// so the same control restores the same implementation. Transient and
+    /// per terminal: never persisted, cleared by explicit mode selection.
+    private(set) var restoreImplementation: SoftwareKeyboardMode?
+    private var lastFallbackReason: ShellKeyboardUnavailableReason?
+    /// Last preference this terminal acted on, so its own explicit selection
+    /// is not handled a second time when the store reports it.
+    private var observedPreference: SoftwareKeyboardMode = .system
+    private var preferenceTask: Task<Void, Never>?
 
     private var keyboardStateDebounceTimer: Timer?
     private var keyboardStateTask: Task<Void, Never>?
@@ -239,6 +293,9 @@ final class TerminalKeyboardAccessoryController: NSObject {
         return 0
         #else
         guard let host else { return 0 }
+        // The Shell keyboard body owns the bottom padding; the accessory sits
+        // above it like it does above Apple's keyboard.
+        if !toolbarOnlyMode && presentedImplementation == .shell { return 0 }
         guard !PaddingManager.shared.extendUnderHomeIndicator else { return 0 }
         let safeBottom = host.keyboardHostView.window?.safeAreaInsets.bottom ?? 0
         guard safeBottom > 0 else { return 0 }
@@ -341,6 +398,7 @@ final class TerminalKeyboardAccessoryController: NSObject {
 
     var inputAccessoryView: UIView? {
         guard host != nil else { return nil }
+        if !toolbarOnlyMode { _ = resolveImplementation() }
         applyBottomSafeAreaStrip()
         let isVisible = shouldShowKeyboardToolbar
             && !keyboardToolbarCollapsed
@@ -367,8 +425,11 @@ final class TerminalKeyboardAccessoryController: NSObject {
         // UIKit does not specify whether it asks for inputView or
         // inputAccessoryView first. Publish the destination-mode intrinsic
         // height from both paths so toolbar-only entry is correct in one pass.
+        let implementation = toolbarOnlyMode ? presentedImplementation : resolveImplementation()
         applyBottomSafeAreaStrip()
-        guard toolbarOnlyMode else { return nil }
+        guard toolbarOnlyMode else {
+            return implementation == .shell ? makeShellKeyboardView() : nil
+        }
         guard toolbarOnlyUsesPrimaryInputView else { return emptyInputView }
         guard host != nil,
               let accessory = keyboardAccessory,
@@ -397,6 +458,11 @@ final class TerminalKeyboardAccessoryController: NSObject {
         #if !os(visionOS)
         keyboardAccessory = KeyboardAccessoryView(sizes: KeyboardSizes.current(traitCollection: host.keyboardHostView.traitCollection))
         keyboardAccessory?.delegate = delegate
+        // Toolbar modifier buttons and the Shell keyboard share one model.
+        keyboardAccessory?.toolbarView.modifierModel = keyboardState.modifiers
+        if let target = host.keyboardDispatchTarget {
+            dispatcher = TerminalKeyboardDispatcher(target: target, modifiers: keyboardState.modifiers)
+        }
 
         keyboardAccessory?.onModifiersChanged = { [weak self] modifiers in
             self?.activeKeyboardModifiers = modifiers
@@ -408,6 +474,7 @@ final class TerminalKeyboardAccessoryController: NSObject {
             if self.toolbarOnlyMode {
                 self.exitToolbarOnlyMode()
             } else if self.usesHideIntent || SettingsStore.shared.value(Settings.KeyboardToolbar.persistent) {
+                self.restoreImplementation = self.implementationToRestore
                 self.setHideIntent(.hidden(pinned: false))
                 self.enterToolbarOnlyMode(pinned: false)
             } else {
@@ -426,6 +493,9 @@ final class TerminalKeyboardAccessoryController: NSObject {
             if self.keyboardPinnedHidden {
                 self.exitToolbarOnlyMode()
             } else {
+                if !self.toolbarOnlyMode {
+                    self.restoreImplementation = self.implementationToRestore
+                }
                 self.setHideIntent(.hidden(pinned: true))
                 self.enterToolbarOnlyMode(pinned: true)
             }
@@ -494,6 +564,32 @@ final class TerminalKeyboardAccessoryController: NSObject {
             MainActor.assumeIsolated { self?.refreshBottomSafeAreaStrip() }
         }
         cancellables.insert(AnyCancellable { NotificationCenter.default.removeObserver(homeIndicatorObserver) })
+
+        // Every writer of the preference (picker, menu, System key, reset,
+        // restore, sync of a batch) goes through the store's change stream.
+        observedPreference = SoftwareKeyboardPreference.current
+        let preferenceKey = Settings.Keyboard.softwareKeyboardMode.name
+        preferenceTask = Task { @MainActor [weak self] in
+            for await change in SettingsStore.shared.changes() where change.keys.contains(preferenceKey) {
+                guard let self else { break }
+                self.softwareKeyboardPreferenceDidChange()
+            }
+        }
+
+        let sceneObserver = NotificationCenter.default.addObserver(
+            forName: UIScene.willDeactivateNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            let scene = notification.object as? UIScene
+            MainActor.assumeIsolated {
+                guard let self, let scene,
+                      scene === self.host?.keyboardHostView.window?.windowScene else { return }
+                self.cancelKeyboardInteractions()
+                self.keyboardState.modifiers.clearAll()
+            }
+        }
+        cancellables.insert(AnyCancellable { NotificationCenter.default.removeObserver(sceneObserver) })
         #endif
 
         let tracker = KeyboardTracker.shared
@@ -614,6 +710,14 @@ final class TerminalKeyboardAccessoryController: NSObject {
         keyboardAnimationTask?.cancel()
         keyboardAnimationTask = nil
         cancellables.removeAll()
+        preferenceTask?.cancel()
+        preferenceTask = nil
+        cancelKeyboardInteractions()
+        shellKeyboardView?.delegate = nil
+        shellKeyboardView = nil
+        dispatcher = nil
+        restoreImplementation = nil
+        keyboardState.reset()
     }
 
     func enterToolbarOnlyMode(pinned: Bool = false) {
@@ -833,6 +937,169 @@ final class TerminalKeyboardAccessoryController: NSObject {
         #endif
     }
 
+    // MARK: - Software Keyboard Implementation
+
+    /// Preference, or the implementation the visibility control remembered.
+    private var requestedImplementation: SoftwareKeyboardMode {
+        SoftwareKeyboardPresentationPolicy.requested(
+            restore: restoreImplementation,
+            preference: SoftwareKeyboardPreference.current
+        )
+    }
+
+    /// What the visibility control remembers when it hides the keyboard: the
+    /// implementation on screen, except that a transient System fallback
+    /// keeps the Shell intent so a later reopen with room returns to Shell.
+    private var implementationToRestore: SoftwareKeyboardMode {
+        SoftwareKeyboardPresentationPolicy.rememberedOnHide(
+            presented: presentedImplementation,
+            fallbackActive: lastFallbackReason != nil,
+            requested: requestedImplementation
+        )
+    }
+
+    /// Why Shell cannot be presented right now, or nil when it can.
+    func shellKeyboardUnavailableReason() -> ShellKeyboardUnavailableReason? {
+        #if os(visionOS) || targetEnvironment(macCatalyst)
+        return .unsupportedHost
+        #else
+        guard let host, dispatcher != nil, let window = host.keyboardHostView.window else {
+            return .unsupportedHost
+        }
+        if KeyboardTracker.shared.isHardwareKeyboard { return .hardwareKeyboard }
+        let insets = window.safeAreaInsets
+        if window.bounds.width - insets.left - insets.right < ShellKeyboardLayout.minimumWidth {
+            return .narrowWidth
+        }
+        // A floating/undocked Apple keyboard is a placement Shell does not
+        // reproduce; keep System rather than forcing UIKit to dock.
+        if presentedImplementation == .system,
+           UIDevice.current.userInterfaceIdiom == .pad,
+           visibleReportedKeyboardFrame != nil,
+           !KeyboardGeometryMonitor.shared.isKeyboardDocked,
+           !hardwareAccessoryOwnsKeyboardRegion {
+            return .floatingKeyboard
+        }
+        let body = ShellKeyboardLayout.contentHeight(for: host.keyboardHostView.traitCollection) + insets.bottom
+        let accessoryVisible = shouldShowKeyboardToolbar && !keyboardToolbarCollapsed
+        let accessory = accessoryVisible ? (keyboardAccessory?.toolbarView.intrinsicContentSize.height ?? 0) : 0
+        let remaining = window.bounds.height - insets.top - body - accessory
+        if remaining < host.keyboardMinimumTerminalHeight { return .insufficientHeight }
+        return nil
+        #endif
+    }
+
+    /// Decide what this presentation shows. Runs from UIKit's input-view
+    /// queries — a presentation transition — never per keystroke, and never
+    /// changes implementation under an active touch.
+    private func resolveImplementation() -> SoftwareKeyboardMode {
+        // A detached host (mid-reparent) is not a transition; flipping here
+        // would reset modifiers for nothing.
+        guard host?.keyboardHostView.window != nil else { return presentedImplementation }
+        if shellKeyboardView?.hasActiveTouches == true { return presentedImplementation }
+        var resolved = SoftwareKeyboardMode.system
+        if requestedImplementation == .shell {
+            if let reason = shellKeyboardUnavailableReason() {
+                noteFallback(reason)
+            } else {
+                resolved = .shell
+                lastFallbackReason = nil
+            }
+        }
+        if resolved != presentedImplementation {
+            presentedImplementation = resolved
+            cancelKeyboardInteractions()
+            keyboardState.reset()
+            activeToolbarView?.mergesSystemShiftState = resolved == .system
+            DispatchQueue.main.async {
+                KeyboardGeometryMonitor.shared.notifyKeyboardToolbarLayoutChanged()
+            }
+        }
+        return resolved
+    }
+
+    private func noteFallback(_ reason: ShellKeyboardUnavailableReason) {
+        guard reason != lastFallbackReason else { return }
+        lastFallbackReason = reason
+        Swiftty.logger.info("Shell keyboard unavailable: \(String(describing: reason), privacy: .public)")
+        guard let notice = reason.notice else { return }
+        DispatchQueue.main.async { [weak self] in
+            self?.host?.keyboardShowNotice(notice)
+        }
+    }
+
+    private func makeShellKeyboardView() -> ShellKeyboardInputView {
+        let view = shellKeyboardView ?? {
+            let view = ShellKeyboardInputView(state: keyboardState)
+            view.delegate = self
+            shellKeyboardView = view
+            return view
+        }()
+        view.fallbackBottomSafeArea = host?.keyboardHostView.window?.safeAreaInsets.bottom ?? 0
+        return view
+    }
+
+    /// Explicit choice from the System key, the context menu, or settings:
+    /// updates the device preference and switches this terminal now.
+    func selectSoftwareKeyboard(_ mode: SoftwareKeyboardMode) {
+        if mode == .shell, presentedImplementation == .system, host?.keyboardHasMarkedText == true {
+            // Never discard or force-commit an IME candidate to switch.
+            host?.keyboardShowNotice(String(localized: "Finish composing text before switching keyboards."))
+            return
+        }
+        cancelKeyboardInteractions()
+        keyboardState.reset()
+        restoreImplementation = nil
+        lastFallbackReason = nil
+        observedPreference = mode
+        SoftwareKeyboardPreference.set(mode)
+        if toolbarOnlyMode && usesHideIntent {
+            exitToolbarOnlyMode()
+        } else {
+            host?.keyboardReloadInputViews()
+        }
+        // The reload's resolve normally explains a fallback already; explain
+        // here only when it did not run (deferred reload, not first responder),
+        // and record it so the deferred resolve stays silent.
+        if mode == .shell, let reason = shellKeyboardUnavailableReason(), reason != lastFallbackReason {
+            lastFallbackReason = reason
+            if let notice = reason.notice { host?.keyboardShowNotice(notice) }
+        }
+    }
+
+    /// The device preference changed elsewhere (another terminal, settings,
+    /// reset, restore). An explicit mode change overrides any remembered
+    /// restore mode.
+    private func softwareKeyboardPreferenceDidChange() {
+        let current = SoftwareKeyboardPreference.current
+        guard current != observedPreference else { return }
+        observedPreference = current
+        restoreImplementation = nil
+        lastFallbackReason = nil
+        guard host?.keyboardIsFirstResponder == true, !toolbarOnlyMode else { return }
+        cancelKeyboardInteractions()
+        keyboardState.reset()
+        host?.keyboardReloadInputViews()
+    }
+
+    /// The session disconnected or was replaced: stop every held key and
+    /// clear latched modifiers so nothing reaches the next connection.
+    func retireKeyboardTarget() {
+        cancelKeyboardInteractions()
+        keyboardState.modifiers.clearAll()
+    }
+
+    /// Leaving terminal input: no page, modifier, touch, or timer survives.
+    func noteFocusLost() {
+        cancelKeyboardInteractions()
+        keyboardState.reset()
+    }
+
+    private func cancelKeyboardInteractions() {
+        shellKeyboardView?.cancelAllInteractions()
+        activeToolbarView?.cancelAllTouchInteractions()
+    }
+
     private func scheduleKeyboardToolbarUpdate(reason: String) {
         keyboardStateDebounceTimer?.invalidate()
         let timer = Timer(timeInterval: 0.15, repeats: false) { [weak self] _ in
@@ -920,5 +1187,25 @@ final class TerminalKeyboardAccessoryController: NSObject {
         bottomEdgeHomeGestureProtectionEnabled = false
         keyboardAccessory?.setInteractionMode(.accessory)
         #endif
+    }
+}
+
+// MARK: - ShellKeyboardInputViewDelegate
+
+extension TerminalKeyboardAccessoryController: ShellKeyboardInputViewDelegate {
+    func shellKeyboardBeginInteraction() -> TerminalKeyboardTargetIdentity? {
+        dispatcher?.beginInteraction()
+    }
+
+    func shellKeyboard(perform action: TerminalKeyboardAction, on target: TerminalKeyboardTargetIdentity?) -> TerminalKeyboardDispatchResult {
+        dispatcher?.perform(action, on: target) ?? .targetUnavailable
+    }
+
+    func shellKeyboardCanContinue(_ target: TerminalKeyboardTargetIdentity?) -> Bool {
+        dispatcher?.canContinue(target) ?? false
+    }
+
+    func shellKeyboardDidRequestSystemKeyboard() {
+        selectSoftwareKeyboard(.system)
     }
 }

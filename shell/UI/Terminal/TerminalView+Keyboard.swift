@@ -1677,9 +1677,17 @@ extension Swiftty.TerminalView {
         // A one-shot action consumed this press; swallow repeats until release
         // so the held key doesn't leak input into the newly focused session.
         if keysConsumedByOverlayAction.contains(.keyboardReturnOrEnter) { return }
-        // Check if we need to trigger manual reconnection
         if case .manualReconnectRequired = reconnectionManager?.state {
             keysConsumedByOverlayAction.insert(.keyboardReturnOrEnter)
+        }
+        sendReturnKeyInput()
+    }
+
+    /// Plain Return from any keyboard: manual reconnect when required,
+    /// otherwise reset the input document and send CR.
+    func sendReturnKeyInput() {
+        // Check if we need to trigger manual reconnection
+        if case .manualReconnectRequired = reconnectionManager?.state {
             manualReconnect()
             return
         }
@@ -2453,5 +2461,72 @@ extension Swiftty.TerminalView {
                 NotificationCenter.default.post(name: notificationName, object: self, userInfo: userInfo)
             }
         }
+    }
+}
+
+// MARK: - Shell Keyboard Dispatch Target
+
+extension Swiftty.TerminalView: TerminalKeyboardDispatchTarget {
+    var keyboardTargetIdentity: TerminalKeyboardTargetIdentity? {
+        guard isFirstResponder, let window,
+              window.windowScene?.activationState == .foregroundActive else { return nil }
+        return TerminalKeyboardTargetIdentity(
+            terminal: ObjectIdentifier(self),
+            session: session.map { ObjectIdentifier($0) },
+            surface: surface.map { UInt(bitPattern: $0) }
+        )
+    }
+
+    var keyboardTargetIsAcceptingInput: Bool {
+        if case .manualReconnectRequired = reconnectionManager?.state { return false }
+        if let ssh = session as? CitadelSSHSession {
+            return ssh.isRunning && ssh.inputGate.isAcceptingInput
+        }
+        return true
+    }
+
+    func keyboardDispatchBinding(_ trigger: KeyTrigger) -> Bool {
+        dispatchKeybindTrigger(normalizedBindingTrigger(trigger))
+    }
+
+    func keyboardSendPrintable(_ key: String, modifiers: KeyModifiers) {
+        keyPressed(key, modifiers: modifiers)
+    }
+
+    func keyboardSendNamedKey(_ key: ShellKeyboardNamedKey, modifiers: KeyModifiers) {
+        switch key {
+        case .enter where modifiers.isEmpty:
+            commitKoreanCompositionIfNeeded(external: true)
+            sendReturnKeyInput()
+        case .enter:
+            keyPressed("\r", modifiers: modifiers)
+        case .escape where modifiers.isEmpty:
+            // The input boundary keeps the tmux gateway's Escape detach.
+            keyPressed("\u{1B}", modifiers: [])
+        case .tab where modifiers.isDisjoint(with: [.control, .command]):
+            // Plain, Shift (backtab), and Alt Tab keep the toolbar's paths.
+            keyPressed("\t", modifiers: modifiers)
+        case .backspace where modifiers.isEmpty:
+            deleteBackward()
+        default:
+            sendSoftwareKeyViaEncoder(key.hidUsage, modifiers: modifiers)
+        }
+    }
+
+    // keyboardPaste() is shared with TerminalKeyboardAccessoryHost.
+
+    func keyboardReportUnassignedShortcut() {
+        keyboardShowNotice(String(localized: "No shortcut assigned"))
+    }
+
+    /// A named key through the terminal's own encoder, so cursor-key modes
+    /// and every keyboard protocol the engine supports apply. Press and
+    /// release are sent together: nothing is left held for a later target.
+    private func sendSoftwareKeyViaEncoder(_ hidUsage: UIKeyboardHIDUsage, modifiers: KeyModifiers) {
+        commitKoreanCompositionIfNeeded(external: true)
+        NotificationCenter.default.post(name: .swifttyDidReceiveInput, object: self)
+        let mods = modifiers.swifttyMods
+        guard sendKeyViaSwiftty(keyCode: hidUsage, action: .press, mods: mods) else { return }
+        sendKeyViaSwiftty(keyCode: hidUsage, action: .release, mods: mods)
     }
 }

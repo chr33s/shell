@@ -623,6 +623,9 @@ extension Swiftty {
 
         // MARK: Mouse Capture Override Overlay
         private let mouseCaptureOverlay = TerminalTransientOverlay()
+
+        /// Keyboard notices (Shell keyboard fallback, unassigned shortcut).
+        private let keyboardNoticeOverlay = TerminalTransientOverlay()
         #endif
 
         /// Timestamp of last space insertion for double-space-for-period detection
@@ -2889,6 +2892,12 @@ extension Swiftty {
             inputModeOverlay.show(text, in: self, for: .milliseconds(500))
         }
 
+        /// Content-free keyboard notice; also announced to VoiceOver.
+        func showKeyboardNotice(_ text: String) {
+            keyboardNoticeOverlay.show(text, in: self, for: .milliseconds(1500))
+            UIAccessibility.post(notification: .announcement, argument: text)
+        }
+
         // MARK: - Mouse Capture Override Overlay
 
         private func showMouseCaptureOverlay() {
@@ -3213,6 +3222,12 @@ extension Swiftty {
             // next-focused terminal's first keystroke.
             KeySequenceTracker.shared.resetIfOwnedBy(self)
 
+            // Software modifiers, the Shell keyboard page, and any held key
+            // must not follow focus into another field, pane, or window.
+            if result {
+                keyboardAccessoryController?.noteFocusLost()
+            }
+
             return result
         }
 
@@ -3529,7 +3544,7 @@ extension Swiftty {
             // Route through Swiftty's key encoding pipeline when possible for
             // correct CSI u / kitty protocol support.
             if !activeKeyboardModifiers.isEmpty {
-                Swiftty.logger.debug("TerminalView.insertText: Applying modifiers rawValue=\(self.activeKeyboardModifiers.rawValue) to '\(text)'")
+                Swiftty.logger.debug("TerminalView.insertText: Applying modifiers rawValue=\(self.activeKeyboardModifiers.rawValue)")
 
                 // Ctrl-C: interrupt local shell (matches hardware keyboard behavior in TerminalViewKeyboard.swift)
                 if activeKeyboardModifiers.contains(.control), text.lowercased() == "c",
@@ -3556,8 +3571,6 @@ extension Swiftty {
                             // Ctrl+A through Ctrl+Z map to ASCII 1-26
                             let controlChar = asciiValue - 96
                             finalText = String(UnicodeScalar(controlChar))
-                            let upper = char.uppercased()
-                            Swiftty.logger.debug("TerminalView.insertText: Converted to Ctrl-\(upper) (ASCII \(controlChar))")
                         } else if let ctrlCode = Self.controlCharacterMap[char] {
                             finalText = String(UnicodeScalar(ctrlCode))
                         }
@@ -4093,6 +4106,28 @@ extension Swiftty.TerminalView: TerminalKeyboardAccessoryHost {
 
     func keyboardPaste() {
         paste(nil)
+    }
+
+    var keyboardDispatchTarget: TerminalKeyboardDispatchTarget? {
+        #if os(visionOS) || targetEnvironment(macCatalyst)
+        return nil
+        #else
+        return self
+        #endif
+    }
+
+    var keyboardHasMarkedText: Bool {
+        markedTextString != nil || koreanCompositionModel.hasActiveComposition
+    }
+
+    var keyboardMinimumTerminalHeight: CGFloat {
+        ShellKeyboardLayout.minimumTerminalHeight(cellPixelHeight: cellSize.height, scale: contentScaleFactor)
+    }
+
+    func keyboardShowNotice(_ message: String) {
+        #if !targetEnvironment(macCatalyst)
+        showKeyboardNotice(message)
+        #endif
     }
 
     func keyboardToggleCompose() {
@@ -4669,12 +4704,7 @@ extension Swiftty.TerminalView {
         let lookupChar = char.lowercased().first ?? char
         guard let hidUsage = Self.characterHIDUsageMap[lookupChar] else { return false }
 
-        // Convert KeyModifiers to Swiftty mods
-        var mods = Swiftty.Input.Mods.none
-        if modifiers.contains(.control) { mods.insert(.ctrl) }
-        if modifiers.contains(.shift) { mods.insert(.shift) }
-        if modifiers.contains(.alt) { mods.insert(.alt) }
-        if modifiers.contains(.command) { mods.insert(.cmd) }
+        let mods = modifiers.swifttyMods
 
         // Build the text payload: apply shift transformation so legacy mode
         // sends the correct character (e.g., 'A' instead of 'a').
@@ -4752,8 +4782,8 @@ extension Swiftty.TerminalView {
 
 extension Swiftty.TerminalView: KeyboardButtonDelegate {
     func keyPressed(_ key: String, modifiers: KeyModifiers) {
-        // Debug logging
-        Swiftty.logger.debug("TerminalView.keyPressed: key=\(key), modifiers rawValue=\(modifiers.rawValue)")
+        // Never log the key: terminal input can be a secret.
+        Swiftty.logger.debug("TerminalView.keyPressed: modifiers rawValue=\(modifiers.rawValue)")
 
         // A UIKit sentinel is a key name, not text.
         guard !KeyCode.isUIKeyInputSentinel(key) else { return }
@@ -4888,7 +4918,7 @@ extension Swiftty.TerminalView: KeyboardButtonDelegate {
             Swiftty.logger.error("TerminalView: Failed to encode keySequence to UTF-8")
             return
         }
-        Swiftty.logger.debug("TerminalView: Sending sequence bytes: \(data.hexDescription)")
+        Swiftty.logger.debug("TerminalView: Sending key sequence (\(data.count) bytes)")
         sendUserInput(data)
     }
 

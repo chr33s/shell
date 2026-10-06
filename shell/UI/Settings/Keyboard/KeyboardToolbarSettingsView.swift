@@ -17,6 +17,7 @@ struct KeyboardToolbarSettingsView: View {
     @State private var editorContentHeight: CGFloat = 360
     @State private var availableWidth: CGFloat = 0
     @State private var showingResetConfirmation = false
+    @Setting(Settings.Keyboard.softwareKeyboardMode) private var softwareKeyboardMode: SoftwareKeyboardMode
 
     /// The embedded editor self-sizes to its full content so its rows flow as
     /// part of the surrounding list (the outer List does the scrolling, not the
@@ -33,6 +34,9 @@ struct KeyboardToolbarSettingsView: View {
 
     var body: some View {
         List {
+            #if !os(visionOS) && !targetEnvironment(macCatalyst)
+            softwareKeyboardSection
+            #endif
             toolbarLayoutSection
             customKeysSection
             visibilitySection
@@ -144,6 +148,26 @@ struct KeyboardToolbarSettingsView: View {
             Text("Custom Keys")
         } footer: {
             Text("Create buttons that send key sequences.")
+        }
+    }
+
+    // MARK: - Software Keyboard Section
+
+    private var softwareKeyboardSection: some View {
+        Section {
+            Picker("Terminal Keyboard", selection: Binding(
+                get: { softwareKeyboardMode },
+                set: { SoftwareKeyboardPreference.set($0) }
+            )) {
+                ForEach(SoftwareKeyboardMode.allCases, id: \.self) { mode in
+                    Text(mode.displayName).tag(mode)
+                }
+            }
+            .themedRow()
+        } header: {
+            Text("Keyboard")
+        } footer: {
+            Text("The Shell keyboard is a US terminal layout with a number row, symbols, and navigation keys. Use the System keyboard for other languages, emoji, and dictation. The toolbar is unchanged either way.")
         }
     }
 

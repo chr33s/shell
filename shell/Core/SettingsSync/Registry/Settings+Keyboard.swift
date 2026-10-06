@@ -10,6 +10,7 @@ import Foundation
 extension Swiftty.OptionKeyAsAlt: SettingValue {}
 extension DrawerToggleMode: SettingValue {}
 extension KeyboardArrowJoystickButton.Mode: SettingValue {}
+extension SoftwareKeyboardMode: SettingValue {}
 
 nonisolated extension Settings {
     enum Keyboard {
@@ -26,9 +27,16 @@ nonisolated extension Settings {
         static let composeAutocorrect = SettingKey(
             "composeAutocorrectEnabled", default: false, group: .keyboard, configKey: "compose-autocorrect-enabled",
             title: String(localized: "Compose Autocorrect", comment: "Setting title"))
+        /// Terminal software keyboard: Apple's or Shell's own. Device-only: it
+        /// depends on this device's screen and is never synced. New installs are
+        /// switched to Shell once by `SoftwareKeyboardModeMigration`.
+        static let softwareKeyboardMode = SettingKey(
+            "softwareKeyboardMode", default: SoftwareKeyboardMode.system, group: .keyboard, policy: .deviceOnly,
+            title: String(localized: "Terminal Keyboard", comment: "Setting title"))
 
         static let all: [AnySettingDefinition] = [
-            optionKeyAsAlt.erased, forceASCIIKeyboard.erased, doubleSpaceForPeriod.erased, composeAutocorrect.erased
+            optionKeyAsAlt.erased, forceASCIIKeyboard.erased, doubleSpaceForPeriod.erased, composeAutocorrect.erased,
+            softwareKeyboardMode.erased
         ]
     }
 

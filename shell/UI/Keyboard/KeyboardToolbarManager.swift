@@ -329,6 +329,16 @@ final class KeyboardToolbarManager {
         effectiveLayout(availableWidth: availableWidth).drawers
     }
 
+    /// The keyboard visibility control is presented first, before the capacity
+    /// cut, so a narrow window can never push it into a drawer. This reorders
+    /// the presentation only; the saved layout is never rewritten.
+    static func presentationOrder(_ slots: [KeySlot]) -> [KeySlot] {
+        guard let index = slots.firstIndex(of: .builtIn(.dismiss)), index > 0 else { return slots }
+        var ordered = slots
+        ordered.insert(ordered.remove(at: index), at: 0)
+        return ordered
+    }
+
     /// Single source of truth for both effective rows.
     ///
     /// The two halves used to be computed independently, and the drawer-toggle
@@ -341,7 +351,7 @@ final class KeyboardToolbarManager {
     private func effectiveLayout(availableWidth: CGFloat) -> (main: [KeySlot], drawers: [[KeySlot]]) {
         let capacity = mainRowCapacity(availableWidth: availableWidth)
         let customIDs = Set(customKeys.map(\.id))
-        let allMainSlots = validSlots(config.mainRow, customIDs: customIDs)
+        let allMainSlots = Self.presentationOrder(validSlots(config.mainRow, customIDs: customIDs))
 
         var visible = Array(allMainSlots.prefix(capacity))
         var overflow = Array(allMainSlots.dropFirst(capacity))

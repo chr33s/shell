@@ -310,8 +310,20 @@ final class KeyboardToolbarView: UIView {
     private var arrowToggleButton: KeyboardArrowJoystickButton?
     #endif
     private var extraKeysToggleButton: KeyboardSymbolButton?
-    private var activeModifiers: KeyModifiers = []
-    private var modifierStates: [KeyModifiers: ModifierState] = [:]
+
+    /// Shared software modifier state. The terminal's controller injects the
+    /// model it shares with the Shell keyboard body; standalone toolbars keep
+    /// their own.
+    var modifierModel = SoftwareModifierModel() {
+        didSet { observeModifierModel() }
+    }
+    private var modifierObservation: SoftwareModifierObservation?
+    private var activeModifiers: KeyModifiers { modifierModel.active }
+
+    /// Whether to merge Apple's keyboard Shift latch into toolbar keys. Off
+    /// while the Shell keyboard is presented: its Shift lives in
+    /// `modifierModel`, and system keyboard state must not leak into it.
+    var mergesSystemShiftState = true
     private var dismissButtonShowsRestore = false
     private var dismissButtonPinned = false
     private(set) var drawerState: DrawerState = .closed
@@ -328,6 +340,7 @@ final class KeyboardToolbarView: UIView {
         super.init(frame: .zero)
 
         setupViews()
+        observeModifierModel()
         NotificationCenter.default.addObserver(self, selector: #selector(sceneWillDeactivate(_:)),
                                                name: UIScene.willDeactivateNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(applicationWillResignActive),
@@ -744,13 +757,14 @@ final class KeyboardToolbarView: UIView {
         )
 
         button.delegate = self
-        button.onStateChange = { [weak self] state in
-            self?.updateModifierState(keyDef.modifier, state: state)
-        }
-
-        // Initialize from current state if this modifier is already active
-        if let modifier = keyDef.modifier, let state = modifierStates[modifier] {
-            button.modifierState = state
+        if let modifier = keyDef.modifier {
+            button.onTap = { [weak self] in
+                self?.modifierModel.tap(modifier)
+            }
+            button.onSetState = { [weak self] state in
+                self?.modifierModel.set(state, for: modifier)
+            }
+            button.modifierState = modifierModel.state(for: modifier)
         }
 
         modifierButtons.append(button)
@@ -781,12 +795,12 @@ final class KeyboardToolbarView: UIView {
     private func createDismissButton() -> KeyboardSymbolButton {
         let button = KeyboardDismissButton(
             key: "__dismiss__",
-            display: .icon("chevron.down"),
+            display: .icon(Self.keyboardVisibilityIconName(showsRestore: false, pinned: false)),
             sizes: sizes
         )
         button.delegate = self
-        button.updateIcon(dismissButtonIconName)
         dismissButton = button
+        updateDismissButtonAppearance()
         return button
     }
 
@@ -1074,58 +1088,39 @@ final class KeyboardToolbarView: UIView {
 
     // MARK: - Modifier State Management
 
-    private func updateModifierState(_ modifier: KeyModifiers?, state: ModifierState) {
-        guard let modifier = modifier else { return }
-
-        modifierStates[modifier] = state
-
-        if state != .inactive {
-            activeModifiers.insert(modifier)
-        } else {
-            activeModifiers.remove(modifier)
-            modifierStates.removeValue(forKey: modifier)
+    private func observeModifierModel() {
+        modifierObservation = modifierModel.observe { [weak self] model in
+            self?.syncModifierButtons(with: model)
         }
+        syncModifierButtons(with: modifierModel)
+    }
 
-        // Sync all buttons sharing the same modifier
-        for button in modifierButtons where button.modifier == modifier {
+    /// Mirror the shared model onto every button presenting a modifier.
+    private func syncModifierButtons(with model: SoftwareModifierModel) {
+        for button in modifierButtons {
+            guard let modifier = button.modifier else { continue }
+            let state = model.state(for: modifier)
             if button.modifierState != state {
                 button.modifierState = state
             }
         }
-
-        let rawValue = activeModifiers.rawValue
-        Swiftty.logger.debug("KeyboardToolbar: Updated modifiers to rawValue: \(rawValue)")
-        onModifiersChanged?(activeModifiers)
+        onModifiersChanged?(model.active)
     }
 
     /// Clear one-shot modifiers after a key press (locked modifiers persist)
     func clearOneShotModifiers() {
-        var didChange = false
-        for (modifier, state) in modifierStates where state == .oneShot {
-            modifierStates.removeValue(forKey: modifier)
-            activeModifiers.remove(modifier)
-            didChange = true
-
-            for button in modifierButtons where button.modifier == modifier {
-                button.clearIfOneShot()
-            }
-        }
-        if didChange {
-            let rawValue = activeModifiers.rawValue
-            Swiftty.logger.debug("KeyboardToolbar: Cleared one-shot modifiers, remaining rawValue: \(rawValue)")
-            onModifiersChanged?(activeModifiers)
-        }
+        modifierModel.consumeOneShots()
     }
 
     /// Clear all active modifiers (for full reset on tab close, disconnect, etc.)
     func clearModifiers() {
-        activeModifiers = []
-        modifierStates.removeAll()
-        for button in modifierButtons {
-            button.reset()
-        }
-        Swiftty.logger.debug("KeyboardToolbar: Cleared all modifiers")
-        onModifiersChanged?(activeModifiers)
+        modifierModel.clearAll()
+    }
+
+    /// Cancel every in-flight toolbar touch and repeat (keyboard switches,
+    /// focus loss). Arrow joystick timers stop with it.
+    func cancelAllTouchInteractions() {
+        cancelTouchInteractions(in: self)
     }
 
     // MARK: - Layout
@@ -1158,22 +1153,41 @@ final class KeyboardToolbarView: UIView {
 
     func setDismissButtonShowsRestore(_ showsRestore: Bool) {
         dismissButtonShowsRestore = showsRestore
-        dismissButton?.updateIcon(dismissButtonIconName)
+        updateDismissButtonAppearance()
     }
 
     func setDismissButtonPinned(_ pinned: Bool) {
         dismissButtonPinned = pinned
-        dismissButton?.updateIcon(dismissButtonIconName)
+        updateDismissButtonAppearance()
+    }
+
+    private func updateDismissButtonAppearance() {
+        guard let dismissButton else { return }
+        dismissButton.updateIcon(dismissButtonIconName)
+        dismissButton.isAccessibilityElement = true
+        dismissButton.accessibilityTraits = .button
+        dismissButton.accessibilityIdentifier = "keyboardToolbar.visibility"
+        dismissButton.accessibilityLabel = dismissButtonShowsRestore
+            ? String(localized: "Show Keyboard")
+            : String(localized: "Hide Keyboard")
+        dismissButton.accessibilityValue = dismissButtonPinned ? String(localized: "Pinned Hidden") : nil
     }
 
     private var dismissButtonIconName: String {
-        if dismissButtonPinned {
-            for candidate in ["keyboard.slash", "chevron.up.2"] where UIImage(systemName: candidate) != nil {
-                return candidate
-            }
-            return "chevron.up"
+        Self.keyboardVisibilityIconName(showsRestore: dismissButtonShowsRestore, pinned: dismissButtonPinned)
+    }
+
+    /// Keyboard glyphs for the visibility control (hide, restore, pinned).
+    static func keyboardVisibilityIconName(showsRestore: Bool, pinned: Bool) -> String {
+        let candidates: [String]
+        if pinned {
+            candidates = ["keyboard.slash", "keyboard"]
+        } else if showsRestore {
+            candidates = ["keyboard"]
+        } else {
+            candidates = ["keyboard.chevron.compact.down", "keyboard"]
         }
-        return dismissButtonShowsRestore ? "chevron.up" : "chevron.down"
+        return candidates.first { UIImage(systemName: $0) != nil } ?? "keyboard"
     }
 
     func setMouseCaptureOverrideActive(_ active: Bool) {
@@ -1314,9 +1328,6 @@ extension KeyboardToolbarView: KeyboardButtonDelegate {
         // live Shift state (software latch or hardware Shift held)
         let combinedModifiers = combinedModifiersIncludingSystemShift(modifiers)
 
-        // Debug logging
-        Swiftty.logger.debug("KeyboardToolbar: key=\(key), activeModifiers=\(self.activeModifiers.rawValue), combined=\(combinedModifiers.rawValue)")
-
         // Forward to delegate
         self.delegate?.keyPressed(key, modifiers: combinedModifiers)
 
@@ -1329,7 +1340,7 @@ extension KeyboardToolbarView: KeyboardButtonDelegate {
     /// toolbar itself applied; an unreadable system state changes nothing.
     private func combinedModifiersIncludingSystemShift(_ modifiers: KeyModifiers) -> KeyModifiers {
         var combined = modifiers.union(activeModifiers)
-        if SystemShiftReader.shared.currentShift(near: self) == .shifted {
+        if mergesSystemShiftState, SystemShiftReader.shared.currentShift(near: self) == .shifted {
             combined.insert(.shift)
         }
         return combined
