@@ -19,6 +19,12 @@ final class TmuxPane: @unchecked Sendable {
     var pendingHistory: [[UInt8]]?
     var captureRequested = false
     var title = ""
+    /// `#{pane_dead}`: the pane's process exited (`remain-on-exit`).
+    var dead = false
+    /// While initializing: a stand-in terminal fed the `%output` the capture
+    /// already contains, so OSC 7501 status and support queries in it are
+    /// not lost. Its records replace the pane's once the capture is applied.
+    var standIn: TerminalSession?
 
     init(id: Int, window: Int, width: Int, height: Int, scrollbackRows: Int) {
         self.id = id
@@ -28,9 +34,33 @@ final class TmuxPane: @unchecked Sendable {
         var config = SessionConfiguration()
         config.scrollbackLimitBytes = Int.max / 4
         config.scrollbackLimitRows = max(1, scrollbackRows)
+        config.programStatusEnabled = true
         session = TerminalSession(columns: self.width, rows: self.height, configuration: config)
-        // tmux answers the application's queries itself.
-        session.mutateAsync { $0.discardsReplies = true }
+        Self.answerOnlyProgramStatus(session)
+    }
+
+    /// tmux answers the application's queries itself, except OSC 7501's
+    /// support query, which it passes through.
+    static func answerOnlyProgramStatus(_ session: TerminalSession) {
+        session.mutateAsync {
+            $0.discardsReplies = true
+            $0.answersProgramStatusWhileDiscarding = true
+        }
+    }
+
+    /// A terminal that only collects program status (see `standIn`),
+    /// starting from `snapshot`. One row and no scrollback: it parses the
+    /// stream for OSC 7501 and prompt marks, and its screen is thrown away,
+    /// so laying text out costs next to nothing.
+    static func makeStandIn(from snapshot: ProgramStatusSnapshot = .empty) -> TerminalSession {
+        var config = SessionConfiguration()
+        config.scrollbackLimitBytes = 0
+        config.scrollbackLimitRows = 1
+        config.programStatusEnabled = true
+        let session = TerminalSession(columns: 80, rows: 1, configuration: config)
+        answerOnlyProgramStatus(session)
+        session.mutateAsync { $0.replaceProgramStatus(with: snapshot) }
+        return session
     }
 }
 
@@ -63,6 +93,7 @@ final class TmuxViewer: @unchecked Sendable {
     enum CommandKind: UInt8 {
         case listWindows = 1, paneHistory = 2, paneVisible = 3, paneState = 4, version = 5
         case subscribeTitles = 6, clientSize = 8, user = 11, userQuery = 13, probe = 14, sessionInfo = 15
+        case clientFlags = 16
     }
 
     struct Command {
@@ -93,6 +124,19 @@ final class TmuxViewer: @unchecked Sendable {
     private var activeWindow: Int?
     private var sessionID: Int?
     private var titles: [Int: String] = [:]
+    /// How pane replies (OSC 7501's) reach tmux. `report`: the server holds
+    /// support queries for this client (the `program-status` client flag),
+    /// keeping later replies (DA) behind ours, and takes the answer as
+    /// `refresh-client -r`. `keys`: `send-keys`. `unknown` until the flag
+    /// is read back; replies wait meanwhile (bounded).
+    private enum ReplyRoute { case unknown, report, keys }
+    private var replyRoute = ReplyRoute.unknown
+    private var pendingReplies: [(pane: Int, bytes: [UInt8])] = []
+    static let maxPendingReplies = 32
+    /// Stand-ins (see `TmuxPane.standIn`) for `%output` from panes not yet
+    /// listed, adopted when the pane appears.
+    private var orphanStandIns: [Int: TerminalSession] = [:]
+    static let maxOrphanStandIns = 8
     private var clientSize: (columns: Int, rows: Int)?
     private var probeMarker: String?
     private var probeCount = 0
@@ -155,6 +199,8 @@ final class TmuxViewer: @unchecked Sendable {
 
     private func reset() {
         generation &+= 1
+        replyRoute = .unknown
+        pendingReplies = []
         lines.reset()
         inBlock = false
         blockLines = []
@@ -200,6 +246,7 @@ final class TmuxViewer: @unchecked Sendable {
         }
         windows = [:]
         panes = [:]
+        orphanStandIns = [:]
         emittedTopology = false
     }
 
@@ -309,6 +356,15 @@ final class TmuxViewer: @unchecked Sendable {
         switch command.kind {
         case .user, .clientSize, .subscribeTitles, .probe, .version:
             break
+        case .clientFlags:
+            // A server without the flag ignores it, so read back what stuck.
+            let flags = body.first.map { String(decoding: $0, as: UTF8.self) } ?? ""
+            replyRoute = !error && flags.split(separator: ",").contains("program-status") ? .report : .keys
+            let waiting = pendingReplies
+            pendingReplies = []
+            for reply in waiting {
+                sendReply(pane: reply.pane, reply.bytes)
+            }
         case .userQuery:
             let joined = body.map { $0 }.joined(separator: [0x0A])
             respond(tag: command.tag, error: error, body: Array(joined))
@@ -343,7 +399,10 @@ final class TmuxViewer: @unchecked Sendable {
             }
         }
         send(.sessionInfo, "display-message -p \"#{session_id} #{session_name}\"")
+        send(.user, "refresh-client -f program-status")
+        send(.clientFlags, "display-message -p \"#{client_flags}\"")
         send(.subscribeTitles, "refresh-client -B \"shell-title:@*:#{pane_title}\"")
+        send(.subscribeTitles, "refresh-client -B \"shell-dead:%*:#{pane_dead}\"")
         if let size = clientSize {
             send(.clientSize, "refresh-client -C \(size.columns)x\(size.rows)")
         }
@@ -411,6 +470,8 @@ final class TmuxViewer: @unchecked Sendable {
                 }
             } else {
                 pane = TmuxPane(id: id, window: window, width: w, height: h, scrollbackRows: scrollback)
+                pane.session.onTerminalReply = { [weak self] bytes in self?.reply(pane: id, bytes) }
+                pane.standIn = orphanStandIns.removeValue(forKey: id)
                 panes[id] = pane
             }
             if f.count > 20 {
@@ -424,6 +485,7 @@ final class TmuxViewer: @unchecked Sendable {
         for id in panes.keys where !seen.contains(id) {
             panes[id] = nil
         }
+        orphanStandIns = [:]
         windows = newWindows
         emitTopology()
         // The window the host asked for first, then the active one; the
@@ -454,7 +516,16 @@ final class TmuxViewer: @unchecked Sendable {
         pane.pendingHistory = nil
         pane.captureRequested = false
         let st = pane.state ?? PaneState()
-        var bytes: [UInt8] = Array("\u{1B}c\u{1B}[H\u{1B}[2J".utf8) // RIS: start clean
+        // RIS, start clean, but keep program status: the pane's program
+        // never retracted it. The stand-in's records cover what arrived
+        // while the capture was taken.
+        pane.session.mutateAsync { $0.resetPreservingProgramStatus() }
+        if let standIn = pane.standIn {
+            pane.standIn = nil
+            let status = standIn.programStatusSnapshot
+            pane.session.mutateAsync { $0.replaceProgramStatus(with: status) }
+        }
+        var bytes: [UInt8] = Array("\u{1B}[H\u{1B}[2J".utf8)
         // tmux trims trailing blank lines of the visible capture; keep exactly
         // `height` screen lines so history scrolls off correctly.
         var screen = visible
@@ -564,6 +635,10 @@ final class TmuxViewer: @unchecked Sendable {
             }
         case "%subscription-changed":
             // %subscription-changed shell-title $S @W idx %P : value
+            if parts.count >= 3, parts[1] == "shell-dead" {
+                paneDeadChanged(parts[2])
+                return
+            }
             guard parts.count >= 3, parts[1] == "shell-title" else { return }
             let rest = parts[2]
             let fields = rest.split(separator: " ", maxSplits: 4, omittingEmptySubsequences: false)
@@ -596,8 +671,47 @@ final class TmuxViewer: @unchecked Sendable {
     private func output(pane id: Int, _ data: ArraySlice<UInt8>) {
         lastOutput = now
         totalOutput &+= 1
-        guard let pane = panes[id], !pane.initializing else { return }
+        guard let pane = panes[id] else {
+            orphanOutput(pane: id, data)
+            return
+        }
+        guard !pane.initializing else {
+            // Already in the capture, but its program status is not.
+            if pane.standIn == nil {
+                pane.standIn = TmuxPane.makeStandIn(from: pane.session.programStatusSnapshot)
+                pane.standIn?.onTerminalReply = { [weak self] bytes in self?.reply(pane: id, bytes) }
+            }
+            pane.standIn?.receive(TmuxProtocol.decodeOutput(data))
+            return
+        }
         pane.session.receive(TmuxProtocol.decodeOutput(data))
+    }
+
+    /// `%output` from a pane `list-panes` has not reported yet.
+    private func orphanOutput(pane id: Int, _ data: ArraySlice<UInt8>) {
+        guard state == .commandQueue else { return }
+        if orphanStandIns[id] == nil {
+            guard orphanStandIns.count < Self.maxOrphanStandIns else { return }
+            let standIn = TmuxPane.makeStandIn()
+            standIn.onTerminalReply = { [weak self] bytes in self?.reply(pane: id, bytes) }
+            orphanStandIns[id] = standIn
+        }
+        orphanStandIns[id]?.receive(TmuxProtocol.decodeOutput(data))
+    }
+
+    /// `shell-dead $S @W idx %P : 0|1`: a `remain-on-exit` pane's process
+    /// exited (or was respawned). Exit drops transient program status.
+    private func paneDeadChanged(_ rest: Substring) {
+        let fields = rest.split(separator: " ", maxSplits: 4, omittingEmptySubsequences: false)
+        guard fields.count >= 4, let id = TmuxProtocol.id(fields[3], prefix: "%"), let pane = panes[id],
+              let colon = rest.range(of: " : ") else { return }
+        let dead = rest[colon.upperBound...] == "1"
+        guard dead != pane.dead else { return }
+        pane.dead = dead
+        if dead {
+            pane.session.programExited()
+            pane.standIn?.programExited()
+        }
     }
 
     private func sessionChanged(id: Int, name: String) {
@@ -726,8 +840,9 @@ final class TmuxViewer: @unchecked Sendable {
 
     private func forceExitLocked() {
         finish()
-        // Return the gateway's parser to ground.
-        gateway?.session.receive([0x1B, 0x5C])
+        // Return the gateway's parser to ground: CAN aborts control mode
+        // wherever the stream stopped (ST ends it only at a line start).
+        gateway?.session.receive([0x18])
     }
 
     /// Host API: a command whose reply is reported with `tag` (0: none).
@@ -802,17 +917,45 @@ final class TmuxViewer: @unchecked Sendable {
         queue.sync { panes[id] }
     }
 
+    /// A reply the pane's terminal generated (only OSC 7501's: tmux answers
+    /// the rest). To a server holding the query, as the report it waits
+    /// for; otherwise as input to the pane.
+    func reply(pane: Int, _ bytes: [UInt8]) {
+        queue.async { [self] in
+            guard state == .commandQueue else { return }
+            sendReply(pane: pane, bytes)
+        }
+    }
+
+    private func sendReply(pane: Int, _ bytes: [UInt8]) {
+        switch replyRoute {
+        case .unknown:
+            if pendingReplies.count < Self.maxPendingReplies {
+                pendingReplies.append((pane, bytes))
+            }
+        case .report:
+            let report = TmuxProtocol.quote("%\(pane):" + String(decoding: bytes, as: UTF8.self))
+            send(.user, "refresh-client -r \(report)")
+        case .keys:
+            sendKeysLocked(pane: pane, bytes)
+        }
+    }
+
     /// Input typed into a pane surface: `send-keys -H`, chunked.
     func sendKeys(pane: Int, _ bytes: [UInt8]) {
         queue.async { [self] in
             guard state == .commandQueue else { return }
-            var i = 0
-            while i < bytes.count {
-                let chunk = bytes[i ..< min(i + 256, bytes.count)]
-                let hex = chunk.map { String(format: "%02x", $0) }.joined(separator: " ")
-                send(.user, "send-keys -t %\(pane) -H \(hex)")
-                i += 256
-            }
+            sendKeysLocked(pane: pane, bytes)
+        }
+    }
+
+    private func sendKeysLocked(pane: Int, _ bytes: [UInt8]) {
+        var i = 0
+        while i < bytes.count {
+            let chunk = bytes[i ..< min(i + 256, bytes.count)]
+            let hex = chunk.map { String(format: "%02x", $0) }.joined(separator: " ")
+            send(.user, "send-keys -t %\(pane) -H \(hex)")
+            i += 256
         }
     }
 

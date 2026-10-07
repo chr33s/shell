@@ -6,6 +6,7 @@ import Synchronization
 @MainActor
 protocol TerminalResponsePipelineHost: AnyObject {
     var terminalResponseFd: Int32 { get }
+    var terminalReplyFd: Int32 { get }
     var terminalResponseReadQueue: DispatchQueue { get }
     var terminalResponseHasTmuxController: Bool { get }
 
@@ -14,15 +15,17 @@ protocol TerminalResponsePipelineHost: AnyObject {
 
 /// Owns Swiftty response-pipe monitoring for a terminal session.
 ///
-/// The response pipe carries terminal replies and paste data from Swiftty back
-/// to the active session. Keeping this source outside `TerminalView` makes the
-/// byte path cancellable and testable as session lifecycle state, not view
-/// state.
+/// The response pipe carries encoded input (keys, paste, mouse) from Swiftty
+/// back to the active session; the reply pipe carries replies the terminal
+/// generated, which go to `sendTerminalReply` so they never count as typing.
+/// Keeping these sources outside `TerminalView` makes the byte path
+/// cancellable and testable as session lifecycle state, not view state.
 @MainActor
 final class TerminalResponsePipeline {
     private weak var host: TerminalResponsePipelineHost?
 
     private var responseReadSource: DispatchSourceRead?
+    private var replyReadSource: DispatchSourceRead?
     private var sizeReportCarryOver = Data()
     private var gatewayReportFilterState: GatewayReportFilterState = .ground
     private let gatewayFastPath = TerminalResponseGatewayFastPath()
@@ -36,6 +39,7 @@ final class TerminalResponsePipeline {
     /// `gatewayReportFilterState` machine.
     private enum ResponseEvent: Sendable {
         case chunk(Data)
+        case reply(Data)
         case end(pendingPaste: Data?)
     }
 
@@ -48,6 +52,7 @@ final class TerminalResponsePipeline {
 
     deinit {
         responseReadSource?.cancel()
+        replyReadSource?.cancel()
     }
 
     func cancel() {
@@ -60,6 +65,8 @@ final class TerminalResponsePipeline {
         responseEventContinuation = nil
         responseReadSource?.cancel()
         responseReadSource = nil
+        replyReadSource?.cancel()
+        replyReadSource = nil
         sizeReportCarryOver.removeAll(keepingCapacity: true)
         gatewayReportFilterState = .ground
     }
@@ -123,6 +130,8 @@ final class TerminalResponsePipeline {
                 switch event {
                 case .chunk(let data):
                     self.dispatch(data, to: session)
+                case .reply(let data):
+                    self.dispatchReply(data, to: session)
                 case .end(let pendingPaste):
                     self.flushAndCancel(pendingPaste: pendingPaste, session: session)
                     return
@@ -184,6 +193,46 @@ final class TerminalResponsePipeline {
         }
 
         source.resume()
+        startReplyMonitoring(fd: host.terminalReplyFd, queue: host.terminalResponseReadQueue, continuation: continuation)
+    }
+
+    /// Reads the reply pipe into the same ordered stream as the response
+    /// pipe. EOF just stops it: the response pipe's end tears down.
+    private func startReplyMonitoring(
+        fd replyFd: Int32,
+        queue: DispatchQueue,
+        continuation: AsyncStream<ResponseEvent>.Continuation
+    ) {
+        guard replyFd >= 0 else { return }
+        let source = DispatchSource.makeReadSource(fileDescriptor: replyFd, queue: queue)
+        replyReadSource = source
+        source.setEventHandler { @Sendable [weak source, continuation] in
+            let bufferSize = 4096
+            let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
+            defer { buffer.deallocate() }
+            while true {
+                let bytesRead = read(replyFd, buffer, bufferSize)
+                if bytesRead > 0 {
+                    continuation.yield(.reply(Data(bytes: buffer, count: bytesRead)))
+                    continue
+                }
+                if bytesRead < 0, errno == EINTR {
+                    continue
+                }
+                if bytesRead == 0 || (errno != EAGAIN && errno != EWOULDBLOCK) {
+                    source?.cancel()
+                }
+                return
+            }
+        }
+        source.resume()
+    }
+
+    /// Terminal-generated replies. On a tmux gateway, tmux answers the
+    /// application itself (pane replies are routed by the runtime).
+    private func dispatchReply(_ data: Data, to session: TerminalSession?) {
+        guard let session, let host, !host.terminalResponseHasTmuxController else { return }
+        session.sendTerminalReply(data)
     }
 
     private func dispatch(_ data: Data, to session: TerminalSession?) {

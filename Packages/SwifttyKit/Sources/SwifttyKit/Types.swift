@@ -90,6 +90,13 @@ public let SWIFTTY_ACTION_SURFACE_CONTENT_CHANGED = swiftty_action_tag_e(73)
 public let SWIFTTY_ACTION_PTY_RESIZE = swiftty_action_tag_e(74)
 /// A tmux pane's captured content was applied (visible-pane sync).
 public let SWIFTTY_ACTION_TMUX_PANE_SYNCED = swiftty_action_tag_e(75)
+/// OSC 7501 program status changed; no payload. Read the records with
+/// `swiftty_surface_program_status` (also right after creating a surface).
+public let SWIFTTY_ACTION_PROGRAM_STATUS = swiftty_action_tag_e(76)
+/// The gateway's parser entered (`true`) or left (`false`) tmux control
+/// mode, however it ended (`%exit`, CAN, a forced exit); payload
+/// `tmux_control_mode`.
+public let SWIFTTY_ACTION_TMUX_CONTROL_MODE = swiftty_action_tag_e(77)
 
 public struct swiftty_clipboard_e: RawRepresentable, Hashable, Sendable {
     public var rawValue: UInt32
@@ -413,6 +420,7 @@ public struct swiftty_action_u: @unchecked Sendable {
     public var tmux_session_changed: swiftty_action_tmux_session_changed_s = swiftty_action_tmux_session_changed_s()
     public var tmux_command_response: swiftty_action_tmux_command_response_s = swiftty_action_tmux_command_response_s()
     public var tmux_pane_synced: swiftty_action_tmux_pane_synced_s = swiftty_action_tmux_pane_synced_s()
+    public var tmux_control_mode: Bool = false
 
     public init(cell_size: swiftty_action_cell_size_s = swiftty_action_cell_size_s(), pty_resize: swiftty_action_pty_resize_s = swiftty_action_pty_resize_s(), scrollbar: swiftty_action_scrollbar_s = swiftty_action_scrollbar_s(), desktop_notification: swiftty_action_desktop_notification_s = swiftty_action_desktop_notification_s(), set_title: swiftty_action_set_title_s = swiftty_action_set_title_s(), pwd: swiftty_action_pwd_s = swiftty_action_pwd_s(), mouse_shape: swiftty_action_mouse_shape_e = swiftty_action_mouse_shape_e(0), mouse_visibility: swiftty_action_mouse_visibility_e = swiftty_action_mouse_visibility_e(0), mouse_over_link: swiftty_action_mouse_over_link_s = swiftty_action_mouse_over_link_s(), open_url: swiftty_action_open_url_s = swiftty_action_open_url_s(), progress_report: swiftty_action_progress_report_s = swiftty_action_progress_report_s(), start_search: swiftty_action_start_search_s = swiftty_action_start_search_s(), search_total: swiftty_action_search_total_s = swiftty_action_search_total_s(), search_selected: swiftty_action_search_selected_s = swiftty_action_search_selected_s(), tmux_reconcile: UnsafeMutableRawPointer! = nil, tmux_session_changed: swiftty_action_tmux_session_changed_s = swiftty_action_tmux_session_changed_s(), tmux_command_response: swiftty_action_tmux_command_response_s = swiftty_action_tmux_command_response_s()) {
         self.cell_size = cell_size

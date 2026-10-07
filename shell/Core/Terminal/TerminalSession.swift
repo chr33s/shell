@@ -20,6 +20,13 @@ protocol TerminalSession: AnyObject {
     /// - Parameter data: Raw input data from user
     func sendInput(_ data: Data)
 
+    /// Sends a reply the terminal generated (a query answer such as DA,
+    /// DSR or the OSC 7501 support reply) to the program. Never typing:
+    /// it must not reach a line editor, type-ahead, a draft, or set
+    /// user-typed state. Default: `sendInput`, for transports that hand
+    /// bytes straight to a PTY.
+    func sendTerminalReply(_ data: Data)
+
     /// Sets the terminal window size
     /// - Parameter size: New terminal size
     func setSize(_ size: TerminalPTY.TerminalSize) throws
@@ -110,6 +117,10 @@ extension TerminalSession {
 
     /// Default: no special foreground handling.
     func resumeForForeground() {}
+
+    func sendTerminalReply(_ data: Data) {
+        sendInput(data)
+    }
 }
 
 /// Protocol extension for SSH-specific functionality

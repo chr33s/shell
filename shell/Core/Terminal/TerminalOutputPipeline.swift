@@ -123,6 +123,21 @@ final class TerminalOutputPipeline {
         scrollbackRestoreOutputGate.writeOrBuffer(data, to: bufferedWriter)
     }
 
+    /// Runs `body` (on a background queue) once the session output enqueued
+    /// so far has been written to Swiftty's input pipe, past the coalescer
+    /// and the buffered writer.
+    func afterPendingOutput(_ body: @escaping @Sendable () -> Void) {
+        let writer = bufferedWriter
+        outputCoalescer.flush { writer.notifyWhenDrained(body) }
+    }
+
+    /// Swiftty's parser entered or left control mode. Overrides the byte
+    /// tracker, which cannot see a control mode Swiftty ended (or started)
+    /// on its own, e.g. a forced exit.
+    func setControlModeActive(_ active: Bool) {
+        controlModeTracker.setInside(active)
+    }
+
     func enqueueCoalescedOutput(_ data: Data) {
         controlModeTracker.observe(data)
         outputCoalescer.enqueue(data)
@@ -435,6 +450,17 @@ nonisolated final class TerminalOutputCoalescer: @unchecked Sendable {
                 self.firstEnqueueTime = .now()
             }
             self.scheduleTimerLocked()
+        }
+    }
+
+    /// Writes what is pending now, then runs `body`, in order with
+    /// `enqueue`.
+    func flush(then body: @escaping @Sendable () -> Void) {
+        queue.async {
+            if !self.pending.isEmpty {
+                self.flushLocked()
+            }
+            body()
         }
     }
 
@@ -1044,46 +1070,74 @@ nonisolated final class TmuxControlModeStreamGate: @unchecked Sendable {
     func observe(_ data: Data) {
         state.withLock { $0.observe(data) }
     }
+
+    func setInside(_ inside: Bool) {
+        state.withLock { $0.setInside(inside) }
+    }
 }
 
 /// Follows a session byte stream across chunk boundaries to tell whether it
-/// is inside tmux's control-mode DCS (`ESC P 1000 p` … `ESC \`). Inside it
-/// tmux sends no raw ESC until the closing string terminator.
+/// is inside tmux's control-mode DCS (`ESC P 1000 p` … `ESC \`), the way
+/// Swiftty's parser does: control mode is a line protocol whose blocks carry
+/// raw text, escape sequences included (`capture-pane -e`), so only `ESC \`
+/// at the start of a line (after `%exit`) ends it. CAN/SUB abort it.
 nonisolated struct TmuxControlModeStreamTracker: Sendable {
     private(set) var isInside = false
-    /// Tail of the previous chunk, for a marker split across chunks.
-    private var carry: [UInt8] = []
+    /// Outside: how much of the start marker the latest bytes match.
+    private var matched = 0
+    /// Inside: the next byte starts a line.
+    private var lineStart = true
+    /// Inside: an ESC at the start of a line, pending its next byte.
+    private var pendingEscape = false
 
     private static let start: [UInt8] = Array("\u{1B}P1000p".utf8)
-    private static let end: [UInt8] = [0x1B, 0x5C]
+
+    /// Sets the state from the terminal's own parser.
+    mutating func setInside(_ inside: Bool) {
+        guard inside != isInside else { return }
+        isInside = inside
+        matched = 0
+        lineStart = true
+        pendingEscape = false
+    }
 
     mutating func observe(_ data: Data) {
-        guard isInside || data.contains(0x1B) || !carry.isEmpty else { return }
-        let bytes = carry + Array(data)
-        var i = 0
-        while i < bytes.count {
-            let marker = isInside ? Self.end : Self.start
-            if bytes[i] == 0x1B, Self.matches(marker, in: bytes, at: i) {
-                isInside.toggle()
-                i += marker.count
-            } else {
-                i += 1
-            }
-        }
-        // Keep a possible marker prefix at the end for the next chunk.
-        let keep = (isInside ? Self.end : Self.start).count - 1
-        let tail = bytes.suffix(keep)
-        if let esc = tail.lastIndex(of: 0x1B) {
-            let candidate = Array(bytes[esc...])
-            let marker = isInside ? Self.end : Self.start
-            carry = marker.starts(with: candidate) ? candidate : []
-        } else {
-            carry = []
+        guard isInside || matched > 0 || data.contains(0x1B) else { return }
+        for byte in data {
+            step(byte)
         }
     }
 
-    private static func matches(_ marker: [UInt8], in bytes: [UInt8], at i: Int) -> Bool {
-        guard i + marker.count <= bytes.count else { return false }
-        return bytes[i ..< i + marker.count].elementsEqual(marker)
+    private mutating func step(_ byte: UInt8) {
+        guard isInside else {
+            if byte == Self.start[matched] {
+                matched += 1
+                if matched == Self.start.count {
+                    isInside = true
+                    matched = 0
+                    lineStart = true
+                    pendingEscape = false
+                }
+            } else {
+                matched = byte == Self.start[0] ? 1 : 0
+            }
+            return
+        }
+        if pendingEscape {
+            pendingEscape = false
+            if byte == 0x5C {
+                isInside = false
+                return
+            }
+            lineStart = false
+        }
+        switch byte {
+        case 0x18, 0x1A:
+            isInside = false
+        case 0x1B where lineStart:
+            pendingEscape = true
+        default:
+            lineStart = byte == 0x0A
+        }
     }
 }

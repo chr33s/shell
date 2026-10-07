@@ -38,32 +38,6 @@ private struct ScreenControlDetector: Sendable {
 }
 
 extension LocalShellSession {
-    /// Checks if data appears to be a terminal response (cursor position report, etc.)
-    /// Terminal responses are escape sequences that the terminal sends back to the application
-    /// in response to queries. Common patterns:
-    /// - Cursor Position Report: ESC[row;colR  (e.g., "\x1b[1;2R")
-    /// - Device Attributes: ESC[...c
-    nonisolated func isTerminalResponse(_ data: Data) -> Bool {
-        guard data.count >= 4,
-              data[0] == 0x1B, // ESC
-              data[1] == 0x5B  // [
-        else {
-            return false
-        }
-
-        // Cursor position report ends with 'R': ESC [ row ; col R
-        if let lastByte = data.last, lastByte == 0x52 { // 'R'
-            return true
-        }
-
-        // Device attributes response ends with 'c'
-        if let lastByte = data.last, lastByte == 0x63 { // 'c'
-            return true
-        }
-
-        return false
-    }
-
     // MARK: - Cooked-stdin heuristics
 
     /// Decides whether the Swift terminal layer should run a cooked-mode stdin loop

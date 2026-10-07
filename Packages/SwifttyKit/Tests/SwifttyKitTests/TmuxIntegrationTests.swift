@@ -40,7 +40,7 @@ final class TmuxBridge {
             var buf = [UInt8](repeating: 0, count: 65536)
             while self?.running == true {
                 let n = Darwin.read(response, &buf, buf.count)
-                if n > 0 { _ = buf.withUnsafeBytes { Darwin.write(master, $0.baseAddress, n) } } else { break }
+                if n > 0 { _ = buf.withUnsafeBytes { Darwin.write(master, $0.baseAddress, n) } } else if n == 0 { break } else if errno != EAGAIN && errno != EINTR { break } else { usleep(5000) }
             }
         }
     }

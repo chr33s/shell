@@ -79,6 +79,15 @@ extension LocalShellSession {
             onOutput?("\r")
         }
 
+        // Shell integration (OSC 133): the end of the command, if one ran,
+        // then a new prompt, a genuine command boundary for the terminal
+        // (it drops transient OSC 7501 status). A prompt with no command
+        // in between (empty Enter) is not a boundary.
+        if semanticCommandStarted {
+            semanticCommandStarted = false
+            onOutput?("\u{1b}]133;D;\(lastCommandSucceeded ? 0 : 1)\u{07}")
+        }
+
         let prompt = generateFreshPrompt()
 
         // Count lines the prompt occupies (for transient prompt replacement later)
@@ -91,7 +100,14 @@ extension LocalShellSession {
             onOutput?("\r\n")
         }
 
-        onOutput?(prompt.text)
+        onOutput?("\u{1b}]133;A\u{07}" + prompt.text)
+    }
+
+    /// OSC 133 C: the submitted command starts; its output follows.
+    func markCommandStarted() {
+        guard !semanticCommandStarted else { return }
+        semanticCommandStarted = true
+        onOutput?("\u{1b}]133;C\u{07}")
     }
 
     /// Replace the current prompt with a transient (simplified) version before executing a command.

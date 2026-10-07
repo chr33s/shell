@@ -315,6 +315,15 @@ final class TabModel: Identifiable {
         }
     }
 
+    /// OSC 7501 attention across every pane in this tab, focused or not.
+    /// Reads each pane's `programStatusAttention` (not its full summary),
+    /// so only a change of severity re-renders whoever observes this.
+    var programStatusAttention: ProgramStatusAttention? {
+        ProgramStatusAttention.reduce(
+            splitTree.lazy.map { ($0 as? Swiftty.TerminalView)?.programStatusAttention }
+        )
+    }
+
     /// Terminal-typed view of `focusedPane`. Kept as a shim so the many
     /// terminal-only call sites read/write focus with correct semantics:
     /// reads are nil when a non-terminal pane holds focus.

@@ -20,6 +20,9 @@ extension Swiftty.TerminalView: TerminalSessionControllerHost {
         // A disconnect or replaced session retires the keyboard target: no
         // latched modifier, held key, or repeat may reach the next connection.
         keyboardAccessoryController?.retireKeyboardTarget()
+        // The old process or connection is gone: its transient program
+        // status must not attach to the replacement.
+        programStatusProgramExited()
     }
 
     var terminalContainingTabID: UUID? { containingTabID }
@@ -65,6 +68,7 @@ extension Swiftty.TerminalView: TerminalSessionControllerHost {
 
     func sessionDidEnd() {
         invalidateInputDocument(resetDocument: true)
+        programStatusProgramExited()
 
         // Check if reconnection manager is in a state that should keep tab open
         if let state = self.sessionController.reconnectionState {
@@ -111,6 +115,7 @@ extension Swiftty.TerminalView: TerminalSessionControllerHost {
 
 extension Swiftty.TerminalView {
     var terminalResponseFd: Int32 { responseFd }
+    var terminalReplyFd: Int32 { replyFd }
     var terminalResponseReadQueue: DispatchQueue { readQueue }
     var terminalResponseHasTmuxController: Bool { tmuxController != nil }
 

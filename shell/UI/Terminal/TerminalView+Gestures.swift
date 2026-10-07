@@ -1145,6 +1145,7 @@ extension Swiftty.TerminalView {
     func insertPastedText(_ text: String, recordHistory: Bool = true) -> Bool {
         invalidateInputDocument(resetDocument: true)
         guard let surface, !text.isEmpty else { return false }
+        acknowledgeProgramStatus()
 
         text.withCString { ptr in
             swiftty_surface_text(surface, ptr, UInt(text.utf8.count))
@@ -1299,6 +1300,7 @@ extension Swiftty.TerminalView {
         noteUserInputForOutputCoalescing()
         // Track that user has typed (for tmux discovery overlay)
         if !hasUserTyped { hasUserTyped = true }
+        acknowledgeProgramStatus()
         #if targetEnvironment(macCatalyst)
         // For Catalyst: Sessions (SSH or local shell) handle their own I/O.
         // A tmux control mode pane has no session, so route its input to the

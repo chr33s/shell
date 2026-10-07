@@ -53,6 +53,7 @@ final class TerminalSurfaceController: NSObject {
     private(set) var surface: swiftty_surface_t?
     var slaveFd: Int32 = -1
     var responseFd: Int32 = -1
+    var replyFd: Int32 = -1
 
     private(set) var hasRenderedFirstFrame = false
     private var firstFrameCallbacks: [@MainActor () -> Void] = []
@@ -340,6 +341,7 @@ final class TerminalSurfaceController: NSObject {
 
         slaveFd = swiftty_surface_get_slave_fd(newSurface)
         responseFd = swiftty_surface_response_read_fd(newSurface)
+        replyFd = swiftty_surface_reply_read_fd(newSurface)
         host.surfaceOutputPipeline.configure(fd: slaveFd)
 
         if slaveFd >= 0 && responseFd >= 0 {
@@ -709,6 +711,7 @@ final class TerminalSurfaceController: NSObject {
         host.surfaceControllerDidSetSurface(nil)
         slaveFd = -1
         responseFd = -1
+        replyFd = -1
 
         nonisolated(unsafe) let surfacePtr = surface
         Swiftty.TerminalView.swifttyAPIQueue.async {
@@ -793,6 +796,7 @@ extension Swiftty.TerminalView: TerminalSurfaceHost {
 
     func surfaceControllerDidSetSurface(_ surface: swiftty_surface_t?) {
         self.surface = surface
+        programStatusSurfaceChanged()
     }
 
     func surfaceRegisterForScrollbackPersistence() {

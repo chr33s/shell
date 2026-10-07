@@ -124,6 +124,13 @@ public func swiftty_surface_response_read_fd(_ s: swiftty_surface_t?) -> Int32 {
     sfc(s)?.io?.responseFD ?? -1
 }
 
+/// Terminal-generated replies (query answers), apart from the encoded
+/// input on `swiftty_surface_response_read_fd`: the host sends them to the
+/// program without treating them as typing.
+public func swiftty_surface_reply_read_fd(_ s: swiftty_surface_t?) -> Int32 {
+    sfc(s)?.io?.replyFD ?? -1
+}
+
 public func swiftty_surface_request_close(_ s: swiftty_surface_t?) {
     guard let surface = sfc(s) else { return }
     surface.app.runtime.close_surface_cb?(surface.userdata, false)

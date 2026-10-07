@@ -48,6 +48,9 @@ protocol SwifttyActionDelegate: AnyObject {
     /// Called when progress report is requested
     func handleProgressReport(_ report: Swiftty.Action.ProgressReport)
 
+    /// OSC 7501 program status changed; read it from the surface.
+    func handleProgramStatusChanged()
+
     /// Called when search should start
     func handleStartSearch(_ startSearch: Swiftty.Action.StartSearch)
 
@@ -94,6 +97,11 @@ extension Swiftty {
     }
 
     private nonisolated static let isAppBackgroundedFlag = OSAllocatedUnfairLock(initialState: false)
+
+    /// Surfaces with an OSC 7501 refresh already scheduled on the main
+    /// actor: a burst of status actions schedules one refresh, which reads
+    /// the latest snapshot.
+    nonisolated static let programStatusRefreshPending = OSAllocatedUnfairLock(initialState: Set<Int>())
 
     /// True whenever presenting a frame could land in the system's secure-mode
     /// lock snapshot (FrontBoard 0x2BAD45EC kills the process for it). Armed at
@@ -1349,6 +1357,21 @@ extension Swiftty {
                 }
                 return true
 
+            case SWIFTTY_ACTION_TMUX_CONTROL_MODE:
+                // The parser's word on control mode, however it ended (a
+                // forced exit's CAN never passes the output pipeline's
+                // tracker). Not gated on isBackgrounded: host notices depend
+                // on it.
+                if target.tag == SWIFTTY_TARGET_SURFACE,
+                   let userdata = swiftty_surface_userdata(target.target.surface) {
+                    let owner = Unmanaged<Swiftty.TerminalView>.fromOpaque(userdata).takeUnretainedValue()
+                    let active = action.action.tmux_control_mode
+                    Task { @MainActor in
+                        owner.outputPipeline.setControlModeActive(active)
+                    }
+                }
+                return true
+
             case SWIFTTY_ACTION_TMUX_SESSIONS_CHANGED:
                 // Session list churn on the tmux server: nudge the dashboard.
                 // Rare event; cheap notification; not gated on isBackgrounded
@@ -1578,6 +1601,23 @@ extension Swiftty {
                         rows: Int(resize.rows), cols: Int(resize.cols),
                         widthPx: Int(resize.width_px), heightPx: Int(resize.height_px)
                     )
+                }
+                return true
+
+            case SWIFTTY_ACTION_PROGRAM_STATUS:
+                // Not gated on background: the delegate keeps the latest
+                // snapshot (and notifies) while backgrounded, and defers only
+                // the observed UI state to foreground replay. Coalesced per
+                // surface: the refresh reads the latest snapshot anyway.
+                if target.tag == SWIFTTY_TARGET_SURFACE {
+                    let surfaceId = Int(bitPattern: target.target.surface)
+                    let schedule = Swiftty.programStatusRefreshPending.withLock { $0.insert(surfaceId).inserted }
+                    if schedule {
+                        Task { @MainActor in
+                            Swiftty.programStatusRefreshPending.withLock { _ = $0.remove(surfaceId) }
+                            appInstance.surfaceDelegates[surfaceId]?.delegate?.handleProgramStatusChanged()
+                        }
+                    }
                 }
                 return true
 

@@ -339,6 +339,10 @@ final class LocalShellSession: TerminalSession, EmbeddedConnectionConfigProvidin
     // Prompt state
     var lastCommandSucceeded: Bool = true
 
+    /// A command was submitted since the last prompt (OSC 133 C sent):
+    /// the next prompt is a new command boundary.
+    var semanticCommandStarted = false
+
     /// Number of visible lines the current prompt occupies (info bar + input line).
     /// Used by transient prompt to know how many lines to erase/overwrite.
     var lastPromptLineCount: Int = 2
@@ -793,6 +797,30 @@ final class LocalShellSession: TerminalSession, EmbeddedConnectionConfigProvidin
         }
     }
 
+    /// A reply the terminal generated (cursor position reports, DA, OSC
+    /// 7501, ...) goes straight to the command reading stdin, if any, else
+    /// nowhere: never the line editor, type-ahead or a prompt, so it can
+    /// never become a command. Programs like vim need it immediately,
+    /// whatever the input mode.
+    func sendTerminalReply(_ data: Data) {
+        guard isRunning else { return }
+        if case .sshSession = sessionMode, let sshSession = embeddedSSHSession {
+            sshSession.sendTerminalReply(data)
+            return
+        }
+        let writeFd = stdinLock.withLock { commandStdinWriteFd }
+        guard writeFd >= 0 else { return }
+        writeToCommandStdin(writeFd, data)
+    }
+
+    /// Writes `data` to a running command's stdin.
+    nonisolated func writeToCommandStdin(_ fd: Int32, _ data: Data) {
+        data.withUnsafeBytes { buf in
+            guard let baseAddress = buf.baseAddress else { return }
+            _ = Darwin.write(fd, baseAddress, data.count)
+        }
+    }
+
     /// Sends input data to the shell
     func sendInput(_ data: Data) {
         guard isRunning else {
@@ -860,10 +888,7 @@ final class LocalShellSession: TerminalSession, EmbeddedConnectionConfigProvidin
             // Forward to running command's stdin if one is active
             let (mode, writeFd) = stdinLock.withLock { (inputMode, commandStdinWriteFd) }
             if mode == .commandStdin && writeFd >= 0 {
-                data.withUnsafeBytes { buf in
-                    guard let baseAddress = buf.baseAddress else { return }
-                    _ = Darwin.write(writeFd, baseAddress, data.count)
-                }
+                writeToCommandStdin(writeFd, data)
             }
             return
         }
@@ -908,20 +933,6 @@ final class LocalShellSession: TerminalSession, EmbeddedConnectionConfigProvidin
                 for char in text {
                     self?.handleSavePasswordInput(char)
                 }
-            }
-            return
-        }
-
-        // Terminal responses (cursor position reports, etc.) should ALWAYS go to command stdin
-        // if a command is running. This bypasses the lineEditor/commandStdin mode check because
-        // programs like vim need to receive cursor position reports immediately.
-        let termResponseWriteFd = stdinLock.withLock { commandStdinWriteFd }
-
-        if isTerminalResponse(data) && termResponseWriteFd >= 0 {
-            Self.logger.debug("[stdin] Terminal response detected (\(data.count) bytes), forwarding to command stdin")
-            data.withUnsafeBytes { bufferPtr in
-                guard let baseAddress = bufferPtr.baseAddress else { return }
-                _ = Darwin.write(termResponseWriteFd, baseAddress, data.count)
             }
             return
         }

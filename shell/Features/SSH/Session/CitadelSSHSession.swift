@@ -823,6 +823,10 @@ final class CitadelSSHSession: SSHTerminalSession {
         sendInput(data, from: .hardwareKeyboard)
     }
 
+    func sendTerminalReply(_ data: Data) {
+        sendInput(data, from: .terminalReply)
+    }
+
     /// Send input, naming the path it came from.
     ///
     /// The source is recorded rather than inferred: `.terminalReply` and
@@ -834,9 +838,10 @@ final class CitadelSSHSession: SSHTerminalSession {
             return
         }
 
-        // Apply OpenSSH-style escape-character filtering (~. ~? ~I ~~).
+        // Apply OpenSSH-style escape-character filtering (~. ~? ~I ~~) to
+        // what the user typed; a terminal reply is not typing.
         // Unknown and unsupported escapes fall through as literal bytes.
-        let filtered = escapeFilter.filter(data)
+        let filtered = source == .terminalReply ? data : escapeFilter.filter(data)
         guard !filtered.isEmpty else { return }
 
         // Bounded producer backpressure (docs/specs/mobile-connectivity.md §9). Every

@@ -217,7 +217,7 @@ enum TabBarSizingPolicy {
             widths.append(18)
         }
         if item.hasAttentionBadge {
-            widths.append(8)
+            widths.append(12)
         }
         if item.hasThemeOverride {
             widths.append(12)
@@ -354,8 +354,6 @@ struct TabBar: View {
     /// can be retired — see the note in the unfinished-features run).
     @State private var tabHover = TabHoverController()
 
-    // Gates the attention dot on tabs. (id=agent-attention)
-
     // MARK: - Body
 
     var body: some View {
@@ -447,7 +445,7 @@ struct TabBar: View {
         let navigationIndex = tabsModel.navigationIndex(of: tab.id) ?? index
         return TabBarSizingPolicy.Item(
             hasTmuxBadge: TmuxTabBadgeResolver.badge(for: tab, gatewayOwnerIDs: gatewayOwnerIDs) != nil,
-            hasAttentionBadge: false,
+            hasAttentionBadge: tab.programStatusAttention != nil,
             hasThemeOverride: tabHasThemeOverride(tab.id),
             shortcut: keyboardShortcut(navigationIndex)
         )
@@ -478,9 +476,6 @@ struct TabBar: View {
             // Stored so `==` compares the actual color and can't skip a stale
             // badge. (Body still renders from the live palette → identical color.)
             tmuxBadgeColor: tmuxBadge?.color(in: TmuxTabBadgePalette(theme: theme)),
-            // Attention dot input. Stored (not derived in the item's body) so
-            // `==` compares it — a rollup change must re-render even when
-            // every other parent-side input is unchanged. (id=agent-attention)
             isSelected: index == selectedTabIndex,
             isOnly: isOnly,
             theme: theme,
@@ -1213,9 +1208,6 @@ struct TabBarItem: View, Equatable {
     /// unselected/text colors are unchanged. Equality-only — `body` re-renders
     /// the badge from the live palette, producing the same color.
     let tmuxBadgeColor: Color?
-    /// Attention rollup for the tab (nil when badges are disabled or there
-    /// is nothing to show). Stored and compared in `==` — a stale value
-    /// here means a stale dot. (id=agent-attention)
     let isSelected: Bool
     let isOnly: Bool
     let theme: ResolvedTabBarTheme
@@ -1276,6 +1268,9 @@ struct TabBarItem: View, Equatable {
         // Hoisted so the popover and the indicator read the same snapshot. Both
         // reads register on this instance's Observation scope, as before.
         let health = tab.connectionHealth
+        // OSC 7501 rollup across this tab's panes, observed per item: a
+        // severity change re-renders only this tab.
+        let programStatus = tab.programStatusAttention
         TabButton(
             id: tab.id,
             title: tab.title,
@@ -1302,6 +1297,7 @@ struct TabBarItem: View, Equatable {
             hasThemeOverride: hasThemeOverride,
             tmuxBadge: tmuxBadge,
             tmuxBadgePalette: TmuxTabBadgePalette(theme: theme),
+            programStatusAttention: programStatus,
             style: style,
             tabWidth: tabWidth,
             usesTitlebarTabs: usesTitlebarTabs

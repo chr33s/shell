@@ -93,11 +93,11 @@ struct ShellIntegrationTests {
         defer { swiftty_surface_free(s); swiftty_app_free(app) }
         let fd = swiftty_surface_get_slave_fd(s)
         write(fd, "\(Self.esc)[?996n")
-        #expect(drain(swiftty_surface_response_read_fd(s)) == "\(Self.esc)[?997;1n")
+        #expect(drain(swiftty_surface_reply_read_fd(s)) == "\(Self.esc)[?997;1n")
 
         // A light theme, with mode 2031 on, is reported as it applies.
         write(fd, "\(Self.esc)[?2031h")
-        _ = drain(swiftty_surface_response_read_fd(s), timeout: 0.2)
+        _ = drain(swiftty_surface_reply_read_fd(s), timeout: 0.2)
         let config = swiftty_config_new()!
         defer { swiftty_config_free(config) }
         swiftty_config_finalize(config)
@@ -105,7 +105,7 @@ struct ShellIntegrationTests {
         light.applyTheme("background = #fdf6e3\nforeground = #586e75")
         #expect(light.colorScheme == .light)
         swiftty_app_update_config(app, config)
-        #expect(drain(swiftty_surface_response_read_fd(s)) == "\(Self.esc)[?997;2n")
+        #expect(drain(swiftty_surface_reply_read_fd(s)) == "\(Self.esc)[?997;2n")
     }
 
     @Test func detectsLinksThroughCore() {

@@ -175,9 +175,9 @@
   },
   "swiftty": {
     "binaries": {},
-    "commit": "368773fc45b8a0f37f69a4bd851791fd48ce1017",
+    "commit": "a7c02bd9d86a50add11c474766f07997afdbc80d",
     "drop": [],
-    "ref": "368773fc45b8a0f37f69a4bd851791fd48ce1017",
+    "ref": "a7c02bd9d86a50add11c474766f07997afdbc80d",
     "url": "https://github.com/chr33s/swiftty.git"
   },
   "vim-rootshell": {

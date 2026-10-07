@@ -78,6 +78,8 @@ extension Swiftty {
             var searchState: Swiftty.SearchState?
             var isMouseCaptured: Bool = false
             var progressReport: Swiftty.Action.ProgressReport?
+            var programStatus: ProgramStatusPresentation?
+            var programStatusAttention: ProgramStatusAttention?
             var connectionHealth: ConnectionHealth?
             var restorationState: RestorationState = .none
             var recoveryStatus: RecoveryStatusPresentation?
@@ -383,6 +385,35 @@ extension Swiftty {
 
             }
         }
+
+        /// OSC 7501 pane summary (see `TerminalView+ProgramStatus.swift`).
+        /// Presentation only: the records live in Swiftty. No expiry timer —
+        /// `working` and `blocked` hold until the program replaces them.
+        var programStatus: ProgramStatusPresentation? {
+            get { observed.programStatus }
+            set {
+                if observed.programStatus != newValue {
+                    observed.programStatus = newValue
+                }
+            }
+        }
+
+        /// What this pane contributes to its tab's badge. Separate from
+        /// `programStatus` so a progress burst does not invalidate tabs.
+        var programStatusAttention: ProgramStatusAttention? {
+            get { observed.programStatusAttention }
+            set {
+                if observed.programStatusAttention != newValue {
+                    observed.programStatusAttention = newValue
+                }
+            }
+        }
+
+        /// The latest records read from Swiftty, and how far the user has
+        /// seen them (revisions of this terminal's store).
+        var programStatusSnapshot = ProgramStatusSnapshot.empty
+        var programStatusAcknowledgedRevision: UInt64 = 0
+        var programStatusNotificationGate = ProgramStatusNotificationGate()
 
         /// Surface size information
         var surfaceSize: swiftty_surface_size_s? {
@@ -800,6 +831,12 @@ extension Swiftty {
         var responseFd: Int32 {
             get { surfaceController.responseFd }
             set { surfaceController.responseFd = newValue }
+        }
+
+        /// Reply pipe read FD: query answers Swiftty generated, kept apart
+        /// from encoded input so they never count as typing.
+        var replyFd: Int32 {
+            surfaceController.replyFd
         }
 
         /// This gateway's owner-surface key (`Int(bitPattern:)`), used to key the
@@ -4201,6 +4238,10 @@ extension Swiftty.TerminalView: SwifttyActionDelegate {
     /// Runs before SwiftUI's first post-resume render so stale values never
     /// reach the UI.
     func replayCachedSessionStateOnForeground() {
+        // Status kept arriving while backgrounded (Swiftty never dropped
+        // it); show the latest. Hydration is not news: notifications were
+        // already decided as each revision arrived.
+        refreshProgramStatus()
         if userOverrideTitle == nil,
            let cached = sessionProvidedTitle,
            cached != title {
@@ -4745,6 +4786,9 @@ extension Swiftty.TerminalView {
         invalidateInputDocument()
         guard let surface = surface else { return false }
         guard let nativeKeycode = Swiftty.Input.nativeKeyCode(for: keyCode) else { return false }
+        if action != .release {
+            acknowledgeProgramStatus()
+        }
 
         // A UIKit sentinel is a key name, not text.
         let text = text.flatMap { KeyCode.isUIKeyInputSentinel($0) ? nil : $0 }

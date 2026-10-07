@@ -67,10 +67,11 @@ enum TmuxProtocol {
         return Int(s.dropFirst())
     }
 
-    /// Quotes a string for a tmux command line.
+    /// Quotes a string for a tmux command line (ESC and BEL as `\e`, `\a`).
     static func quote(_ s: String) -> String {
         "\"" + s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
-            .replacingOccurrences(of: "$", with: "\\$") + "\""
+            .replacingOccurrences(of: "$", with: "\\$").replacingOccurrences(of: "\u{1B}", with: "\\e")
+            .replacingOccurrences(of: "\u{07}", with: "\\a") + "\""
     }
 }
 

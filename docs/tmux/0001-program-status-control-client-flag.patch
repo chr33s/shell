@@ -1,0 +1,257 @@
+From d6b4c1c0ca036619488eab03b69d536b5186fbb5 Mon Sep 17 00:00:00 2001
+From: chris <chr33s@icloud.com>
+Date: Wed, 7 Oct 2026 13:13:34 +0700
+Subject: [PATCH] Add a program-status control client flag for OSC 7501 support
+ queries.
+
+A program detects OSC 7501 (program status) support by sending the query
+"OSC 7501 ; ? ST" followed by DA1, and treats the protocol as unsupported
+if the DA1 reply arrives first. tmux answers DA1 itself at once, so a
+control client that answers the OSC 7501 query for a pane (it sees it in
+%output) always loses that race.
+
+With the new "program-status" control client flag, tmux holds an OSC 7501
+support query from a pane as a request for that client, like OSC 4 and 52
+requests for terminals, so replies to later queries from the pane wait
+behind it. The client answers with "refresh-client -r %pane:<reply>"; tmux
+then sends the canonical reply (with the query's terminator) to the pane
+and releases the queued replies. Unanswered requests time out as usual.
+Without the flag nothing changes.
+---
+ cmd-refresh-client.c | 10 +++++--
+ input.c              | 66 +++++++++++++++++++++++++++++++++++++++++++-
+ server-client.c      |  4 +++
+ tmux.1               | 10 ++++++-
+ tmux.h               |  4 +++
+ 5 files changed, 90 insertions(+), 4 deletions(-)
+
+diff --git a/cmd-refresh-client.c b/cmd-refresh-client.c
+index 11b43bf..eda0d7c 100644
+--- a/cmd-refresh-client.c
++++ b/cmd-refresh-client.c
+@@ -138,8 +138,9 @@ out:
+ }
+ 
+ static void
+-cmd_refresh_report(struct tty *tty, const char *value)
++cmd_refresh_report(struct client *tc, const char *value)
+ {
++	struct tty		*tty = &tc->tty;
+ 	struct window_pane	*wp;
+ 	u_int			 pane;
+ 	int			 fg, bg;
+@@ -159,6 +160,11 @@ cmd_refresh_report(struct tty *tty, const char *value)
+ 	if (wp == NULL)
+ 		goto out;
+ 
++	if (strncmp(split, "\033]7501;", 7) == 0) {
++		input_request_program_status_reply(tc, wp);
++		goto out;
++	}
++
+ 	fg = wp->control_fg;
+ 	bg = wp->control_bg;
+ 	if (tty_keys_colours(tty, split, strlen(split), &size, &fg, &bg) == 0) {
+@@ -244,7 +250,7 @@ cmd_refresh_client_exec(struct cmd *self, struct cmdq_item *item)
+ 	if (args_has(args, 'f'))
+ 		server_client_set_flags(tc, args_get(args, 'f'));
+ 	if (args_has(args, 'r'))
+-		cmd_refresh_report(tty, args_get(args, 'r'));
++		cmd_refresh_report(tc, args_get(args, 'r'));
+ 
+ 	if (args_has(args, 'A')) {
+ 		if (~tc->flags & CLIENT_CONTROL)
+diff --git a/input.c b/input.c
+index 2732b61..c1b5da4 100644
+--- a/input.c
++++ b/input.c
+@@ -173,6 +173,7 @@ static void	input_osc_110(struct input_ctx *, const char *);
+ static void	input_osc_111(struct input_ctx *, const char *);
+ static void	input_osc_112(struct input_ctx *, const char *);
+ static void	input_osc_133(struct input_ctx *, const char *);
++static void	input_osc_7501(struct input_ctx *, const char *);
+ 
+ /* Transition entry/exit handlers. */
+ static void	input_clear(struct input_ctx *);
+@@ -2770,6 +2771,9 @@ input_exit_osc(struct input_ctx *ictx)
+ 	case 133:
+ 		input_osc_133(ictx, p);
+ 		break;
++	case 7501:
++		input_osc_7501(ictx, p);
++		break;
+ 	default:
+ 		log_debug("%s: unknown '%u'", __func__, option);
+ 		break;
+@@ -3259,6 +3263,19 @@ input_fire_command_event(struct window_pane *wp, const char *name)
+ 	events_fire(name, ep);
+ }
+ 
++/*
++ * Handle the OSC 7501 (program status) sequence. tmux does not present
++ * program status itself; reports pass through to control clients in %output.
++ * A support query is held as a request for a control client that asked to
++ * answer it, so replies to later queries (such as DA) stay behind it.
++ */
++static void
++input_osc_7501(struct input_ctx *ictx, const char *p)
++{
++	if (strcmp(p, "?") == 0)
++		input_add_request(ictx, INPUT_REQUEST_PROGRAM_STATUS, 0);
++}
++
+ /* Handle the OSC 133 sequence. */
+ static void
+ input_osc_133(struct input_ctx *ictx, const char *p)
+@@ -3590,7 +3607,15 @@ input_add_request(struct input_ctx *ictx, enum input_request_type type, int idx)
+ 			continue;
+ 		if (loop->session == NULL || !session_has(loop->session, w))
+ 			continue;
+-		if (~loop->tty.flags & TTY_STARTED)
++		if (type == INPUT_REQUEST_PROGRAM_STATUS) {
++			/*
++			 * Only a control client that asked for it answers: it
++			 * sees the query in %output and replies with
++			 * refresh-client -r.
++			 */
++			if (~loop->flags & CLIENT_CONTROL_PROGRAMSTATUS)
++				continue;
++		} else if (~loop->tty.flags & TTY_STARTED)
+ 			continue;
+ 		if (c == NULL)
+ 			c = loop;
+@@ -3614,6 +3639,7 @@ input_add_request(struct input_ctx *ictx, enum input_request_type type, int idx)
+ 	case INPUT_REQUEST_CLIPBOARD:
+ 		tty_putcode_ss(&c->tty, TTYC_MS, "", "?");
+ 		break;
++	case INPUT_REQUEST_PROGRAM_STATUS:
+ 	case INPUT_REQUEST_QUEUE:
+ 		break;
+ 	}
+@@ -3700,6 +3726,44 @@ input_request_reply(struct client *c, enum input_request_type type, void *data)
+ 	}
+ }
+ 
++/*
++ * Handle a control client's program status (OSC 7501) support reply for a
++ * pane: answer the oldest request from that pane, then release the replies
++ * queued behind it, in order.
++ */
++void
++input_request_program_status_reply(struct client *c, struct window_pane *wp)
++{
++	struct input_request	*ir, *ir1, *found = NULL;
++	int			 complete = 0;
++
++	TAILQ_FOREACH(ir, &c->input_requests, centry) {
++		if (ir->type == INPUT_REQUEST_PROGRAM_STATUS &&
++		    ir->ictx->wp == wp) {
++			found = ir;
++			break;
++		}
++	}
++	if (found == NULL)
++		return;
++
++	TAILQ_FOREACH_SAFE(ir, &found->ictx->requests, entry, ir1) {
++		if (complete && ir->type != INPUT_REQUEST_QUEUE)
++			break;
++		if (ir->type == INPUT_REQUEST_QUEUE)
++			input_send_reply(ir->ictx, ir->data);
++		else if (ir == found) {
++			/* The reply repeats the query, terminator included. */
++			if (ir->end == INPUT_END_BEL)
++				input_send_reply(ir->ictx, "\033]7501;?\007");
++			else
++				input_send_reply(ir->ictx, "\033]7501;?\033\\");
++			complete = 1;
++		}
++		input_free_request(ir);
++	}
++}
++
+ /* Cancel pending requests for client. */
+ void
+ input_cancel_requests(struct client *c)
+diff --git a/server-client.c b/server-client.c
+index 2659a66..392d3f4 100644
+--- a/server-client.c
++++ b/server-client.c
+@@ -2992,6 +2992,8 @@ server_client_control_flags(struct client *c, const char *next)
+ 		return (CLIENT_CONTROL_WAITEXIT);
+ 	if (strcmp(next, "new-layouts") == 0)
+ 		return (CLIENT_CONTROL_NEWLAYOUTS);
++	if (strcmp(next, "program-status") == 0)
++		return (CLIENT_CONTROL_PROGRAMSTATUS);
+ 	return (0);
+ }
+ 
+@@ -3060,6 +3062,8 @@ server_client_get_flags(struct client *c)
+ 		strlcat(s, "wait-exit,", sizeof s);
+ 	if (c->flags & CLIENT_CONTROL_NEWLAYOUTS)
+ 		strlcat(s, "new-layouts,", sizeof s);
++	if (c->flags & CLIENT_CONTROL_PROGRAMSTATUS)
++		strlcat(s, "program-status,", sizeof s);
+ 	if (c->flags & CLIENT_CONTROL_PAUSEAFTER) {
+ 		xsnprintf(tmp, sizeof tmp, "pause-after=%u,",
+ 		    c->pause_age / 1000);
+diff --git a/tmux.1 b/tmux.1
+index 21b462c..75fa04a 100644
+--- a/tmux.1
++++ b/tmux.1
+@@ -1130,6 +1130,11 @@ do not detach the client when the session it is attached to is destroyed if
+ there are any other sessions
+ .It Cm no\-output
+ the client does not receive pane output in control mode
++.It Cm program\-status
++the client answers OSC 7501 program status support queries from panes with
++.Ic refresh\-client
++.Fl r ;
++replies to later queries from the same pane wait for it
+ .It Cm pause\-after Ns = Ns Ar seconds
+ output is paused once the pane is
+ .Ar seconds
+@@ -1561,7 +1566,10 @@ sets a comma-separated list of client flags, see
+ .Ic attach\-session .
+ .Fl r
+ allows a control mode client to provide information about a pane via a report
+-(such as the response to OSC 10).
++(such as the response to OSC 10, or to an OSC 7501 support query for a client
++with the
++.Cm program\-status
++flag).
+ The argument is a pane ID (with a leading
+ .Ql % ) ,
+ a colon, then a report escape sequence.
+diff --git a/tmux.h b/tmux.h
+index f95f96f..e92b34c 100644
+--- a/tmux.h
++++ b/tmux.h
+@@ -1254,6 +1254,7 @@ struct window_mode_entry {
+ enum input_request_type {
+ 	INPUT_REQUEST_PALETTE,
+ 	INPUT_REQUEST_CLIPBOARD,
++	INPUT_REQUEST_PROGRAM_STATUS,
+ 	INPUT_REQUEST_QUEUE
+ };
+ 
+@@ -2320,6 +2321,7 @@ struct client {
+ #define CLIENT_WRITE_ACK 0x4000000000ULL
+ #define CLIENT_NO_DETACH_ON_DESTROY 0x8000000000ULL
+ #define CLIENT_CONTROL_DISCARD 0x10000000000ULL
++#define CLIENT_CONTROL_PROGRAMSTATUS 0x20000000000ULL
+ #define CLIENT_ALLREDRAWFLAGS		\
+ 	(CLIENT_REDRAWWINDOW|		\
+ 	 CLIENT_REDRAWSTATUS|		\
+@@ -3445,6 +3447,8 @@ void	 input_reply_clipboard(struct bufferevent *, const char *, size_t,
+ 	     const char *, char);
+ void	 input_set_buffer_size(size_t);
+ void	 input_request_reply(struct client *, enum input_request_type, void *);
++void	 input_request_program_status_reply(struct client *,
++	     struct window_pane *);
+ void	 input_cancel_requests(struct client *);
+ 
+ /* input-key.c */
+-- 
+2.56.0
+

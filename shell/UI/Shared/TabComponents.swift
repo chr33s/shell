@@ -308,6 +308,7 @@ struct TabButton: View {
     var hasThemeOverride: Bool = false  // Whether this tab has a theme override
     var tmuxBadge: TmuxTabBadge?  // tmux control-mode gateway/window badge
     var tmuxBadgePalette: TmuxTabBadgePalette = .fallback
+    var programStatusAttention: ProgramStatusAttention?  // OSC 7501 rollup badge
     var style: TopTabStyle = .pills
     var tabWidth: CGFloat = 240
     var usesTitlebarTabs: Bool = false
@@ -394,6 +395,16 @@ struct TabButton: View {
                 .truncationMode(.tail)
                 .layoutPriority(1)
 
+            // OSC 7501 program status across the tab's panes. A symbol per
+            // state, so color is never the only cue.
+            if let programStatusAttention {
+                Image(systemName: programStatusAttention.symbolName)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(programStatusTint(programStatusAttention))
+                    .fixedSize()
+                    .accessibilityLabel(programStatusAttention.accessibilityLabel)
+            }
+
             // Theme override indicator
             if hasThemeOverride {
                 Image(systemName: "paintbrush.fill")
@@ -417,6 +428,15 @@ struct TabButton: View {
             }
         }
         .frame(minWidth: 0)
+    }
+
+    private func programStatusTint(_ attention: ProgramStatusAttention) -> Color {
+        switch attention {
+        case .working: titleColor.opacity(0.7)
+        case .done: .green
+        case .error: .red
+        case .blocked: .orange
+        }
     }
 
     private var closeTargetSize: CGSize {

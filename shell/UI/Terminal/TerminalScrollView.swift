@@ -152,6 +152,13 @@ extension Swiftty {
     /// Observation of OSC progress report changes.
     private var progressReportTask: Task<Void, Never>?
 
+    /// OSC 7501 indicator (top-trailing), present only while there is
+    /// something to show.
+    private var programStatusChip: ProgramStatusChipView?
+
+    /// Observation of the pane's OSC 7501 summary.
+    private var programStatusTask: Task<Void, Never>?
+
     /// Observation of mouse capture state changes.
     private var mouseCapturedTask: Task<Void, Never>?
 
@@ -205,6 +212,7 @@ extension Swiftty {
         setupCatalystIndicatorStyleObservers()
         setupNotifications()
         setupProgressBar()
+        setupProgramStatusChip()
         setupMouseCaptureObserver()
         setupMultiplexerScrollActiveObserver()
         setupDropInteraction()
@@ -216,6 +224,7 @@ extension Swiftty {
 
     isolated deinit {
         progressReportTask?.cancel()
+        programStatusTask?.cancel()
         mouseCapturedTask?.cancel()
         multiplexerScrollActiveTask?.cancel()
         authBannerObserveTask?.cancel()
@@ -628,6 +637,39 @@ extension Swiftty {
                 self?.updateProgressBar(report: report)
             }
         )
+    }
+
+    private func setupProgramStatusChip() {
+        programStatusTask = SurfaceObservation.task(
+            { [weak terminalView] in terminalView?.programStatus },
+            onChange: { [weak self] presentation in
+                self?.updateProgramStatusChip(presentation)
+            }
+        )
+    }
+
+    /// Shows the summary, or removes the chip when there is nothing (or
+    /// only `idle`) to show. It sits in the corner, never over the text
+    /// area's middle, and goes away once results are seen.
+    private func updateProgramStatusChip(_ presentation: ProgramStatusPresentation?) {
+        guard let presentation, presentation.severity != .idle else {
+            programStatusChip?.removeFromSuperview()
+            programStatusChip = nil
+            return
+        }
+        if programStatusChip == nil {
+            let chip = ProgramStatusChipView()
+            chip.translatesAutoresizingMaskIntoConstraints = false
+            chip.detailsProvider = { [weak terminalView] in terminalView?.programStatusSnapshot ?? .empty }
+            chip.onOpenDetails = { [weak terminalView] in terminalView?.acknowledgeProgramStatus() }
+            addSubview(chip)
+            NSLayoutConstraint.activate([
+                chip.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor, constant: 6),
+                chip.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -6),
+            ])
+            programStatusChip = chip
+        }
+        programStatusChip?.update(with: presentation)
     }
 
     private func setupMouseCaptureObserver() {

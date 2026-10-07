@@ -252,6 +252,7 @@ extension LocalShellSession {
             // Apply transient prompt: replace the full prompt with a simplified version
             if !alreadyAliasExpanded {
                 applyTransientPrompt(command: command)
+                markCommandStarted()
             }
 
             if !alreadyAliasExpanded,

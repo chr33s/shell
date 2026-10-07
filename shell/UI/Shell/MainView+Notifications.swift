@@ -207,6 +207,8 @@ extension MainView {
             // Update focused pane if it belongs to current tab
             if terminals[selectedTabIndex].splitTree.contains(paneView) {
                 setFocusedPane(paneView, inTab: selectedTabIndex)
+                // Deliberately focusing the pane shows its finished results.
+                (paneView as? Swiftty.TerminalView)?.acknowledgeProgramStatus()
             }
         }
 

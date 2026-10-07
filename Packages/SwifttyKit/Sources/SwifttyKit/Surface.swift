@@ -26,6 +26,7 @@ final class Surface: @unchecked Sendable {
     private var _tmux: TmuxViewer?
     private var _config: Config
     private var _mirror = Mirror()
+    private var _programStatus = ProgramStatusSnapshot.empty
     private var _freed = false
     private var lastContentEvent: UInt64 = 0
     private var contentEventPending = false
@@ -49,6 +50,22 @@ final class Surface: @unchecked Sendable {
 
     var config: Config {
         lock.withLockUnchecked { _config }
+    }
+
+    /// The latest OSC 7501 records, readable without waiting on the
+    /// terminal queue.
+    var programStatus: ProgramStatusSnapshot {
+        lock.withLockUnchecked { _programStatus }
+    }
+
+    /// Keeps the newer of the mirrored and `status` (revisions never go
+    /// backwards, so an initial read cannot undo a change it raced).
+    private func noteProgramStatus(_ status: ProgramStatusSnapshot) {
+        lock.withLockUnchecked {
+            if status.revision >= _programStatus.revision {
+                _programStatus = status
+            }
+        }
     }
 
     var isFreed: Bool {
@@ -81,6 +98,7 @@ final class Surface: @unchecked Sendable {
             sessionConfig.palette = config.palette
             sessionConfig.scrollbackLimitBytes = Int.max / 4
             sessionConfig.scrollbackLimitRows = max(1, config.scrollbackLines)
+            sessionConfig.programStatusEnabled = true
             session = TerminalSession(columns: 80, rows: 24, configuration: sessionConfig)
             let scheme = config.colorScheme
             session.mutateAsync { $0.setColorScheme(scheme) }
@@ -98,11 +116,26 @@ final class Surface: @unchecked Sendable {
             guard let self else { return }
             if let paneInput { paneInput(bytes) } else { io?.write(bytes) }
         }
+        if pane == nil {
+            // Replies the terminal generated, apart from encoded input. (A
+            // tmux pane's go to its pane, routed by the viewer.)
+            session.onTerminalReply = { [weak self] bytes in self?.io?.writeReply(bytes) }
+        }
         session.onStateChange = { [weak self] state in self?.stateChanged(state) }
         session.onUpdate = { [weak self] in self?.renderer.setNeedsDisplay() }
         session.onEvent = { [weak self] event in self?.handle(event) }
+        // State, not an event: the host reads the snapshot when it handles
+        // the action, so a burst coalesces to the latest.
+        session.onProgramStatusChange = { [weak self] status in
+            guard let self else { return }
+            noteProgramStatus(status)
+            app.post(self, tag: SWIFTTY_ACTION_PROGRAM_STATUS)
+        }
         session.onControlModeData = { [weak self] data in self?.tmux?.receive(data) }
         self.pane?.surface = self
+        // The records may predate this surface (a tmux pane's terminal
+        // outlives its surfaces): start from them.
+        noteProgramStatus(session.programStatusSnapshot)
         app.register(self)
     }
 
@@ -115,6 +148,16 @@ final class Surface: @unchecked Sendable {
         paneInput != nil
     }
 
+    /// See `swiftty_surface_program_exited`.
+    func programExited() {
+        let session = session
+        if let io {
+            io.afterPendingOutput { session.programExited() }
+        } else {
+            session.programExited()
+        }
+    }
+
     func free() {
         lock.withLockUnchecked { _freed = true }
         stopAutoScroll()
@@ -125,6 +168,7 @@ final class Surface: @unchecked Sendable {
             session.onStateChange = nil
             session.onUpdate = nil
             session.onEvent = nil
+            session.onProgramStatusChange = nil
         }
         app.unregister(self)
         tmux?.close()
@@ -249,8 +293,10 @@ final class Surface: @unchecked Sendable {
                 tmux = TmuxViewer(gateway: self)
             }
             tmux?.start()
+            app.post(self, tag: SWIFTTY_ACTION_TMUX_CONTROL_MODE) { $0.tmux_control_mode = true }
         case .controlModeEnded:
             tmux?.controlModeEnded()
+            app.post(self, tag: SWIFTTY_ACTION_TMUX_CONTROL_MODE) { $0.tmux_control_mode = false }
         case let .pointerShape(name):
             let shape = Self.mouseShape(name)
             app.post(self, tag: SWIFTTY_ACTION_MOUSE_SHAPE) { $0.mouse_shape = shape }

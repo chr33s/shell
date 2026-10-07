@@ -39,7 +39,9 @@ struct RuntimeTests {
         defer { swiftty_surface_free(s); swiftty_app_free(app) }
         swiftty_surface_set_size(s, 800, 400)
         write(swiftty_surface_get_slave_fd(s), "x\u{1B}[6n")
-        #expect(drain(swiftty_surface_response_read_fd(s)) == "\u{1B}[1;2R")
+        // A terminal reply, on the reply pipe and never with typed input.
+        #expect(drain(swiftty_surface_reply_read_fd(s)) == "\u{1B}[1;2R")
+        #expect(drain(swiftty_surface_response_read_fd(s), timeout: 0.2) == "")
         write(swiftty_surface_get_slave_fd(s), "\r\n\u{1B}[31mred\u{1B}[0m")
         #expect(waitFor { screenText(s).count > 1 && screenText(s)[1] == "red" })
         var len: UInt = 0
