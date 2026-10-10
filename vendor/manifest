@@ -23,7 +23,7 @@ vim-rootshell                    https://github.com/kitknox/vim-rootshell.git   
 curl_ios-rootshell               https://github.com/kitknox/curl_ios-rootshell.git           v0.2.1     binaries=curl_ios source=none
 jq-rootshell                     https://github.com/kitknox/jq-rootshell.git                 v0.1.0     binaries=jq_ios source=none
 ripgrep-rootshell                https://github.com/kitknox/ripgrep-rootshell.git            v0.1.0     binaries=ripgrep_ios source=none
-swiftty                          https://github.com/chr33s/swiftty.git                       a7c02bd9d86a50add11c474766f07997afdbc80d
+swiftty                          https://github.com/chr33s/swiftty.git                       bfdb00160c255ae93bce9b629411c4f3b1b20c28
 Citadel-rootshell                https://github.com/kitknox/Citadel-rootshell.git            0.12.7     drop=ColorizeSwift
 swift-nio-ssh-rootshell          https://github.com/kitknox/swift-nio-ssh-rootshell.git      0.1.4      drop=swift-docc-plugin
 BigInt                           https://github.com/attaswift/BigInt.git                     v6.0.1

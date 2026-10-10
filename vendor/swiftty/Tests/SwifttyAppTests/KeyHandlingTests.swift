@@ -2,6 +2,7 @@ import AppKit
 @testable import Swiftty
 import SwifttyCore
 import Testing
+import TestSupport
 
 /// The macOS app's input handling: NSEvent translation, bindings, menu
 /// shortcuts and pointer shapes.
@@ -16,13 +17,76 @@ struct KeyHandlingTests {
 
     @Test func `special and control keys are encoded by the terminal`() throws {
         #expect(try TerminalView.terminalKey(for: key(126, "\u{F700}")) == KeyEvent(.up))
-        #expect(try TerminalView.terminalKey(for: key(36, "\r", [.shift])) == KeyEvent(.enter, modifiers: .shift))
+        #expect(try TestFixture(TerminalView.terminalKey(for: key(36, "\r", [.shift]))) == TestFixture(KeyEvent(.enter, modifiers: .shift)))
         let ctrlC = try TerminalView.terminalKey(for: key(8, "\u{3}", unmodified: "c", [.control]))
         #expect(ctrlC?.key == .character("c") && ctrlC?.modifiers == .control)
         #expect(ctrlC?.baseLayoutKey == "c")
         // Plain text goes to the input method instead.
         #expect(try TerminalView.terminalKey(for: key(0, "a")) == nil)
         #expect(try TerminalView.terminalKey(for: key(0, "å", unmodified: "a", [.option])) == nil)
+    }
+
+    @Test func `hardware text keys carry kitty identity and text`() throws {
+        let event = try key(0, "A", unmodified: "a", [.shift])
+        let translated = try #require(TerminalView.terminalKey(for: event, keyboardFlags: 8 | 16))
+        #expect(translated.key == .character("a"))
+        #expect(TestFixture(translated.modifiers == .shift && translated.text == "A") == TestFixture(true))
+        #expect(translated.shiftedKey == "A" && translated.baseLayoutKey == "a")
+        var bytes: [UInt8] = []
+        #expect(TestFixture(InputEncoder.encode(.key(translated), modes: .initial, keyboardFlags: 8 | 16, into: &bytes)) ==
+            TestFixture(true))
+        #expect(TestFixture(String(decoding: bytes, as: UTF8.self)) == TestFixture("\u{1B}[97;2;65u"))
+        let repeatEvent = try #require(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+            characters: "a", charactersIgnoringModifiers: "a", isARepeat: true, keyCode: 0,
+        ))
+        let repeated = try #require(TerminalView.terminalKey(for: repeatEvent, keyboardFlags: 10))
+        #expect(repeated.action == .repeat)
+        bytes.removeAll()
+        #expect(TestFixture(InputEncoder.encode(.key(repeated), modes: .initial, keyboardFlags: 10, into: &bytes)) == TestFixture(true))
+        #expect(TestFixture(String(decoding: bytes, as: UTF8.self)) == TestFixture("\u{1B}[97;1:2u"))
+    }
+
+    @Test func `kitty punctuation uses the active unshifted layout`() throws {
+        for (code, shifted) in [(UInt16(18), "!"), (19, "@"), (27, "_"), (24, "+")] {
+            let event = try key(code, shifted, unmodified: shifted, [.shift])
+            let base = try #require(event.characters(byApplyingModifiers: [])?.unicodeScalars.first)
+            let translated = try #require(TerminalView.terminalKey(for: event, keyboardFlags: 8 | 4))
+            #expect(translated.key == .character(base))
+            #expect(translated.shiftedKey == shifted.unicodeScalars.first)
+            #expect(translated.baseLayoutKey == TerminalView.usLayout[code])
+            var out: [UInt8] = []
+            #expect(TestFixture(InputEncoder.encode(.key(translated), modes: .initial, keyboardFlags: 8, into: &out)) == TestFixture(true))
+            #expect(TestFixture(String(decoding: out, as: UTF8.self)) == TestFixture("\u{1B}[\(base.value);2u"))
+            if code == 18, base == "1" {
+                #expect(TestFixture(String(decoding: out, as: UTF8.self)) == TestFixture("\u{1B}[49;2u"))
+            }
+        }
+    }
+
+    @Test func `kitty alternate keys apply only shift`() throws {
+        for modifiers: NSEvent.ModifierFlags in [[.control, .shift], [.option, .shift], [.command, .shift]] {
+            let event = try key(0, "\u{1}", unmodified: "A", modifiers)
+            let translated = try #require(TerminalView.terminalKey(for: event, keyboardFlags: 1 | 4))
+            #expect(translated.shiftedKey == "A")
+            #expect(TestFixture(translated.text) == TestFixture("\u{1}"))
+            var out: [UInt8] = []
+            #expect(TestFixture(InputEncoder.encode(.key(translated), modes: .initial, keyboardFlags: 1 | 4, into: &out)) ==
+                TestFixture(true))
+            let modifierNumber = modifiers.contains(.control) ? 6 : modifiers.contains(.option) ? 4 : 10
+            #expect(TestFixture(String(decoding: out, as: UTF8.self)) == TestFixture("\u{1B}[97:65;\(modifierNumber)u"))
+        }
+    }
+
+    @Test func `refinement flags preserve legacy text routing`() throws {
+        for flags: UInt8 in [0, 2, 4, 16, 6, 18, 20, 22] {
+            #expect(try TerminalView.terminalKey(for: key(0, "å", unmodified: "a", [.option]), keyboardFlags: flags) == nil)
+            let event = try #require(TestFixture(TerminalView.terminalKey(
+                for: key(0, "\u{1}", unmodified: "A", [.control, .shift]),
+                keyboardFlags: flags,
+            )).value)
+            #expect(event.modifiers == .control)
+        }
     }
 
     @Test func `bindings match events`() throws {
@@ -58,7 +122,20 @@ struct KeyHandlingTests {
         _ = NSApplication.shared // cursors need the app's connection to the window server
         #expect(TerminalView.cursor(named: "pointer") == .pointingHand)
         #expect(TerminalView.cursor(named: "default") == .arrow)
+        #expect(TerminalView.cursor(named: "") == .iBeam)
         #expect(TerminalView.cursor(named: "no-such-shape") == .iBeam)
+    }
+
+    @Test func `none pointer shape uses a reusable transparent cursor`() throws {
+        _ = NSApplication.shared
+        let cursor = TerminalView.cursor(named: "none")
+        #expect(cursor !== NSCursor.iBeam)
+        #expect(cursor === TerminalView.cursor(named: "none"))
+        #expect(cursor.image.size == NSSize(width: 1, height: 1))
+        let data = try #require(cursor.image.tiffRepresentation)
+        let bitmap = try #require(NSBitmapImageRep(data: data))
+        try #require(bitmap.pixelsWide == 1 && bitmap.pixelsHigh == 1)
+        #expect(bitmap.colorAt(x: 0, y: 0)?.alphaComponent == 0)
     }
 
     @Test func `appearance maps to a color scheme`() throws {

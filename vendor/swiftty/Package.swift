@@ -1,4 +1,4 @@
-// swift-tools-version: 6.2
+// swift-tools-version: 6.4
 // vendored by scripts/vendor.py — regenerated on every sync, do not edit by hand
 import PackageDescription
 
@@ -33,18 +33,19 @@ let package = Package(
             dependencies: ["SwifttyCore", "CAllocCounter"],
             swiftSettings: core,
         ),
+        .target(name: "TestSupport", path: "Tests/Support"),
         .testTarget(
             name: "SwifttyCoreTests",
-            dependencies: ["SwifttyCore", "CAllocCounter"],
+            dependencies: ["SwifttyCore", "CAllocCounter", "TestSupport"],
             swiftSettings: core,
         ),
         // Recorded application sessions replay here, on macOS and on iOS.
         .testTarget(
             name: "SwifttyMobileTests",
-            dependencies: ["SwifttyMobile", "SwifttyCore"],
+            dependencies: ["SwifttyMobile", "SwifttyCore", "TestSupport"],
             resources: [.copy("Fixtures")],
         ),
         // The macOS app's input handling.
-        .testTarget(name: "SwifttyAppTests", dependencies: ["Swiftty", "SwifttyCore"]),
+        .testTarget(name: "SwifttyAppTests", dependencies: ["Swiftty", "SwifttyCore", "TestSupport"]),
     ],
 )

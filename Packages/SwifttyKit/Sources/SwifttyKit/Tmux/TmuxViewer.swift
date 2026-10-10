@@ -23,7 +23,7 @@ final class TmuxPane: @unchecked Sendable {
     var dead = false
     /// While initializing: a stand-in terminal fed the `%output` the capture
     /// already contains, so OSC 7501 status and support queries in it are
-    /// not lost. Its records replace the pane's once the capture is applied.
+    /// not lost. Its parsing state and records continue in the pane after capture.
     var standIn: TerminalSession?
 
     init(id: Int, window: Int, width: Int, height: Int, scrollbackRows: Int) {
@@ -46,6 +46,13 @@ final class TmuxPane: @unchecked Sendable {
             $0.discardsReplies = true
             $0.answersProgramStatusWhileDiscarding = true
         }
+    }
+
+    /// Keep partial sequences and the prompt phase when recapturing a pane.
+    static func makeStandIn(continuing session: TerminalSession) -> TerminalSession {
+        let standIn = makeStandIn()
+        standIn.continueStream(from: session)
+        return standIn
     }
 
     /// A terminal that only collects program status (see `standIn`),
@@ -519,12 +526,10 @@ final class TmuxViewer: @unchecked Sendable {
         // RIS, start clean, but keep program status: the pane's program
         // never retracted it. The stand-in's records cover what arrived
         // while the capture was taken.
-        pane.session.mutateAsync { $0.resetPreservingProgramStatus() }
-        if let standIn = pane.standIn {
-            pane.standIn = nil
-            let status = standIn.programStatusSnapshot
-            pane.session.mutateAsync { $0.replaceProgramStatus(with: status) }
-        }
+        // Keep the live parser apart from the synthetic capture bytes.
+        let standIn = pane.standIn ?? TmuxPane.makeStandIn(continuing: pane.session)
+        pane.standIn = nil
+        pane.session.resetForCapture()
         var bytes: [UInt8] = Array("\u{1B}[H\u{1B}[2J".utf8)
         // tmux trims trailing blank lines of the visible capture; keep exactly
         // `height` screen lines so history scrolls off correctly.
@@ -566,6 +571,7 @@ final class TmuxViewer: @unchecked Sendable {
         modes += "\u{1B}[\(st.cursorY + 1);\(st.cursorX + 1)H"
         bytes += Array(modes.utf8)
         pane.session.receive(bytes)
+        pane.session.continueStream(from: standIn)
         pane.initializing = false
         paneSynced(pane.id)
     }
@@ -678,7 +684,7 @@ final class TmuxViewer: @unchecked Sendable {
         guard !pane.initializing else {
             // Already in the capture, but its program status is not.
             if pane.standIn == nil {
-                pane.standIn = TmuxPane.makeStandIn(from: pane.session.programStatusSnapshot)
+                pane.standIn = TmuxPane.makeStandIn(continuing: pane.session)
                 pane.standIn?.onTerminalReply = { [weak self] bytes in self?.reply(pane: id, bytes) }
             }
             pane.standIn?.receive(TmuxProtocol.decodeOutput(data))

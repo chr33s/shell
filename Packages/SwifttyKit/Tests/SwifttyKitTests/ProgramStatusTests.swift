@@ -1,6 +1,7 @@
 import Foundation
 @testable import SwifttyKit
 import SwifttyCore
+import Synchronization
 import Testing
 
 /// OSC 7501 through the embedder API: Swiftty keeps the records, SwifttyKit
@@ -302,5 +303,91 @@ extension TmuxBridge {
         process.waitUntilExit()
         let data = out.fileHandleForReading.readDataToEndOfFile()
         return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .newlines)
+    }
+}
+
+// Drive control-mode replies directly so capture completion always lands
+// between the two output chunks, without timing a real tmux process.
+extension TmuxIntegrationTests {
+    private func captureReply(_ body: String = "") -> String {
+        "%begin 1 1 0\n" + (body.isEmpty ? "" : body + "\n") + "%end 1 1 0\n"
+    }
+
+    private func outputNotification(_ bytes: ArraySlice<UInt8>) -> String {
+        "%output %0 " + bytes.map { String(format: "\\%03o", Int($0)) }.joined() + "\n"
+    }
+
+    @Test(arguments: ["orphan", "initial", "recapture", "recapture-quiet"])
+    func splitStatusSurvivesCaptureHandoff(_ boundary: String) throws {
+        let report = "\u{1B}]7501;state=working:id=build:progress=42\u{1B}\\"
+        let queries = ["\u{1B}]7501;?\u{1B}\\", "\u{1B}]7501;?\u{07}"]
+        for sequence in [report] + queries {
+            let bytes = Array(sequence.utf8)
+            for split in 1 ..< bytes.count {
+                let app = makeApp()
+                let gateway = makeSurface(app)
+                defer { swiftty_surface_free(gateway); swiftty_app_free(app) }
+                let viewer = TmuxViewer(gateway: try #require(Surface.from(gateway)))
+                defer { viewer.close() }
+                viewer.start()
+                // Attach, session info, flag enable/readback, subscriptions,
+                // then window topology. The pane is not listed yet.
+                viewer.receive(Array((captureReply() + captureReply("$0 test") +
+                    captureReply() + captureReply("program-status") +
+                    captureReply() + captureReply() +
+                    captureReply("@0 0 80 24 0000,80x24,0,0,0 0 1 test")).utf8))
+                if boundary == "orphan" {
+                    viewer.receive(Array(outputNotification(bytes[..<split]).utf8))
+                }
+                let paneList = "%0 @0 1 80 24 0 0 0 1 0 0 1 0 0 0 0 0 0 0 23 test"
+                viewer.receive(Array(captureReply(paneList).utf8))
+                let pane = try #require(viewer.pane(id: 0))
+                let replies = Mutex<[[UInt8]]>([])
+                pane.session.onTerminalReply = { reply in replies.withLock { $0.append(reply) } }
+                if boundary.hasPrefix("recapture") {
+                    viewer.receive(Array((captureReply() + captureReply("old screen")).utf8))
+                    #expect(viewer.pane(id: 0)?.initializing == false)
+                    // Prefix was parsed live before recapture began.
+                    viewer.receive(Array(outputNotification(bytes[..<split]).utf8))
+                    _ = viewer.pane(id: 0) // drain the viewer queue
+                } else if boundary == "initial" {
+                    viewer.receive(Array(outputNotification(bytes[..<split]).utf8))
+                }
+                if boundary.hasPrefix("recapture") {
+                    // Resume starts with a probe; a fresh stream uses the
+                    // ordinary attach/topology replies and recaptures panes.
+                    viewer.start()
+                    viewer.receive(Array((captureReply() + captureReply("$0 test") +
+                        captureReply() + captureReply("program-status") +
+                        captureReply() + captureReply() +
+                        captureReply("@0 0 80 24 0000,80x24,0,0,0 0 1 test") +
+                        captureReply(paneList)).utf8))
+                }
+                if boundary == "recapture" {
+                    // Force a stand-in to adopt the pane's pending prefix.
+                    viewer.receive(Array("%output %0 \n".utf8))
+                }
+                viewer.receive(Array((captureReply() + captureReply("captured screen")).utf8))
+                #expect(viewer.pane(id: 0)?.initializing == false)
+                viewer.receive(Array(outputNotification(bytes[split...]).utf8))
+                _ = viewer.pane(id: 0) // enqueue all live bytes before reading
+                let snapshot = pane.session.programStatusSnapshot
+                if sequence == report {
+                    #expect(snapshot.records.count == 1)
+                    #expect(snapshot.records.first?.id == "build")
+                    #expect(snapshot.records.first?.progress == 42)
+                } else if sequence.hasSuffix("\u{1B}\\"), split == bytes.count - 1,
+                          !boundary.hasPrefix("recapture") {
+                    // The parser dispatches an ST-terminated OSC at ESC,
+                    // so this reply was already routed by the stand-in.
+                    _ = viewer.pane(id: 0)
+                    #expect(drain(swiftty_surface_response_read_fd(gateway), timeout: 0.01)
+                        .contains("refresh-client -r"))
+                    #expect(replies.withLock { $0.isEmpty })
+                } else {
+                    #expect(replies.withLock { $0 } == [bytes])
+                }
+            }
+        }
     }
 }

@@ -3,7 +3,7 @@ extension TerminalState {
     /// oldest line first. Soft-wrapped rows are joined, so replaying the
     /// dump into a terminal of any width reflows it. Empty when blank.
     public func dumpPrimaryANSI() -> [UInt8] {
-        isAlternateScreen ? dump(inactiveGrid, cursorRow: nil) : dump(grid, cursorRow: cursor.y)
+        isAlternateScreen ? dump(inactiveGrid, cursorRow: inactivePrimaryCursor.y) : dump(grid, cursorRow: cursor.y)
     }
 
     private func dump(_ screen: borrowing Grid, cursorRow: Int?) -> [UInt8] {
@@ -41,16 +41,25 @@ extension TerminalState {
                 attrs.flags.subtract(.structural)
                 attrs.link = 0
                 if attrs != pen {
-                    Self.appendSGR(attrs, to: &out)
+                    appendSGR(attrs, to: &out)
                     pen = attrs
                 }
-                let scalars = scalars(of: cell)
-                if scalars.isEmpty {
-                    out.append(0x20)
-                } else {
-                    for s in scalars {
-                        out.append(contentsOf: String(s).utf8)
+                if cell.isGrapheme {
+                    var appended = false
+                    let scalars = graphemeScalars(cell.glyph)
+                    for point in scalars {
+                        if let scalar = Unicode.Scalar(point) {
+                            out.append(contentsOf: scalar.utf8)
+                            appended = true
+                        }
                     }
+                    if !appended {
+                        out.append(0x20)
+                    }
+                } else if cell.glyph != 0, let scalar = Unicode.Scalar(cell.glyph) {
+                    out.append(contentsOf: scalar.utf8)
+                } else {
+                    out.append(0x20)
                 }
             }
             if !wrapped, index < lines.count - 1 {
@@ -67,14 +76,31 @@ extension TerminalState {
         return out
     }
 
-    static func appendSGR(_ a: CellAttributes, to out: inout [UInt8]) {
+    private func appendSGR(_ a: CellAttributes, to out: inout [UInt8]) {
         var params = ["0"]
         let flags: [(CellFlags, String)] = [
-            (.bold, "1"), (.faint, "2"), (.italic, "3"), (.underline, "4"), (.doubleUnderline, "21"),
+            (.bold, "1"), (.faint, "2"), (.italic, "3"),
             (.blink, "5"), (.inverse, "7"), (.invisible, "8"), (.strikethrough, "9"), (.overline, "53"),
         ]
         for (flag, code) in flags where a.flags.contains(flag) {
             params.append(code)
+        }
+        if a.flags.contains(.doubleUnderline) {
+            params.append("4:2")
+        } else if a.flags.contains(.underline) {
+            switch (a.flags.contains(.underlineStyleA), a.flags.contains(.underlineStyleB)) {
+            case (true, false): params.append("4:3")
+            case (false, true): params.append("4:4")
+            case (true, true): params.append("4:5")
+            case (false, false): params.append("4")
+            }
+        }
+        if let underline = underlineColor(a.underlineColor) {
+            switch underline.kind {
+            case .default: break
+            case let .palette(i): params.append("58;5;\(i)")
+            case let .rgb(v): params.append("58;2;\(v >> 16 & 0xFF);\(v >> 8 & 0xFF);\(v & 0xFF)")
+            }
         }
         func color(_ c: TerminalColor, _ base: Int) {
             switch c.kind {

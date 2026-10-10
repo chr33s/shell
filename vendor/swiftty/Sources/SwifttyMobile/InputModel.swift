@@ -60,17 +60,18 @@ public enum KeyTranslator {
     ///     shifted key the kitty protocol reports.
     public static func keyEvent(
         usage: Int, modifiers: KeyModifiers, charactersIgnoringModifiers: String, characters: String = "",
-        action: KeyEvent.Action = .press,
+        action: KeyEvent.Action = .press, keyboardFlags: UInt8 = 0,
     ) -> KeyEvent? {
-        // Command combinations belong to the app (copy, paste, font size).
-        guard !modifiers.contains(.command) else { return nil }
+        // Unbound Command combinations can reach kitty applications.
+        let kittyActive = InputEncoder.isKittyKeyboardActive(keyboardFlags)
+        guard kittyActive || !modifiers.contains(.command) else { return nil }
         if let key = specialKeys[usage] {
             return KeyEvent(key, modifiers: modifiers, action: action)
         }
-        guard modifiers.contains(.control) else { return nil }
+        guard modifiers.contains(.control) || (kittyActive && modifiers.contains(.command)) else { return nil }
         return identity(
             usage: usage,
-            modifiers: modifiers.subtracting(.shift),
+            modifiers: kittyActive ? modifiers : modifiers.subtracting(.shift),
             base: charactersIgnoringModifiers,
             characters: characters,
             action: action,
@@ -101,6 +102,7 @@ public enum KeyTranslator {
             .character(key),
             modifiers: modifiers,
             action: action,
+            text: characters.isEmpty ? nil : characters,
             shiftedKey: shifted,
             baseLayoutKey: usLayoutKey(usage: usage),
         )
@@ -135,6 +137,36 @@ public enum KeyTranslator {
 
     private static func lowercased(_ scalar: Unicode.Scalar) -> Unicode.Scalar {
         ("A" ... "Z").contains(scalar) ? Unicode.Scalar(scalar.value + 0x20)! : scalar
+    }
+}
+
+/// Associates a text-system commit with the hardware press that produced it.
+/// Composition invalidates the association before any text is committed.
+struct HardwareTextInput {
+    private var pending: (usage: Int, event: KeyEvent)?
+
+    mutating func begin(usage: Int, event: KeyEvent) {
+        pending = (usage, event)
+    }
+
+    mutating func cancel(usage: Int? = nil) {
+        if usage == nil || pending?.usage == usage {
+            pending = nil
+        }
+    }
+
+    mutating func commit(_ text: String, keyboardFlags: UInt8) -> (usage: Int, event: KeyEvent)? {
+        guard var pending, !text.isEmpty, pending.event.text == text else {
+            self.pending = nil
+            return nil
+        }
+        let committed = pending
+        // Every matching commit consumes the initial press, including text
+        // sent before an application enables kitty keyboard reporting.
+        pending.event.action = .repeat
+        self.pending = pending
+        guard InputEncoder.isKittyKeyboardActive(keyboardFlags) else { return nil }
+        return committed
     }
 }
 
@@ -249,25 +281,8 @@ public enum AccessoryKey: Hashable, Sendable {
 
 // MARK: - Scrolling
 
-/// Turns fractional scroll distances into whole lines, carrying the rest.
-public struct ScrollAccumulator: Sendable {
-    public private(set) var remainder: CGFloat = 0
-
-    public init() {}
-
-    /// Adds `lines` (positive scrolls back into history) and returns the
-    /// whole lines to scroll now.
-    public mutating func add(_ lines: CGFloat) -> Int {
-        remainder += lines
-        let whole = Int(remainder)
-        remainder -= CGFloat(whole)
-        return whole
-    }
-
-    public mutating func reset() {
-        remainder = 0
-    }
-}
+/// Shared with the macOS frontend; retained here for source compatibility.
+public typealias ScrollAccumulator = SwifttyCore.ScrollAccumulator
 
 /// Exponentially decaying fling, matching `UIScrollView`'s normal
 /// deceleration rate.
@@ -280,8 +295,9 @@ public struct ScrollMomentum: Sendable {
     /// Lines per second; positive scrolls back into history.
     public private(set) var velocity: CGFloat = 0
 
+    /// Nonfinite velocities and speeds below the minimum start at rest.
     public init(velocity: CGFloat = 0) {
-        self.velocity = abs(velocity) < Self.minimumVelocity ? 0 : velocity
+        self.velocity = velocity.isFinite && abs(velocity) >= Self.minimumVelocity ? velocity : 0
     }
 
     public var isActive: Bool {
@@ -289,12 +305,13 @@ public struct ScrollMomentum: Sendable {
     }
 
     /// Advances by `dt` seconds and returns the distance travelled, in lines.
+    /// Invalid or nonpositive intervals leave velocity unchanged.
     public mutating func step(_ dt: CFTimeInterval) -> CGFloat {
-        guard isActive, dt > 0 else { return 0 }
+        guard isActive, dt.isFinite, dt > 0 else { return 0 }
         // v(t) = v0·r^(1000t), so the distance is v0·(r^(1000dt) − 1) / (1000·ln r).
         let k = 1000 * log(Self.decelerationRate)
         let decay = exp(k * CGFloat(dt))
-        let distance = velocity * (decay - 1) / k
+        let distance = velocity * expm1(k * CGFloat(dt)) / k
         velocity *= decay
         if abs(velocity) < Self.minimumVelocity {
             velocity = 0
@@ -348,7 +365,7 @@ public struct GridGeometry: Equatable, Sendable {
     public func cell(at point: CGPoint) -> (column: Int, row: Int) {
         let x = (point.x * scale - padding.x) / cellSize.width
         let y = (point.y * scale - padding.y) / cellSize.height
-        return (Int(x.rounded(.down)), Int(y.rounded(.down)))
+        return (TerminalGeometry.cellIndex(x), TerminalGeometry.cellIndex(y))
     }
 
     /// Rect of a cell in view points.
